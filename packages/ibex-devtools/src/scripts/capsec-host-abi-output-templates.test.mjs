@@ -144,10 +144,10 @@ describe("source-bound Host ABI output templates", () => {
     const legacyScalarAuthored = scalarAuthored.filter(({ edge }) =>
       legacyNames.has(edge.surface.name),
     );
-    expect(ordinaryScalarAuthored).toHaveLength(152);
+    expect(ordinaryScalarAuthored).toHaveLength(221);
     expect(
       new Set(ordinaryScalarAuthored.map(({ edge }) => edge.surface.name)).size,
-    ).toBe(152);
+    ).toBe(216);
     expect(legacyScalarAuthored.length).toBe(
       catalog.rows.filter(
         (row) =>
@@ -170,15 +170,21 @@ describe("source-bound Host ABI output templates", () => {
           .sort(),
       ),
     ).toEqual({
+      "native-hermes-authenticated-armed-create": 1,
+      "native-hermes-authenticated-session-runtime": 10,
       "rust-host-bounded-basic": 26,
       "rust-host-authenticated-typed-authority": 17,
-      "rust-host-authenticated-stateful-output": 8,
+      "rust-host-authenticated-stateful-output": 10,
       "rust-host-fs-sandbox": 25,
       "rust-host-authenticated-vfs-output": 5,
+      "rust-host-authenticated-javascript-absence": 5,
+      "rust-host-http-live-server": 24,
       "rust-host-sqlite-memory": 13,
       "rust-host-terminal-inert": 8,
-      "native-hermes-diagnostic-runtime": 23,
+      "native-hermes-diagnostic-runtime": 24,
       "native-hermes-bounded-dispatch-runtime": 3,
+      "native-hermes-module-runner-runtime": 25,
+      "native-hermes-owned-runtime-teardown": 1,
       "native-hermes-owned-value-runtime": 5,
       "native-hermes-stateless-current-target": 7,
       "native-hermes-worklet-runtime": 12,
@@ -459,14 +465,17 @@ describe("source-bound Host ABI output templates", () => {
     }
   });
 
-  test("leaves unbounded armed/session, stateful, private-VFS, and platform routes residual", () => {
+  test("promotes bounded stateful routes while leaving platform-only routes residual", () => {
     const names = new Set(authored.map(({ edge }) => edge.surface.name));
-    for (const residual of [
+    for (const executable of [
       "ex_host_http_serve",
-      "java:dev.ibex.runtime.IbexNetworking.fetch",
+      "ex_hermes_create_armed",
+      "ex_hermes_eval_structured_session",
+      "ex_hermes_module_compile_factory",
     ]) {
-      expect(names.has(residual), residual).toBe(false);
+      expect(names.has(executable), executable).toBe(true);
     }
+    expect(names.has("java:dev.ibex.runtime.IbexNetworking.fetch")).toBe(false);
     for (const nonPromotable of [
       "ex_host_free_string",
       "ex_host_fs_realpath",

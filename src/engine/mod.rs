@@ -533,6 +533,7 @@ mod tests {
     const FAULT_NONE: u32 = 0;
     const FAULT_STALE_HANDLE: u32 = 7;
     const FAULT_RAW_THROW_UNAVAILABLE: u32 = 8;
+    const FAULT_EVALUATION_IN_FLIGHT: u32 = 14;
     const THROW_METADATA_UNAVAILABLE: u32 = 0;
     const ERROR_CLASS_UNCLASSIFIED: u32 = 0;
     const CAPABILITY_SAFE_THROW: u32 = 1 << 1;
@@ -732,12 +733,49 @@ mod tests {
         fn ibex_exact_runtime_c_abi_probe_wrong_thread(context: *mut c_void) -> i32;
         #[cfg(feature = "capsec-conformance-observer")]
         fn ibex_exact_runtime_c_abi_probe_finish(context: *mut c_void) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_with_principal_tls_scope(
+            module_id: u64,
+            native_principal: u64,
+            typed_principals: *const u64,
+            typed_principal_count: usize,
+            body: extern "C" fn(*mut c_void) -> i32,
+            context: *mut c_void,
+        ) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_forbidden_principal_tls_mask(
+            module_id: u64,
+            native_principal: u64,
+            typed_principals: *const u64,
+            typed_principal_count: usize,
+        ) -> u32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_runtime_security_context_boundary(
+            runtime: *mut HermesRuntimeOpaque,
+            outer_runtime_nonce: u64,
+            module_id: u64,
+            native_principal: u64,
+            typed_principals: *const u64,
+            typed_principal_count: usize,
+        ) -> u32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ex_hermes_current_runtime_nonce() -> u64;
         #[cfg(target_os = "windows")]
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
+        fn ex_hermes_gc(runtime: *mut HermesRuntimeOpaque);
+        fn ex_hermes_get_heap_info(
+            runtime: *mut HermesRuntimeOpaque,
+            include_expensive: i32,
+        ) -> *mut c_char;
         fn ex_hermes_get_gc_stats(runtime: *mut HermesRuntimeOpaque) -> *mut c_char;
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+        fn ex_hermes_poll_with_external_keep_alive(
+            runtime: *mut HermesRuntimeOpaque,
+            now_ms: u64,
+        ) -> i32;
         fn ex_hermes_set_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque, enabled: i32);
+        fn ex_hermes_has_pending_tasks(runtime: *mut HermesRuntimeOpaque) -> i32;
         fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
         fn ex_hermes_now_ms() -> u64;
         fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
@@ -1581,6 +1619,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn restricted_worklet_supports_common_guarded_runtime_drives() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+            assert_ne!(ex_hermes_runtime_nonce(runtime), 0);
+            assert_eq!(eval(runtime, "21 * 2"), (0, Some("42".into())));
+
+            ex_hermes_gc(runtime);
+            let heap_info = ex_hermes_get_heap_info(runtime, 0);
+            assert!(!heap_info.is_null());
+            ex_hermes_free_string(heap_info);
+            let gc_stats = ex_hermes_get_gc_stats(runtime);
+            assert!(!gc_stats.is_null());
+            ex_hermes_free_string(gc_stats);
+            ex_worklet_destroy(runtime);
+
+            // The private restricted context must not consume the app
+            // runtime's install-to-constructor handoff.
+            let app = ex_hermes_create_diagnostic();
+            assert!(!app.is_null());
+            ex_hermes_destroy(app);
+        }
+    }
+
     fn eval(runtime: *mut HermesRuntimeOpaque, source: &str) -> (i32, Option<String>) {
         let url = std::ffi::CString::new("r1-test.js").expect("source url");
         let mut out: *mut c_char = std::ptr::null_mut();
@@ -2022,9 +2087,62 @@ mod tests {
         }
     }
 
+    #[test]
+    fn runtime_drive_gate_returns_stale_eval_contract_after_destroy() {
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let nonce = ex_hermes_runtime_nonce(runtime);
+            assert_ne!(nonce, 0);
+            assert_eq!(ex_hermes_try_destroy(runtime, nonce), 0);
+
+            let (status, message) = eval(runtime, "'must-not-run'");
+            assert_eq!(status, -2);
+            assert_eq!(
+                message.as_deref(),
+                Some("Hermes eval refused by the runtime drive gate")
+            );
+        }
+    }
+
+    #[test]
+    fn public_eval_gate_has_no_pre_guard_runtime_dereference() {
+        let source = include_str!("hermes_runtime.cc");
+        let public_eval = source
+            .split_once("extern \"C\" int ex_hermes_eval(")
+            .expect("public eval definition")
+            .1
+            .split_once("int exactHermesBootstrapEval(")
+            .expect("private bootstrap evaluator follows public eval")
+            .0;
+        let guard = public_eval
+            .find("ExactRuntimeDriveGuard drive(runtime);")
+            .expect("public eval drive guard");
+        let dispatch = public_eval
+            .find("return evalRuntimeUnchecked(")
+            .expect("guarded eval implementation dispatch");
+        assert!(guard < dispatch);
+        assert!(
+            !public_eval.contains("runtime->"),
+            "the public wrapper must not inspect a caller runtime pointer before or after refusal"
+        );
+        assert!(
+            !public_eval.contains("bootstrap_in_progress"),
+            "the unpublished bootstrap exception belongs only to the private construction helper"
+        );
+    }
+
     static REENTRANT_RUNTIME: std::sync::atomic::AtomicPtr<HermesRuntimeOpaque> =
         std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
     static REENTRANT_STATUS: std::sync::atomic::AtomicI32 =
+        std::sync::atomic::AtomicI32::new(i32::MIN);
+    static REENTRANT_STRUCTURED_FAULT: std::sync::atomic::AtomicU32 =
+        std::sync::atomic::AtomicU32::new(u32::MAX);
+    static REENTRANT_GC_STATS_NULL: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    static NESTED_OTHER_RUNTIME: std::sync::atomic::AtomicPtr<HermesRuntimeOpaque> =
+        std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+    static NESTED_OTHER_STATUS: std::sync::atomic::AtomicI32 =
         std::sync::atomic::AtomicI32::new(i32::MIN);
 
     extern "C" fn poll_from_host_call(
@@ -2034,9 +2152,127 @@ mod tests {
         let runtime = REENTRANT_RUNTIME.load(std::sync::atomic::Ordering::Acquire);
         let status = unsafe { ex_hermes_poll(runtime, 0) };
         REENTRANT_STATUS.store(status, std::sync::atomic::Ordering::Release);
+        let mut structured = std::mem::MaybeUninit::<StructuredEvaluationResult>::uninit();
+        unsafe { ex_hermes_evaluation_result_init(structured.as_mut_ptr()) };
+        let mut structured = unsafe { structured.assume_init() };
+        let source = b"'nested'";
+        let label = b"ibex:reentrant-test";
+        assert_eq!(
+            unsafe {
+                ex_hermes_eval_structured_diagnostic(
+                    runtime,
+                    source.as_ptr(),
+                    source.len(),
+                    label.as_ptr(),
+                    label.len(),
+                    &mut structured,
+                )
+            },
+            0
+        );
+        REENTRANT_STRUCTURED_FAULT.store(structured.fault, std::sync::atomic::Ordering::Release);
+        unsafe { ex_hermes_evaluation_result_dispose(&mut structured) };
+        let gc_stats = unsafe { ex_hermes_get_gc_stats(runtime) };
+        REENTRANT_GC_STATS_NULL.store(gc_stats.is_null(), std::sync::atomic::Ordering::Release);
+        if !gc_stats.is_null() {
+            unsafe { ex_hermes_free_string(gc_stats) };
+        }
         let payload = b"+null\0";
         let result = unsafe { libc::malloc(payload.len()).cast::<u8>() };
         assert!(!result.is_null());
+        unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), result, payload.len()) };
+        result.cast()
+    }
+
+    extern "C" fn poll_other_runtime_from_host_call(
+        _operation: *const c_char,
+        _arguments_json: *const c_char,
+    ) -> *mut c_char {
+        let runtime = NESTED_OTHER_RUNTIME.load(std::sync::atomic::Ordering::Acquire);
+        let status = unsafe { ex_hermes_poll(runtime, ex_hermes_now_ms()) };
+        NESTED_OTHER_STATUS.store(status, std::sync::atomic::Ordering::Release);
+        let payload = b"+null\0";
+        let result = unsafe { libc::malloc(payload.len()).cast::<u8>() };
+        assert!(!result.is_null());
+        unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), result, payload.len()) };
+        result.cast()
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    const OUTER_MODULE_SENTINEL: u64 = 4_242;
+    #[cfg(feature = "capsec-conformance-observer")]
+    const OUTER_NATIVE_SENTINEL: u64 = 4_343;
+    #[cfg(feature = "capsec-conformance-observer")]
+    const OUTER_TYPED_SENTINELS: [u64; 2] = [4_444, 4_545];
+    #[cfg(feature = "capsec-conformance-observer")]
+    static NESTED_INNER_TLS_MASK: std::sync::atomic::AtomicU32 =
+        std::sync::atomic::AtomicU32::new(u32::MAX);
+    #[cfg(feature = "capsec-conformance-observer")]
+    static NESTED_INNER_ACTIVE_NONCE: std::sync::atomic::AtomicU64 =
+        std::sync::atomic::AtomicU64::new(0);
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    extern "C" fn observe_nested_inner_principal_scope(
+        _operation: *const c_char,
+        _arguments_json: *const c_char,
+    ) -> *mut c_char {
+        let mask = unsafe {
+            ibex_test_forbidden_principal_tls_mask(
+                OUTER_MODULE_SENTINEL,
+                OUTER_NATIVE_SENTINEL,
+                OUTER_TYPED_SENTINELS.as_ptr(),
+                OUTER_TYPED_SENTINELS.len(),
+            )
+        };
+        NESTED_INNER_TLS_MASK.store(mask, std::sync::atomic::Ordering::Release);
+        NESTED_INNER_ACTIVE_NONCE.store(
+            unsafe { ex_hermes_current_runtime_nonce() },
+            std::sync::atomic::Ordering::Release,
+        );
+        let payload = b"+null\0";
+        let result = unsafe { libc::malloc(payload.len()).cast::<u8>() };
+        if result.is_null() {
+            return std::ptr::null_mut();
+        }
+        unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), result, payload.len()) };
+        result.cast()
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    extern "C" fn evaluate_nested_inner_runtime(_context: *mut c_void) -> i32 {
+        let runtime = NESTED_OTHER_RUNTIME.load(std::sync::atomic::Ordering::Acquire);
+        let (status, value) = eval(
+            runtime,
+            "__hostCall('observe-inner-principal-scope', null); 'inner-survived'",
+        );
+        if status == 0 && value.as_deref() == Some("inner-survived") {
+            0
+        } else {
+            status.checked_sub(100).unwrap_or(i32::MIN + 1)
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    extern "C" fn drive_other_runtime_with_foreign_principal_scope(
+        _operation: *const c_char,
+        _arguments_json: *const c_char,
+    ) -> *mut c_char {
+        let status = unsafe {
+            ibex_test_with_principal_tls_scope(
+                OUTER_MODULE_SENTINEL,
+                OUTER_NATIVE_SENTINEL,
+                OUTER_TYPED_SENTINELS.as_ptr(),
+                OUTER_TYPED_SENTINELS.len(),
+                evaluate_nested_inner_runtime,
+                std::ptr::null_mut(),
+            )
+        };
+        NESTED_OTHER_STATUS.store(status, std::sync::atomic::Ordering::Release);
+        let payload = b"+null\0";
+        let result = unsafe { libc::malloc(payload.len()).cast::<u8>() };
+        if result.is_null() {
+            return std::ptr::null_mut();
+        }
         unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), result, payload.len()) };
         result.cast()
     }
@@ -2050,6 +2286,8 @@ mod tests {
             assert!(!runtime.is_null());
             REENTRANT_RUNTIME.store(runtime, std::sync::atomic::Ordering::Release);
             REENTRANT_STATUS.store(i32::MIN, std::sync::atomic::Ordering::Release);
+            REENTRANT_STRUCTURED_FAULT.store(u32::MAX, std::sync::atomic::Ordering::Release);
+            REENTRANT_GC_STATS_NULL.store(false, std::sync::atomic::Ordering::Release);
             ex_hermes_set_host_call(runtime, poll_from_host_call);
 
             let (status, value) = eval(runtime, "__hostCall('reenter', null); 'survived'");
@@ -2060,9 +2298,127 @@ mod tests {
                 -4,
                 "the nested drive must be refused as reentrant"
             );
+            assert_eq!(
+                REENTRANT_STRUCTURED_FAULT.load(std::sync::atomic::Ordering::Acquire),
+                FAULT_EVALUATION_IN_FLIGHT,
+                "nested structured evaluation must report the typed reentrancy fault"
+            );
+            assert!(
+                REENTRANT_GC_STATS_NULL.load(std::sync::atomic::Ordering::Acquire),
+                "nested GC inspection must fail closed without touching JSI"
+            );
             assert_eq!(ex_hermes_poll(runtime, ex_hermes_now_ms()), 0);
 
             REENTRANT_RUNTIME.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Release);
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
+    fn runtime_drive_gate_allows_same_thread_different_runtime_nesting() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let outer = ex_hermes_create_diagnostic();
+            let inner = ex_hermes_create_diagnostic();
+            assert!(!outer.is_null());
+            assert!(!inner.is_null());
+            NESTED_OTHER_RUNTIME.store(inner, std::sync::atomic::Ordering::Release);
+            NESTED_OTHER_STATUS.store(i32::MIN, std::sync::atomic::Ordering::Release);
+            ex_hermes_set_host_call(outer, poll_other_runtime_from_host_call);
+
+            let (status, value) = eval(outer, "__hostCall('nested-other', null); 'outer-survived'");
+            assert_eq!(status, 0, "outer eval failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("outer-survived"));
+            assert_eq!(
+                NESTED_OTHER_STATUS.load(std::sync::atomic::Ordering::Acquire),
+                0,
+                "a different runtime owned by this thread may be driven while the outer runtime is active"
+            );
+            assert_eq!(ex_hermes_poll(outer, ex_hermes_now_ms()), 0);
+            assert_eq!(ex_hermes_poll(inner, ex_hermes_now_ms()), 0);
+
+            NESTED_OTHER_RUNTIME.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Release);
+            ex_hermes_destroy(inner);
+            ex_hermes_destroy(outer);
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn nested_runtime_drive_isolates_and_restores_principal_tls() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let outer = ex_hermes_create_diagnostic();
+            let inner = ex_hermes_create_diagnostic();
+            assert!(!outer.is_null());
+            assert!(!inner.is_null());
+            let inner_nonce = ex_hermes_runtime_nonce(inner);
+            assert_ne!(inner_nonce, 0);
+
+            NESTED_OTHER_RUNTIME.store(inner, std::sync::atomic::Ordering::Release);
+            NESTED_OTHER_STATUS.store(i32::MIN, std::sync::atomic::Ordering::Release);
+            NESTED_INNER_TLS_MASK.store(u32::MAX, std::sync::atomic::Ordering::Release);
+            NESTED_INNER_ACTIVE_NONCE.store(0, std::sync::atomic::Ordering::Release);
+            ex_hermes_set_host_call(inner, observe_nested_inner_principal_scope);
+            ex_hermes_set_host_call(outer, drive_other_runtime_with_foreign_principal_scope);
+
+            let (status, value) = eval(
+                outer,
+                "__hostCall('nested-principal-isolation', null); 'outer-survived'",
+            );
+            assert_eq!(status, 0, "outer eval failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("outer-survived"));
+            assert_eq!(
+                NESTED_OTHER_STATUS.load(std::sync::atomic::Ordering::Acquire),
+                0,
+                "the inner public eval must succeed and restore the outer TLS scope"
+            );
+            assert_eq!(
+                NESTED_INNER_TLS_MASK.load(std::sync::atomic::Ordering::Acquire),
+                0,
+                "runtime B observed a legacy, native-callback, or typed-FS principal from runtime A"
+            );
+            assert_eq!(
+                NESTED_INNER_ACTIVE_NONCE.load(std::sync::atomic::Ordering::Acquire),
+                inner_nonce,
+                "the inner callback must execute under runtime B's generation"
+            );
+
+            NESTED_OTHER_RUNTIME.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Release);
+            ex_hermes_destroy(inner);
+            ex_hermes_destroy(outer);
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn construction_and_teardown_context_isolate_and_restore_principal_tls() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let nonce = ex_hermes_runtime_nonce(runtime);
+            assert_ne!(nonce, 0);
+            let outer_nonce = nonce
+                .checked_add(1)
+                .filter(|value| *value != 0)
+                .unwrap_or(1);
+            assert_ne!(outer_nonce, nonce);
+            assert_eq!(
+                ibex_test_runtime_security_context_boundary(
+                    runtime,
+                    outer_nonce,
+                    OUTER_MODULE_SENTINEL,
+                    OUTER_NATIVE_SENTINEL,
+                    OUTER_TYPED_SENTINELS.as_ptr(),
+                    OUTER_TYPED_SENTINELS.len(),
+                ),
+                0,
+                "the construction/Closing cleanup context leaked or failed to restore outer authority TLS"
+            );
             ex_hermes_destroy(runtime);
         }
     }
@@ -2618,6 +2974,59 @@ mod tests {
             assert_eq!(status, 0);
             assert_eq!(value.as_deref(), Some("1"));
 
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// An unreferenced timer is not runtime liveness, but it remains eligible
+    /// while an embedding host independently keeps the owner loop alive. The
+    /// external-ready poll expresses that distinction without mutating
+    /// `Timeout.hasRef()` or the ordinary pending-work query.
+    /// @ref LLP 0003#the-event-loop
+    /// @ref LLP 0024#1-the-in-memory-source-api
+    #[test]
+    fn external_keep_alive_poll_runs_due_unref_timer_without_refing_it() {
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+
+            let (status, value) = eval(
+                runtime,
+                "globalThis.__externalKeepAliveCount = 0;\n\
+                 const timer = setTimeout(function () {\n\
+                   globalThis.__externalKeepAliveCount++;\n\
+                 }, 0);\n\
+                 __exactTimerUnref(timer);\n\
+                 'armed';",
+            );
+            assert_eq!(status, 0, "timer arming failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("armed"));
+            assert_eq!(
+                ex_hermes_has_pending_tasks(runtime),
+                0,
+                "an unref'd timer must not become runtime liveness"
+            );
+
+            let now = u64::MAX / 2;
+            assert_eq!(
+                ex_hermes_poll(runtime, now),
+                0,
+                "ordinary poll must preserve unref exit semantics"
+            );
+            assert_eq!(
+                ex_hermes_poll_with_external_keep_alive(runtime, now),
+                1,
+                "host-held liveness must make the due timer eligible"
+            );
+            assert_eq!(
+                ex_hermes_poll(runtime, now + 1),
+                0,
+                "the external turn must retire the one-shot exactly once"
+            );
+
+            let (status, value) = eval(runtime, "String(globalThis.__externalKeepAliveCount)");
+            assert_eq!(status, 0);
+            assert_eq!(value.as_deref(), Some("1"));
             ex_hermes_destroy(runtime);
         }
     }

@@ -71,13 +71,13 @@ describe("source-bound module-loader output recipes", () => {
         ];
       }),
     );
-    expect(rows).toHaveLength(161);
+    expect(rows).toHaveLength(164);
     expect(counts).toEqual({
       base: { authored: 8, residual: 4 },
       "internal-loader-route": { authored: 48, residual: 0 },
       "lazy-loader-installer-route": { authored: 39, residual: 0 },
-      "loader-entry-route": { authored: 9, residual: 2 },
-      "loader-function": { authored: 14, residual: 35 },
+      "loader-entry-route": { authored: 9, residual: 3 },
+      "loader-function": { authored: 14, residual: 37 },
       "loader-kind-branch": { authored: 1, residual: 1 },
     });
     const authored = rows.filter(
@@ -87,7 +87,7 @@ describe("source-bound module-loader output recipes", () => {
       ({ invocation }) => invocation.route.operation === "unexercisable",
     );
     expect(authored).toHaveLength(119);
-    expect(residual).toHaveLength(42);
+    expect(residual).toHaveLength(45);
     expect(
       residual
         .filter(({ surface }) =>
@@ -104,6 +104,33 @@ describe("source-bound module-loader output recipes", () => {
       "function:javascript:__sessionStaticImport",
       "function:javascript:moduleResolutionError",
       "function:javascript:stableModuleResolutionErrorCode",
+    ]);
+    expect(
+      residual
+        .filter(({ surface }) =>
+          new Set([
+            "entry:module-dynamic-import",
+            "function:javascript:moduleDynamicImport",
+            "function:javascript:wrapDynamicImportValue",
+          ]).has(surface.name),
+        )
+        .map(({ surface, invocation }) => ({
+          name: surface.name,
+          reasonCode: invocation.route.reasonCode,
+        })),
+    ).toEqual([
+      {
+        name: "entry:module-dynamic-import",
+        reasonCode: "module-local-entry-not-public",
+      },
+      {
+        name: "function:javascript:moduleDynamicImport",
+        reasonCode: "project-module-body-required",
+      },
+      {
+        name: "function:javascript:wrapDynamicImportValue",
+        reasonCode: "no-bounded-public-loader-route",
+      },
     ]);
   }, 30_000);
 

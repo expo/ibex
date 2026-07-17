@@ -43,7 +43,7 @@ use super::session_syntax::{
 
 /// Versioned contract between this AST lowering and the private native hook
 /// implementation. It is independent of the public result ABI version.
-pub const SESSION_LOWERING_PROTOCOL_VERSION: u32 = 1;
+pub const SESSION_LOWERING_PROTOCOL_VERSION: u32 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -1994,11 +1994,15 @@ impl VisitMut for ReferenceLowering {
 
     fn visit_mut_call_expr(&mut self, call_expression: &mut CallExpr) {
         if matches!(call_expression.callee, Callee::Import(_)) {
-            call_expression.callee = Callee::Expr(Box::new(Expr::Ident(Ident::new(
-                "importModule".into(),
-                DUMMY_SP,
-                self.unresolved_ctxt,
-            ))));
+            // Dynamic import must keep the C-only logical referrer captured by
+            // the authenticated session request. A realm-global `importModule`
+            // lookup loses that identity when a delayed callback runs and can
+            // only fall back to an unrelated cwd-observe request. The private
+            // hook is native-owned, hygienic, and survives exactly as long as
+            // the lowered session closure.
+            // @ref LLP 0026#6-top-level-await-and-dynamic-import
+            call_expression.callee =
+                Callee::Expr(Box::new(member(ident_expr(&self.hook), "dynamicImport")));
         }
         let unbind = matches!(
             &call_expression.callee,
@@ -2589,7 +2593,8 @@ mod tests {
         )
         .unwrap();
         assert!(!ordinary.source().contains("type: \"json\""));
-        assert!(ordinary.source().contains("importModule"));
+        assert!(ordinary.source().contains("dynamicImport"));
+        assert!(!ordinary.source().contains("importModule"));
 
         // A lexical parameter named `require` is not the runtime loader and is
         // therefore outside this syntactic refusal.

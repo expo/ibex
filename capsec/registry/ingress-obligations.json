@@ -99,6 +99,41 @@
       ]
     },
     {
+      "id": "checked-native-module-graph",
+      "assertion": "Advertised direct-file module graphs consume the exact structured admission before Host graph discovery or lowering, retain the admitted request's snapshot, principal, VFS SourceId, and argv, and either begin native graph execution or continue the bounded session-lowering fallback with that same admission.",
+      "sourceEvidence": [
+        {
+          "path": "src/bin/ibex/runtime.rs",
+          "tokens": [
+            ".evaluate_authenticated_module_graph(",
+            "Box::new(|admitted_request|",
+            "self.prepare_authenticated_module_graph(admitted_request)",
+            "build_authenticated_source_graph_v1_for_host(",
+            "request.source_id() == Some(graph.entry_vfs_source_id())"
+          ]
+        },
+        {
+          "path": "src/engine/hermes_structured.rs",
+          "tokens": [
+            "pub unsafe fn admit_prepare_authenticated_module_graph<T, F>(",
+            "let mut admission = unsafe { admit_authenticated_submission(runtime, session, &mut request)? };",
+            "let preparation = match prepare(&request) {",
+            "ex_hermes_structured_module_graph_begin(",
+            "evaluate_authenticated_inner_with_admission(request, None, admission)"
+          ]
+        },
+        {
+          "path": "src/engine/hermes_runtime.cc",
+          "tokens": [
+            "extern \"C\" uint32_t ex_hermes_structured_submission_admit(",
+            "extern \"C\" uint32_t ex_hermes_structured_module_graph_begin(",
+            "structuredAdmittedCredentialMatches(runtime, credential)",
+            "runtime->structured_module_graph_work_target_id = workTargetId;"
+          ]
+        }
+      ]
+    },
+    {
       "id": "checked-session-lowering",
       "assertion": "Authenticated Program requests cross the exact native submission boundary before syntax/lowering, so parse failures consume their ordinal; the checked AST pipeline and native lowered-session ABI then compile and preflight the complete declaration plan before mutating persistent session state.",
       "sourceEvidence": [
@@ -570,6 +605,7 @@
       "obligationIds": [
         "armed-session-bound",
         "bare-eval-post-bootstrap-refused",
+        "checked-native-module-graph",
         "checked-session-lowering",
         "endowments-projected",
         "exact-ordinal-required",
@@ -763,6 +799,28 @@
         "root-attribution-derived",
         "source-goal-derived",
         "synthetic-source-label-derived",
+        "wrong-session-refused"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.structured.module.graph.begin.0j3s7a8",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_structured_module_graph_begin"
+      },
+      "obligationIds": [
+        "armed-session-bound",
+        "bare-eval-post-bootstrap-refused",
+        "checked-native-module-graph",
+        "endowments-projected",
+        "exact-ordinal-required",
+        "file-argv-bound",
+        "file-vfs-source-bound",
+        "javascript-origin-refused",
+        "replay-refused",
+        "request-bytes-bound",
+        "root-attribution-derived",
+        "source-goal-derived",
         "wrong-session-refused"
       ]
     }

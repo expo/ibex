@@ -185,9 +185,22 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
             (parsedUrl.scheme != "http" && parsedUrl.scheme != "https")) {
           throw facebook::jsi::JSError(runtime, "__nativeFetch: invalid network URL");
         }
-        // @ref LLP 0013#policy — generated policies can grant fetch to a
-        // specific endpoint (`network:fetch:host`), so the native boundary must
-        // check the concrete URL host rather than only the broad class.
+        // Armed fetch stays closed until this transport reports the complete
+        // requested/candidate/verified-peer facts required by the typed
+        // decision model. In particular, never fall back to the legacy string
+        // oracle: an armed Host deliberately refuses that oracle, and treating
+        // a requested-host check as sufficient would reopen DNS/redirect/peer
+        // substitution. Diagnostic runtimes retain their endpoint-scoped
+        // legacy check unchanged.
+        // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers
+        if (ex_host_is_armed() == 1) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: typed network:fetch transport is unavailable");
+        }
+        // @ref LLP 0013#policy — generated legacy policies can grant fetch to
+        // a specific endpoint (`network:fetch:host`), so the diagnostic native
+        // boundary checks the concrete URL host rather than only the broad class.
         if (!checkCapability("network:fetch:" + parsedUrl.host)) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: network:fetch capability required");
@@ -512,6 +525,15 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
         if (!parseNetworkUrl(url, parsedUrl) ||
             (parsedUrl.scheme != "http" && parsedUrl.scheme != "https")) {
           throw facebook::jsi::JSError(runtime, "__nativeFetchSync: invalid network URL");
+        }
+        // Keep the synchronous Windows bridge aligned with the asynchronous
+        // one above: typed armed fetch is explicitly closed, while diagnostic
+        // runtimes retain the endpoint-scoped legacy oracle.
+        // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers
+        if (ex_host_is_armed() == 1) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: typed network:fetch transport is unavailable");
         }
         if (!checkCapability("network:fetch:" + parsedUrl.host)) {
           throw facebook::jsi::JSError(

@@ -354,7 +354,16 @@ ingresses, and destruction — is owner-thread-only and serialized per runtime.
 An off-owner or concurrent drive refuses with a stable error before touching
 JSI, graph state, or event-loop state. Same-thread nesting into a *different*
 runtime remains permitted and restores the outer runtime's attribution context
-on unwind; recursive or overlapping drive of the same runtime is not.
+on unwind; recursive or overlapping drive of the same runtime is not. A nested
+runtime begins with its own root/no-native principal boundary: the guard saves,
+clears, and restores the outer legacy module id, native callback principal, and
+typed-filesystem principal stack as well as the VM attribution pointer and Host
+context. Bare numeric principal ids are never translated between runtime/Host
+generations; an intentional cross-runtime delegation requires an explicit
+authenticated capability. The same dynamic boundary wraps construction before
+trusted bootstrap and registered teardown/cleanup; worker scopes select no VM
+pointer off-owner and install only their explicitly captured typed principal
+stack.
 
 This is the normative contract adopted with LLP 0026. ENG-25060 applies one
 registry-backed refusal guard to eval, poll, module-runner operations, and
@@ -364,6 +373,15 @@ drive. Same-thread nested different-runtime entry remains valid because active
 drive state is per registry generation. The remaining public JSI-mutating
 setter inventory must either use this gate or retain an equivalent explicit
 owner check; the generated ABI inventory prevents an unreviewed new route.
+Construction and the cleanup phase after the teardown refusal check use the
+same runtime/Host/principal dynamic-boundary semantics even though an
+unregistered or Closing runtime cannot enter the registry-backed drive guard.
+Pre-registration bootstrap evaluation uses a private construction-only helper;
+the public `ex_hermes_eval` symbol has no bootstrap exception and therefore
+never inspects a caller-supplied runtime pointer after gate refusal. The
+any-thread callback-backlog observation is not a runtime drive: it instead
+holds the runtime registry's live-generation pin across both queue reads so a
+concurrent teardown cannot free their mutexes between validation and access.
 
 ### Native module-runner ABI
 
@@ -579,6 +597,10 @@ Because installation creates and publishes JSI values, the setter is an
 owner-runtime-thread operation. An off-owner call returns `-7` before reading
 or mutating JSI or publishing any endowment `[observed]`
 (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+The common generation-backed drive gate also returns `-9` for a stale runtime
+or same-runtime reentrant installation attempt, before endowment authorization
+or baseline publication. This setter-specific code preserves the established
+`-7` consumer contract instead of leaking the generic drive-status numbering.
 The source inventory nevertheless classifies the JS invocation as closed
 `ipc:channel` until the native set and its app/agent context are authenticated
 by the armed artifact; the existence of a caller-selected allowlist is not

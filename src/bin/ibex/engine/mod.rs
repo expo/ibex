@@ -14,6 +14,23 @@ use ibex_runtime::engine::evaluation::{ArmedSessionToken, SourceRequest};
 use ibex_runtime::engine::hermes_structured::Stage1DisplayReceipt;
 use std::sync::Arc;
 
+/// Result of preparing an advertised direct-file source after its structured
+/// submission has been admitted. Native graphs continue through the linked
+/// module evaluator; an explicitly unsupported graph uses the bounded legacy
+/// evaluator without consuming a second submission ordinal.
+#[cfg(feature = "module-runner")]
+pub enum AuthenticatedModuleGraphPreparation {
+    Native(crate::module_loader::runner_pipeline::SourceModuleGraphV1),
+    LegacyRequired,
+}
+
+/// Owner-thread preparation callback for an advertised native module source.
+/// The engine invokes it only after native admission, so parser/lowering
+/// failures are submitted source refusals rather than pre-admission faults.
+#[cfg(feature = "module-runner")]
+pub type AuthenticatedModuleGraphPreparer<'a> =
+    Box<dyn FnOnce(&SourceRequest) -> Result<AuthenticatedModuleGraphPreparation> + 'a>;
+
 /// Closed display categories. `text` below is always hostile terminal text;
 /// this tag lets the broker choose escaping/styling without guessing from it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -647,9 +664,11 @@ pub trait Engine: Send + Sync {
 
     /// Execute all currently-ready event-loop work (due timers, drained
     /// microtasks/callbacks, pending debugger interrupts) without blocking on
-    /// future timers. The keep-alive/debug loop calls this on its own cadence to
-    /// keep the runtime responsive to DevTools. Engines without an event loop
-    /// leave this a no-op. (ENG-22958)
+    /// future timers. The caller is an external liveness reference for this
+    /// ready-only turn: already-due unreferenced timers may run, but remain
+    /// excluded from ordinary program quiescence. The keep-alive/debug loop
+    /// calls this on its own cadence to keep the runtime responsive to DevTools.
+    /// Engines without an event loop leave this a no-op. (ENG-22958)
     async fn drive_ready_tasks(&self) -> Result<()> {
         Ok(())
     }
@@ -700,15 +719,24 @@ pub trait Engine: Send + Sync {
         )
     }
 
-    /// Evaluate one fully authenticated source graph through the native module
-    /// runner. Engines without that ABI fail closed instead of reopening or
-    /// rebundling the admitted sources.
+    /// Admit one authenticated file request, then prepare and evaluate its
+    /// source graph through the native module runner. Preparation is a callback
+    /// specifically so native admission precedes graph parsing and lowering.
+    /// A bounded compatibility fallback continues the same admission; it must
+    /// never consume a second ordinal or fall back to bare file/eval APIs.
+    /// @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+    /// @ref LLP 0026#phase-5-default-switch-and-retirement
     #[cfg(feature = "module-runner")]
-    async fn run_authenticated_module_graph(
-        &self,
-        _graph: &crate::module_loader::runner_pipeline::SourceModuleGraphV1,
-    ) -> Result<Option<String>> {
-        anyhow::bail!("{} has no authenticated native module runner", self.name())
+    fn evaluate_authenticated_module_graph<'a>(
+        &'a self,
+        _session: &'a ArmedSessionToken,
+        _request: SourceRequest,
+        _prepare: AuthenticatedModuleGraphPreparer<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthenticatedEvaluation>> + 'a>>
+    {
+        Box::pin(async move {
+            anyhow::bail!("{} has no authenticated native module runner", self.name())
+        })
     }
 
     /// Run a JavaScript file WITHOUT driving the event loop to quiescence, so a

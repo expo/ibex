@@ -248,7 +248,7 @@ const _: () = assert!(size_of::<NativeSessionImportPlan>() <= u32::MAX as usize)
 const _: () = assert!(size_of::<NativeEvaluationResult>() <= u32::MAX as usize);
 const _: () = assert!(size_of::<NativeSourcePosition>() <= u32::MAX as usize);
 const _: () = assert!(STRUCTURED_EVALUATION_VERSION as u32 == ABI_VERSION);
-const _: () = assert!(SESSION_LOWERING_PROTOCOL_VERSION == 1);
+const _: () = assert!(SESSION_LOWERING_PROTOCOL_VERSION == 2);
 
 extern "C" {
     fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
@@ -266,6 +266,27 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         credential: *const NativeSessionCredential,
     ) -> u32;
+    fn ex_hermes_structured_module_graph_begin(
+        runtime: *mut HermesRuntimeOpaque,
+        credential: *const NativeSessionCredential,
+        file_arguments: *const NativeUtf8Slice,
+        file_argument_count: usize,
+    ) -> u32;
+    fn ex_hermes_structured_module_graph_suspend(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+    ) -> u32;
+    fn ex_hermes_structured_module_graph_resume(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+    ) -> u32;
+    fn ex_hermes_structured_module_graph_finish(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+        execution_outcome: u32,
+        error_token: u64,
+        result: *mut NativeEvaluationResult,
+    ) -> i32;
     fn ex_hermes_evaluation_result_init(result: *mut NativeEvaluationResult);
     fn ex_hermes_evaluation_result_dispose(result: *mut NativeEvaluationResult);
     fn ex_hermes_eval_lowered_session(
@@ -406,6 +427,324 @@ pub struct Stage1Evaluation {
 pub enum Stage1EvaluationProgress {
     Settled(Stage1Evaluation),
     Suspended(StructuredSuspension),
+}
+
+/// Terminal classification supplied by the Rust graph owner after the native
+/// linker/evaluator has returned. JavaScript throws are materialized from the
+/// raw value retained by the Hermes bridge; an engine fault never borrows that
+/// value or turns a diagnostic string into a user exception.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ModuleGraphExecutionOutcome {
+    Completed,
+    JavaScriptThrow(NonZeroU64),
+    EngineFault,
+    CooperativeCancellation,
+    UnresolvedTopLevelAwait,
+}
+
+impl ModuleGraphExecutionOutcome {
+    const fn abi_value(self) -> u32 {
+        match self {
+            Self::Completed => 0,
+            Self::JavaScriptThrow(_) => 1,
+            Self::EngineFault => 2,
+            Self::CooperativeCancellation => 3,
+            Self::UnresolvedTopLevelAwait => 4,
+        }
+    }
+
+    const fn error_token(self) -> u64 {
+        match self {
+            Self::JavaScriptThrow(token) => token.get(),
+            Self::Completed
+            | Self::EngineFault
+            | Self::CooperativeCancellation
+            | Self::UnresolvedTopLevelAwait => 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ModuleGraphSuspension {
+    Suspended,
+    CancellationPending,
+}
+
+/// Synchronous post-admission route selected by an authenticated direct-file
+/// graph preparer. `Native` carries only Rust-owned, request-bound preparation;
+/// `LegacyRequired` continues the original raw request through the ordinary
+/// structured evaluator without admitting a second submission ordinal.
+pub enum AuthenticatedModuleGraphPreparation<T> {
+    Native(T),
+    LegacyRequired,
+}
+
+/// Result of admitting one authenticated direct-file request before invoking
+/// its synchronous graph preparer.
+pub enum AuthenticatedModuleGraphAdmission<T> {
+    Native {
+        preparation: T,
+        evaluation: AuthenticatedModuleGraphEvaluation,
+    },
+    Legacy(StructuredEvaluationProgress),
+}
+
+/// Linear owner-thread guard for one admitted native module graph. It keeps the
+/// exact structured work target active across Rust-owned linking, evaluation,
+/// and TLA polling, then converts the native terminal record through the same
+/// Stage-1 adapter used by ordinary authenticated evaluation.
+pub struct AuthenticatedModuleGraphEvaluation {
+    runtime: *mut HermesRuntimeOpaque,
+    runtime_nonce: NonZeroU64,
+    work_target_id: NonZeroU64,
+    owner_thread: std::thread::ThreadId,
+    pending: bool,
+    suspended: bool,
+}
+
+impl AuthenticatedModuleGraphEvaluation {
+    pub fn work_target_id(&self) -> NonZeroU64 {
+        self.work_target_id
+    }
+
+    /// Publish a foreground TLA gap so callbacks and timers driven by the host
+    /// become independently named work units.
+    pub unsafe fn suspend(&mut self) -> Result<ModuleGraphSuspension, EngineFault> {
+        if !self.pending || self.suspended {
+            return Err(protocol(
+                "native module graph cannot suspend from this state",
+            ));
+        }
+        match unsafe {
+            ex_hermes_structured_module_graph_suspend(self.runtime, self.work_target_id.get())
+        } {
+            0 => {
+                self.suspended = true;
+                Ok(ModuleGraphSuspension::Suspended)
+            }
+            1 => Ok(ModuleGraphSuspension::CancellationPending),
+            _ => Err(protocol("native module graph suspension transition failed")),
+        }
+    }
+
+    /// Re-enter the same exact foreground target immediately before advancing
+    /// the native graph poll state.
+    pub unsafe fn resume(&mut self) -> Result<(), EngineFault> {
+        if !self.pending || !self.suspended {
+            return Err(protocol(
+                "native module graph cannot resume from this state",
+            ));
+        }
+        let status = unsafe {
+            ex_hermes_structured_module_graph_resume(self.runtime, self.work_target_id.get())
+        };
+        if status != 0 {
+            return Err(protocol("native module graph resume transition failed"));
+        }
+        self.suspended = false;
+        Ok(())
+    }
+
+    /// Finish the exact graph evaluation and materialize its structured result.
+    ///
+    /// # Safety
+    ///
+    /// The runtime passed to [`begin_authenticated_module_graph_stage1`] must
+    /// still be live, unmoved, and owned by the current thread.
+    pub unsafe fn finish(
+        &mut self,
+        outcome: ModuleGraphExecutionOutcome,
+    ) -> Result<Stage1Evaluation, EngineFault> {
+        if !self.pending {
+            return Err(protocol("native module graph was already settled"));
+        }
+        if self.owner_thread != std::thread::current().id() {
+            return Err(EngineFault::Structured(StructuredEngineFault::WrongThread));
+        }
+        let (runtime, runtime_nonce) = unsafe { live_runtime(self.runtime.cast())? };
+        if runtime_nonce != self.runtime_nonce {
+            return Err(EngineFault::Structured(StructuredEngineFault::StaleHandle));
+        }
+        let mut native_result = unsafe { NativeResultGuard::new(runtime, runtime_nonce)? };
+        let status = unsafe {
+            ex_hermes_structured_module_graph_finish(
+                runtime,
+                self.work_target_id.get(),
+                outcome.abi_value(),
+                outcome.error_token(),
+                native_result.raw_mut(),
+            )
+        };
+        if status == -1 {
+            return Err(protocol(
+                "native module graph evaluator rejected the result ABI layout",
+            ));
+        }
+        if status != 0 {
+            return Err(protocol(format!(
+                "native module graph evaluator returned unknown status {status}"
+            )));
+        }
+
+        // A successful native call has irreversibly retired the exact target,
+        // even if the returned record later fails Rust-side validation. Clear
+        // the Drop fallback only at this boundary; every preflight/ABI refusal
+        // above leaves it armed for owner-thread cleanup.
+        self.pending = false;
+        if native_result.raw().work_target_id != self.work_target_id.get() {
+            return Err(protocol(format!(
+                "native module graph returned work target {}, expected {}",
+                native_result.raw().work_target_id,
+                self.work_target_id
+            )));
+        }
+        let converted = unsafe { convert_result(native_result.raw(), runtime_nonce)? };
+        if converted.transferred_handle {
+            native_result.mark_handle_transferred();
+        }
+        unsafe { materialize_stage1(runtime.cast(), converted.evaluation) }
+    }
+}
+
+impl Drop for AuthenticatedModuleGraphEvaluation {
+    fn drop(&mut self) {
+        if !self.pending
+            || self.owner_thread != std::thread::current().id()
+            || NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(self.runtime.cast()) })
+                != Some(self.runtime_nonce)
+        {
+            return;
+        }
+        if let Ok(mut result) = unsafe { NativeResultGuard::new(self.runtime, self.runtime_nonce) }
+        {
+            let _ = unsafe {
+                ex_hermes_structured_module_graph_finish(
+                    self.runtime,
+                    self.work_target_id.get(),
+                    ModuleGraphExecutionOutcome::EngineFault.abi_value(),
+                    0,
+                    result.raw_mut(),
+                )
+            };
+        }
+        self.pending = false;
+    }
+}
+
+/// Admit one authenticated direct-file request, then synchronously select its
+/// native or ordinary structured route. The preparer runs only after native
+/// admission has consumed the request ordinal. A typed legacy decision keeps
+/// that same admission and original request; a preparation refusal explicitly
+/// settles the consumed ordinal before it is returned.
+///
+/// # Safety
+///
+/// `runtime` must satisfy the same lifetime and owner-thread requirements as
+/// [`evaluate_authenticated_stage1`].
+pub unsafe fn admit_prepare_authenticated_module_graph<T, F>(
+    runtime: *mut c_void,
+    session: &ArmedSessionToken,
+    mut request: SourceRequest,
+    prepare: F,
+) -> Result<AuthenticatedModuleGraphAdmission<T>, EngineFault>
+where
+    F: FnOnce(&SourceRequest) -> Result<AuthenticatedModuleGraphPreparation<T>, EngineFault>,
+{
+    let valid_file_entry = matches!(
+        &request,
+        SourceRequest::Program(program) if program.is_main()
+    ) && matches!(request.entry_kind(), EntryKind::File)
+        && request.source_id().is_some();
+    let file_arguments = request
+        .file_arguments()
+        .filter(|arguments| arguments.len() >= 2)
+        .ok_or_else(|| {
+            EngineFault::Rejected(Arc::from(
+                "native module graph requires authenticated file arguments",
+            ))
+        })?
+        .iter()
+        .map(|argument| NativeUtf8Slice {
+            data: argument.as_bytes().as_ptr(),
+            length: argument.len(),
+        })
+        .collect::<Vec<_>>();
+    if !valid_file_entry {
+        return Err(EngineFault::Rejected(Arc::from(
+            "native module graph requires an authenticated direct-file main entry",
+        )));
+    }
+
+    let mut admission = unsafe { admit_authenticated_submission(runtime, session, &mut request)? };
+    let preparation = match prepare(&request) {
+        Ok(preparation) => preparation,
+        Err(error) => {
+            unsafe { admission.settle()? };
+            let refusal = match error {
+                EngineFault::Rejected(message) => EngineFault::Rejected(message),
+                _ => EngineFault::Rejected(Arc::from(
+                    "authenticated native module graph preparation was refused",
+                )),
+            };
+            return Err(refusal);
+        }
+    };
+
+    match preparation {
+        AuthenticatedModuleGraphPreparation::Native(preparation) => {
+            let fault = unsafe {
+                ex_hermes_structured_module_graph_begin(
+                    admission.runtime,
+                    &admission.credential.native,
+                    file_arguments.as_ptr(),
+                    file_arguments.len(),
+                )
+            };
+            if let Some(fault) = decode_fault(fault)? {
+                return Err(EngineFault::Structured(fault));
+            }
+            admission.mark_continued();
+            Ok(AuthenticatedModuleGraphAdmission::Native {
+                preparation,
+                evaluation: AuthenticatedModuleGraphEvaluation {
+                    runtime: admission.runtime,
+                    runtime_nonce: admission.runtime_nonce,
+                    work_target_id: admission.work_target_id,
+                    owner_thread: std::thread::current().id(),
+                    pending: true,
+                    suspended: false,
+                },
+            })
+        }
+        AuthenticatedModuleGraphPreparation::LegacyRequired => unsafe {
+            evaluate_authenticated_inner_with_admission(request, None, admission)
+                .map(AuthenticatedModuleGraphAdmission::Legacy)
+        },
+    }
+}
+
+/// Consume one authenticated direct-file request and enter the structured
+/// native module-graph work unit before any graph factory executes.
+///
+/// # Safety
+///
+/// `runtime` must satisfy the same lifetime and owner-thread requirements as
+/// [`evaluate_authenticated_stage1`].
+pub unsafe fn begin_authenticated_module_graph_stage1(
+    runtime: *mut c_void,
+    session: &ArmedSessionToken,
+    request: SourceRequest,
+) -> Result<AuthenticatedModuleGraphEvaluation, EngineFault> {
+    match unsafe {
+        admit_prepare_authenticated_module_graph(runtime, session, request, |_| {
+            Ok(AuthenticatedModuleGraphPreparation::Native(()))
+        })?
+    } {
+        AuthenticatedModuleGraphAdmission::Native { evaluation, .. } => Ok(evaluation),
+        AuthenticatedModuleGraphAdmission::Legacy(_) => Err(protocol(
+            "native module graph unexpectedly selected legacy evaluation",
+        )),
+    }
 }
 
 /// Bind and admit the exact authenticated request before any parser or
@@ -608,7 +947,23 @@ unsafe fn evaluate_authenticated_inner(
             "CommonJS source requires an authenticated direct-file main entry",
         )));
     }
-    let mut admission = unsafe { admit_authenticated_submission(runtime, session, &mut request)? };
+    let admission = unsafe { admit_authenticated_submission(runtime, session, &mut request)? };
+    unsafe { evaluate_authenticated_inner_with_admission(request, generated, admission) }
+}
+
+/// Continue an already-consumed native admission through the ordinary
+/// authenticated evaluator. This is private so no caller can detach an
+/// admission from its original request or manufacture a second ordinal.
+unsafe fn evaluate_authenticated_inner_with_admission(
+    request: SourceRequest,
+    generated: Option<(&[u8], &[u8])>,
+    mut admission: NativeAdmission,
+) -> Result<StructuredEvaluationProgress, EngineFault> {
+    let common_js_entry = matches!(
+        &request,
+        SourceRequest::Program(program)
+            if program.module_kind() == Some(ModuleKind::CommonJs)
+    );
     let source_label = request.source_label().as_str().as_bytes();
     let logical_referrer = capsec_semantics::canonical::to_jcs_bytes(
         &serde_json::to_value(request.virtual_referrer())
@@ -879,6 +1234,28 @@ pub unsafe fn evaluate_authenticated_stage1(
     request: SourceRequest,
 ) -> Result<Stage1EvaluationProgress, EngineFault> {
     match unsafe { evaluate_authenticated(runtime, session, request)? } {
+        StructuredEvaluationProgress::Settled(evaluation) => unsafe {
+            materialize_stage1(runtime, evaluation).map(Stage1EvaluationProgress::Settled)
+        },
+        StructuredEvaluationProgress::Suspended(suspension) => {
+            Ok(Stage1EvaluationProgress::Suspended(suspension))
+        }
+    }
+}
+
+/// Materialize an already-admitted structured progress record into Stage 1.
+/// This is used by the module-graph admission seam when a typed preparation
+/// decision continues through the bounded legacy evaluator on the same native
+/// admission and ordinal.
+///
+/// # Safety
+///
+/// The runtime requirements are identical to [`evaluate_authenticated`].
+pub unsafe fn materialize_authenticated_progress_stage1(
+    runtime: *mut c_void,
+    progress: StructuredEvaluationProgress,
+) -> Result<Stage1EvaluationProgress, EngineFault> {
+    match progress {
         StructuredEvaluationProgress::Settled(evaluation) => unsafe {
             materialize_stage1(runtime, evaluation).map(Stage1EvaluationProgress::Settled)
         },
@@ -1975,6 +2352,47 @@ mod tests {
 
     fn convert(raw: &NativeEvaluationResult) -> Result<ConvertedEvaluation, EngineFault> {
         unsafe { convert_result(raw, NonZeroU64::new(41).unwrap()) }
+    }
+
+    #[test]
+    fn module_graph_finish_preflight_keeps_owner_cleanup_armed() {
+        let other_thread = std::thread::spawn(|| std::thread::current().id())
+            .join()
+            .unwrap();
+        let mut evaluation = AuthenticatedModuleGraphEvaluation {
+            runtime: ptr::null_mut(),
+            runtime_nonce: NonZeroU64::new(1).unwrap(),
+            work_target_id: NonZeroU64::new(1).unwrap(),
+            owner_thread: other_thread,
+            pending: true,
+            suspended: false,
+        };
+
+        let wrong_thread = unsafe { evaluation.finish(ModuleGraphExecutionOutcome::Completed) }
+            .err()
+            .expect("wrong-thread preflight must refuse");
+        assert!(matches!(
+            wrong_thread,
+            EngineFault::Structured(StructuredEngineFault::WrongThread)
+        ));
+        assert!(evaluation.pending, "preflight consumed the cleanup guard");
+
+        evaluation.owner_thread = std::thread::current().id();
+        let dead_runtime = unsafe { evaluation.finish(ModuleGraphExecutionOutcome::Completed) }
+            .err()
+            .expect("dead-runtime preflight must refuse");
+        assert!(matches!(
+            dead_runtime,
+            EngineFault::Structured(StructuredEngineFault::InvalidInput)
+        ));
+        assert!(
+            evaluation.pending,
+            "runtime preflight consumed the cleanup guard"
+        );
+
+        // The synthetic null runtime cannot be cleaned up; avoid exercising
+        // Drop's real-runtime fallback in this pure preflight test.
+        std::mem::forget(evaluation);
     }
 
     #[test]

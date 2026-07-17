@@ -267,8 +267,9 @@ export function auditNativeGlobalMarkerAliasClosure({
     observerRegion,
     [
       `constexpr const char* kPrefix = "${OBSERVER_PREFIX}"`,
-      "!runtime || !runtime->armed || runtime->restricted",
       "std::strncmp(global_name, kPrefix, std::strlen(kPrefix)) != 0",
+      "ExactRuntimeDriveGuard drive(runtime);",
+      "!drive || !runtime->armed || runtime->restricted",
       "std::string name(global_name)",
       "facebook::jsi::PropNameID::forUtf8(rt, name)",
       "rt.global().hasProperty(rt, property)",

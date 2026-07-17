@@ -242,8 +242,57 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         self.records.contains_key(source_id)
     }
 
-    /// Dependency-first execution order for the entry's reachable closure.
-    /// A visiting record is reused, so cycles append each record exactly once.
+    /// Refuse production-native plans that would need an authored call-time
+    /// edge before the runtime has a private in-drive loader capability.
+    ///
+    /// The source-graph ingress applies the same boundary before resolving a
+    /// deferred target. Keep this independent check at the authenticated
+    /// linker boundary so a prepared graph or another internal caller cannot
+    /// reintroduce eager authorization through the prelinked lookup tables.
+    /// Exact manifest-owned builtin fan-out is a private synchronous
+    /// initialization dependency; native code separately proves that its
+    /// `require` closure cannot be used after that initialization returns.
+    // @ref LLP 0024#3-source-goal
+    // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+    pub fn ensure_native_call_time_edges_supported(&self) -> Result<(), GraphError> {
+        for (source_id, record) in &self.records {
+            let semantics = &record.artifact.artifact().semantics;
+            if !semantics.dynamic_edges.is_empty() {
+                return Err(GraphError::link(format!(
+                    "native call-time dynamic-import activation is unavailable for {source_id:?}"
+                )));
+            }
+            for edge in &semantics.static_edges {
+                let StaticEdgeV1::CommonJsRequire { specifier } = edge else {
+                    continue;
+                };
+                if semantics.source_goal != SourceGoalV1::Builtin {
+                    return Err(GraphError::link(format!(
+                        "native call-time CommonJS require activation is unavailable for {source_id:?}"
+                    )));
+                }
+                let target =
+                    self.edge_target(record, specifier.as_str(), ResolutionKind::CommonJsRequire)?;
+                if self.artifact(target)?.artifact().semantics.source_goal != SourceGoalV1::Builtin
+                {
+                    return Err(GraphError::link(format!(
+                        "manifest builtin private dependency {specifier:?} from {source_id:?} is not a builtin record"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Dependency-first execution order for the entry's ESM-static closure.
+    /// This plan algebra retains CommonJS require targets for diagnostics and
+    /// private ABI tests. Authenticated production callers first apply
+    /// `ensure_native_call_time_edges_supported`, so only closed manifest
+    /// builtin fan-out can reach native lazy `require()`; authored requires use
+    /// the compatibility loader. A CJS record reached by an ESM edge is itself
+    /// scheduled so its namespace adapter is ready before the importing ESM
+    /// body executes.
+    /// @ref LLP 0026#7-commonjs-interop
     pub fn evaluation_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
         let mut visiting = BTreeSet::new();
         let mut visited = BTreeSet::new();
@@ -253,8 +302,8 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
     }
 
     /// Deterministic record-materialization order including literal dynamic
-    /// targets. These records are linked and authenticated but are not
-    /// evaluated until a static or dynamic entry reaches them.
+    /// targets. This remains diagnostic/private-ABI plan algebra; authenticated
+    /// production callers reject authored dynamic edges before invoking it.
     pub fn linkage_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
         let allowed: BTreeMap<_, _> = self
             .records
@@ -288,6 +337,10 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             &mut order,
         )?;
         Ok(order)
+    }
+
+    fn static_linkage_order(&self, entry: &SourceId) -> Result<Vec<SourceId>, GraphError> {
+        self.linkage_order_for_authorized(entry, &BTreeMap::new())
     }
 
     /// Dependency-first order for a synchronous caller. Async taint is checked
@@ -471,6 +524,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 let record = self.plan.record(source_id)?;
                 let mut dependencies = BTreeSet::new();
                 for edge in &record.artifact.artifact().semantics.static_edges {
+                    if matches!(edge, StaticEdgeV1::CommonJsRequire { .. }) {
+                        continue;
+                    }
                     let target = self.plan.static_edge_target(record, edge)?;
                     dependencies.insert(target.clone());
                 }
@@ -546,6 +602,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 contains_top_level_await |=
                     record.artifact.artifact().semantics.has_top_level_await;
                 for edge in &record.artifact.artifact().semantics.static_edges {
+                    if matches!(edge, StaticEdgeV1::CommonJsRequire { .. }) {
+                        continue;
+                    }
                     let target = self.static_edge_target(record, edge)?;
                     let dependency = record_scc[target];
                     if dependency != index {
@@ -589,7 +648,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
     ) -> anyhow::Result<Vec<AuthorizedGraphOperation>> {
         let mut receipts = Vec::new();
-        for source_id in self.evaluation_order(entry)? {
+        for source_id in self.static_linkage_order(entry)? {
             let context = contexts.get(&source_id).ok_or_else(|| {
                 anyhow::anyhow!("reachable ModuleRecord {source_id:?} has no CapSec context")
             })?;
@@ -597,7 +656,19 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                 anyhow::bail!("CapSec context requester disagrees with {source_id:?}");
             }
             let record = self.record(&source_id)?;
-            for edge in &record.artifact.artifact().semantics.static_edges {
+            let artifact = record.artifact.artifact();
+            for edge in &artifact.semantics.static_edges {
+                // Generated builtin fan-out is closed runtime-manifest linkage,
+                // not a package-authored import edge. Its exact spelling and
+                // builtin target are validated by the source graph/native link
+                // boundary, while the target record's own compile/instantiate/
+                // execute decisions and terminal effects remain fully gated.
+                // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+                if artifact.semantics.source_goal == SourceGoalV1::Builtin
+                    && matches!(edge, StaticEdgeV1::CommonJsRequire { .. })
+                {
+                    continue;
+                }
                 let (specifier, attributes, kind, resolution_kind) = match edge {
                     StaticEdgeV1::CommonJsRequire { specifier } => (
                         specifier,
@@ -672,7 +743,6 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
             // Factory compilation, instantiation, and execution are separate
             // record-owned decisions. They use the initialization task
             // boundary rather than inheriting an importer context.
-            let artifact = record.artifact.artifact();
             let initialization = GraphAuthorityContext::initialization_as(
                 source_id.clone(),
                 context.effect_owner.clone(),
@@ -716,7 +786,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let mut receipts = Vec::new();
         let mut allowed_specifiers: BTreeMap<SourceId, BTreeSet<String>> = BTreeMap::new();
         let mut allowed_targets = BTreeSet::new();
-        let mut owners = self.evaluation_order(entry)?;
+        let mut owners = self.static_linkage_order(entry)?;
         let mut seen_owners: BTreeSet<_> = owners.iter().cloned().collect();
         let mut owner_index = 0;
         while owner_index < owners.len() {
@@ -749,7 +819,7 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
                         .entry(source_id.clone())
                         .or_default()
                         .insert(binding.specifier);
-                    for member in self.evaluation_order(&receipt.decision().resource.target)? {
+                    for member in self.static_linkage_order(&receipt.decision().resource.target)? {
                         if seen_owners.insert(member.clone()) {
                             owners.push(member);
                         }
@@ -1077,6 +1147,9 @@ impl<'artifact> SynchronousGraphPlan<'artifact> {
         let record = self.record(source_id)?;
         let mut seen_targets = BTreeSet::new();
         for edge in &record.artifact.artifact().semantics.static_edges {
+            if matches!(edge, StaticEdgeV1::CommonJsRequire { .. }) {
+                continue;
+            }
             let target = self.static_edge_target(record, edge)?;
             if seen_targets.insert(target.clone()) {
                 self.visit_for_evaluation(target, visiting, visited, order)?;
@@ -1371,6 +1444,19 @@ mod tests {
         ModuleArtifactV1::new_inline(semantics, factory_source, base.producer).unwrap()
     }
 
+    fn builtin_artifact(source_id: SourceId, static_edges: Vec<StaticEdgeV1>) -> ModuleArtifactV1 {
+        let base = commonjs_artifact(source("builtin-template"), static_edges, Vec::new());
+        let factory_source = match base.payload {
+            ModulePayloadV1::Inline { factory_source, .. } => factory_source,
+            ModulePayloadV1::Carrier { .. } => unreachable!(),
+        };
+        let mut semantics = base.semantics;
+        semantics.source_id = CanonicalSourceId(source_id.clone());
+        semantics.source_goal = SourceGoalV1::Builtin;
+        semantics.source_map.source_ids = vec![CanonicalSourceId(source_id)];
+        ModuleArtifactV1::new_inline(semantics, factory_source, base.producer).unwrap()
+    }
+
     fn with_commonjs_exports(
         artifact: ModuleArtifactV1,
         names: &[&str],
@@ -1385,6 +1471,105 @@ mod tests {
         exports.names = names.iter().map(|value| name(value)).collect();
         exports.reexports = reexports.iter().map(|value| name(value)).collect();
         ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer).unwrap()
+    }
+
+    #[test]
+    fn native_call_time_edge_guard_rejects_authored_edges_and_closes_builtin_fanout() {
+        let dynamic_entry_id = source("dynamic-entry");
+        let dynamic_target_id = source("dynamic-target");
+        let dynamic_entry = with_dynamic_edges(
+            artifact(dynamic_entry_id.clone(), Vec::new(), Vec::new(), false),
+            vec![DynamicEdgeV1::Literal {
+                specifier: name("./dynamic-target.mjs"),
+                attributes: ImportAttributes::default(),
+            }],
+        );
+        let dynamic_target = artifact(dynamic_target_id.clone(), Vec::new(), Vec::new(), false);
+        let dynamic_plan = SynchronousGraphPlan::new_typed([
+            (
+                verify(&dynamic_entry),
+                BTreeMap::from([(
+                    GraphEdgeKey::new("./dynamic-target.mjs", ResolutionKind::DynamicImport),
+                    dynamic_target_id.clone(),
+                )]),
+            ),
+            (verify(&dynamic_target), BTreeMap::new()),
+        ])
+        .unwrap();
+        assert!(dynamic_plan
+            .ensure_native_call_time_edges_supported()
+            .unwrap_err()
+            .to_string()
+            .contains("dynamic-import activation"));
+
+        let commonjs_entry_id = source("commonjs-entry");
+        let commonjs_target_id = source("commonjs-target");
+        let commonjs_entry = commonjs_artifact(
+            commonjs_entry_id.clone(),
+            vec![StaticEdgeV1::CommonJsRequire {
+                specifier: name("./commonjs-target.cjs"),
+            }],
+            Vec::new(),
+        );
+        let commonjs_target = commonjs_artifact(commonjs_target_id.clone(), Vec::new(), Vec::new());
+        let commonjs_plan = SynchronousGraphPlan::new_typed([
+            (
+                verify(&commonjs_entry),
+                BTreeMap::from([(
+                    GraphEdgeKey::new("./commonjs-target.cjs", ResolutionKind::CommonJsRequire),
+                    commonjs_target_id.clone(),
+                )]),
+            ),
+            (verify(&commonjs_target), BTreeMap::new()),
+        ])
+        .unwrap();
+        assert!(commonjs_plan
+            .ensure_native_call_time_edges_supported()
+            .unwrap_err()
+            .to_string()
+            .contains("CommonJS require activation"));
+
+        let builtin_owner_id = SourceId::builtin("ibex-runtime", "builtin-owner").unwrap();
+        let builtin_target_id = SourceId::builtin("ibex-runtime", "builtin-target").unwrap();
+        let builtin_owner = builtin_artifact(
+            builtin_owner_id.clone(),
+            vec![StaticEdgeV1::CommonJsRequire {
+                specifier: name("./private-target"),
+            }],
+        );
+        let builtin_target = builtin_artifact(builtin_target_id.clone(), Vec::new());
+        let builtin_edges = BTreeMap::from([(
+            GraphEdgeKey::new("./private-target", ResolutionKind::CommonJsRequire),
+            builtin_target_id.clone(),
+        )]);
+        let builtin_plan = SynchronousGraphPlan::new_typed([
+            (verify(&builtin_owner), builtin_edges.clone()),
+            (verify(&builtin_target), BTreeMap::new()),
+        ])
+        .unwrap();
+        builtin_plan
+            .ensure_native_call_time_edges_supported()
+            .unwrap();
+
+        let non_builtin_target_id = source("non-builtin-target");
+        let non_builtin_target =
+            commonjs_artifact(non_builtin_target_id.clone(), Vec::new(), Vec::new());
+        let escaped_plan = SynchronousGraphPlan::new_typed([
+            (
+                verify(&builtin_owner),
+                BTreeMap::from([(
+                    GraphEdgeKey::new("./private-target", ResolutionKind::CommonJsRequire),
+                    non_builtin_target_id.clone(),
+                )]),
+            ),
+            (verify(&non_builtin_target), BTreeMap::new()),
+        ])
+        .unwrap();
+        assert!(escaped_plan
+            .ensure_native_call_time_edges_supported()
+            .unwrap_err()
+            .to_string()
+            .contains("is not a builtin record"));
     }
 
     #[test]
@@ -1588,6 +1773,10 @@ mod tests {
         );
         assert_eq!(
             plan.evaluation_order(&entry_id).unwrap(),
+            [entry_id.clone()]
+        );
+        assert_eq!(
+            plan.static_linkage_order(&entry_id).unwrap(),
             [require_id, entry_id]
         );
     }

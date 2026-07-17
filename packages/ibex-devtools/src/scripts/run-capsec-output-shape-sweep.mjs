@@ -22,12 +22,18 @@ import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 import { authoredTargetAbsenceOutputBindings } from "./capsec-target-absence-output-templates.mjs";
 import { validateCurrentSourceRecipeCatalog } from "./capsec-conformance-recipes.mjs";
 import {
-  buildOutputShapeSweepArtifactFromExecutorBatch,
   buildOutputShapeSweepExecutionPartition,
   buildOutputShapeSweepPlan,
+  buildTargetAbsenceOutputShapeProbes,
   buildVerifiedOutputDispositionEvidence,
+  composeOutputShapeSweepArtifactFromDelegatedBatches,
+  validateCurrentSourceOutputDispositionArtifacts,
 } from "./capsec-output-shape-sweep.mjs";
 import { ENVIRONMENT_OUTPUT_SWEEP_NAMES } from "./capsec-environment-output-templates.mjs";
+import {
+  buildPublicSurfaceExecutionArtifact,
+  mergePublicBatchExecutions,
+} from "./capsec-public-surface-evidence.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -158,7 +164,15 @@ function writeNewJson(filePath, value) {
 }
 
 const planPath = path.join(outputDirectory, "output-shape-sweep-plan.json");
+const genericPlanPath = path.join(
+  outputDirectory,
+  "output-shape-generic-sweep-plan.json",
+);
 const batchPath = path.join(outputDirectory, "output-shape-executor-batch.json");
+const composedBatchPath = path.join(
+  outputDirectory,
+  "output-shape-composed-executor-batch.json",
+);
 const reportPath = path.join(
   outputDirectory,
   "output-shape-executor-report.json",
@@ -179,6 +193,18 @@ const hostAbiPlanPath = path.join(
   outputDirectory,
   "host-abi-output-plan.json",
 );
+const hostAbiBatchPath = path.join(
+  outputDirectory,
+  "host-abi-output-executor-batch.json",
+);
+const targetAbsenceBatchPath = path.join(
+  outputDirectory,
+  "target-absence-public-batch.json",
+);
+const targetAbsenceExecutionPath = path.join(
+  outputDirectory,
+  "target-absence-public-executions.json",
+);
 
 const rules = readOwnedJson(
   path.join(repoRoot, "capsec/registry/policy-rules.json"),
@@ -194,6 +220,14 @@ const dispositionDataset = readOwnedJson(
   path.join(repoRoot, "capsec/generated/output-dispositions.json"),
   "output-disposition dataset",
 );
+const dispositionPolicy = readOwnedJson(
+  path.join(repoRoot, "capsec/registry/output-disposition-policy.json"),
+  "reviewed output-disposition policy",
+);
+const trackedDispositionEvidence = readOwnedJson(
+  path.join(repoRoot, "capsec/registry/output-disposition-evidence.json"),
+  "tracked output-disposition evidence sentinel",
+);
 const coverage = readOwnedJson(
   path.join(repoRoot, "capsec/registry/coverage-edges.json"),
   "coverage registry",
@@ -203,6 +237,15 @@ const recipeCatalog = readOwnedJson(
   "executable recipe catalog",
 );
 const sourceInventory = await discoverRepositorySurfaces(repoRoot);
+validateCurrentSourceOutputDispositionArtifacts({
+  catalog: completeCatalog,
+  dispositionDataset,
+  coverage,
+  surfaces: sourceInventory.surfaces,
+  repoRoot,
+  policy: dispositionPolicy,
+  trackedEvidence: trackedDispositionEvidence,
+});
 validateCurrentSourceRecipeCatalog(recipeCatalog, {
   coverage,
   implementation: readOwnedJson(
@@ -263,24 +306,8 @@ const partitionSummary = {
   },
 };
 writeNewJson(partitionPath, partitionSummary);
-writeNewJson(hostAbiPlanPath, {
-  hostAbiOutputPlanSchema: "ibex/capsec-host-abi-output-plan/1",
-  hostAbiOutputPartitionSchema:
-    executionPartition.hostAbi.hostAbiOutputPartitionSchema,
-  targetAbsenceBindings: executionPartition.hostAbi.targetAbsenceBindings,
-  rows: executionPartition.hostAbi.rows,
-  residuals: executionPartition.hostAbi.residuals,
-});
-
-const delegatedHostAbiRows =
-  executionPartition.hostAbi.targetAbsenceBindings.length +
-  executionPartition.hostAbi.rows.length +
-  executionPartition.hostAbi.residuals.length;
-if (delegatedHostAbiRows > 0) {
-  const reason =
-    executionPartition.hostAbi.residuals.length > 0
-      ? `complete output evidence is blocked by ${executionPartition.hostAbi.residuals.length} honest Host ABI residual rows`
-      : "complete output evidence requires composition of the dedicated Host ABI and target-absence executor artifacts";
+if (executionPartition.hostAbi.residuals.length > 0) {
+  const reason = `complete output evidence is blocked by ${executionPartition.hostAbi.residuals.length} honest Host ABI residual rows`;
   writeNewJson(reportPath, {
     outputShapeExecutorReportSchema:
       "ibex/capsec-output-shape-executor-report/1",
@@ -348,20 +375,51 @@ const engine = validateLoadedEngineIdentity({
   binaryDigest: engineBinaryDigest,
   target,
 });
-const catalog = executionPartition.genericCatalog;
-const probes = executionPartition.genericProbes;
 const bindings = {
   sourceRevision: initialSource.revision,
   sourceTreeDigest: taggedDigest(Buffer.from(`${initialSource.tree}\n`, "utf8")),
   target,
   engine,
 };
+const genericCatalog = executionPartition.genericCatalog;
+const genericPlan = buildOutputShapeSweepPlan({
+  catalog: genericCatalog,
+  probes: executionPartition.genericProbes,
+  ...bindings,
+});
+const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
+  targetAbsenceBindings: executionPartition.hostAbi.targetAbsenceBindings,
+  recipeCatalog,
+  target,
+});
 const plan = buildOutputShapeSweepPlan({
-  catalog,
-  probes,
+  catalog: completeCatalog,
+  probes: [
+    ...executionPartition.genericProbes,
+    ...executionPartition.hostAbi.rows,
+    ...targetAbsenceProbes,
+  ],
   ...bindings,
 });
 writeNewJson(planPath, plan);
+writeNewJson(genericPlanPath, genericPlan);
+const hostAbiSurfaceAccountIds = coverage.edges
+  .filter((edge) => edge.surface?.kind === "host-abi")
+  .map((edge) => edge.id)
+  .sort((left, right) => left.localeCompare(right, "en-US"));
+writeNewJson(hostAbiPlanPath, {
+  hostAbiOutputPlanSchema: "ibex/capsec-host-abi-output-plan/2",
+  profile: "ibex/capsec/1",
+  executor: plan.executor,
+  sourceRevision: plan.sourceRevision,
+  sourceTreeDigest: plan.sourceTreeDigest,
+  target: plan.target,
+  engine: plan.engine,
+  catalogKeyDigest: plan.catalogKeyDigest,
+  sweepPlanDigest: plan.sweepPlanDigest,
+  compiledRegistrarIds: hostAbiSurfaceAccountIds,
+  rows: executionPartition.hostAbi.rows,
+});
 
 // Positive-control inputs exist only in the owned Rust executor child. Armed
 // process.env must hide them and overlay writes must leave them unchanged; the
@@ -391,13 +449,99 @@ execFileSync(
     env: {
       ...exactEngineEnvironment,
       ...childHostEnvironmentCanaries,
-      IBEX_CAPSEC_OUTPUT_SHAPE_PLAN: planPath,
+      IBEX_CAPSEC_OUTPUT_SHAPE_PLAN: genericPlanPath,
       IBEX_CAPSEC_OUTPUT_SHAPE_BATCH_OUTPUT: batchPath,
     },
     stdio: "inherit",
   },
 );
 const batch = readOwnedJson(batchPath, "output-shape executor batch");
+
+execFileSync(
+  "cargo",
+  [
+    "test",
+    "--bin",
+    "ibex",
+    "--features",
+    "capsec-conformance-observer,host-http-server",
+    "capsec_host_abi_output_batch",
+    "--",
+    "--test-threads=1",
+    "--nocapture",
+  ],
+  {
+    cwd: repoRoot,
+    env: {
+      ...exactEngineEnvironment,
+      IBEX_CAPSEC_HOST_ABI_OUTPUT_PLAN: hostAbiPlanPath,
+      IBEX_CAPSEC_HOST_ABI_OUTPUT_BATCH_OUTPUT: hostAbiBatchPath,
+    },
+    stdio: "inherit",
+  },
+);
+const hostAbiBatch = readOwnedJson(
+  hostAbiBatchPath,
+  "Host ABI output executor batch",
+);
+
+const targetAbsenceRecipes = recipeCatalog.recipes.filter(
+  (recipe) =>
+    recipe.publicSurfaceProbe?.kind === "target-absence-probe" &&
+    recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+      "ibex/capsec-target-absence-invocation/1",
+);
+const targetAbsenceFixtureIds = targetAbsenceRecipes
+  .map((recipe) => recipe.fixtureId)
+  .sort((left, right) => left.localeCompare(right, "en-US"));
+const targetAbsenceCommands = [
+  ...new Map(
+    targetAbsenceRecipes.map((recipe) => [
+      canonicalJson(recipe.publicSurfaceProbe.command),
+      recipe.publicSurfaceProbe.command,
+    ]),
+  ).values(),
+];
+if (targetAbsenceCommands.length !== 1) {
+  throw new Error(
+    "target-absence output execution requires one exact current-source batch command",
+  );
+}
+const [targetAbsenceCommand] = targetAbsenceCommands;
+execFileSync(targetAbsenceCommand[0], targetAbsenceCommand.slice(1), {
+  cwd: repoRoot,
+  env: {
+    ...exactEngineEnvironment,
+    IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+    IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT: targetAbsenceBatchPath,
+  },
+  stdio: "inherit",
+});
+const targetAbsenceBatch = readOwnedJson(
+  targetAbsenceBatchPath,
+  "target-absence public executor batch",
+);
+const targetAbsenceExecutions = mergePublicBatchExecutions({
+  batches: [
+    {
+      batch: targetAbsenceBatch,
+      expectedFixtureIds: targetAbsenceFixtureIds,
+    },
+  ],
+  recipeCatalog,
+  loadedEngineIdentity: engine,
+});
+const targetAbsenceExecutionArtifact = buildPublicSurfaceExecutionArtifact({
+  recipeCatalog,
+  sourceRevision: bindings.sourceRevision,
+  sourceTreeDigest: bindings.sourceTreeDigest,
+  target: bindings.target,
+  engine: bindings.engine,
+  coverage,
+  executions: targetAbsenceExecutions,
+});
+writeNewJson(targetAbsenceExecutionPath, targetAbsenceExecutionArtifact);
+
 attestEngine(identityAfterPath);
 const identityAfter = readOwnedJson(
   identityAfterPath,
@@ -429,8 +573,21 @@ const proofCounts = Object.fromEntries(
   ]),
 );
 let artifact;
+let composedBatch;
 try {
-  artifact = buildOutputShapeSweepArtifactFromExecutorBatch({ plan, batch });
+  ({ artifact, batch: composedBatch } =
+    composeOutputShapeSweepArtifactFromDelegatedBatches({
+      catalog: completeCatalog,
+      plan,
+      genericCatalog,
+      genericPlan,
+      genericBatch: batch,
+      hostAbiBatch,
+      targetAbsenceProbes,
+      targetAbsenceExecutionArtifact,
+      recipeCatalog,
+      coverage,
+    }));
 } catch (error) {
   writeNewJson(reportPath, {
     outputShapeExecutorReportSchema:
@@ -442,7 +599,10 @@ try {
     loadedEngineIdentity: bindings.engine,
     sweepPlanDigest: plan.sweepPlanDigest,
     proofCounts,
-    unexercisableRows: batch.unexercisable ?? [],
+    unexercisableRows: [
+      ...(batch.unexercisable ?? []),
+      ...(hostAbiBatch.unexercisable ?? []),
+    ],
     reason: error instanceof Error ? error.message : String(error),
   });
   throw new Error(
@@ -450,12 +610,13 @@ try {
   );
 }
 const evidence = buildVerifiedOutputDispositionEvidence({
-  catalog,
+  catalog: completeCatalog,
   dispositionRows: dispositionDataset.rows,
   plan,
   artifact,
   ...bindings,
 });
+writeNewJson(composedBatchPath, composedBatch);
 writeNewJson(artifactPath, artifact);
 writeNewJson(evidencePath, evidence);
 writeNewJson(reportPath, {
@@ -469,6 +630,12 @@ writeNewJson(reportPath, {
   sweepPlanDigest: plan.sweepPlanDigest,
   sweepArtifactDigest: artifact.sweepArtifactDigest,
   proofCounts,
+  componentEvidence: {
+    genericBatchPath: batchPath,
+    hostAbiBatchPath,
+    targetAbsenceExecutionPath,
+    composedBatchPath,
+  },
   evidencePath,
 });
 process.stdout.write(
@@ -477,6 +644,7 @@ process.stdout.write(
     artifactPath,
     evidencePath,
     reportPath,
+    composedBatchPath,
     proofCounts,
   })}\n`,
 );

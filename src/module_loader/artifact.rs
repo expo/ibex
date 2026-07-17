@@ -12,6 +12,7 @@ use capsec_semantics::model::{Digest, NonEmptyString};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest as _, Sha256};
 use std::collections::BTreeSet;
+use std::io::Read;
 
 use super::identity::{ImportAttributes, SourceId};
 
@@ -579,10 +580,26 @@ impl ModuleArtifactV1 {
 }
 
 pub fn digest_bytes(domain: &str, bytes: &[u8]) -> Result<Digest> {
+    digest_reader(domain, bytes)
+}
+
+/// Compute the same domain-separated digest as [`digest_bytes`] without
+/// materializing the complete input. Large executable carriers use this path
+/// so authentication does not require a second binary-sized allocation.
+pub fn digest_reader(domain: &str, mut reader: impl Read) -> Result<Digest> {
     let mut hasher = Sha256::new();
     hasher.update(domain.as_bytes());
     hasher.update([0]);
-    hasher.update(bytes);
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let read = reader
+            .read(&mut chunk)
+            .context("read domain-separated digest input")?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&chunk[..read]);
+    }
     Digest::new(format!(
         "sha256-{}",
         URL_SAFE_NO_PAD.encode(hasher.finalize())
@@ -753,6 +770,15 @@ mod tests {
 
     fn digest(label: &str) -> Digest {
         digest_bytes("test", label.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn streaming_digest_matches_the_byte_slice_contract() {
+        let bytes = vec![0x5au8; 192 * 1024 + 17];
+        assert_eq!(
+            digest_reader("streaming-test", std::io::Cursor::new(&bytes)).unwrap(),
+            digest_bytes("streaming-test", &bytes).unwrap()
+        );
     }
 
     fn source_id() -> SourceId {

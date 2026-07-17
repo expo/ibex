@@ -20,6 +20,7 @@ const BATCH_SCHEMA: &str = "ibex/capsec-output-shape-executor-batch/3";
 const AUTHORED_BUILTIN_HARNESS: &str = include_str!("capsec_public_noncap_builtin_invocation.js");
 const GLOBAL_ACCESSOR_HARNESS: &str = include_str!("capsec_global_accessor_get.js");
 const AUTHORED_BUILTIN_TIMEOUT_MS: u64 = 1_000;
+const DESCRIPTOR_SWEEP_BATCH_ROWS: usize = 8;
 
 fn is_source_return_output(raw: &Value) -> bool {
     raw["kind"] == "return"
@@ -398,6 +399,16 @@ const DESCRIPTOR_SWEEP_SCRIPT: &str = r#"
     return { kind: 'return', rawValueShape: shape, value: jsonValue(value, shape), errorCode: null };
   }
 
+  function descriptorReturned(value) {
+    var shape = valueShape(value);
+    // A descriptor route proves presence and value shape; it is not authority
+    // to serialize an arbitrary module/global object graph. Keep structural
+    // object and array observations bounded while explicit call/read fixtures
+    // continue to return their actual authored values.
+    var projected = shape === 'object' ? null : (shape === 'array' ? [] : jsonValue(value, shape));
+    return { kind: 'return', rawValueShape: shape, value: projected, errorCode: null };
+  }
+
   function stableErrorCode(error) {
     if (error && typeof error.code === 'string' && error.code) return error.code;
     var message = String(error && error.message || error || '');
@@ -592,7 +603,7 @@ const DESCRIPTOR_SWEEP_SCRIPT: &str = r#"
             sourceDescriptorDigest: probe.probe.sourceDescriptorDigest,
             descriptor: descriptor
           },
-          raw: returned(settled)
+          raw: source.exercise.kind === 'descriptor' ? descriptorReturned(settled) : returned(settled)
         };
       }, function (error) {
         return {
@@ -644,7 +655,7 @@ fn read_plan(path: &std::path::Path) -> Value {
     plan
 }
 
-fn compiled_surface_ids() -> Vec<String> {
+fn compiled_generic_surface_ids() -> Vec<String> {
     let coverage: Value = serde_json::from_slice(include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/capsec/registry/coverage-edges.json"
@@ -654,6 +665,7 @@ fn compiled_surface_ids() -> Vec<String> {
         .as_array()
         .expect("compiled coverage registry must contain edges")
         .iter()
+        .filter(|edge| edge["surface"]["kind"] != "host-abi")
         .map(|edge| {
             edge["id"]
                 .as_str()
@@ -662,6 +674,25 @@ fn compiled_surface_ids() -> Vec<String> {
         })
         .collect::<BTreeSet<_>>();
     ids.into_iter().collect()
+}
+
+fn validate_generic_compiled_surface_ids(plan_surface_ids: &[String]) -> Result<(), String> {
+    let compiled_ids = compiled_generic_surface_ids();
+    if plan_surface_ids != compiled_ids {
+        return Err(
+            "generic catalog surface accounts must equal every compiled non-Host coverage account"
+                .to_owned(),
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn generic_compiled_registrar_projection_rejects_a_stale_subset() {
+    let compiled_ids = compiled_generic_surface_ids();
+    assert!(!compiled_ids.is_empty());
+    assert!(validate_generic_compiled_surface_ids(&compiled_ids).is_ok());
+    assert!(validate_generic_compiled_surface_ids(&compiled_ids[1..]).is_err());
 }
 
 fn authored_builtin_unexercisable(row: &Value, reason: impl AsRef<str>) -> Value {
@@ -813,35 +844,46 @@ async fn loaded_descriptor_results(
     if rows.is_empty() {
         return (Vec::new(), Vec::new());
     }
-    let encoded = serde_json::to_string(rows).expect("serialize output-shape descriptor probes");
-    let script = DESCRIPTOR_SWEEP_SCRIPT.replace("__IBEX_OUTPUT_SHAPE_PROBES__", &encoded);
-    assert_eq!(
+    // Stage-1 hostile text is deliberately bounded. Keep each independently
+    // authenticated control record below that boundary instead of relying on a
+    // truncated JSON string or widening the public display contract.
+    // @ref LLP 0024#6-evaluation-outcomes-and-the-abi — structured outcomes
+    // retain their fixed-size projection across the native evaluator boundary.
+    let mut results = Vec::with_capacity(rows.len());
+    for (batch_index, batch) in rows.chunks(DESCRIPTOR_SWEEP_BATCH_ROWS).enumerate() {
+        let encoded =
+            serde_json::to_string(batch).expect("serialize output-shape descriptor probes");
+        let script = DESCRIPTOR_SWEEP_SCRIPT.replace("__IBEX_OUTPUT_SHAPE_PROBES__", &encoded);
+        assert_eq!(
+            sweep
+                .eval_string(engine, &script)
+                .await
+                .expect("start output-shape descriptor sweep")
+                .as_deref(),
+            Some("output-shape-descriptor-sweep-started")
+        );
+        let context = format!("output-shape descriptor sweep batch {batch_index}");
         sweep
-            .eval_string(engine, &script)
+            .drive_event_loop(engine, &context)
             .await
-            .expect("start output-shape descriptor sweep")
-            .as_deref(),
-        Some("output-shape-descriptor-sweep-started")
-    );
-    sweep
-        .drive_event_loop(engine, "output-shape descriptor sweep")
-        .await
-        .expect("settle output-shape descriptor sweep");
-    let encoded = sweep
-        .eval_string(engine, "globalThis.__ibexOutputShapeDescriptorBatch")
-        .await
-        .expect("read output-shape descriptor sweep")
-        .expect("output-shape descriptor sweep returned no result");
-    let value: Value = serde_json::from_str(&encoded)
-        .expect("output-shape descriptor sweep returned invalid JSON");
-    assert!(
-        value.get("fatal").is_none(),
-        "descriptor sweep failed: {value}"
-    );
-    let results = value
-        .as_array()
-        .expect("output-shape descriptor sweep did not return an array")
-        .clone();
+            .expect("settle output-shape descriptor sweep");
+        let encoded = sweep
+            .eval_string(engine, "globalThis.__ibexOutputShapeDescriptorBatch")
+            .await
+            .expect("read output-shape descriptor sweep")
+            .expect("output-shape descriptor sweep returned no result");
+        let value: Value = serde_json::from_str(&encoded)
+            .expect("output-shape descriptor sweep returned invalid JSON");
+        assert!(
+            value.get("fatal").is_none(),
+            "descriptor sweep failed: {value}"
+        );
+        let batch_results = value
+            .as_array()
+            .expect("output-shape descriptor sweep did not return an array");
+        assert_eq!(batch_results.len(), batch.len());
+        results.extend(batch_results.iter().cloned());
+    }
     assert_eq!(results.len(), rows.len());
     let mut observed = Vec::new();
     let mut unexercisable = Vec::new();
@@ -1387,6 +1429,80 @@ fn is_resolver_surface(row: &Value) -> bool {
     )
 }
 
+fn is_explicit_residual_structured_surface(row: &Value) -> bool {
+    if row["probe"]["sourceDescriptor"]["kind"] != "structured-output" {
+        return false;
+    }
+    matches!(
+        source_surface_name(row),
+        "__exactCancel"
+            | "__exactDispatchEvent"
+            | "__exactModuleEvent"
+            | "__exactMotionRatedPublish"
+            | "__exactRunOnJS"
+            | "__exactScheduleOnAppRuntime"
+            | "__exactSetCompartmentFor"
+            | "__ibexCapsecContextObserver_"
+            | "__ibexLockedDown"
+            | "__ibexTamed"
+    )
+}
+
+fn explicit_structured_unexercisable(row: &Value) -> Value {
+    json!({
+        "key": row["key"].clone(),
+        "reason": format!(
+            "structured output surface {} requires its exact carrier, lifecycle, or runtime-mode fixture; the generic loaded-realm sweep cannot safely substitute an invocation or mode",
+            source_surface_name(row)
+        )
+    })
+}
+
+#[test]
+fn carrier_and_mode_specific_structured_rows_are_explicit_residuals() {
+    // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence —
+    // generic callback/control-plane diagnostics cannot close a carrier-specific
+    // output row, and lockdown markers require the exact selected runtime mode.
+    for surface in [
+        "__exactCancel",
+        "__exactDispatchEvent",
+        "__exactModuleEvent",
+        "__exactMotionRatedPublish",
+        "__exactRunOnJS",
+        "__exactScheduleOnAppRuntime",
+        "__exactSetCompartmentFor",
+        "__ibexCapsecContextObserver_",
+        "__ibexLockedDown",
+        "__ibexTamed",
+    ] {
+        let row = json!({
+            "probe": {
+                "sourceDescriptor": {
+                    "kind": "structured-output",
+                    "surfaceName": surface,
+                }
+            }
+        });
+        assert!(is_explicit_residual_structured_surface(&row), "{surface}");
+    }
+    assert!(!is_explicit_residual_structured_surface(&json!({
+        "probe": {
+            "sourceDescriptor": {
+                "kind": "structured-output",
+                "surfaceName": "__futureStructuredSurface",
+            }
+        }
+    })));
+    assert!(!is_explicit_residual_structured_surface(&json!({
+        "probe": {
+            "sourceDescriptor": {
+                "kind": "authored-global-callable-invocation",
+                "surfaceName": "__exactRunOnJS",
+            }
+        }
+    })));
+}
+
 fn is_generic_loaded_realm_surface(row: &Value) -> bool {
     matches!(
         source_surface_name(row),
@@ -1537,6 +1653,10 @@ impl AuthenticatedSweep {
                     display.kind == AuthenticatedDisplayKind::String,
                     "authenticated output-shape sweep returned {:?}, expected a string",
                     display.kind
+                );
+                anyhow::ensure!(
+                    !display.truncated,
+                    "authenticated output-shape control result exceeded the Stage-1 text bound"
                 );
                 Ok(Some(serde_json::from_str(&display.text)?))
             }
@@ -1821,10 +1941,7 @@ fn validate_environment_phase_decisions(binding: &Value, phase: &str, decisions:
             decision["evidence"]["stage"],
             decision["decisionSet"]["context"]["stage"]
         );
-        assert_eq!(
-            decision["evidence"]["identity"]["profile"],
-            "ibex/capsec/1"
-        );
+        assert_eq!(decision["evidence"]["identity"]["profile"], "ibex/capsec/1");
         assert_eq!(
             decision["evidence"]["identity"]["semanticCore"],
             "capsec/semantics/1"
@@ -1866,7 +1983,10 @@ fn validate_environment_phase_decisions(binding: &Value, phase: &str, decisions:
             .expect("environment decision stage");
         assert!(matches!(stage, "requested" | "commit"));
         let expected_source_id = expected_floor_source_ids
-            .get(&(effects[0]["cap"].as_str().unwrap().to_owned(), name.to_owned()))
+            .get(&(
+                effects[0]["cap"].as_str().unwrap().to_owned(),
+                name.to_owned(),
+            ))
             .expect("exact environment floor source ID");
         let evidence_entries = decision["evidence"]["evidence"]
             .as_array()
@@ -3044,7 +3164,6 @@ async fn capsec_output_shape_sweep_batch() {
         rows.len(),
         "authenticated plan must contain exactly one row per output key"
     );
-    let compiled_ids = compiled_surface_ids();
     let plan_surface_ids = plan["surfaceAccountIds"]
         .as_array()
         .expect("v2 plan must bind every catalog surface account")
@@ -3056,10 +3175,16 @@ async fn capsec_output_shape_sweep_batch() {
                 .to_owned()
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        plan_surface_ids, compiled_ids,
-        "catalog surface accounts and compiled coverage registry must join bidirectionally"
+    assert!(
+        plan_surface_ids.windows(2).all(|pair| pair[0] < pair[1]),
+        "catalog surface accounts must be a canonical set"
     );
+    validate_generic_compiled_surface_ids(&plan_surface_ids)
+        .unwrap_or_else(|error| panic!("{error}"));
+    // The production sweep delegates Host-ABI rows to their native executor.
+    // This child attests the complete compiled non-Host set; the composer later
+    // joins it with the independently complete compiled Host set.
+    let compiled_ids = plan_surface_ids;
     let compiled_runtime_observations = compiled_cli_output_results(&compiled_runtime_rows);
     assert_eq!(
         compiled_runtime_observations.len(),
@@ -3283,6 +3408,14 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         })
         .cloned()
         .collect::<Vec<_>>();
+    let explicit_residual_structured_rows = rows
+        .iter()
+        .filter(|row| {
+            row["probe"]["kind"] == "loaded-engine-return-record"
+                && is_explicit_residual_structured_surface(row)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
     let builtin_noncap_closed_rows = rows
         .iter()
         .filter(|row| super::capsec_builtin_noncap_closed_output_batch::is_surface(row))
@@ -3305,6 +3438,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         .chain(&global_callable_rows)
         .chain(&native_freeze_rows)
         .chain(&closed_control_rows)
+        .chain(&explicit_residual_structured_rows)
         .chain(&builtin_noncap_closed_rows)
         .chain(&builtin_effects_rows)
         .map(|row| serde_json::to_string(&row["key"]).expect("serialize routed key"))
@@ -3326,6 +3460,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
             + global_callable_rows.len()
             + native_freeze_rows.len()
             + closed_control_rows.len()
+            + explicit_residual_structured_rows.len()
             + builtin_noncap_closed_rows.len()
             + builtin_effects_rows.len(),
         "loaded-engine route families must not overlap"
@@ -3347,6 +3482,10 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         .iter()
         .chain(&armed_resolver_rows)
         .map(resolver_unexercisable)
+        .collect::<Vec<_>>();
+    let explicit_structured_unexercisable = explicit_residual_structured_rows
+        .iter()
+        .map(explicit_structured_unexercisable)
         .collect::<Vec<_>>();
 
     let module_specifiers = descriptor_rows
@@ -3726,6 +3865,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
         .collect::<std::collections::BTreeMap<_, _>>();
     let structured_unexercisable_keys = resolver_unexercisable
         .iter()
+        .chain(&explicit_structured_unexercisable)
         .chain(&authored_builtin_unexercisable)
         .chain(&global_accessor_unexercisable)
         .chain(&global_callable_unexercisable)
@@ -3748,6 +3888,7 @@ module.exports = globalThis.__ibexOutputShapePackageModule;
     let mut results = Vec::with_capacity(rows.len());
     let mut unexercisable = descriptor_unexercisable;
     unexercisable.extend(resolver_unexercisable);
+    unexercisable.extend(explicit_structured_unexercisable);
     unexercisable.extend(authored_builtin_unexercisable);
     unexercisable.extend(global_accessor_unexercisable);
     unexercisable.extend(global_callable_unexercisable);

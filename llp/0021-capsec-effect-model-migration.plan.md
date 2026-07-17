@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-16 (the module-runner safety review classifies exact generated manifest-builtin fan-out as closed private runtime linkage that may be eagerly materialized without a package/filesystem probe, but activation is confined to the exact builtin record's synchronous evaluation and cannot escape or re-enter through a retained `require` closure)
 **Revised:** 2026-07-16 (ENG-24933 binds asynchronous `chmod` and `utime` to retained files, repeats authorization on the worker, and closes twelve exact public scenarios with owned cleanup)
 **Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the Exact-bound artifact preparer while preserving empty advertisements)
 **Revised:** 2026-07-15 (ENG-25062 registered the module-runner factory, record, CJS-to-ESM edge, generation-lease, and compatibility-marker surfaces as closed non-capability control-plane operations)
@@ -12,7 +13,7 @@
 **Revised:** 2026-07-15 (LLP 0026 adoption defines the module-initialization task boundary and trusted-loader source-acquisition classification)
 **Revised:** 2026-07-16 (ENG-24578 residualizes 2,976 rationale-only
 callback/control-plane rows because a generic invariant run cannot prove an
-arbitrary carrier's selected branch; it retains eight exact embedder-mechanism
+arbitrary carrier's selected branch; it retains nine exact embedder-mechanism
 executions and requires every authenticated work-unit publication to be
 consumed before teardown.)
 **Revised:** 2026-07-15 (ENG-24578 residualizes raw resolver-output rows:
@@ -617,7 +618,7 @@ separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed residualized catalog has 23,658
 required fixtures, 1,663 fully executable recipes, 11,530 adapter-executable
 recipes, and 21,995 unresolved fixtures. Generic callback/control-plane carriers
-remain residual unless the selected branch is authenticated; eight exact embedder
+remain residual unless the selected branch is authenticated; nine exact embedder
 mechanisms execute through their dedicated artifact-bound routes. The latest
 source-bound tranche adds five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
@@ -1279,7 +1280,7 @@ static source reference do not prove that an arbitrary carrier entered its body
 or used the checked mechanism. The 2,976 carrier-specific invariant recipes
 therefore remain residual pending exact carrier execution or an independently
 proved carrier-to-mechanism relation with its own non-terminal evidence contract.
-Only eight Exact embedder rows currently have source-bound exact-mechanism public
+Only nine Exact embedder rows currently have source-bound exact-mechanism public
 executions; those carry runtime-derived lifecycle results and zero legacy
 observations. No diagnostic run may manufacture a `terminalObservedKey` or close
 an enforcement-branch fixture for a carrier it did not execute.
@@ -1372,16 +1373,16 @@ executable evidence exists for every required fixture and the full matrix is
 green.
 
 Implementation status (2026-07-16): the report-crediting fixture pilot reruns
-exactly eight source-bound Exact embedder mechanisms independently of the public
+exactly nine source-bound Exact embedder mechanisms independently of the public
 catalog/adapter batches. The set covers the single-use host-call route,
-endowment and exact-set authorization, unendowed-operation closure, and both
+endowment and exact-set authorization, unendowed-operation closure, and all three
 artifact-bound preparation/materialization ABIs; generic callback/control-plane
 rows are not credited by analogy. Every
 `ibex/capsec-fixture-evidence/2` record carries the committed revision/tree,
 exact target and mapped engine identity, full fixture plan, recipe/public
 digests, producer command and exit status, and the fresh runtime observation.
 The runner validates the artifact through its `--fixture-evidence` path and
-credits exactly eight passes; all other obligations remain missing or residual, so
+credits exactly nine passes; all other obligations remain missing or residual, so
 the report remains `incomplete` and the target remains unadvertised. Missing,
 duplicate, stale, mismatched-plan/engine, or mechanism-invalid pilot evidence
 fails closed rather than reverting to zero credited rows.
@@ -1412,11 +1413,15 @@ event-loop quiescence before the per-export observer opens, then the invocation
 still performs the authenticated public `require` and resolves the
 source-derived export from that cache. This isolates both synchronous and
 deferred module initialization from the export body without claiming that
-initialization was zero-effect. Manifest-builtin initialization may resolve
-exact manifest-owned private builtin dependencies without creating package
-import edges, but that exemption is scoped to synchronous body evaluation and
-does not suppress capability terminal checks or survive through an exported
-`require` closure.
+initialization was zero-effect. The closed generated builtin manifest may
+authenticate, source-materialize, compile, and link exact private builtin
+dependencies as runtime build metadata before a builtin body executes. That
+operation has no package/path resolver route and no ambient filesystem probe,
+so it does not create a package import edge. Activation of one of those links
+is nevertheless confined to the exact builtin record at the top of synchronous
+initialization: the exemption does not suppress capability terminal checks,
+survive after initialization, or re-enter through an exported `require`
+closure while another record is active.
 
 Bounded non-capability callable recipes are grouped by exact source template,
 not inferred from `typeof value === "function"`. The first authored families

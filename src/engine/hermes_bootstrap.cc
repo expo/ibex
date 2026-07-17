@@ -27,13 +27,6 @@
 #endif
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
-extern "C" int ex_hermes_eval(
-    ExactHermesRuntime* runtime,
-    const uint8_t* data,
-    size_t len,
-    const char* source_url,
-    int is_bytecode,
-    char** out_value);
 extern "C" void ex_hermes_free_string(char* value);
 
 const char* g_streamEnhanceJS = nullptr;
@@ -55,17 +48,19 @@ bool eval_bootstrap_script(
 
 #ifdef HAS_PRECOMPILED_BOOTSTRAP
   if (!preferSource && allowHbc && hbc != nullptr && hbcLen > 0) {
-    if (ex_hermes_eval(handle, hbc, hbcLen, sourceUrl, 1, nullptr) == 0) {
+    if (exactHermesBootstrapEval(
+            handle, hbc, hbcLen, sourceUrl, 1, nullptr) == 0) {
       return true;
     }
   }
 #endif
-  return ex_hermes_eval(handle,
-                        reinterpret_cast<const uint8_t*>(source),
-                        std::strlen(source),
-                        sourceUrl,
-                        0,
-                        nullptr) == 0;
+  return exactHermesBootstrapEval(
+             handle,
+             reinterpret_cast<const uint8_t*>(source),
+             std::strlen(source),
+             sourceUrl,
+             0,
+             nullptr) == 0;
 }
 
 static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
@@ -125,24 +120,25 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
   if (!sourceSharedRuntimeBundle &&
       sharedRuntimeBundleHbc != nullptr &&
       sharedRuntimeBundleHbcLen > 0) {
-    evaluated = ex_hermes_eval(handle,
-                               sharedRuntimeBundleHbc,
-                               sharedRuntimeBundleHbcLen,
-                               "<shared-runtime-bundle>",
-                               1,
-                               &error) == 0;
+    evaluated = exactHermesBootstrapEval(handle,
+                                         sharedRuntimeBundleHbc,
+                                         sharedRuntimeBundleHbcLen,
+                                         "<shared-runtime-bundle>",
+                                         1,
+                                         &error) == 0;
     if (!evaluated && error != nullptr) {
       ex_hermes_free_string(error);
       error = nullptr;
     }
   }
   if (!evaluated) {
-    evaluated = ex_hermes_eval(handle,
-                               reinterpret_cast<const uint8_t*>(SHARED_RUNTIME_BUNDLE_SRC),
-                               std::strlen(SHARED_RUNTIME_BUNDLE_SRC),
-                               "<shared-runtime-bundle>",
-                               0,
-                               &error) == 0;
+    evaluated = exactHermesBootstrapEval(
+                    handle,
+                    reinterpret_cast<const uint8_t*>(SHARED_RUNTIME_BUNDLE_SRC),
+                    std::strlen(SHARED_RUNTIME_BUNDLE_SRC),
+                    "<shared-runtime-bundle>",
+                    0,
+                    &error) == 0;
   }
   if (!evaluated) {
     if (error != nullptr) {

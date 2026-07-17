@@ -157,7 +157,8 @@ int32_t ex_hermes_module_compile_factory(
     const uint8_t* source_label,
     size_t source_label_len,
     ExactModuleRunnerHandle* out_factory,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 /// Load one verified source or HBC carrier and select the authenticated
 /// original-module factory identified by `entry_id`. `carrier_encoding` is 0
@@ -184,7 +185,8 @@ int32_t ex_hermes_module_load_carrier_factory(
     const uint8_t* source_label,
     size_t source_label_len,
     ExactModuleRunnerHandle* out_factory,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 /// Create one CommonJS cache record. The initial `exports` object is published
 /// natively before body execution so linked CommonJS cycles observe it.
@@ -247,7 +249,8 @@ int32_t ex_hermes_commonjs_record_evaluate(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     int32_t* out_evicted,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 /// Create the ESM adapter before linking. Its cells remain uninitialized until
 /// successful CommonJS evaluation freezes `default`, `module.exports`, and
@@ -257,7 +260,8 @@ int32_t ex_hermes_commonjs_record_create_esm_adapter(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     ExactModuleRunnerHandle* out_adapter,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 /// Retain every record in one authenticated graph generation through the
 /// embedder event-loop drive. Released Rust handles become deferred cleanup.
@@ -376,14 +380,16 @@ int32_t ex_hermes_module_record_instantiate(
     const uint8_t* virtual_path,
     size_t virtual_path_len,
     int32_t is_main,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 /// Run the factory's declaration phase exactly once.
 int32_t ex_hermes_module_record_run_declare(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 /// Run the factory's execute phase exactly once. `out_async` is set when the
 /// phase returned a thenable; synchronous graph callers must refuse it.
@@ -392,7 +398,8 @@ int32_t ex_hermes_module_record_run_execute(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     int32_t* out_async,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 /// Observe one record's terminal evaluation state without blocking or
 /// creating a new promise. `out_state` is 0 while suspended, 1 after
@@ -403,7 +410,8 @@ int32_t ex_hermes_module_record_poll_evaluation(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     int32_t* out_state,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 /// Diagnostic serialization of the stable namespace. The namespace itself
 /// never crosses the ABI; TDZ reads fail through the same checked getters used
@@ -413,7 +421,8 @@ int32_t ex_hermes_module_record_namespace_json(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     char** out_json,
-    char** out_error);
+    char** out_error,
+    uint64_t* out_error_token);
 
 // =============================================================================
 // Evaluation
@@ -428,8 +437,10 @@ int32_t ex_hermes_module_record_namespace_json(
 /// @param out_value On success, points to malloc'd result string (caller frees
 ///                  with ex_hermes_free_string). NULL if result is undefined.
 /// @return 0 on success; 1 on a program/evaluation error; 2 only when a
-///         bytecode buffer was rejected before execution. out_value contains
-///         the diagnostic for either error status.
+///         bytecode buffer was rejected before execution; or one of the
+///         negative EXACT_RUNTIME_DRIVE_* refusal statuses when the handle is
+///         invalid/stale, called off-owner, or re-entered. out_value contains
+///         a diagnostic for every nonzero status when allocation succeeds.
 int ex_hermes_eval(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
@@ -487,7 +498,7 @@ typedef enum ExHermesEvaluationFault {
 #define EX_HERMES_EVAL_CAPABILITY_RICH_INSPECTION (1u << 3)
 #define EX_HERMES_SESSION_TOKEN_LENGTH 32u
 #define EX_HERMES_REQUEST_BINDING_LENGTH 32u
-#define EX_HERMES_SESSION_LOWERING_PROTOCOL_VERSION 1u
+#define EX_HERMES_SESSION_LOWERING_PROTOCOL_VERSION 2u
 #define EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION 4u
 
 typedef enum ExHermesStructuredSourceKind {
@@ -838,6 +849,52 @@ uint32_t ex_hermes_structured_submission_settle(
     ExactHermesRuntime* runtime,
     const ExHermesSessionCredential* credential);
 
+/// Continue an already-admitted direct-file request as one Rust-orchestrated
+/// native module graph. File arguments are copied into the authenticated
+/// process projection before the first graph factory executes. The reserved
+/// structured work target remains active until the matching finish call.
+uint32_t ex_hermes_structured_module_graph_begin(
+    ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential,
+    const ExHermesUtf8Slice* file_arguments,
+    size_t file_argument_count);
+
+enum {
+  EX_HERMES_MODULE_GRAPH_COMPLETED = 0,
+  EX_HERMES_MODULE_GRAPH_JAVASCRIPT_THROW = 1,
+  EX_HERMES_MODULE_GRAPH_ENGINE_FAULT = 2,
+  EX_HERMES_MODULE_GRAPH_COOPERATIVE_CANCELLATION = 3,
+  EX_HERMES_MODULE_GRAPH_UNRESOLVED_TOP_LEVEL_AWAIT = 4
+};
+
+enum {
+  EX_HERMES_MODULE_GRAPH_TRANSITION_OK = 0,
+  EX_HERMES_MODULE_GRAPH_TRANSITION_CANCELLATION_PENDING = 1,
+  EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED = 2
+};
+
+/// Publish a TLA suspension and make the foreground graph target non-executing
+/// so independently polled callbacks/timers receive their own work-unit ids.
+uint32_t ex_hermes_structured_module_graph_suspend(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id);
+
+/// Re-enter the same suspended foreground target immediately before advancing
+/// native graph state. This does not publish a second Begin event.
+uint32_t ex_hermes_structured_module_graph_resume(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id);
+
+/// Retire the exact native module-graph target and write its structured
+/// Empty/Throw/Cancelled/Lifecycle/engine-fault outcome. JavaScript throws use
+/// the raw value retained by the bridge; `execution_outcome` is never text.
+int ex_hermes_structured_module_graph_finish(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint32_t execution_outcome,
+    uint64_t error_token,
+    ExHermesEvaluationResult* result);
+
 enum {
   EX_HERMES_CANCEL_UNAVAILABLE = 0,
   EX_HERMES_CANCEL_ACCEPTED = 1,
@@ -1011,6 +1068,16 @@ void ex_hermes_free_string(char* value);
 #define EX_HERMES_POLL_ERROR (-1)
 #define EX_HERMES_POLL_LIFECYCLE_REQUESTED (-2)
 int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
+
+/// Poll one ready-only turn while the host itself holds an out-of-runtime
+/// liveness reference, such as an active REPL, inspector, or explicit
+/// --keep-alive loop. Already-due unreferenced timers are eligible during this
+/// call, but remain unreferenced: they do not appear in
+/// ex_hermes_has_pending_tasks() and cannot keep a later ordinary poll alive.
+/// Return values and clock requirements are identical to ex_hermes_poll().
+int ex_hermes_poll_with_external_keep_alive(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms);
 
 /// Get the deadline of the next pending timer, on the same monotonic clock as
 /// ex_hermes_now_ms() (NOT epoch time). To convert to a host wait interval,
@@ -1198,7 +1265,8 @@ void ex_hermes_resolve_host_call(
 /// unsupported context/runtime kind, or an attempted replacement.
 /// This setter creates JSI objects and therefore must be called on the runtime
 /// owner thread; an off-owner-thread call returns -7 without touching JSI or
-/// installing any endowment.
+/// installing any endowment. A stale runtime generation or same-runtime
+/// reentrant call returns -9 before authorizing or publishing an endowment.
 /// `payload` passed to `callback` is borrowed only for that callback invocation;
 /// an asynchronous embedder must copy it before returning.
 /// The callback runs inline on the runtime owner thread and must return

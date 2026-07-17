@@ -68,6 +68,13 @@ std::unordered_map<int, FileEntry> g_files;
 int g_next_fd = 3;
 thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
 
+const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
+    const std::vector<uint64_t>* replacement) {
+  const auto* previous = g_typed_principal_stack;
+  g_typed_principal_stack = replacement;
+  return previous;
+}
+
 extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
 extern "C" int32_t ex_host_fs_write(void* file, const uint8_t* buf, uint32_t len);

@@ -25,7 +25,7 @@ use super::carrier::{
     VerifiedPreparedCarrierEntryV1,
 };
 use super::graph::{GraphEdgeKey, SynchronousGraphPlan};
-use super::identity::{ResolutionKind, SourceId};
+use super::identity::{ImportAttributes, ResolutionKind, SourceId};
 use super::producer_spike::{
     produce_builtin_artifact_v1, produce_commonjs_artifact_v1, produce_json_artifact_v1,
     produce_module_artifact_v1, unsupported_module_runner_reason,
@@ -40,6 +40,101 @@ pub struct LegacyModuleRunnerRequirement {
 pub enum SourceModuleGraphBuildV1 {
     Native(SourceModuleGraphV1),
     LegacyRequired(LegacyModuleRunnerRequirement),
+}
+
+trait SourceGraphHost {
+    fn snapshot(&self) -> Result<Arc<ArmedSnapshot>>;
+
+    fn resolve(
+        &self,
+        specifier: &str,
+        referrer: Option<&Path>,
+        kind: ResolutionKind,
+        attributes: &ImportAttributes,
+    ) -> Result<super::ResolvedModule>;
+
+    fn resolve_manifest_builtin_internal(&self, specifier: &str) -> Result<super::ResolvedModule>;
+
+    fn principal_id(&self, principal: &Principal) -> Result<u32>;
+}
+
+struct InstalledSourceGraphHost;
+
+impl SourceGraphHost for InstalledSourceGraphHost {
+    fn snapshot(&self) -> Result<Arc<ArmedSnapshot>> {
+        crate::host::abi::current_module_runner_snapshot()
+    }
+
+    fn resolve(
+        &self,
+        specifier: &str,
+        referrer: Option<&Path>,
+        kind: ResolutionKind,
+        attributes: &ImportAttributes,
+    ) -> Result<super::ResolvedModule> {
+        crate::host::abi::resolve_module_for_runner(
+            specifier,
+            specifier_referrer(referrer),
+            None,
+            kind,
+            attributes,
+        )
+    }
+
+    fn resolve_manifest_builtin_internal(&self, specifier: &str) -> Result<super::ResolvedModule> {
+        crate::host::abi::resolve_manifest_builtin_internal_for_runner(specifier)
+    }
+
+    fn principal_id(&self, principal: &Principal) -> Result<u32> {
+        crate::host::abi::module_runner_principal_id(principal)
+    }
+}
+
+impl SourceGraphHost for crate::host::Host {
+    fn snapshot(&self) -> Result<Arc<ArmedSnapshot>> {
+        self.armed_snapshot()
+            .cloned()
+            .ok_or_else(|| anyhow!("module runner requires an armed snapshot"))
+    }
+
+    fn resolve(
+        &self,
+        specifier: &str,
+        referrer: Option<&Path>,
+        kind: ResolutionKind,
+        attributes: &ImportAttributes,
+    ) -> Result<super::ResolvedModule> {
+        let mut resolved = self.resolve_module_meta_for_principal_typed_with_attributes(
+            specifier, referrer, None, kind, attributes,
+        )?;
+        if resolved
+            .path
+            .as_deref()
+            .and_then(Path::extension)
+            .and_then(|value| value.to_str())
+            .is_some_and(|extension| {
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "mjs" | "mts" | "ts" | "tsx" | "jsx"
+                )
+            })
+        {
+            resolved.kind = ModuleKind::Esm;
+        }
+        self.load_authenticated_module_source_for_runner(resolved)
+    }
+
+    fn resolve_manifest_builtin_internal(&self, specifier: &str) -> Result<super::ResolvedModule> {
+        crate::host::Host::resolve_manifest_builtin_internal(self, specifier)
+    }
+
+    fn principal_id(&self, principal: &Principal) -> Result<u32> {
+        self.module_runner_principal_id(principal)
+    }
+}
+
+fn specifier_referrer(referrer: Option<&Path>) -> Option<&Path> {
+    referrer
 }
 
 const PREPARED_GRAPH_INDEX_SCHEMA_V1: &str = "ibex/prepared-module-graph/1";
@@ -104,7 +199,9 @@ struct PreparedRecordV1 {
 
 pub struct SourceModuleGraphV1 {
     entry: SourceId,
+    entry_vfs_source_id: crate::vfs::SourceId,
     snapshot: Arc<ArmedSnapshot>,
+    principal_ids: BTreeMap<Principal, u32>,
     producer_binary_digest: Digest,
     records: BTreeMap<SourceId, SourceGraphRecordV1>,
 }
@@ -112,6 +209,12 @@ pub struct SourceModuleGraphV1 {
 impl SourceModuleGraphV1 {
     pub fn entry(&self) -> &SourceId {
         &self.entry
+    }
+
+    /// Exact typed VFS identity authenticated by the Host for the entry read.
+    /// The graph's portable artifact identity is deliberately separate.
+    pub fn entry_vfs_source_id(&self) -> &crate::vfs::SourceId {
+        &self.entry_vfs_source_id
     }
 
     pub fn snapshot(&self) -> &ArmedSnapshot {
@@ -189,10 +292,8 @@ impl SourceModuleGraphV1 {
             .filter_map(SourceId::defining_principal)
             .cloned()
             .collect::<BTreeSet<_>>();
-        let mut principal_ids = BTreeMap::new();
-        for principal in principals {
-            let principal_id = crate::host::abi::module_runner_principal_id(&principal)?;
-            principal_ids.insert(principal, principal_id);
+        if principals != self.principal_ids.keys().cloned().collect() {
+            bail!("native source graph principal projection differs from its closed record set");
         }
 
         let mut configs = BTreeMap::new();
@@ -200,14 +301,16 @@ impl SourceModuleGraphV1 {
         for (source_id, record) in &self.records {
             let principal = match source_id.defining_principal().cloned() {
                 Some(principal) => principal,
-                None if matches!(source_id, SourceId::Builtin { .. }) => principal_ids
+                None if matches!(source_id, SourceId::Builtin { .. }) => self
+                    .principal_ids
                     .keys()
                     .find(|principal| principal.is_root())
                     .cloned()
                     .ok_or_else(|| anyhow!("builtin graph record has no root runtime owner"))?,
                 None => bail!("source graph record has no defining principal"),
             };
-            let principal_id = *principal_ids
+            let principal_id = *self
+                .principal_ids
                 .get(&principal)
                 .ok_or_else(|| anyhow!("source graph principal has no runtime projection"))?;
             let compartment_identity = module_runner_compartment_identity(&principal)?;
@@ -281,17 +384,52 @@ pub fn build_authenticated_source_graph_v1(
     producer_binary_digest: Digest,
     hermes_target: &str,
 ) -> Result<SourceModuleGraphBuildV1> {
-    let snapshot = crate::host::abi::current_module_runner_snapshot()?;
+    build_authenticated_source_graph_v1_with_host(
+        &InstalledSourceGraphHost,
+        entry,
+        producer_binary_digest,
+        hermes_target,
+    )
+}
+
+/// Build through the exact Host retained by an authenticated ingress. Neither
+/// graph construction nor later principal projection consults the ambient Host
+/// slot, so replacing that slot cannot splice another snapshot into a request.
+/// @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+pub fn build_authenticated_source_graph_v1_for_host(
+    host: &crate::host::Host,
+    entry: &Path,
+    producer_binary_digest: Digest,
+    hermes_target: &str,
+) -> Result<SourceModuleGraphBuildV1> {
+    build_authenticated_source_graph_v1_with_host(
+        host,
+        entry,
+        producer_binary_digest,
+        hermes_target,
+    )
+}
+
+fn build_authenticated_source_graph_v1_with_host(
+    host: &impl SourceGraphHost,
+    entry: &Path,
+    producer_binary_digest: Digest,
+    hermes_target: &str,
+) -> Result<SourceModuleGraphBuildV1> {
+    let snapshot = host.snapshot()?;
     let entry_specifier = entry
         .to_str()
         .ok_or_else(|| anyhow!("module-runner entry path is not UTF-8"))?;
-    let entry_module = crate::host::abi::resolve_module_for_runner(
+    let entry_module = host.resolve(
         entry_specifier,
         None,
-        None,
         ResolutionKind::Entry,
-        &super::identity::ImportAttributes::default(),
+        &ImportAttributes::default(),
     )?;
+    let entry_vfs_source_id = entry_module
+        .source_id
+        .clone()
+        .ok_or_else(|| anyhow!("authenticated entry resolution produced no VFS SourceId"))?;
     let entry_id = entry_module
         .artifact_source_id
         .clone()
@@ -404,26 +542,61 @@ pub fn build_authenticated_source_graph_v1(
                 return Err(error);
             }
         };
-        if artifact
-            .semantics
-            .dynamic_edges
-            .iter()
-            .any(|edge| matches!(edge, DynamicEdgeV1::Computed { .. }))
+        // The native runner currently has only prelinked lookup tables for
+        // `require()` and `import()`. Letting either authored edge enter those
+        // tables would resolve/read a dead branch and would authorize it before
+        // the live caller/scheduler constraint set exists. Keep those shapes on
+        // the bounded compatibility loader, whose edge gate runs at the call
+        // site, until the native runner owns an in-drive call-time activation
+        // capability. This check is deliberately before `artifact_edge_requests`:
+        // the deferred target must not be resolved, probed, or read here.
+        //
+        // Generated builtin fan-out is the one closed exception. It is an exact
+        // manifest-owned private implementation dependency, not an authored
+        // package edge, and the native callback independently refuses to let
+        // that synchronous-initialization exemption escape through a retained
+        // `require` closure.
+        // @ref LLP 0024#3-source-goal
+        // @ref LLP 0026#1-source-admission-and-resolution
+        // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+        if !artifact.semantics.dynamic_edges.is_empty() {
+            return Ok(legacy(
+                "native call-time dynamic-import activation is not yet available",
+            ));
+        }
+        if module.kind != ModuleKind::Builtin
+            && artifact
+                .semantics
+                .static_edges
+                .iter()
+                .any(|edge| matches!(edge, StaticEdgeV1::CommonJsRequire { .. }))
         {
             return Ok(legacy(
-                "computed dynamic import has no authenticated finite candidate table",
+                "native call-time CommonJS require activation is not yet available",
             ));
         }
         let mut bindings = BTreeMap::new();
         for key in artifact_edge_requests(&artifact) {
             let attributes = artifact_edge_attributes(&artifact, &key)?;
-            let target = crate::host::abi::resolve_module_for_runner(
-                &key.specifier,
-                Some(&path),
-                None,
-                key.resolution_kind,
-                &attributes,
-            )?;
+            let target = if module.kind == ModuleKind::Builtin {
+                if key.resolution_kind != ResolutionKind::CommonJsRequire || !attributes.is_empty()
+                {
+                    bail!("generated builtin has a non-CommonJS or attributed private edge");
+                }
+                // Builtin implementation fan-out is not an authored package
+                // edge and has no host filesystem referrer. Resolve only the
+                // exact generated-manifest spelling; the public edge that
+                // admitted this builtin was already policy-gated above.
+                // @ref LLP 0026#1-source-admission-and-resolution
+                host.resolve_manifest_builtin_internal(&key.specifier)?
+            } else {
+                host.resolve(
+                    &key.specifier,
+                    Some(&path),
+                    key.resolution_kind,
+                    &attributes,
+                )?
+            };
             let target_id = target
                 .artifact_source_id
                 .clone()
@@ -448,10 +621,25 @@ pub fn build_authenticated_source_graph_v1(
         );
     }
 
+    let principals = records
+        .keys()
+        .filter_map(SourceId::defining_principal)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let principal_ids = principals
+        .into_iter()
+        .map(|principal| {
+            let principal_id = host.principal_id(&principal)?;
+            Ok((principal, principal_id))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+
     // Validate the entire closure before the engine can compile one factory.
     let graph = SourceModuleGraphV1 {
         entry: entry_id,
+        entry_vfs_source_id,
         snapshot,
+        principal_ids,
         producer_binary_digest,
         records,
     };
@@ -650,6 +838,81 @@ pub fn publish_prepared_source_graph_v1(
     }
 }
 
+fn read_authenticated_prepared_file(path: &Path, expected: &[u8], role: &str) -> Result<Vec<u8>> {
+    use std::io::Read as _;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // O_NONBLOCK prevents a hostile FIFO from hanging before metadata can
+        // reject it; it does not change regular-file reads.
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|error| anyhow!("cannot open prepared {role} {}: {error}", path.display()))?;
+    let before = file.metadata().map_err(|error| {
+        anyhow!(
+            "cannot inspect opened prepared {role} {}: {error}",
+            path.display()
+        )
+    })?;
+    let expected_len = u64::try_from(expected.len())
+        .map_err(|_| anyhow!("authenticated prepared {role} length is unsupported"))?;
+    if !before.is_file() || before.len() != expected_len {
+        bail!(
+            "prepared {role} is not an exact-size regular file: {}",
+            path.display()
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt as _;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        if before.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            bail!("prepared {role} is a reparse point: {}", path.display());
+        }
+    }
+
+    let mut bytes = vec![0; expected.len()];
+    file.read_exact(&mut bytes).map_err(|error| {
+        anyhow!(
+            "cannot read exact authenticated prepared {role} {}: {error}",
+            path.display()
+        )
+    })?;
+    let mut trailing = [0_u8; 1];
+    if file.read(&mut trailing).map_err(|error| {
+        anyhow!(
+            "cannot finish authenticated prepared {role} {}: {error}",
+            path.display()
+        )
+    })? != 0
+    {
+        bail!("prepared {role} grew while it was read: {}", path.display());
+    }
+    let after = file.metadata().map_err(|error| {
+        anyhow!(
+            "cannot re-inspect opened prepared {role} {}: {error}",
+            path.display()
+        )
+    })?;
+    if !after.is_file() || after.len() != expected_len || bytes != expected {
+        bail!(
+            "prepared {role} does not match the authenticated source graph: {}",
+            path.display()
+        );
+    }
+    Ok(bytes)
+}
+
 pub fn load_prepared_source_graph_v1(
     cache_dir: &Path,
     authenticated_source_graph: &SourceModuleGraphV1,
@@ -659,18 +922,38 @@ pub fn load_prepared_source_graph_v1(
         authenticated_source_graph,
         expected_deployment_graph_digest,
     )?;
-    let index_bytes = std::fs::read(cache_dir.join("index.json"))?;
-    if index_bytes != expected.index_bytes {
-        bail!("prepared graph index does not match the authenticated source graph");
-    }
+    // The writable cache is acceleration only. Retain each expected file once
+    // through a no-follow, regular-file, exact-size descriptor and use those
+    // authenticated owned bytes for every later admission step.
+    // @ref LLP 0027#canonical-encoding-and-validation
+    let index_bytes = read_authenticated_prepared_file(
+        &cache_dir.join("index.json"),
+        &expected.index_bytes,
+        "graph index",
+    )?;
     let mut expected_files = BTreeSet::from(["index.json".to_owned()]);
+    let mut retained_carrier_files = BTreeMap::new();
     for carrier in &expected.carriers {
         expected_files.insert(carrier.manifest_file.clone());
         expected_files.insert(carrier.bytes_file.clone());
-        if std::fs::read(cache_dir.join(&carrier.manifest_file))? != carrier.manifest_bytes
-            || std::fs::read(cache_dir.join(&carrier.bytes_file))? != carrier.bytes
+        let manifest_bytes = read_authenticated_prepared_file(
+            &cache_dir.join(&carrier.manifest_file),
+            &carrier.manifest_bytes,
+            "carrier manifest",
+        )?;
+        let carrier_bytes = read_authenticated_prepared_file(
+            &cache_dir.join(&carrier.bytes_file),
+            &carrier.bytes,
+            "carrier bytes",
+        )?;
+        if retained_carrier_files
+            .insert(carrier.manifest_file.clone(), manifest_bytes)
+            .is_some()
+            || retained_carrier_files
+                .insert(carrier.bytes_file.clone(), carrier_bytes)
+                .is_some()
         {
-            bail!("prepared carrier does not match the authenticated source graph");
+            bail!("prepared carrier publication repeats a filename");
         }
     }
     let actual_files = std::fs::read_dir(cache_dir)?
@@ -719,8 +1002,12 @@ pub fn load_prepared_source_graph_v1(
         {
             bail!("prepared carrier filename escapes its cache directory");
         }
-        let manifest_bytes = std::fs::read(cache_dir.join(&carrier.manifest_file))?;
-        let carrier_bytes = std::fs::read(cache_dir.join(&carrier.bytes_file))?;
+        let manifest_bytes = retained_carrier_files
+            .get(&carrier.manifest_file)
+            .ok_or_else(|| anyhow!("prepared carrier manifest was not retained"))?;
+        let carrier_bytes = retained_carrier_files
+            .get(&carrier.bytes_file)
+            .ok_or_else(|| anyhow!("prepared carrier bytes were not retained"))?;
         let expected_carrier = expected
             .carriers
             .get(carrier_index)
@@ -735,8 +1022,8 @@ pub fn load_prepared_source_graph_v1(
             expected_bytecode_version: None,
         };
         carriers.push(Arc::new(AdmittedPreparedCarrierV1::decode_and_admit(
-            &manifest_bytes,
-            &carrier_bytes,
+            manifest_bytes,
+            carrier_bytes,
             &admission,
         )?));
     }
@@ -793,7 +1080,9 @@ pub fn load_prepared_source_graph_v1(
     }
     let graph = SourceModuleGraphV1 {
         entry: authenticated_source_graph.entry.clone(),
+        entry_vfs_source_id: authenticated_source_graph.entry_vfs_source_id.clone(),
         snapshot: authenticated_source_graph.snapshot.clone(),
+        principal_ids: authenticated_source_graph.principal_ids.clone(),
         producer_binary_digest: authenticated_source_graph.producer_binary_digest.clone(),
         records,
     };
@@ -907,6 +1196,221 @@ fn artifact_edge_attributes(
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    fn armed_file_host(project_root: &Path) -> crate::host::Host {
+        use capsec_semantics::arming::{
+            ArmedEntry, ArmedEntryKind, ArmedExecutionMode, ArmedRootBinding, ArmedSnapshot,
+            ExpectedArmingIdentity, ExpectedProtectedArtifact, ProtectedArtifactRole,
+        };
+        use capsec_semantics::model::{Digest, LogicalPath, LogicalRoot, PathComponent};
+
+        let absolute_path = |path: &Path| LogicalPath {
+            root: LogicalRoot::Absolute,
+            components: path
+                .components()
+                .filter_map(|component| match component {
+                    std::path::Component::Normal(component) => Some(
+                        PathComponent::utf8(component.to_str().expect("test path is UTF-8"))
+                            .unwrap(),
+                    ),
+                    _ => None,
+                })
+                .collect(),
+            host_bound: Some(true),
+        };
+        let project_root = std::fs::canonicalize(project_root).unwrap();
+        let package_root = project_root.join("node_modules/image-lib");
+        std::fs::create_dir_all(&package_root).unwrap();
+
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/examples/armed-snapshot.canonical.json"
+        )))
+        .unwrap();
+        value["workflow"] = serde_json::json!("production");
+        value["effectiveMode"] = serde_json::json!("enforce");
+        value["entry"] = serde_json::to_value(ArmedEntry {
+            kind: ArmedEntryKind::File,
+            identity: NonEmptyString::new("file:///project/entry.mjs").unwrap(),
+            mode: ArmedExecutionMode::Program,
+        })
+        .unwrap();
+
+        let project_path = serde_json::to_value(absolute_path(&project_root)).unwrap();
+        let package_path = serde_json::to_value(absolute_path(&package_root)).unwrap();
+        let project_object = crate::host::object_identity_for_host_path(&project_root).unwrap();
+        let package_object = crate::host::object_identity_for_host_path(&package_root).unwrap();
+        for binding in value["rootBindings"].as_array_mut().unwrap() {
+            if binding["logicalRoot"] == "project" {
+                binding["hostPath"] = project_path.clone();
+                binding["object"] = serde_json::to_value(&project_object).unwrap();
+            } else if binding["logicalRoot"] == "package" {
+                binding["hostPath"] = package_path.clone();
+                binding["object"] = serde_json::to_value(&package_object).unwrap();
+            }
+        }
+        value["projectRootDiscovery"] = serde_json::json!({
+            "origin": project_path,
+            "selectedRoot": project_path,
+            "markerKind": "explicit-project",
+            "markerPath": project_path,
+            "markerSetVersion": capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION,
+        });
+
+        let root_bindings = value["rootBindings"].as_array().unwrap().clone();
+        let project_components = root_bindings
+            .iter()
+            .find(|binding| binding["logicalRoot"] == "project")
+            .unwrap()["hostPath"]["components"]
+            .as_array()
+            .unwrap()
+            .clone();
+        for node in value["packageGraph"]["nodes"].as_array_mut().unwrap() {
+            let principal = node["principal"].clone();
+            let binding = root_bindings
+                .iter()
+                .find(|binding| binding.get("owner") == Some(&principal))
+                .unwrap();
+            let package_components = binding["hostPath"]["components"].as_array().unwrap();
+            let (logical_root, relative) = package_components
+                .strip_prefix(project_components.as_slice())
+                .map(|relative| ("project", relative.to_vec()))
+                .unwrap_or_else(|| ("package", Vec::new()));
+            node["resolvingSpecifier"] = principal["name"].clone();
+            node["rootObject"] = binding["object"].clone();
+            node["virtualAliases"] = serde_json::json!([{
+                "root": logical_root,
+                "components": relative,
+            }]);
+            node["platformDisposition"] = serde_json::json!("required");
+        }
+        let authored_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let mut typed_edges = Vec::new();
+        for edge in authored_edges {
+            let request = edge["imported"]["name"].as_str().unwrap();
+            for (kind, conditions) in [
+                ("common-js-require", vec!["node", "require"]),
+                ("dynamic-import", vec!["import", "node"]),
+                ("esm-static", vec!["import", "node"]),
+            ] {
+                typed_edges.push(serde_json::json!({
+                    "importer": edge["importer"],
+                    "imported": edge["imported"],
+                    "requestSpecifier": request,
+                    "resolutionKind": kind,
+                    "conditions": conditions,
+                    "attributes": {},
+                }));
+            }
+        }
+        value["packageGraph"]["importEdges"] = serde_json::Value::Array(typed_edges);
+        value["packageGraph"]["digest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_domain_digest(
+                "ibex:capsec:package-graph:1",
+                &value["packageGraph"],
+                &["digest".to_owned()],
+            )
+            .unwrap(),
+        );
+        let bindings: Vec<ArmedRootBinding> =
+            serde_json::from_value(value["rootBindings"].clone()).unwrap();
+        value["pathCanonicalizers"] = serde_json::to_value(
+            capsec_semantics::path_alias::contract_fixture_canonicalizer_rows(
+                bindings
+                    .iter()
+                    .map(|binding| (binding.object.platform, binding.object.volume.clone())),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        value["armedSnapshotDigest"] = serde_json::Value::String(
+            capsec_semantics::digest::compute_checked_contract_digest(
+                capsec_semantics::digest::DigestKind::ArmedSnapshot,
+                &value,
+            )
+            .unwrap(),
+        );
+
+        let digest_at = |path: &[&str]| {
+            let field = path
+                .iter()
+                .fold(&value, |current, segment| &current[*segment]);
+            Digest::new(field.as_str().unwrap()).unwrap()
+        };
+        let protected_artifacts = value["protectedObjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let role: ProtectedArtifactRole =
+                    serde_json::from_value(row["role"].clone()).unwrap();
+                let content_digest = match role {
+                    ProtectedArtifactRole::EngineBinary => digest_at(&["engine", "binaryDigest"]),
+                    ProtectedArtifactRole::ExactOperationManifest => {
+                        digest_at(&["exactEmbedder", "operationManifestDigest"])
+                    }
+                    ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
+                    ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
+                    ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
+                };
+                ExpectedProtectedArtifact {
+                    role,
+                    host_path: serde_json::from_value(serde_json::json!({
+                        "root": "absolute",
+                        "components": [
+                            {"encoding": "utf8", "value": "fixture"},
+                            {"encoding": "utf8", "value": row["role"].as_str().unwrap()},
+                        ],
+                        "hostBound": true,
+                    }))
+                    .unwrap(),
+                    object: serde_json::from_value(row["object"].clone()).unwrap(),
+                    content_digest,
+                }
+            })
+            .collect();
+        let expected = ExpectedArmingIdentity {
+            profile: value["capsVocab"].as_str().unwrap().into(),
+            semantic_core: value["semanticCore"].as_str().unwrap().into(),
+            vocab_digest: digest_at(&["vocabDigest"]),
+            registry_digest: digest_at(&["registryDigest"]),
+            policy_digest: digest_at(&["policyDigest"]),
+            armed_snapshot_digest: digest_at(&["armedSnapshotDigest"]),
+            target: value["engine"]["target"].as_str().unwrap().into(),
+            engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
+            features: value["engine"]["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|feature| feature.as_str().unwrap().into())
+                .collect(),
+            package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            entry: serde_json::from_value(value["entry"].clone()).unwrap(),
+            project_root_discovery: serde_json::from_value(value["projectRootDiscovery"].clone())
+                .unwrap(),
+            path_canonicalizers: serde_json::from_value(value["pathCanonicalizers"].clone())
+                .unwrap(),
+            protected_artifacts,
+        };
+        let snapshot =
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
+        // SAFETY: the fixture authenticates its complete snapshot immediately
+        // above and substitutes only the test target-cell advertisement.
+        unsafe {
+            crate::host::Host::new_armed_for_test(
+                crate::host::HostConfig {
+                    mode: crate::host::SecurityMode::Enforce,
+                    ..Default::default()
+                },
+                Arc::new(snapshot),
+            )
+        }
+        .unwrap()
+    }
+
     #[test]
     fn checked_in_schema_names_the_prepared_graph_envelope() {
         let schema: serde_json::Value = serde_json::from_slice(include_bytes!(
@@ -918,6 +1422,53 @@ mod tests {
             PREPARED_GRAPH_INDEX_SCHEMA_V1
         );
         assert_eq!(schema["additionalProperties"], false);
+    }
+
+    #[test]
+    fn prepared_cache_reader_requires_exact_authenticated_regular_file_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("carrier.bin");
+        std::fs::write(&path, b"authenticated-carrier").unwrap();
+        assert_eq!(
+            read_authenticated_prepared_file(&path, b"authenticated-carrier", "test carrier")
+                .unwrap(),
+            b"authenticated-carrier"
+        );
+        assert!(
+            read_authenticated_prepared_file(&path, b"authenticated-carrieR", "test carrier")
+                .unwrap_err()
+                .to_string()
+                .contains("does not match")
+        );
+        assert!(read_authenticated_prepared_file(
+            &path,
+            b"authenticated-carrier-too-long",
+            "test carrier"
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("exact-size regular file"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn prepared_cache_reader_rejects_symlinks_and_fifos_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target.bin");
+        let link = directory.path().join("link.bin");
+        std::fs::write(&target, b"same").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(read_authenticated_prepared_file(&link, b"same", "test symlink").is_err());
+
+        let fifo = directory.path().join("carrier.fifo");
+        let fifo_path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `fifo_path` is a live NUL-terminated path and mode 0600 has
+        // no platform-specific pointer or lifetime requirements.
+        assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
+        assert!(read_authenticated_prepared_file(&fifo, b"same", "test fifo").is_err());
     }
 
     #[test]
@@ -955,5 +1506,167 @@ mod tests {
             identity: NonEmptyString::new("project-root").unwrap(),
         };
         assert_eq!(module_runner_compartment_identity(&root).unwrap(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn source_graph_retains_build_host_across_ambient_host_swap() {
+        struct ResetAmbientHost;
+        impl Drop for ResetAmbientHost {
+            fn drop(&mut self) {
+                crate::host::abi::install_host(crate::host::Host::strict());
+            }
+        }
+
+        let _host_lock = crate::host::abi::host_test_lock();
+        let _reset = ResetAmbientHost;
+        let project = tempfile::tempdir().unwrap();
+        let entry = project.path().join("entry.mjs");
+        std::fs::write(&entry, "export const host = 'a';\n").unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let host_a = armed_file_host(project.path());
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let graph = match build_authenticated_source_graph_v1_for_host(
+            &host_a,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "test graph unexpectedly required legacy execution: {}",
+                    requirement.reason
+                )
+            }
+        };
+        let host_a_snapshot_digest = graph.snapshot().digest().clone();
+        let (before_swap, _) = graph.native_execution_inputs(7).unwrap();
+        let before_swap = before_swap.get(graph.entry()).unwrap();
+        assert_eq!(before_swap.principal_id, 0);
+        assert_eq!(before_swap.evaluation_context.graph_generation, 7);
+
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let ambient_error =
+            match build_authenticated_source_graph_v1(&entry, producer_digest, "hermes-test") {
+                Err(error) => error,
+                Ok(_) => panic!("closed ambient Host B unexpectedly built a source graph"),
+            };
+        assert!(
+            ambient_error
+                .to_string()
+                .contains("module runner requires an armed snapshot"),
+            "unexpected ambient Host B error: {ambient_error:#}"
+        );
+
+        let (after_swap, _) = graph.native_execution_inputs(11).unwrap();
+        let after_swap = after_swap.get(graph.entry()).unwrap();
+        assert_eq!(graph.snapshot().digest(), &host_a_snapshot_digest);
+        assert_eq!(after_swap.principal_id, before_swap.principal_id);
+        assert_eq!(
+            after_swap.evaluation_context.requesting_record,
+            before_swap.evaluation_context.requesting_record
+        );
+        assert_eq!(after_swap.evaluation_context.graph_generation, 11);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authored_deferred_edges_select_legacy_before_a_dead_target_can_be_probed() {
+        let project = tempfile::tempdir().unwrap();
+        let module_entry = project.path().join("entry.mjs");
+        let commonjs_entry = project.path().join("entry.cjs");
+        std::fs::write(
+            project.path().join("package.json"),
+            r#"{"name":"deferred-edge-test","private":true,"type":"module"}"#,
+        )
+        .unwrap();
+        let host = armed_file_host(project.path());
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+
+        let assert_legacy_without_target = |entry: &Path, source: &str, expected_reason: &str| {
+            std::fs::write(&entry, source).unwrap();
+            let entry = std::fs::canonicalize(&entry).unwrap();
+            match build_authenticated_source_graph_v1_for_host(
+                &host,
+                &entry,
+                producer_digest.clone(),
+                "hermes-test",
+            )
+            .unwrap()
+            {
+                SourceModuleGraphBuildV1::LegacyRequired(requirement) => assert!(
+                    requirement.reason.contains(expected_reason),
+                    "unexpected fallback reason: {}",
+                    requirement.reason
+                ),
+                SourceModuleGraphBuildV1::Native(_) => {
+                    panic!("an authored deferred edge entered the eager native graph")
+                }
+            }
+        };
+
+        assert_legacy_without_target(
+            &module_entry,
+            "if (false) import('./missing-dynamic.mjs');\nexport const reached = true;\n",
+            "dynamic-import activation",
+        );
+        assert_legacy_without_target(
+            &commonjs_entry,
+            "if (false) require('./missing-require.cjs');\nmodule.exports = true;\n",
+            "CommonJS require activation",
+        );
+        assert_legacy_without_target(
+            &commonjs_entry,
+            "const path = require('node:path');\nmodule.exports = path.sep;\n",
+            "CommonJS require activation",
+        );
+
+        std::fs::write(
+            project.path().join("dep.cjs"),
+            "if (false) require('./missing-from-dependency.cjs');\nmodule.exports = 1;\n",
+        )
+        .unwrap();
+        assert_legacy_without_target(
+            &module_entry,
+            "import value from './dep.cjs';\nexport { value };\n",
+            "CommonJS require activation",
+        );
+
+        std::fs::write(
+            project.path().join("dep-dynamic.mjs"),
+            "if (false) import('./missing-from-dependency.mjs');\nexport const value = 2;\n",
+        )
+        .unwrap();
+        assert_legacy_without_target(
+            &module_entry,
+            "import { value } from './dep-dynamic.mjs';\nexport { value };\n",
+            "dynamic-import activation",
+        );
+
+        // Static declarations remain the preflight boundary. A missing static
+        // target must still be resolved and refused instead of being hidden by
+        // the deferred-edge compatibility guard.
+        std::fs::write(&module_entry, "import './missing-static.mjs';\n").unwrap();
+        let entry = std::fs::canonicalize(&module_entry).unwrap();
+        let error = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest,
+            "hermes-test",
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a missing static declaration did not fail graph preflight"),
+        };
+        assert!(
+            error.to_string().contains("missing-static")
+                || error.to_string().contains("Cannot find module")
+                || error.to_string().contains("cannot resolve"),
+            "unexpected static-edge error: {error:#}"
+        );
     }
 }

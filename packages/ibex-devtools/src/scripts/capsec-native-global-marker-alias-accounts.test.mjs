@@ -253,6 +253,31 @@ void ibex_test_dynamic_writer_drift(
   });
 
   test("rejects weakened C++, build, or Rust lifecycle evidence", () => {
+    const observerDriveGate = `ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->armed || runtime->restricted) return 0;`;
+    expect(() =>
+      auditWithOverrides({
+        [ENGINE_PATH]: replaceExact(
+          readText(ENGINE_PATH),
+          observerDriveGate,
+          "if (!drive || !runtime->armed || runtime->restricted) return 0;",
+          "runtime drive guard",
+        ),
+      }),
+    ).toThrow(/missing source token/u);
+
+    expect(() =>
+      auditWithOverrides({
+        [ENGINE_PATH]: replaceExact(
+          readText(ENGINE_PATH),
+          observerDriveGate,
+          `ExactRuntimeDriveGuard drive(runtime);
+  if (!runtime->armed || runtime->restricted) return 0;`,
+          "fail-closed drive condition",
+        ),
+      }),
+    ).toThrow(/missing source token/u);
+
     expect(() =>
       auditWithOverrides({
         [ENGINE_PATH]: replaceExact(

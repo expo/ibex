@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  buildOutputDispositionDataset,
   buildOutputShapeCatalog,
   outputExecutionContextsForRows,
   outputParameterizedBindingDigest,
@@ -21,15 +22,21 @@ import {
   buildOutputShapeSweepExecutionPartition,
   buildOutputShapeSweepPlan,
   buildOutputShapeSweepProbes,
+  buildTargetAbsenceOutputShapeProbes,
   buildVerifiedOutputDispositionEvidence,
+  composeOutputShapeSweepArtifactFromDelegatedBatches,
   outputShapeProbeKindForCatalogRow,
   outputShapeSourceDescriptorDigest,
   normalizeExecutorObservation,
   sealOutputShapeSweepArtifact,
   validatePromotableOutputDispositionEvidence,
+  validateCurrentSourceOutputDispositionArtifacts,
   validateOutputShapeSweepArtifact,
   validateOutputShapeSweepPlan,
 } from "./capsec-output-shape-sweep.mjs";
+import {
+  HOST_ABI_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+} from "./capsec-host-abi-output-templates.mjs";
 import { NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND } from "./capsec-native-freeze-output-templates.mjs";
 import {
   buildConformanceRecipeCatalog,
@@ -39,6 +46,10 @@ import {
 } from "./capsec-conformance-recipes.mjs";
 import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
 import { authoredTargetAbsenceOutputBindings } from "./capsec-target-absence-output-templates.mjs";
+import {
+  buildPublicFixtureEvidence,
+  buildPublicSurfaceExecutionArtifact,
+} from "./capsec-public-surface-evidence.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -468,7 +479,437 @@ function executorBatch(value = fixture()) {
   };
 }
 
+function delegatedCompositionFixture() {
+  const generic = fixture();
+  const hostKey = key(
+    "surface.host.abi.version.0000100",
+    "[[return]]",
+    "host-abi",
+    "host.private-native-call-initialized",
+  );
+  hostKey.alias = "ex_host_version";
+  const hostCatalogRow = {
+    key: structuredClone(hostKey),
+    discovery: {
+      kind: "source-inventory-surface",
+      sourceRefs: ["include/exact_runtime.h#ex_host_version"],
+      observedKeys: ["host-abi:ex_host_version"],
+    },
+  };
+  const catalog = v2Catalog(
+    [...generic.catalog.rows, hostCatalogRow],
+    { structuralSurfaceIds: [structuralSurfaceId] },
+  );
+  const hostSourceDescriptor = {
+    kind: HOST_ABI_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+    functionName: "ex_host_version",
+    operation: { kind: "version-string" },
+  };
+  const hostProbe = {
+    key: structuredClone(hostKey),
+    probe: {
+      kind: "loaded-engine-return-record",
+      fixtureId: "host-output-ex-host-version",
+      sourceDescriptor: hostSourceDescriptor,
+      sourceDescriptorDigest: outputShapeSourceDescriptorDigest(
+        hostSourceDescriptor,
+      ),
+      recordPath: ["[[return]]"],
+    },
+  };
+  const plan = buildOutputShapeSweepPlan({
+    catalog,
+    probes: [...generic.probes, hostProbe],
+    ...generic.bindings,
+  });
+  const hostBatch = {
+    hostAbiOutputExecutorBatchSchema:
+      "ibex/capsec-host-abi-output-executor-batch/2",
+    profile: "ibex/capsec/1",
+    executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
+    sourceRevision: plan.sourceRevision,
+    sourceTreeDigest: plan.sourceTreeDigest,
+    target: structuredClone(plan.target),
+    catalogKeyDigest: plan.catalogKeyDigest,
+    sweepPlanDigest: plan.sweepPlanDigest,
+    loadedEngineIdentity: structuredClone(plan.engine),
+    compiledRegistrarIds: [hostKey.surfaceId],
+    results: [
+      {
+        key: structuredClone(hostKey),
+        proof: {
+          kind: "loaded-engine-return-record",
+          fixtureId: hostProbe.probe.fixtureId,
+          sourceDescriptorDigest: hostProbe.probe.sourceDescriptorDigest,
+          recordPath: structuredClone(hostProbe.probe.recordPath),
+          rawValueShape: "string",
+        },
+        raw: {
+          kind: "return",
+          rawValueShape: "string",
+          value: "1.0.0-test",
+          errorCode: null,
+        },
+      },
+    ],
+    unexercisable: [],
+  };
+  return {
+    catalog,
+    coverage: {
+      edges: [
+        {
+          id: hostKey.surfaceId,
+          surface: { kind: "host-abi", name: hostKey.alias },
+        },
+      ],
+    },
+    generic,
+    hostBatch,
+    hostProbe,
+    plan,
+  };
+}
+
 describe("output-shape-sweep-v3 evidence contract", () => {
+  test("composes generic and Host batches into one full-plan artifact", () => {
+    const value = delegatedCompositionFixture();
+    const { artifact, batch } =
+      composeOutputShapeSweepArtifactFromDelegatedBatches({
+        catalog: value.catalog,
+        plan: value.plan,
+        genericCatalog: value.generic.catalog,
+        genericPlan: value.generic.plan,
+        genericBatch: executorBatch(value.generic),
+        hostAbiBatch: value.hostBatch,
+        targetAbsenceProbes: [],
+        coverage: value.coverage,
+      });
+
+    expect(batch.sweepPlanDigest).toBe(value.plan.sweepPlanDigest);
+    expect(batch.results).toHaveLength(value.plan.rows.length);
+    expect(artifact.observations).toHaveLength(value.plan.rows.length);
+    expect(artifact.compiledRegistrarIds).toEqual(
+      value.plan.surfaceAccountIds,
+    );
+  });
+
+  test("rejects a Host batch that is not bound to the full plan", () => {
+    const value = delegatedCompositionFixture();
+    value.hostBatch.sweepPlanDigest = digest("Z");
+    expect(() =>
+      composeOutputShapeSweepArtifactFromDelegatedBatches({
+        catalog: value.catalog,
+        plan: value.plan,
+        genericCatalog: value.generic.catalog,
+        genericPlan: value.generic.plan,
+        genericBatch: executorBatch(value.generic),
+        hostAbiBatch: value.hostBatch,
+        targetAbsenceProbes: [],
+        coverage: value.coverage,
+      }),
+    ).toThrow(/stale bindings/);
+  });
+
+  test("rejects self-consistent stale catalog subsets and disposition relabels", async () => {
+    const { coverage, surfaces } = await repositorySweepFixture();
+    const readJson = (relativePath) =>
+      JSON.parse(fs.readFileSync(path.join(repoRoot, relativePath), "utf8"));
+    const catalog = readJson("capsec/generated/output-shape-catalog.json");
+    const policy = readJson(
+      "capsec/registry/output-disposition-policy.json",
+    );
+    const trackedEvidence = readJson(
+      "capsec/registry/output-disposition-evidence.json",
+    );
+    const dispositionDataset = buildOutputDispositionDataset({
+      catalog,
+      policy,
+      evidence: trackedEvidence,
+    });
+    const validationInputs = {
+      catalog,
+      dispositionDataset,
+      coverage,
+      surfaces,
+      repoRoot,
+      policy,
+      trackedEvidence,
+    };
+    expect(validateCurrentSourceOutputDispositionArtifacts(validationInputs)).toEqual({
+      catalog,
+      dispositionDataset,
+    });
+
+    const hostSurfaceIds = new Set(
+      coverage.edges
+        .filter((edge) => edge.surface.kind === "host-abi")
+        .map((edge) => edge.id),
+    );
+    const removedAccount = catalog.surfaceAccounts.find(
+      (account) =>
+        account.status === "output-bearing" &&
+        !hostSurfaceIds.has(account.surfaceId) &&
+        catalog.rows.some((row) => row.key.surfaceId === account.surfaceId) &&
+        !catalog.parameterizedOutputBindings.some(
+          (binding) => binding.surfaceId === account.surfaceId,
+        ),
+    );
+    expect(removedAccount).toBeDefined();
+    const staleCatalog = structuredClone(catalog);
+    const removedRows = staleCatalog.rows.filter(
+      (row) => row.key.surfaceId === removedAccount.surfaceId,
+    );
+    staleCatalog.rows = staleCatalog.rows.filter(
+      (row) => row.key.surfaceId !== removedAccount.surfaceId,
+    );
+    staleCatalog.surfaceAccounts = staleCatalog.surfaceAccounts.filter(
+      (account) => account.surfaceId !== removedAccount.surfaceId,
+    );
+    staleCatalog.contexts = outputExecutionContextsForRows(staleCatalog.rows);
+    staleCatalog.catalogKeyDigest = outputShapeCatalogKeyDigest(
+      staleCatalog.rows,
+    );
+    staleCatalog.counts = {
+      ...staleCatalog.counts,
+      coverageSurfaces: staleCatalog.surfaceAccounts.length,
+      outputBearingSurfaces:
+        staleCatalog.counts.outputBearingSurfaces - 1,
+      catalogRows: staleCatalog.rows.length,
+      sourceInventoryRows:
+        staleCatalog.counts.sourceInventoryRows -
+        removedRows.filter(
+          (row) => row.discovery.kind === "source-inventory-surface",
+        ).length,
+      structuredRows:
+        staleCatalog.counts.structuredRows -
+        removedRows.filter(
+          (row) => row.discovery.kind === "source-asserted-structured-output",
+        ).length,
+    };
+    const staleDataset = structuredClone(dispositionDataset);
+    staleDataset.catalogKeyDigest = staleCatalog.catalogKeyDigest;
+    staleDataset.rows = staleDataset.rows.filter(
+      (row) => row.key.surfaceId !== removedAccount.surfaceId,
+    );
+    staleDataset.counts = {
+      catalogRows: staleCatalog.rows.length,
+      dispositionRows: staleDataset.rows.length,
+      byDisposition: Object.fromEntries(
+        staleDataset.dispositions.map((disposition) => [
+          disposition,
+          staleDataset.rows.filter((row) => row.disposition === disposition)
+            .length,
+        ]),
+      ),
+    };
+    expect(() =>
+      validateCurrentSourceOutputDispositionArtifacts({
+        ...validationInputs,
+        catalog: staleCatalog,
+        dispositionDataset: staleDataset,
+      }),
+    ).toThrow(/differs from the current source-derived catalog/);
+
+    const relabeledDataset = structuredClone(dispositionDataset);
+    const relabeledRow = relabeledDataset.rows.find(
+      (row) => row.disposition === "non-path",
+    );
+    relabeledRow.disposition = "absent";
+    relabeledRow.expectation = {
+      outcome: "absent",
+      normalizedValue: "absent",
+    };
+    relabeledRow.rationale = "self-consistent stale test relabel";
+    relabeledDataset.counts.byDisposition["non-path"] -= 1;
+    relabeledDataset.counts.byDisposition.absent += 1;
+    expect(() =>
+      validateCurrentSourceOutputDispositionArtifacts({
+        ...validationInputs,
+        dispositionDataset: relabeledDataset,
+      }),
+    ).toThrow(/differ from the current source-derived reviewed dataset/);
+  }, 60_000);
+
+  test("authors source-bound sweep probes for every Host target-absence binding", async () => {
+    const { executionPartition, recipeCatalog, target } =
+      await repositorySweepFixture();
+    const probes = buildTargetAbsenceOutputShapeProbes({
+      targetAbsenceBindings:
+        executionPartition.hostAbi.targetAbsenceBindings,
+      recipeCatalog,
+      target,
+    });
+    expect(probes).toHaveLength(
+      executionPartition.hostAbi.targetAbsenceBindings.length,
+    );
+    expect(probes.every((row) => row.key.sourceKind === "host-abi")).toBe(true);
+    expect(
+      probes.every(
+        (row) =>
+          row.probe.sourceDescriptor.kind ===
+            "source-bound-target-absence-output" &&
+          row.probe.sourceDescriptor.recipeCatalogDigest ===
+            recipeCatalog.recipeCatalogDigest &&
+          !Object.hasOwn(row.probe.sourceDescriptor, "expectedObservation"),
+      ),
+    ).toBe(true);
+  }, 60_000);
+
+  test("lifts validated public target-absence evidence into the full sweep", async () => {
+    const {
+      completeCatalog,
+      coverage,
+      executionPartition,
+      recipeCatalog,
+      target,
+    } = await repositorySweepFixture();
+    const binding = executionPartition.hostAbi.targetAbsenceBindings.find(
+      (row) => row.key.alias === "ex_android_initialize",
+    );
+    expect(binding).toBeDefined();
+    const [targetAbsenceProbe] = buildTargetAbsenceOutputShapeProbes({
+      targetAbsenceBindings: [binding],
+      recipeCatalog,
+      target,
+    });
+    const catalogRow = completeCatalog.rows.find(
+      (row) => JSON.stringify(row.key) === JSON.stringify(binding.key),
+    );
+    const coverageEdge = coverage.edges.find(
+      (edge) => edge.id === binding.key.surfaceId,
+    );
+    const recipe = recipeCatalog.recipes.find(
+      (candidate) => candidate.fixtureId === binding.fixtureId,
+    );
+    expect(catalogRow).toBeDefined();
+    expect(coverageEdge).toBeDefined();
+    expect(recipe).toBeDefined();
+
+    const catalog = v2Catalog([catalogRow]);
+    const genericCatalog = v2Catalog([]);
+    const baseBindings = fixture().bindings;
+    const bindings = {
+      ...structuredClone(baseBindings),
+      target: structuredClone(target),
+      engine: {
+        ...structuredClone(baseBindings.engine),
+        structuralFeatures: structuredClone(target.features),
+      },
+    };
+    const genericPlan = buildOutputShapeSweepPlan({
+      catalog: genericCatalog,
+      probes: [],
+      ...bindings,
+    });
+    const plan = buildOutputShapeSweepPlan({
+      catalog,
+      probes: [targetAbsenceProbe],
+      ...bindings,
+    });
+    const genericBatch = {
+      outputShapeExecutorBatchSchema:
+        "ibex/capsec-output-shape-executor-batch/3",
+      profile: "ibex/capsec/1",
+      executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
+      sourceRevision: genericPlan.sourceRevision,
+      sourceTreeDigest: genericPlan.sourceTreeDigest,
+      target: structuredClone(genericPlan.target),
+      catalogKeyDigest: genericPlan.catalogKeyDigest,
+      sweepPlanDigest: genericPlan.sweepPlanDigest,
+      loadedEngineIdentity: structuredClone(genericPlan.engine),
+      compiledRegistrarIds: [],
+      results: [],
+      parameterizedResults: [],
+      unexercisable: [],
+    };
+    const hostAbiBatch = {
+      hostAbiOutputExecutorBatchSchema:
+        "ibex/capsec-host-abi-output-executor-batch/2",
+      profile: "ibex/capsec/1",
+      executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
+      sourceRevision: plan.sourceRevision,
+      sourceTreeDigest: plan.sourceTreeDigest,
+      target: structuredClone(plan.target),
+      catalogKeyDigest: plan.catalogKeyDigest,
+      sweepPlanDigest: plan.sweepPlanDigest,
+      loadedEngineIdentity: structuredClone(plan.engine),
+      compiledRegistrarIds: [binding.key.surfaceId],
+      results: [],
+      unexercisable: [],
+    };
+    const authored = recipe.publicSurfaceProbe.invocation;
+    const probeMode = authored.sourceDescriptor.probeMode;
+    const result = {
+      kind: "absent",
+      surfaceKind: authored.surfaceKind,
+      surfaceName: authored.surfaceName,
+      targetTriple: authored.targetTriple,
+      compiledTargetOs: "macos",
+      compiledTargetArch: "aarch64",
+      probeMode: probeMode.kind,
+      ...(probeMode.kind === "runtime-global-property"
+        ? {
+            globalName: probeMode.globalName,
+            memberName: probeMode.memberName,
+            surfacePresent: false,
+          }
+        : {
+            symbolName: probeMode.symbolName,
+            symbolPresent: false,
+          }),
+    };
+    const execution = buildPublicFixtureEvidence({
+      recipe,
+      engineBinaryDigest: bindings.engine.binaryDigest,
+      coverage: { edges: [coverageEdge] },
+      runtimeObservation: {
+        observationSchema: "ibex/capsec-runtime-public-observation/1",
+        invocation: {
+          invocationSchema: authored.invocationSchema,
+          kind: authored.kind,
+          surfaceObservedKey: recipe.terminalObservedKey,
+          surfaceKind: authored.surfaceKind,
+          surfaceName: authored.surfaceName,
+          targetTriple: authored.targetTriple,
+          sourceDescriptorDigest: authored.sourceDescriptorDigest,
+          result,
+        },
+        legacyObservationCount: 0,
+        typedDecisions: [],
+      },
+    });
+    const publicArtifact = buildPublicSurfaceExecutionArtifact({
+      recipeCatalog,
+      sourceRevision: bindings.sourceRevision,
+      sourceTreeDigest: bindings.sourceTreeDigest,
+      target,
+      engine: bindings.engine,
+      coverage: { edges: [coverageEdge] },
+      executions: [execution],
+    });
+
+    const { artifact } =
+      composeOutputShapeSweepArtifactFromDelegatedBatches({
+        catalog,
+        plan,
+        genericCatalog,
+        genericPlan,
+        genericBatch,
+        hostAbiBatch,
+        targetAbsenceProbes: [targetAbsenceProbe],
+        targetAbsenceExecutionArtifact: publicArtifact,
+        recipeCatalog,
+        coverage: { edges: [coverageEdge] },
+      });
+    expect(artifact.observations).toEqual([
+      expect.objectContaining({
+        key: binding.key,
+        observation: { outcome: "absent", normalizedValue: "absent" },
+      }),
+    ]);
+  }, 60_000);
+
   test("normalizes private native path markers only in authenticated Host-ABI context", () => {
     const raw = {
       kind: "return",
@@ -754,14 +1195,14 @@ describe("output-shape-sweep-v3 evidence contract", () => {
   });
 
   test("production-partitions Host ABI execution without fabricating loaded-JS proof", async () => {
-    const { completeCatalog, executionPartition } =
+    const { completeCatalog, executionPartition, recipeCatalog, target } =
       await repositorySweepFixture();
     expect(executionPartition).toMatchObject({
       outputShapeExecutionPartitionSchema:
         "ibex/capsec-output-shape-execution-partition/1",
       completeCatalogKeyDigest: completeCatalog.catalogKeyDigest,
     });
-    expect(completeCatalog.rows).toHaveLength(6409);
+    expect(completeCatalog.rows).toHaveLength(6441);
     expect(executionPartition.genericCatalog.rows).toHaveLength(5919);
     expect(executionPartition.genericProbes).toHaveLength(5919);
     expect(
@@ -770,8 +1211,31 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       ),
     ).toBe(false);
     expect(executionPartition.hostAbi.targetAbsenceBindings).toHaveLength(59);
-    expect(executionPartition.hostAbi.rows).toHaveLength(289);
-    expect(executionPartition.hostAbi.residuals).toHaveLength(142);
+    expect(executionPartition.hostAbi.rows).toHaveLength(463);
+    expect(executionPartition.hostAbi.residuals).toHaveLength(0);
+
+    const baseBindings = fixture().bindings;
+    const targetAbsenceProbes = buildTargetAbsenceOutputShapeProbes({
+      targetAbsenceBindings:
+        executionPartition.hostAbi.targetAbsenceBindings,
+      recipeCatalog,
+      target,
+    });
+    const completePlan = buildOutputShapeSweepPlan({
+      catalog: completeCatalog,
+      probes: [
+        ...executionPartition.genericProbes,
+        ...executionPartition.hostAbi.rows,
+        ...targetAbsenceProbes,
+      ],
+      ...baseBindings,
+      target,
+      engine: {
+        ...baseBindings.engine,
+        structuralFeatures: [...target.features],
+      },
+    });
+    expect(completePlan.rows).toHaveLength(6441);
 
     const androidRows = [
       ...executionPartition.hostAbi.targetAbsenceBindings,
@@ -867,12 +1331,12 @@ describe("output-shape-sweep-v3 evidence contract", () => {
       shifted.hostAbi.targetAbsenceBindings.length,
       shifted.hostAbi.rows.length,
       shifted.hostAbi.residuals.length,
-    ]).not.toEqual([59, 289, 142]);
+    ]).not.toEqual([59, 463, 0]);
     expect([
       executionPartition.hostAbi.targetAbsenceBindings.length,
       executionPartition.hostAbi.rows.length,
       executionPartition.hostAbi.residuals.length,
-    ]).toEqual([59, 289, 142]);
+    ]).toEqual([59, 463, 0]);
   }, 60_000);
 
   test("routes and exactly validates the complete builtin-effects tranche", async () => {

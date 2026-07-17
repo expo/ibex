@@ -5,6 +5,9 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-16 (private session-lowering protocol v2 routes dynamic
+imports through a native-owned hook carrying the admitted C-only logical
+referrer, so delayed edges cannot fall back to cwd authority.)
 **Revised:** 2026-07-15 (ENG-25066 made the separate authenticated file-module
 runner the default without changing structured script/session evaluation);
 2026-07-15 (ENG-25065 defined runner-backed session cache identity per execution
@@ -1143,7 +1146,14 @@ emits are backed by intrinsics that user-authored source **cannot reach, name, o
 they are not `globalThis` properties, not reachable through any endowment, and they carry a
 registry row saying so (LLP 0021's no-unclassified-surface invariant), exactly as §8's
 display seam does. A reachable `__session.set` would be a route to write any `const` in the
-session.
+session. Protocol v2 also lowers dynamic import calls to a native-owned hook that
+retains the admitted request's C-only logical referrer. The hook returns the trusted
+loader dispatcher's promise and is captured by delayed callbacks; it never consults
+the realm-global import alias or virtual cwd to recover an identity it already owns.
+Its session-root route memo follows LLP 0023 §2.3: the first authenticated record
+publishes only its SourceId identity, and every live cache hit reauthorizes that exact
+SourceId before a fresh Promise may consume the unchanged memo/cache tuple without a
+second resolver or source probe.
 
 #### 7.2 Binding time: late binding by name
 

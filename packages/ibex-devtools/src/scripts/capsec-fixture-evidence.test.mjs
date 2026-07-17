@@ -264,15 +264,17 @@ describe("Exact fixture-evidence pilot", () => {
     });
     expect(report.status).toBe("incomplete");
     expect(report.summary).toMatchObject({
-      cells: 7_152,
+      cells: 7_327,
       conformantCells: 1,
-      incompleteCells: 7_151,
-      requiredFixtures: 23_166,
+      incompleteCells: 7_326,
+      requiredFixtures: 23_899,
       passedFixtures: 9,
-      missingFixtures: 23_157,
+      missingFixtures: 23_890,
       failedFixtures: 0,
     });
-    expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/u);
+    expect(() => assertReportMayAdvertise(report)).toThrow(
+      /cannot advertise without recipe, public-surface, and output-disposition evidence bindings/u,
+    );
   });
 
   test("fails closed on stale source or semantic bindings", () => {

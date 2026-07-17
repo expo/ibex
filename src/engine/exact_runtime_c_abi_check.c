@@ -33,11 +33,13 @@ IBEX_C_ABI_ASSERT(cancellation_failed_value,
                   EX_HERMES_CANCELLATION_FAILED == 3u);
 IBEX_C_ABI_ASSERT(cancellation_defeated_value,
                   EX_HERMES_CANCELLATION_DEFEATED == 4u);
+IBEX_C_ABI_ASSERT(module_graph_unresolved_tla_value,
+                  EX_HERMES_MODULE_GRAPH_UNRESOLVED_TOP_LEVEL_AWAIT == 4u);
 IBEX_C_ABI_ASSERT(session_token_length, EX_HERMES_SESSION_TOKEN_LENGTH == 32u);
 IBEX_C_ABI_ASSERT(request_binding_length,
                   EX_HERMES_REQUEST_BINDING_LENGTH == 32u);
 IBEX_C_ABI_ASSERT(lowering_protocol_version,
-                  EX_HERMES_SESSION_LOWERING_PROTOCOL_VERSION == 1u);
+                  EX_HERMES_SESSION_LOWERING_PROTOCOL_VERSION == 2u);
 IBEX_C_ABI_ASSERT(import_plan_version,
                   EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION == 4u);
 IBEX_C_ABI_ASSERT(error_class_unclassified_value,
@@ -326,6 +328,116 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
                                   bool,
                                   ExHermesEvaluationResult*) =
       ex_hermes_eval_lowered_session;
+  int32_t (*module_compile_factory)(ExactHermesRuntime*,
+                                    uint64_t,
+                                    uint32_t,
+                                    uint32_t,
+                                    uint64_t,
+                                    const uint8_t*,
+                                    size_t,
+                                    const uint8_t*,
+                                    size_t,
+                                    const uint8_t*,
+                                    size_t,
+                                    const uint8_t*,
+                                    size_t,
+                                    const uint8_t*,
+                                    size_t,
+                                    ExactModuleRunnerHandle*,
+                                    char**,
+                                    uint64_t*) =
+      ex_hermes_module_compile_factory;
+  int32_t (*module_load_carrier_factory)(ExactHermesRuntime*,
+                                         uint64_t,
+                                         uint32_t,
+                                         uint32_t,
+                                         uint64_t,
+                                         const uint8_t*,
+                                         size_t,
+                                         const uint8_t*,
+                                         size_t,
+                                         const uint8_t*,
+                                         size_t,
+                                         const uint8_t*,
+                                         size_t,
+                                         const uint8_t*,
+                                         size_t,
+                                         uint32_t,
+                                         const uint8_t*,
+                                         size_t,
+                                         const uint8_t*,
+                                         size_t,
+                                         ExactModuleRunnerHandle*,
+                                         char**,
+                                         uint64_t*) =
+      ex_hermes_module_load_carrier_factory;
+  int32_t (*commonjs_record_evaluate)(ExactHermesRuntime*,
+                                      uint64_t,
+                                      ExactModuleRunnerHandle,
+                                      int32_t*,
+                                      char**,
+                                      uint64_t*) =
+      ex_hermes_commonjs_record_evaluate;
+  int32_t (*commonjs_record_create_esm_adapter)(ExactHermesRuntime*,
+                                                uint64_t,
+                                                ExactModuleRunnerHandle,
+                                                ExactModuleRunnerHandle*,
+                                                char**,
+                                                uint64_t*) =
+      ex_hermes_commonjs_record_create_esm_adapter;
+  int32_t (*module_record_instantiate)(ExactHermesRuntime*,
+                                       uint64_t,
+                                       ExactModuleRunnerHandle,
+                                       const uint8_t*,
+                                       size_t,
+                                       const uint8_t*,
+                                       size_t,
+                                       int32_t,
+                                       char**,
+                                       uint64_t*) =
+      ex_hermes_module_record_instantiate;
+  int32_t (*module_record_run_declare)(ExactHermesRuntime*,
+                                       uint64_t,
+                                       ExactModuleRunnerHandle,
+                                       char**,
+                                       uint64_t*) =
+      ex_hermes_module_record_run_declare;
+  int32_t (*module_record_run_execute)(ExactHermesRuntime*,
+                                       uint64_t,
+                                       ExactModuleRunnerHandle,
+                                       int32_t*,
+                                       char**,
+                                       uint64_t*) =
+      ex_hermes_module_record_run_execute;
+  int32_t (*module_record_poll_evaluation)(ExactHermesRuntime*,
+                                           uint64_t,
+                                           ExactModuleRunnerHandle,
+                                           int32_t*,
+                                           char**,
+                                           uint64_t*) =
+      ex_hermes_module_record_poll_evaluation;
+  int32_t (*module_record_namespace_json)(ExactHermesRuntime*,
+                                          uint64_t,
+                                          ExactModuleRunnerHandle,
+                                          char**,
+                                          char**,
+                                          uint64_t*) =
+      ex_hermes_module_record_namespace_json;
+  uint32_t (*begin_module_graph)(ExactHermesRuntime*,
+                                 const ExHermesSessionCredential*,
+                                 const ExHermesUtf8Slice*,
+                                 size_t) =
+      ex_hermes_structured_module_graph_begin;
+  uint32_t (*suspend_module_graph)(ExactHermesRuntime*, uint64_t) =
+      ex_hermes_structured_module_graph_suspend;
+  uint32_t (*resume_module_graph)(ExactHermesRuntime*, uint64_t) =
+      ex_hermes_structured_module_graph_resume;
+  int (*finish_module_graph)(ExactHermesRuntime*,
+                             uint64_t,
+                             uint32_t,
+                             uint64_t,
+                             ExHermesEvaluationResult*) =
+      ex_hermes_structured_module_graph_finish;
   int (*resume_structured_session)(ExactHermesRuntime*,
                                    uint64_t,
                                    ExHermesEvaluationResult*) =
@@ -414,6 +526,19 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
   (void)settle_submission;
   (void)evaluate_session;
   (void)evaluate_lowered_session;
+  (void)module_compile_factory;
+  (void)module_load_carrier_factory;
+  (void)commonjs_record_evaluate;
+  (void)commonjs_record_create_esm_adapter;
+  (void)module_record_instantiate;
+  (void)module_record_run_declare;
+  (void)module_record_run_execute;
+  (void)module_record_poll_evaluation;
+  (void)module_record_namespace_json;
+  (void)begin_module_graph;
+  (void)suspend_module_graph;
+  (void)resume_module_graph;
+  (void)finish_module_graph;
   (void)resume_structured_session;
   (void)finish_bootstrap;
   (void)take_work_unit;

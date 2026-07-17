@@ -107,6 +107,7 @@
       "enum": [
         "armed-session-bound",
         "bare-eval-post-bootstrap-refused",
+        "checked-native-module-graph",
         "checked-session-lowering",
         "endowments-projected",
         "exact-ordinal-required",

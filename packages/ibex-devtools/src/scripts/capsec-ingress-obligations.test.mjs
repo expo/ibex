@@ -79,9 +79,9 @@ describe("LLP 0022 authenticated ingress obligations", () => {
         repoRoot,
       }),
     ).toEqual({
-      ingressEdges: 9,
+      ingressEdges: 10,
       obligations: REQUIRED_INGRESS_OBLIGATIONS.length,
-      sourceAssertions: 36,
+      sourceAssertions: 39,
       supportingSurfaces: 6,
     });
     expect(Object.keys(REQUIRED_INGRESS_ROW_PROFILES).sort()).toEqual([
@@ -94,6 +94,7 @@ describe("LLP 0022 authenticated ingress obligations", () => {
       "cli:repl-command:time",
       "host-abi:ex_hermes_eval_lowered_session",
       "host-abi:ex_hermes_eval_structured_session",
+      "host-abi:ex_hermes_structured_module_graph_begin",
     ]);
     expect(REQUIRED_AUTHENTICATED_INGRESS_ROUTES).toEqual(
       Object.keys(REQUIRED_INGRESS_ROW_PROFILES).sort(),
@@ -102,6 +103,8 @@ describe("LLP 0022 authenticated ingress obligations", () => {
       REQUIRED_INGRESS_ROW_PROFILES["cli:authenticated-direct-file-ingress"],
     ).toEqual(
       expect.arrayContaining([
+        "checked-native-module-graph",
+        "checked-session-lowering",
         "file-argv-bound",
         "file-program-adapter-bound",
         "file-vfs-source-bound",

@@ -18,12 +18,20 @@ var _exactPipelineStateDebug = typeof process === 'object' && process &&
   process.env && process.env.EXACT_PIPELINE_STATE_DEBUG === '1';
 
 // Polyfill Symbol.dispose and Symbol.asyncDispose if missing (e.g. Hermes)
+// A native module-runner builtin may first evaluate after lockdown has frozen
+// shared intrinsics. In that case the local Symbol.for fallback below remains
+// valid, while attempting to extend the constructor must stay non-fatal.
+// @ref LLP 0026#7-commonjs-interop
 if (typeof Symbol !== 'undefined') {
   if (!Symbol.dispose) {
-    Symbol.dispose = Symbol.for('nodejs.dispose');
+    try {
+      Symbol.dispose = Symbol.for('nodejs.dispose');
+    } catch (_err) {}
   }
   if (!Symbol.asyncDispose) {
-    Symbol.asyncDispose = Symbol.for('nodejs.asyncDispose');
+    try {
+      Symbol.asyncDispose = Symbol.for('nodejs.asyncDispose');
+    } catch (_err) {}
   }
 }
 

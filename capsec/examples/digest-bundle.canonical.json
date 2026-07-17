@@ -141563,6 +141563,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.host.abi.ex.hermes.poll.with.external.keep.alive.0r6b22j",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_poll_with_external_keep_alive"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
             "id": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
             "classification": "non-capability",
             "surface": {
@@ -141738,6 +141748,46 @@
             "surface": {
               "kind": "host-abi",
               "name": "ex_hermes_structured_active_work_target"
+            },
+            "rationaleId": "terminal-session-control",
+            "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.structured.module.graph.begin.0j3s7a8",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_structured_module_graph_begin"
+            },
+            "rationaleId": "authenticated-code-ingress",
+            "rationale": "This non-JavaScript-reachable control-plane route authenticates root attribution and source provenance without itself exercising external authority; every submitted-code effect remains independently mediated."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_structured_module_graph_finish"
+            },
+            "rationaleId": "terminal-session-control",
+            "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.structured.module.graph.resume.15vxx9g",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_structured_module_graph_resume"
+            },
+            "rationaleId": "terminal-session-control",
+            "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
+          },
+          {
+            "id": "surface.host.abi.ex.hermes.structured.module.graph.suspend.0m9an5x",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_hermes_structured_module_graph_suspend"
             },
             "rationaleId": "terminal-session-control",
             "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
@@ -157765,6 +157815,16 @@
             "surface": {
               "kind": "loader",
               "name": "function:javascript:wrapAsyncModule"
+            },
+            "rationaleId": "module-reachability-only",
+            "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+          },
+          {
+            "id": "surface.loader.function.javascript.wrapdynamicimportvalue.080bqbs",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "function:javascript:wrapDynamicImportValue"
             },
             "rationaleId": "module-reachability-only",
             "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
@@ -277059,6 +277119,7 @@
             "enum": [
               "armed-session-bound",
               "bare-eval-post-bootstrap-refused",
+              "checked-native-module-graph",
               "checked-session-lowering",
               "endowments-projected",
               "exact-ordinal-required",

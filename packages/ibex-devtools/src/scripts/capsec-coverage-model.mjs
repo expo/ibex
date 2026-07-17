@@ -5179,6 +5179,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_notify_callback",
     "ex_hermes_now_ms",
     "ex_hermes_poll",
+    "ex_hermes_poll_with_external_keep_alive",
     "ex_hermes_resolve_exact_host_call",
     "ex_hermes_resolve_host_call",
     "ex_hermes_resume_structured_session",
@@ -5197,6 +5198,10 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
     "ex_hermes_structured_active_work_target",
+    "ex_hermes_structured_module_graph_begin",
+    "ex_hermes_structured_module_graph_finish",
+    "ex_hermes_structured_module_graph_resume",
+    "ex_hermes_structured_module_graph_suspend",
     "ex_hermes_structured_session_bind",
     "ex_hermes_structured_submission_admit",
     "ex_hermes_structured_submission_settle",
@@ -6051,6 +6056,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:transformDynamicImport",
     "function:javascript:transformImportMeta",
     "function:javascript:wrapAsyncModule",
+    "function:javascript:wrapDynamicImportValue",
     "function:rust:authenticated_module_resolve_options",
     "function:rust:authenticated_resolver_base_dir",
     "function:rust:build_builtin_registry",
@@ -10167,6 +10173,7 @@ function loaderClassification(surface) {
         "function:javascript:transformdynamicimport",
         "function:javascript:transformimportmeta",
         "function:javascript:wrapasyncmodule",
+        "function:javascript:wrapdynamicimportvalue",
         "function:rust:build_builtin_registry",
         "function:rust:is_builtin_specifier",
         "function:rust:is_registered_builtin_specifier",
@@ -12619,6 +12626,7 @@ function embedderAbiClassification(name) {
         "exhermesnexttimer",
         "exhermesnotifycallback",
         "exhermespoll",
+        "exhermespollwithexternalkeepalive",
         "exhermesschedulewatchdogheartbeat",
         "exhermessetdispatchcallback",
         "exhermessetdispatchwithdebugcontextcallback",
@@ -13061,7 +13069,8 @@ function classifyConcreteSurface(surface) {
     // and the authority-control-plane token binding that precedes it.
     if (
       surface.name === "ex_hermes_eval_structured_session" ||
-      surface.name === "ex_hermes_eval_lowered_session"
+      surface.name === "ex_hermes_eval_lowered_session" ||
+      surface.name === "ex_hermes_structured_module_graph_begin"
     ) {
       return nonCapabilitySpec("authenticated-code-ingress", "WP7");
     }
@@ -13070,7 +13079,10 @@ function classifyConcreteSurface(surface) {
     }
     if (
       surface.name === "ex_hermes_structured_submission_admit" ||
-      surface.name === "ex_hermes_structured_submission_settle"
+      surface.name === "ex_hermes_structured_submission_settle" ||
+      surface.name === "ex_hermes_structured_module_graph_finish" ||
+      surface.name === "ex_hermes_structured_module_graph_resume" ||
+      surface.name === "ex_hermes_structured_module_graph_suspend"
     ) {
       return nonCapabilitySpec("terminal-session-control", "WP7");
     }

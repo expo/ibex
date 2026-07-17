@@ -177,6 +177,7 @@ const HERMES_DIAGNOSTIC_FUNCTIONS = new Set([
   "ex_hermes_has_pending_tasks",
   "ex_hermes_next_timer",
   "ex_hermes_poll",
+  "ex_hermes_poll_with_external_keep_alive",
   "ex_hermes_resolve_host_call",
   "ex_hermes_runtime_nonce",
   "ex_hermes_schedule_watchdog_heartbeat_for_generation",
@@ -265,13 +266,131 @@ const HOST_TYPED_AUTHORITY_FUNCTIONS = new Set([
 
 const HOST_AUTHENTICATED_STATEFUL_FUNCTIONS = new Set([
   "ex_host_authorize_exact_endowment",
+  "ex_host_build_exact_armed_embedder_artifacts",
   "ex_host_env_get",
   "ex_host_install_armed",
   "ex_host_matches_armed_snapshot_digest",
   "ex_host_prepare_armed_embedder_artifacts",
+  "ex_host_prepare_exact_armed_embedder_artifacts",
   "ex_host_random_fill",
   "ex_host_session_static_import_resolve",
   "ex_host_session_static_import_resolve_meta",
+]);
+
+// Stateful native families whose output shapes can be observed only while a
+// bounded production fixture owns their runtime/session/server lifecycle.
+// Membership is deliberately exact: adding a new ABI does not inherit an
+// executor merely because its spelling shares a prefix.
+const HOST_HTTP_FUNCTIONS = new Set([
+  "ex_host_http_address",
+  "ex_host_http_await_writable",
+  "ex_host_http_await_writable_owned",
+  "ex_host_http_cleanup_runtime",
+  "ex_host_http_close",
+  "ex_host_http_drain",
+  "ex_host_http_has_pending_requests",
+  "ex_host_http_has_referenced",
+  "ex_host_http_is_referenced",
+  "ex_host_http_poll",
+  "ex_host_http_read_body",
+  "ex_host_http_respond",
+  "ex_host_http_respond_abort",
+  "ex_host_http_respond_chunk",
+  "ex_host_http_respond_chunk_try",
+  "ex_host_http_respond_end",
+  "ex_host_http_respond_end_try",
+  "ex_host_http_respond_json",
+  "ex_host_http_respond_stream",
+  "ex_host_http_respond_string",
+  "ex_host_http_respond_text",
+  "ex_host_http_serve",
+  "ex_host_http_wait",
+  "ex_host_http_wait_owned",
+]);
+
+const HERMES_SESSION_STATEFUL_FUNCTIONS = new Set([
+  "ex_hermes_eval_lowered_session",
+  "ex_hermes_eval_structured_session",
+  "ex_hermes_resume_structured_session",
+  "ex_hermes_structured_module_graph_begin",
+  "ex_hermes_structured_module_graph_finish",
+  "ex_hermes_structured_module_graph_resume",
+  "ex_hermes_structured_module_graph_suspend",
+  "ex_hermes_structured_session_bind",
+  "ex_hermes_structured_submission_admit",
+  "ex_hermes_structured_submission_settle",
+]);
+
+const HERMES_MODULE_RUNNER_FUNCTIONS = new Set([
+  "ex_hermes_commonjs_create_record",
+  "ex_hermes_commonjs_record_create_esm_adapter",
+  "ex_hermes_commonjs_record_declare_export",
+  "ex_hermes_commonjs_record_evaluate",
+  "ex_hermes_commonjs_record_link_dynamic_import",
+  "ex_hermes_commonjs_record_link_require",
+  "ex_hermes_commonjs_record_link_require_esm",
+  "ex_hermes_graph_context_create",
+  "ex_hermes_graph_context_retain",
+  "ex_hermes_module_compile_factory",
+  "ex_hermes_module_create_record",
+  "ex_hermes_module_load_carrier_factory",
+  "ex_hermes_module_pin_generation",
+  "ex_hermes_module_record_declare_export",
+  "ex_hermes_module_record_instantiate",
+  "ex_hermes_module_record_link_dependency",
+  "ex_hermes_module_record_link_dynamic_import",
+  "ex_hermes_module_record_link_export",
+  "ex_hermes_module_record_link_import",
+  "ex_hermes_module_record_namespace_json",
+  "ex_hermes_module_record_poll_evaluation",
+  "ex_hermes_module_record_run_declare",
+  "ex_hermes_module_record_run_execute",
+  "ex_hermes_module_release_handle",
+  "ex_hermes_module_unpin_generation",
+]);
+
+const STRUCTURED_VFS_OUTPUT_OPERATIONS = new Map([
+  ...[
+    "ex_host_vfs_bind_runtime",
+    "ex_host_vfs_chdir",
+    "ex_host_vfs_get_cwd",
+    "ex_host_vfs_resolve_path",
+    "ex_host_vfs_unbind_runtime",
+  ].map((functionName) => [
+    [functionName, "[[return]]", functionName, "javascript", "absent"].join("\0"),
+    Object.freeze({
+      kind: "rust-host-authenticated-javascript-absence",
+      targetVariant: "default",
+    }),
+  ]),
+  [
+    [
+      "ex_host_vfs_resolve_path",
+      "out:backing",
+      "ex_host_vfs_resolve_path.out_backing",
+      "javascript",
+      "absent",
+    ].join("\0"),
+    Object.freeze({
+      kind: "rust-host-authenticated-javascript-absence",
+      targetVariant: "default",
+    }),
+  ],
+  ...[
+    ["ex_host_vfs_chdir", "out:virtual", "ex_host_vfs_chdir.out_virtual"],
+    ["ex_host_vfs_get_cwd", "out:virtual", "ex_host_vfs_get_cwd.out_virtual"],
+    [
+      "ex_host_vfs_resolve_path",
+      "out:virtual",
+      "ex_host_vfs_resolve_path.out_virtual",
+    ],
+  ].map(([functionName, output, alias]) => [
+    [functionName, output, alias, "private-native", "success"].join("\0"),
+    Object.freeze({
+      kind: "rust-host-authenticated-vfs-structured-output",
+      targetVariant: "default",
+    }),
+  ]),
 ]);
 
 // Non-return selectors whose companion native family captures the caller
@@ -581,9 +700,29 @@ function legacyHostOutputOperationFor(functionName, key) {
   );
 }
 
+function structuredVfsOutputOperationFor(functionName, key) {
+  if (!key) return null;
+  return (
+    STRUCTURED_VFS_OUTPUT_OPERATIONS.get(
+      [
+        functionName,
+        key.output,
+        key.alias,
+        key.mode,
+        key.returnVariant,
+      ].join("\0"),
+    ) ?? null
+  );
+}
+
 function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   const legacyOutput = legacyHostOutputOperationFor(functionName, key);
   if (legacyOutput) return structuredClone(legacyOutput.operation);
+  const structuredVfsOutput = structuredVfsOutputOperationFor(
+    functionName,
+    key,
+  );
+  if (structuredVfsOutput) return structuredClone(structuredVfsOutput);
   const pathOutput = pathOutputOperationFor(functionName, outputSelector);
   if (pathOutput) return structuredClone(pathOutput.operation);
   if (
@@ -593,6 +732,18 @@ function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   ) {
     return {
       kind: "rust-host-authenticated-vfs-output",
+      targetVariant: "default",
+    };
+  }
+  if (HERMES_SESSION_STATEFUL_FUNCTIONS.has(functionName)) {
+    return {
+      kind: "native-hermes-authenticated-session-runtime",
+      targetVariant: "default",
+    };
+  }
+  if (HERMES_MODULE_RUNNER_FUNCTIONS.has(functionName)) {
+    return {
+      kind: "native-hermes-module-runner-runtime",
       targetVariant: "default",
     };
   }
@@ -616,6 +767,21 @@ function operationFor(functionName, outputSelector = "[[return]]", key = null) {
   }
   if (HOST_AUTHENTICATED_STATEFUL_FUNCTIONS.has(functionName)) {
     return { kind: "rust-host-authenticated-stateful-output" };
+  }
+  if (HOST_HTTP_FUNCTIONS.has(functionName)) {
+    return { kind: "rust-host-http-live-server" };
+  }
+  if (functionName === "ex_hermes_create_armed") {
+    return {
+      kind: "native-hermes-authenticated-armed-create",
+      targetVariant: "default",
+    };
+  }
+  if (functionName === "ex_hermes_try_destroy") {
+    return {
+      kind: "native-hermes-owned-runtime-teardown",
+      targetVariant: "default",
+    };
   }
   if (functionName === "ex_hermes_set_host_wake_hook") {
     return { kind: "rust-host-wake-hook-callback" };
@@ -864,11 +1030,17 @@ export function authoredHostAbiOutputProbe({
     `${key.surfaceId}: Host ABI output source/coverage identity drift`,
   );
   const legacyOutput = legacyHostOutputOperationFor(functionName, key);
-  if (key.mode !== "all" && !legacyOutput) return null;
+  const structuredVfsOutput = structuredVfsOutputOperationFor(
+    functionName,
+    key,
+  );
+  if (key.mode !== "all" && !legacyOutput && !structuredVfsOutput) return null;
   const operation = operationFor(functionName, key.output, key);
   if (!operation) return null;
 
-  const pathOutput = pathOutputOperationFor(functionName, key.output);
+  const pathOutput = structuredVfsOutput
+    ? null
+    : pathOutputOperationFor(functionName, key.output);
   if (pathOutput) {
     requireCondition(
       key.alias === functionName &&
@@ -900,7 +1072,11 @@ export function authoredHostAbiOutputProbe({
     inventorySourceRefs.length > 0 &&
       selectedDefinitions.length > 0 &&
       sourceRefs.every((sourceRef) => inventorySourceRefs.includes(sourceRef)) &&
-      (!isRustOperation || selectedDefinitions.length === definitions.length),
+      (!isRustOperation ||
+        definitions.every(
+          (definition) =>
+            definition.language === "rust" || definition.weak === true,
+        )),
     `${functionName}: bounded Host ABI route lost its exact compiled definition`,
   );
   const sourceOutputSelector = legacyOutput
@@ -1042,12 +1218,20 @@ export function hostAbiOutputResidualReason({ catalogRow, surface }) {
     surface?.name,
     catalogRow.key,
   );
+  const structuredVfsOutput = structuredVfsOutputOperationFor(
+    surface?.name,
+    catalogRow.key,
+  );
   const operation = operationFor(
     surface?.name,
     catalogRow.key.output,
     catalogRow.key,
   );
-  if (catalogRow.key.mode !== "all" && !legacyOutput) {
+  if (
+    catalogRow.key.mode !== "all" &&
+    !legacyOutput &&
+    !structuredVfsOutput
+  ) {
     return "private-vfs-return-record-requires-authenticated-runtime-session";
   }
   if (operation) {
@@ -1081,11 +1265,13 @@ export function hostAbiOutputResidualReason({ catalogRow, surface }) {
       return null;
     }
     if (catalogRow.key.output !== "[[return]]") {
-      exactPathOutputBinding(
-        surface.name,
-        catalogRow.key.output,
-        selectedChannels,
-      );
+      if (!structuredVfsOutput) {
+        exactPathOutputBinding(
+          surface.name,
+          catalogRow.key.output,
+          selectedChannels,
+        );
+      }
       return null;
     }
     const returnKinds = new Set(

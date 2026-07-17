@@ -1231,6 +1231,13 @@ impl SourceRequest {
         &self.common().session.0.root_principal
     }
 
+    /// Digest of the exact immutable armed snapshot that authenticated this
+    /// request. Module-graph consumers compare it with their retained Host and
+    /// engine instance; it is identity evidence, not a caller-selectable input.
+    pub fn authenticated_snapshot_digest(&self) -> &Digest {
+        &self.common().session.0.snapshot_digest
+    }
+
     /// Virtualized file-mode argv bound into the authenticated request. The
     /// first two elements are fixed (`ibex:runtime`, virtual entry spelling);
     /// only trailing elements originate as operator data. Other entry kinds

@@ -2444,10 +2444,26 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 void cancelAllFetchCallbacks(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
-static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms);
+extern "C" int ex_hermes_poll_with_external_keep_alive(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms);
+static int pollRuntime(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms,
+    bool external_keep_alive);
 extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
 extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
+static int64_t nextTimerUnchecked(ExactHermesRuntime* runtime);
+static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime);
+static int evalRuntimeUnchecked(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outValue);
+ExHermesEvaluationFault structuredRuntimeDriveFault(int32_t status);
 
 std::mutex g_runtimeRegistryMutex;
 
@@ -2586,29 +2602,85 @@ ExactRuntimeDriveGuard::ExactRuntimeDriveGuard(
     ExactHermesRuntime* runtime, uint64_t expectedNonce)
     : runtime_(runtime) {
   if (runtime == nullptr) return;
-  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
-  auto it = g_activeRuntimes.find(runtime);
-  if (it == g_activeRuntimes.end() ||
-      it->second.state != RuntimeLifecycleState::Running ||
-      (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
+  {
+    std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+    auto it = g_activeRuntimes.find(runtime);
+    if (it == g_activeRuntimes.end() ||
+        it->second.state != RuntimeLifecycleState::Running ||
+        (expectedNonce != 0 && it->second.nonce != expectedNonce)) {
+      status_ = EXACT_RUNTIME_DRIVE_STALE;
+      return;
+    }
+    if (it->second.owner != std::this_thread::get_id()) {
+      status_ = EXACT_RUNTIME_DRIVE_OFF_OWNER;
+      return;
+    }
+    if (it->second.drive_active) {
+      status_ = EXACT_RUNTIME_DRIVE_REENTRANT;
+      return;
+    }
+    it->second.drive_active = true;
+    nonce_ = it->second.nonce;
+    status_ = EXACT_RUNTIME_DRIVE_OK;
+  }
+
+  // Host selection is an engine-entry property, not an individual evaluator's
+  // responsibility. Centralizing it here covers module-record execution,
+  // CommonJS recursion, and event-loop callback delivery as well as eval.
+  // Do not hold the native runtime-registry mutex across the Rust Host call.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  previous_runtime_nonce_ = g_active_runtime_nonce;
+  g_active_runtime_nonce = nonce_;
+  previous_host_context_ = ex_host_enter_context(runtime->host_context_id);
+  if (previous_host_context_ == UINT64_MAX) {
+    g_active_runtime_nonce = previous_runtime_nonce_;
+    std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+    auto it = g_activeRuntimes.find(runtime);
+    if (it != g_activeRuntimes.end() && it->second.nonce == nonce_) {
+      it->second.drive_active = false;
+    }
     status_ = EXACT_RUNTIME_DRIVE_STALE;
     return;
   }
-  if (it->second.owner != std::this_thread::get_id()) {
-    status_ = EXACT_RUNTIME_DRIVE_OFF_OWNER;
-    return;
-  }
-  if (it->second.drive_active) {
-    status_ = EXACT_RUNTIME_DRIVE_REENTRANT;
-    return;
-  }
-  it->second.drive_active = true;
-  nonce_ = it->second.nonce;
-  status_ = EXACT_RUNTIME_DRIVE_OK;
+
+  // A principal identifier is meaningful only inside the Host/runtime
+  // generation that authenticated it. A same-thread drive of runtime B may
+  // occur inside a timer, nextTick, or module callback from runtime A, whose
+  // native and typed-FS scopes are still live on this thread. Never translate
+  // those bare numeric IDs into B's Host context: start B at its root/no-native
+  // boundary and let B's own frames and callbacks install their scopes.
+  // @ref LLP 0002#runtime-driving-thread-contract
+  previous_module_id_ = g_active_module_id;
+  previous_native_principal_ = g_native_callback_principal_id;
+  previous_typed_principal_stack_ =
+      exactSwapTypedPrincipalStackForRuntimeDrive(nullptr);
+  g_active_module_id = 0;
+  g_native_callback_principal_id = kNoNativePrincipalOverride;
+  principal_scope_active_ = true;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  previous_attribution_runtime_ = g_vm_runtime;
+  g_vm_runtime = runtime->attribution_runtime;
+#endif
+  dynamic_scope_active_ = true;
 }
 
 ExactRuntimeDriveGuard::~ExactRuntimeDriveGuard() {
   if (status_ != EXACT_RUNTIME_DRIVE_OK || runtime_ == nullptr) return;
+  if (dynamic_scope_active_) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+    g_vm_runtime = previous_attribution_runtime_;
+#endif
+    if (principal_scope_active_) {
+      exactSwapTypedPrincipalStackForRuntimeDrive(
+          previous_typed_principal_stack_);
+      g_native_callback_principal_id = previous_native_principal_;
+      g_active_module_id = previous_module_id_;
+      principal_scope_active_ = false;
+    }
+    ex_host_restore_context(previous_host_context_);
+    g_active_runtime_nonce = previous_runtime_nonce_;
+    dynamic_scope_active_ = false;
+  }
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
   auto it = g_activeRuntimes.find(runtime_);
   if (it != g_activeRuntimes.end() && it->second.nonce == nonce_) {
@@ -7267,11 +7339,10 @@ extern "C" uint32_t ex_hermes_finish_bootstrap(
   if (runtime == nullptr) {
     return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
   }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
   if (!runtime->armed) {
     return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
-  }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
   }
   if (!runtime->armed_bootstrap_eval_open) {
     return EX_HERMES_EVAL_FAULT_NONE;
@@ -8405,7 +8476,9 @@ std::string structuredNameArgument(
   return args[0].getString(rt).utf8(rt);
 }
 
-facebook::jsi::Object makeStructuredSessionHooks(ExactHermesRuntime* handle) {
+facebook::jsi::Object makeStructuredSessionHooks(
+    ExactHermesRuntime* handle,
+    const std::string& logicalReferrer) {
   auto& rt = *handle->runtime;
   facebook::jsi::Object hooks(rt);
   auto reference = facebook::jsi::Function::createFromHostFunction(
@@ -8496,6 +8569,34 @@ facebook::jsi::Object makeStructuredSessionHooks(ExactHermesRuntime* handle) {
         return facebook::jsi::Value(success);
       });
   hooks.setProperty(rt, "deleteName", std::move(deleteName));
+
+  // @ref LLP 0024#71-the-environment-a-modified-globalenvironmentrecord
+  auto dynamicImport = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "dynamicImport"),
+      1,
+      [handle, logicalReferrer](facebook::jsi::Runtime& runtime,
+                                const facebook::jsi::Value&,
+                                const facebook::jsi::Value* args,
+                                size_t count) -> facebook::jsi::Value {
+        if (count != 1 || !handle->structured_session_bound ||
+            handle->structured_session_terminated ||
+            !handle->structured_session_import_materializer ||
+            logicalReferrer.empty()) {
+          throw facebook::jsi::JSError::createTypeError(
+              runtime, "authenticated session dynamic import is unavailable");
+        }
+        // The trusted JS dispatcher converts invalid specifiers and resolver
+        // denials into rejected promises. Passing the raw value preserves that
+        // import() behavior while this native closure supplies the immutable,
+        // C-only logical referrer captured from the admitted request.
+        return handle->structured_session_import_materializer->call(
+            runtime,
+            facebook::jsi::String::createFromAscii(runtime, "dynamic-import"),
+            args[0],
+            facebook::jsi::String::createFromUtf8(runtime, logicalReferrer));
+      });
+  hooks.setProperty(rt, "dynamicImport", std::move(dynamicImport));
 
   auto hoistFunction = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -9438,6 +9539,7 @@ int evaluateLoweredPreparedSession(
     const std::shared_ptr<const facebook::jsi::Buffer>& source,
     const std::shared_ptr<const facebook::jsi::Buffer>& sourceMap,
     const std::string& sourceLabel,
+    const std::string& logicalReferrer,
     bool asynchronous,
     uint32_t capabilityFlags,
     ExHermesEvaluationResult* result,
@@ -9463,7 +9565,7 @@ int evaluateLoweredPreparedSession(
       return 0;
     }
     auto wrapper = wrapperValue.getObject(rt).asFunction(rt);
-    auto hooks = makeStructuredSessionHooks(handle);
+    auto hooks = makeStructuredSessionHooks(handle, logicalReferrer);
     auto invocation = wrapper.call(rt, hooks);
 
     if (asynchronous) {
@@ -9666,15 +9768,16 @@ extern "C" int ex_hermes_eval_structured_diagnostic(
     structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_UTF8);
     return 0;
   }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
+    return 0;
+  }
   if (runtime->armed) {
     // This seam carries no SubmissionCredential. Keeping it diagnostic-only
     // prevents a typed result container from disguising unattributed eval.
     // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
     structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_INGRESS_REQUIRED);
-    return 0;
-  }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    structuredFault(result, EX_HERMES_EVAL_FAULT_WRONG_THREAD);
     return 0;
   }
   if (runtime->next_structured_work_target_id == 0) {
@@ -9715,11 +9818,10 @@ extern "C" uint32_t ex_hermes_structured_session_bind(
       !hasNonzeroByte(session_token, session_token_length)) {
     return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
   }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
   if (!runtime->armed) {
     return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
-  }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
   }
   if (runtime->armed_bootstrap_eval_open) {
     return EX_HERMES_EVAL_FAULT_BOOTSTRAP_NOT_SEALED;
@@ -9838,11 +9940,10 @@ extern "C" uint32_t ex_hermes_structured_submission_admit(
       !structuredCredentialLayoutIsCurrent(credential)) {
     return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
   }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
   if (!runtime->armed) {
     return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
-  }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
   }
   if (runtime->armed_bootstrap_eval_open) {
     return EX_HERMES_EVAL_FAULT_BOOTSTRAP_NOT_SEALED;
@@ -9926,9 +10027,8 @@ extern "C" uint32_t ex_hermes_structured_submission_settle(
       !structuredCredentialLayoutIsCurrent(credential)) {
     return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
   }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
-  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
   if (!runtime->structured_session_bound) {
     return EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND;
   }
@@ -9946,6 +10046,375 @@ extern "C" uint32_t ex_hermes_structured_submission_settle(
   clearStructuredAdmittedSubmission(runtime);
   clearStructuredActiveTarget(runtime, workTargetId);
   return EX_HERMES_EVAL_FAULT_NONE;
+}
+
+uint64_t exactRetainStructuredModuleGraphError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::JSError& error) noexcept {
+  return exactRetainStructuredModuleGraphError(runtime, error.value());
+}
+
+uint64_t exactRetainStructuredModuleGraphError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Value& value) noexcept {
+  if (runtime == nullptr || !runtime->structured_module_graph_in_flight) {
+    return 0;
+  }
+  constexpr size_t kMaximumRetainedModuleErrors = 4096;
+  if (runtime->structured_module_error_values.size() >=
+          kMaximumRetainedModuleErrors ||
+      runtime->next_structured_module_error_token == 0) {
+    return 0;
+  }
+  const uint64_t token = runtime->next_structured_module_error_token++;
+  try {
+    auto retained =
+        std::make_unique<facebook::jsi::Value>(*runtime->runtime, value);
+    if (!runtime->structured_module_error_values
+             .emplace(token, std::move(retained))
+             .second) {
+      return 0;
+    }
+    return token;
+  } catch (...) {
+    return 0;
+  }
+}
+
+bool copyStructuredModuleGraphFileArguments(
+    const ExHermesUtf8Slice* input,
+    size_t count,
+    std::vector<std::string>* output) {
+  if (output == nullptr || input == nullptr || count < 2 || count > 65536) {
+    return false;
+  }
+  constexpr size_t kMaximumFileArgumentBytes = 1024 * 1024;
+  size_t totalBytes = 0;
+  output->clear();
+  output->reserve(count);
+  for (size_t index = 0; index < count; ++index) {
+    const auto& argument = input[index];
+    if (!structuredFileArgumentBytesValid(argument.data, argument.length) ||
+        argument.length > kMaximumFileArgumentBytes - totalBytes) {
+      return false;
+    }
+    totalBytes += argument.length;
+    if (argument.length == 0) {
+      output->emplace_back();
+    } else {
+      output->emplace_back(
+          reinterpret_cast<const char*>(argument.data), argument.length);
+    }
+  }
+  if ((*output)[0] != "ibex:runtime") return false;
+  const auto& entry = (*output)[1];
+  return entry.size() > 9 && entry.compare(0, 9, "/project/") == 0 &&
+      entry.back() != '/' && entry.find("//") == std::string::npos &&
+      entry.find("/./") == std::string::npos &&
+      entry.find("/../") == std::string::npos &&
+      (entry.size() < 2 || entry.compare(entry.size() - 2, 2, "/.") != 0) &&
+      (entry.size() < 3 || entry.compare(entry.size() - 3, 3, "/..") != 0);
+}
+
+void clearStructuredModuleGraphJobAssociation(ExactHermesRuntime* runtime) {
+  runtime->structured_vm_job_associated_evaluation = 0;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+  if (runtime->attribution_runtime != nullptr) {
+    ex_hermes_vm_set_job_associated_evaluation(runtime->attribution_runtime, 0);
+  }
+#endif
+}
+
+ExHermesEvaluationFault structuredRuntimeDriveFault(int32_t status) {
+  switch (status) {
+    case EXACT_RUNTIME_DRIVE_INVALID:
+      return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+    case EXACT_RUNTIME_DRIVE_STALE:
+      return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
+    case EXACT_RUNTIME_DRIVE_OFF_OWNER:
+      return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
+    case EXACT_RUNTIME_DRIVE_REENTRANT:
+      return EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT;
+    case EXACT_RUNTIME_DRIVE_ENGINE_ERROR:
+    default:
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+}
+
+extern "C" uint32_t ex_hermes_structured_module_graph_begin(
+    ExactHermesRuntime* runtime,
+    const ExHermesSessionCredential* credential,
+    const ExHermesUtf8Slice* file_arguments,
+    size_t file_argument_count) {
+  if (runtime == nullptr ||
+      !structuredCredentialLayoutIsCurrent(credential)) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
+  if (!runtime->armed) return EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED;
+  if (!runtime->structured_session_bound) {
+    return EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND;
+  }
+  if (runtime->structured_session_terminated) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  if (!constantTimeBytesEqual(
+          runtime->structured_session_token.data(),
+          credential->session_token,
+          EX_HERMES_SESSION_TOKEN_LENGTH)) {
+    return EX_HERMES_EVAL_FAULT_WRONG_SESSION;
+  }
+  if (!structuredAdmittedCredentialMatches(runtime, credential)) {
+    return structuredMissingAdmissionFault(runtime, credential);
+  }
+  if (runtime->structured_evaluation_in_flight ||
+      runtime->structured_module_graph_in_flight ||
+      runtime->structured_pending_display_work_target_id != 0 ||
+      runtime->structured_pending_display_handle_id != 0 ||
+      structuredWorkIsExecuting(runtime)) {
+    return EX_HERMES_EVAL_FAULT_EVALUATION_IN_FLIGHT;
+  }
+
+  StructuredStaticImportPlan filePlan;
+  if (!copyStructuredModuleGraphFileArguments(
+          file_arguments, file_argument_count, &filePlan.fileArguments)) {
+    return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
+  }
+  try {
+    if (!applyStructuredFileArguments(runtime, filePlan)) {
+      return EX_HERMES_EVAL_FAULT_ENGINE;
+    }
+  } catch (...) {
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+
+  const uint64_t workTargetId = runtime->structured_admitted_work_target_id;
+  runtime->structured_module_error_values.clear();
+  runtime->next_structured_module_error_token = 1;
+  runtime->structured_module_graph_work_target_id = workTargetId;
+  runtime->structured_module_graph_in_flight = true;
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_evaluation_in_flight = true;
+  runtime->structured_evaluation_scheduling_id = credential->ordinal;
+  runtime->structured_vm_job_associated_evaluation = credential->ordinal;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+  if (runtime->attribution_runtime != nullptr) {
+    ex_hermes_vm_set_job_associated_evaluation(
+        runtime->attribution_runtime, credential->ordinal);
+  }
+#endif
+  if (!beginStructuredWorkUnit(
+          runtime,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          credential->ordinal,
+          workTargetId)) {
+    clearStructuredModuleGraphJobAssociation(runtime);
+    runtime->structured_evaluation_scheduling_id = 0;
+    runtime->structured_evaluation_in_flight = false;
+    runtime->structured_module_graph_in_flight = false;
+    runtime->structured_module_graph_work_target_id = 0;
+    runtime->structured_module_error_values.clear();
+    return EX_HERMES_EVAL_FAULT_ENGINE;
+  }
+  clearStructuredAdmittedSubmission(runtime);
+  return EX_HERMES_EVAL_FAULT_NONE;
+}
+
+extern "C" uint32_t ex_hermes_structured_module_graph_suspend(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id) {
+  if (runtime == nullptr || work_target_id == 0) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  if (!runtime->structured_module_graph_in_flight ||
+      runtime->structured_module_graph_suspended ||
+      runtime->structured_module_graph_work_target_id != work_target_id) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id != work_target_id ||
+        !runtime->structured_vm_work_active) {
+      return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+    }
+    if (runtime->structured_cancel_requested_work_target_id == work_target_id) {
+      return EX_HERMES_MODULE_GRAPH_TRANSITION_CANCELLATION_PENDING;
+    }
+    runtime->structured_active_work_target_id = 0;
+    runtime->structured_vm_work_active = false;
+  }
+  runtime->structured_module_graph_suspended = true;
+  clearStructuredModuleGraphJobAssociation(runtime);
+  if (!publishStructuredWorkEvent(
+          runtime,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          EX_HERMES_WORK_UNIT_SUSPENDED,
+          work_target_id,
+          runtime->structured_evaluation_scheduling_id)) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  return EX_HERMES_MODULE_GRAPH_TRANSITION_OK;
+}
+
+extern "C" uint32_t ex_hermes_structured_module_graph_resume(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id) {
+  if (runtime == nullptr || work_target_id == 0) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  if (!runtime->structured_module_graph_in_flight ||
+      !runtime->structured_module_graph_suspended ||
+      runtime->structured_module_graph_work_target_id != work_target_id) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+    if (runtime->structured_active_work_target_id != 0 ||
+        runtime->structured_vm_work_active ||
+        runtime->structured_cancel_requested_work_target_id != 0) {
+      return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
+    }
+    runtime->structured_active_work_target_id = work_target_id;
+    runtime->structured_vm_work_active = true;
+  }
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_vm_job_associated_evaluation =
+      runtime->structured_evaluation_scheduling_id;
+#if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
+    defined(EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE)
+  if (runtime->attribution_runtime != nullptr) {
+    ex_hermes_vm_set_job_associated_evaluation(
+        runtime->attribution_runtime,
+        runtime->structured_evaluation_scheduling_id);
+  }
+#endif
+  return EX_HERMES_MODULE_GRAPH_TRANSITION_OK;
+}
+
+// @abi-output ex_hermes_structured_module_graph_finish result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
+extern "C" int ex_hermes_structured_module_graph_finish(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint32_t execution_outcome,
+    uint64_t error_token,
+    ExHermesEvaluationResult* result) {
+  if (!structuredResultLayoutIsCurrent(result)) return -1;
+  ex_hermes_evaluation_result_dispose(result);
+  if (runtime == nullptr || work_target_id == 0) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
+    return 0;
+  }
+  result->work_target_id = work_target_id;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
+    return 0;
+  }
+  if (!runtime->structured_module_graph_in_flight ||
+      runtime->structured_module_graph_work_target_id != work_target_id) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_STALE_HANDLE);
+    return 0;
+  }
+
+  auto retainedError = error_token == 0
+      ? runtime->structured_module_error_values.end()
+      : runtime->structured_module_error_values.find(error_token);
+  const bool exactJavascriptThrow =
+      execution_outcome == EX_HERMES_MODULE_GRAPH_JAVASCRIPT_THROW &&
+      retainedError != runtime->structured_module_error_values.end();
+  const bool unresolvedTopLevelAwait =
+      execution_outcome ==
+      EX_HERMES_MODULE_GRAPH_UNRESOLVED_TOP_LEVEL_AWAIT;
+
+  if (structuredLifecycleOutcome(
+          runtime, result, kStructuredEvaluatorCapabilities)) {
+    // Lifecycle is terminal and outranks an overlapping cancellation request.
+  } else if (execution_outcome == EX_HERMES_MODULE_GRAPH_COMPLETED) {
+    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_EMPTY;
+    result->fault = EX_HERMES_EVAL_FAULT_NONE;
+    result->capability_flags = kStructuredEvaluatorCapabilities;
+  } else if (exactJavascriptThrow) {
+    structuredThrowValue(
+        runtime,
+        *retainedError->second,
+        kStructuredEvaluatorCapabilities,
+        result);
+  } else if (unresolvedTopLevelAwait) {
+    try {
+      const auto failure = facebook::jsi::JSError(
+          *runtime->runtime,
+          "Unsettled top-level await has no pending host or runtime work");
+      structuredThrowValue(
+          runtime,
+          failure.value(),
+          kStructuredEvaluatorCapabilities,
+          result);
+    } catch (const std::bad_alloc&) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+    } catch (...) {
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    }
+  } else {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+  }
+
+  const auto stopCause = exactJavascriptThrow
+      ? StructuredCancellationStopCause::RawCapturedJsThrow
+      : execution_outcome ==
+              EX_HERMES_MODULE_GRAPH_COOPERATIVE_CANCELLATION
+      ? StructuredCancellationStopCause::CooperativeBoundary
+      : StructuredCancellationStopCause::None;
+  const uint64_t schedulingId =
+      runtime->structured_evaluation_scheduling_id;
+  auto settlement = retireStructuredWorkTarget(runtime, work_target_id, stopCause);
+  runtime->structured_evaluation_scheduling_id = 0;
+  runtime->structured_evaluation_in_flight = false;
+
+  const bool cancellationStoppedWork = settlement.requested &&
+      settlement.resolution != EX_HERMES_CANCELLATION_DEFEATED;
+  if (cancellationStoppedWork &&
+      result->outcome_tag != EX_HERMES_EVAL_OUTCOME_LIFECYCLE) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    result->outcome_tag = settlement.resolution == EX_HERMES_CANCELLATION_ACCEPTED
+        ? EX_HERMES_EVAL_OUTCOME_CANCELLED
+        : EX_HERMES_EVAL_OUTCOME_ENGINE_FAULT;
+    result->fault = settlement.resolution == EX_HERMES_CANCELLATION_ACCEPTED
+        ? EX_HERMES_EVAL_FAULT_NONE
+        : EX_HERMES_EVAL_FAULT_ENGINE;
+    result->capability_flags = kStructuredEvaluatorCapabilities;
+  }
+  const uint32_t resolution = validateStructuredCancellationSettlement(
+      runtime,
+      settlement,
+      result->outcome_tag == EX_HERMES_EVAL_OUTCOME_LIFECYCLE);
+  if (resolution == EX_HERMES_CANCELLATION_FAILED &&
+      result->outcome_tag != EX_HERMES_EVAL_OUTCOME_LIFECYCLE) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+  }
+  publishStructuredWorkEvent(
+      runtime,
+      EX_HERMES_WORK_UNIT_EVALUATION,
+      EX_HERMES_WORK_UNIT_END,
+      work_target_id,
+      schedulingId);
+  if (resolution != 0) {
+    publishStructuredCancellationEvent(runtime, resolution, work_target_id);
+  }
+
+  clearStructuredModuleGraphJobAssociation(runtime);
+  runtime->structured_module_graph_in_flight = false;
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_module_graph_work_target_id = 0;
+  runtime->structured_module_error_values.clear();
+  return 0;
 }
 
 // @abi-output ex_hermes_take_work_unit_event event role=inout kind=aggregate schema=ExHermesWorkUnitEvent members=kind,phase,target_id,scheduling_id ownership=caller-storage
@@ -10009,10 +10478,9 @@ extern "C" uint32_t ex_hermes_take_cancellation_event(
 extern "C" uint32_t ex_hermes_take_async_failure_event(
     ExactHermesRuntime* runtime,
     ExHermesAsyncFailureEvent* event) {
-  if (runtime == nullptr || event == nullptr ||
+  if (event == nullptr ||
       event->abi_version != EX_HERMES_ASYNC_FAILURE_EVENT_ABI_VERSION ||
-      event->struct_size != sizeof(ExHermesAsyncFailureEvent) ||
-      runtime->runtime_thread != std::this_thread::get_id()) {
+      event->struct_size != sizeof(ExHermesAsyncFailureEvent)) {
     return EX_HERMES_ASYNC_FAILURE_EVENT_FAILED;
   }
   event->kind = 0;
@@ -10023,6 +10491,9 @@ extern "C" uint32_t ex_hermes_take_async_failure_event(
   event->event_id = 0;
   event->associated_evaluation = 0;
   event->dropped_count = 0;
+
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return EX_HERMES_ASYNC_FAILURE_EVENT_FAILED;
 
   if (runtime->structured_async_failure_failed) {
     return EX_HERMES_ASYNC_FAILURE_EVENT_FAILED;
@@ -10061,6 +10532,182 @@ extern "C" int32_t ibex_test_enable_work_unit_publication(
   // manufacturing a production armed-session credential.
   runtime->structured_session_bound = true;
   return 1;
+}
+
+extern "C" int32_t ibex_test_begin_module_graph_transition_probe(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint64_t scheduling_id) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_session_bound || work_target_id == 0 ||
+      scheduling_id == 0 || runtime->structured_evaluation_in_flight ||
+      runtime->structured_module_graph_in_flight ||
+      structuredWorkIsExecuting(runtime)) {
+    return -1;
+  }
+  runtime->structured_module_graph_work_target_id = work_target_id;
+  runtime->structured_module_graph_in_flight = true;
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_evaluation_in_flight = true;
+  runtime->structured_evaluation_scheduling_id = scheduling_id;
+  runtime->structured_vm_job_associated_evaluation = scheduling_id;
+  if (!beginStructuredWorkUnit(
+          runtime,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          scheduling_id,
+          work_target_id)) {
+    clearStructuredModuleGraphJobAssociation(runtime);
+    runtime->structured_evaluation_scheduling_id = 0;
+    runtime->structured_evaluation_in_flight = false;
+    runtime->structured_module_graph_in_flight = false;
+    runtime->structured_module_graph_work_target_id = 0;
+    return -1;
+  }
+  return 1;
+}
+
+extern "C" int32_t ibex_test_begin_callback_during_module_graph_gap(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint64_t scheduling_id) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_module_graph_in_flight ||
+      !runtime->structured_module_graph_suspended || work_target_id == 0 ||
+      scheduling_id == 0 || structuredWorkIsExecuting(runtime)) {
+    return -1;
+  }
+  return beginStructuredWorkUnit(
+             runtime,
+             EX_HERMES_WORK_UNIT_CALLBACK,
+             scheduling_id,
+             work_target_id)
+      ? 1
+      : -1;
+}
+
+extern "C" int32_t ibex_test_end_callback_during_module_graph_gap(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    uint64_t scheduling_id) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_module_graph_in_flight ||
+      !runtime->structured_module_graph_suspended || work_target_id == 0 ||
+      scheduling_id == 0) {
+    return -1;
+  }
+  (void)endStructuredWorkUnit(
+      runtime,
+      EX_HERMES_WORK_UNIT_CALLBACK,
+      scheduling_id,
+      work_target_id);
+  return 1;
+}
+
+extern "C" int32_t ibex_test_end_module_graph_transition_probe(
+    ExactHermesRuntime* runtime,
+    uint64_t work_target_id,
+    int32_t cooperative_cancellation) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_module_graph_in_flight ||
+      runtime->structured_module_graph_work_target_id != work_target_id) {
+    return -1;
+  }
+  const uint64_t schedulingId =
+      runtime->structured_evaluation_scheduling_id;
+  (void)endStructuredWorkUnit(
+      runtime,
+      EX_HERMES_WORK_UNIT_EVALUATION,
+      schedulingId,
+      work_target_id,
+      cooperative_cancellation != 0
+          ? StructuredCancellationStopCause::CooperativeBoundary
+          : StructuredCancellationStopCause::None);
+  clearStructuredModuleGraphJobAssociation(runtime);
+  runtime->structured_evaluation_scheduling_id = 0;
+  runtime->structured_evaluation_in_flight = false;
+  runtime->structured_module_graph_in_flight = false;
+  runtime->structured_module_graph_suspended = false;
+  runtime->structured_module_graph_work_target_id = 0;
+  return structuredCancellationStateIsReusable(runtime) ? 1 : -1;
+}
+
+extern "C" int32_t ibex_test_begin_structured_module_error_capture(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->runtime_thread != std::this_thread::get_id() ||
+      runtime->structured_module_graph_in_flight) {
+    return -1;
+  }
+  runtime->structured_module_error_values.clear();
+  runtime->next_structured_module_error_token = 1;
+  runtime->structured_module_graph_in_flight = true;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_end_structured_module_error_capture(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_module_graph_in_flight) {
+    return -1;
+  }
+  runtime->structured_module_error_values.clear();
+  runtime->structured_module_graph_in_flight = false;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_structured_module_error_token_matches_utf8(
+    ExactHermesRuntime* runtime,
+    uint64_t error_token,
+    const uint8_t* expected,
+    size_t expected_length) {
+  if (runtime == nullptr || runtime->runtime_thread != std::this_thread::get_id() ||
+      error_token == 0 || (expected == nullptr && expected_length != 0)) {
+    return -1;
+  }
+  auto retained = runtime->structured_module_error_values.find(error_token);
+  if (retained == runtime->structured_module_error_values.end() ||
+      !retained->second || !retained->second->isString()) {
+    return 0;
+  }
+  try {
+    const std::string value =
+        retained->second->asString(*runtime->runtime).utf8(*runtime->runtime);
+    return value.size() == expected_length &&
+            (expected_length == 0 ||
+             memcmp(value.data(), expected, expected_length) == 0)
+        ? 1
+        : 0;
+  } catch (...) {
+    return -1;
+  }
+}
+
+extern "C" uint64_t ibex_test_structured_module_error_token_for_utf8(
+    ExactHermesRuntime* runtime,
+    const uint8_t* expected,
+    size_t expected_length) {
+  if (runtime == nullptr || runtime->runtime_thread != std::this_thread::get_id() ||
+      (expected == nullptr && expected_length != 0)) {
+    return 0;
+  }
+  for (const auto& retained : runtime->structured_module_error_values) {
+    if (!retained.second || !retained.second->isString()) continue;
+    try {
+      const std::string value =
+          retained.second->asString(*runtime->runtime).utf8(*runtime->runtime);
+      if (value.size() == expected_length &&
+          (expected_length == 0 ||
+           memcmp(value.data(), expected, expected_length) == 0)) {
+        return retained.first;
+      }
+    } catch (...) {
+      return 0;
+    }
+  }
+  return 0;
 }
 
 extern "C" int32_t ibex_test_enqueue_blocking_native_work(
@@ -10236,12 +10883,13 @@ extern "C" int ex_hermes_eval_structured_session(
     structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_UTF8);
     return 0;
   }
-  if (!runtime->armed) {
-    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
     return 0;
   }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    structuredFault(result, EX_HERMES_EVAL_FAULT_WRONG_THREAD);
+  if (!runtime->armed) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
     return 0;
   }
   if (!runtime->structured_session_bound) {
@@ -10519,12 +11167,13 @@ extern "C" int ex_hermes_eval_lowered_session(
     structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
     return 0;
   }
-  if (!runtime->armed) {
-    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
     return 0;
   }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    structuredFault(result, EX_HERMES_EVAL_FAULT_WRONG_THREAD);
+  if (!runtime->armed) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
     return 0;
   }
   if (!runtime->structured_session_bound) {
@@ -10875,6 +11524,7 @@ extern "C" int ex_hermes_eval_lowered_session(
         sourceBuffer,
         sourceMapBuffer,
         label,
+        staticImportPlan.logicalReferrer,
         asynchronous,
         kStructuredEvaluatorCapabilities,
         result,
@@ -10938,12 +11588,13 @@ extern "C" int ex_hermes_resume_structured_session(
     structuredFault(result, EX_HERMES_EVAL_FAULT_INVALID_INPUT);
     return 0;
   }
-  if (!runtime->armed) {
-    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    structuredFault(result, structuredRuntimeDriveFault(drive.status()));
     return 0;
   }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    structuredFault(result, EX_HERMES_EVAL_FAULT_WRONG_THREAD);
+  if (!runtime->armed) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ARMED_RUNTIME_REQUIRED);
     return 0;
   }
   if (runtime->armed_bootstrap_eval_open) {
@@ -11052,10 +11703,8 @@ extern "C" int ex_hermes_resume_structured_session(
 extern "C" uint32_t ex_hermes_value_kind(
     ExactHermesRuntime* runtime,
     ExHermesValueHandle handle) {
-  if (runtime == nullptr ||
-      runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_VALUE_INVALID;
-  }
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return EX_HERMES_VALUE_INVALID;
   auto* value = structuredValueForHandle(runtime, handle);
   if (value == nullptr) return EX_HERMES_VALUE_INVALID;
   if (value->isUndefined()) return EX_HERMES_VALUE_UNDEFINED;
@@ -11117,10 +11766,8 @@ extern "C" uint32_t ex_hermes_value_stage1_text(
   *out_data = nullptr;
   *out_length = 0;
   *out_truncated = 0;
-  if (runtime == nullptr ||
-      runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
-  }
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
   auto* value = structuredValueForHandle(runtime, handle);
   if (value == nullptr) return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
 #ifndef HERMES_HAS_SAFE_STAGE1_TEXT
@@ -11187,10 +11834,8 @@ extern "C" uint32_t ex_hermes_value_safe_throw_metadata(
   *error_class = EX_HERMES_ERROR_CLASS_UNCLASSIFIED;
   *message = {nullptr, 0};
   *stack = {nullptr, 0};
-  if (runtime == nullptr ||
-      runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
-  }
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
   auto* value = structuredValueForHandle(runtime, handle);
   if (value == nullptr) return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
 #ifndef HERMES_HAS_BOUNDED_SAFE_TEXT_METADATA
@@ -11273,9 +11918,8 @@ extern "C" uint32_t ex_hermes_session_display_ack(
       handle.runtime_nonce == 0 || handle.handle_id == 0) {
     return EX_HERMES_EVAL_FAULT_INVALID_INPUT;
   }
-  if (runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
-  }
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
   if (!runtime->armed || !runtime->structured_session_bound) {
     return EX_HERMES_EVAL_FAULT_SESSION_NOT_BOUND;
   }
@@ -11314,10 +11958,8 @@ extern "C" uint32_t ex_hermes_session_display_ack(
 extern "C" uint32_t ex_hermes_value_release(
     ExactHermesRuntime* runtime,
     ExHermesValueHandle handle) {
-  if (runtime == nullptr ||
-      runtime->runtime_thread != std::this_thread::get_id()) {
-    return EX_HERMES_EVAL_FAULT_WRONG_THREAD;
-  }
+  ExactRuntimeDriveGuard drive(runtime, handle.runtime_nonce);
+  if (!drive) return structuredRuntimeDriveFault(drive.status());
   if (structuredValueForHandle(runtime, handle) == nullptr) {
     return EX_HERMES_EVAL_FAULT_STALE_HANDLE;
   }
@@ -11331,8 +11973,54 @@ extern "C" uint32_t ex_hermes_value_release(
   return EX_HERMES_EVAL_FAULT_NONE;
 }
 
+static void writeEvalRefusal(char** outValue, const char* text) noexcept {
+  if (outValue == nullptr) return;
+  *outValue = nullptr;
+  const size_t length = strlen(text);
+  auto* copy = static_cast<char*>(malloc(length + 1));
+  if (copy == nullptr) return;
+  memcpy(copy, text, length + 1);
+  *outValue = copy;
+}
+
 // @abi-output ex_hermes_eval out_value role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
 extern "C" int ex_hermes_eval(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* source_url,
+    int is_bytecode,
+    char** out_value) {
+  if (out_value != nullptr) *out_value = nullptr;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    writeEvalRefusal(
+        out_value, "Hermes eval refused by the runtime drive gate");
+    return drive.status();
+  }
+  return evalRuntimeUnchecked(
+      runtime, data, len, source_url, is_bytecode, out_value);
+}
+
+int exactHermesBootstrapEval(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outValue) {
+  if (outValue != nullptr) *outValue = nullptr;
+  if (runtime == nullptr || !runtime->bootstrap_in_progress ||
+      runtime->runtime_thread != std::this_thread::get_id()) {
+    writeEvalRefusal(
+        outValue, "Hermes bootstrap eval refused outside construction");
+    return EXACT_RUNTIME_DRIVE_STALE;
+  }
+  return evalRuntimeUnchecked(
+      runtime, data, len, sourceUrl, isBytecode, outValue);
+}
+
+static int evalRuntimeUnchecked(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
     size_t len,
@@ -11356,15 +12044,6 @@ extern "C" int ex_hermes_eval(
 
   if (out_value) {
     *out_value = nullptr;
-  }
-
-  ExactRuntimeDriveGuard drive(runtime);
-  const bool trustedBootstrapDrive =
-      runtime != nullptr && runtime->bootstrap_in_progress &&
-      runtime->runtime_thread == std::this_thread::get_id();
-  if (!drive && !trustedBootstrapDrive) {
-    writeOutError("Hermes eval refused by the runtime drive gate");
-    return drive.status();
   }
 
   if (!runtime || !data || len == 0) {
@@ -11548,7 +12227,7 @@ extern "C" int ex_hermes_eval(
             break;
           }
 
-          int executed = pollRuntime(runtime, nowMs());
+          int executed = pollRuntime(runtime, nowMs(), false);
           if (executed < 0) {
             if (!writeOutString("Hermes task execution failed while awaiting Promise result")) {
               return 1;
@@ -11564,8 +12243,8 @@ extern "C" int ex_hermes_eval(
             break;
           }
 
-          auto nextTimer = ex_hermes_next_timer(runtime);
-          auto hasPendingWork = ex_hermes_has_pending_tasks(runtime) != 0;
+          auto nextTimer = nextTimerUnchecked(runtime);
+          auto hasPendingWork = hasPendingTasksUnchecked(runtime) != 0;
           if (!hasPendingWork && nextTimer < 0) {
             // No timers or host work can advance the Promise any further.
             // Fall back to returning the raw Promise value rather than spin.
@@ -11788,11 +12467,12 @@ extern "C" int ibex_test_install_capsec_context_observer(
     const char* global_name,
     const char* compartment_identity) {
   constexpr const char* kPrefix = "__ibexCapsecContextObserver_";
-  if (!runtime || !runtime->armed || runtime->restricted ||
-      runtime->runtime_thread != std::this_thread::get_id() || !global_name ||
+  if (!runtime || !global_name ||
       std::strncmp(global_name, kPrefix, std::strlen(kPrefix)) != 0) {
     return 0;
   }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->armed || runtime->restricted) return 0;
 
   try {
     auto& rt = *runtime->runtime;
@@ -11859,7 +12539,8 @@ extern "C" void ex_hermes_set_host_call(
   // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — the
   // string-typed catch-all bridge is diagnostic-only; an armed runtime must
   // expose only its dedicated, capability-aware native APIs.
-  if (!runtime || runtime->armed) return;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || runtime->armed) return;
   // Restricted worklet runtimes never get __hostCall (LLP 0297 §4.3).
   if (runtime->restricted) return;
   runtime->host_call_fn = callback;
@@ -11914,7 +12595,8 @@ extern "C" void ex_hermes_set_host_call_async(
   // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — armed
   // runtimes fail closed before storing a generic callback or mutating the
   // global object, including replacement attempts made after lockdown.
-  if (!runtime || runtime->armed) return;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || runtime->armed) return;
   // Restricted worklet runtimes never get __hostCallAsync (LLP 0297 §4.3).
   if (runtime->restricted) return;
   runtime->host_call_async_fn = callback;
@@ -12061,8 +12743,12 @@ extern "C" int ex_hermes_set_exact_host_call_async(
   // @ref LLP 0002#the-exact-embedder-ingress — app and agent isolates receive
   // an explicit operation endowment. UI worklets retain only their dedicated
   // SharedValue/Motion ABI and can never acquire the host-operation channel.
-  if (!runtime || !runtime->runtime || !callback) return -1;
-  if (runtime->runtime_thread != std::this_thread::get_id()) return -7;
+  if (!runtime || !callback) return -1;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) {
+    return drive.status() == EXACT_RUNTIME_DRIVE_OFF_OWNER ? -7 : -9;
+  }
+  if (!runtime->runtime) return -1;
   if (runtime->restricted) return -2;
   auto rawContext = static_cast<uint32_t>(context_kind);
   if (!exactHostContextIsValid(rawContext)) return -3;
@@ -12403,7 +13089,10 @@ static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
   return 0;
 }
 
-static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms) {
+static int pollRuntime(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms,
+    bool external_keep_alive) {
   if (runtime->structured_session_terminated) {
     return -1;
   }
@@ -12528,23 +13217,33 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms) {
     return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
   }
 
-  // Check if there are any referenced tasks keeping the loop alive
-  // (excluding unref'd timers). If not, skip unref'd due timers.
-  bool has_referenced_work = false;
-  if (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()
-      || native_ws_has_active() || hasPendingFetchCallbacks(runtime)) {
+  // A host-owned keep-alive (the REPL, inspector, or explicit CLI loop) is a
+  // reference for this poll turn only. It makes already-due unref'd timers
+  // eligible without changing TimerEntry::referenced or the runtime's pending
+  // work query; future unref'd timers still cannot keep ordinary program drain
+  // alive. This is the same distinction Node/libuv draws between handle
+  // eligibility while a loop is alive and whether that handle keeps it alive.
+  // @ref LLP 0003#the-event-loop
+  // @ref LLP 0024#1-the-in-memory-source-api
+  bool has_referenced_work = external_keep_alive;
+  if (!has_referenced_work &&
+      (ex_host_http_has_referenced() || ex_host_http_has_pending_requests()
+       || native_ws_has_active() || hasPendingFetchCallbacks(runtime))) {
     has_referenced_work = true;
-  } else if (!runtime->next_tick.empty()) {
+  } else if (!has_referenced_work && !runtime->next_tick.empty()) {
     has_referenced_work = true;
-  } else if (runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
+  } else if (!has_referenced_work &&
+             runtime->active_spawn_processes.load(std::memory_order_relaxed) > 0) {
     has_referenced_work = true;
-  } else if (runtime->pending_dns_lookups.load(std::memory_order_relaxed) > 0) {
+  } else if (!has_referenced_work &&
+             runtime->pending_dns_lookups.load(std::memory_order_relaxed) > 0) {
     // A pending async DNS resolution keeps the loop alive. (ENG-22995)
     has_referenced_work = true;
-  } else if (runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
+  } else if (!has_referenced_work &&
+             runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
     // A pending async fs operation keeps the loop alive. (ENG-23497)
     has_referenced_work = true;
-  } else if (std::any_of(
+  } else if (!has_referenced_work && std::any_of(
                  runtime->module_records.begin(),
                  runtime->module_records.end(),
                  [](const auto& record) {
@@ -12556,7 +13255,7 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms) {
     // become cancellation targets.
     // @ref LLP 0025#6-interruption-and-cancellation
     has_referenced_work = true;
-  } else {
+  } else if (!has_referenced_work) {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     if (!runtime->callbackQueue.empty()) has_referenced_work = true;
   }
@@ -12785,10 +13484,18 @@ static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms) {
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   ExactRuntimeDriveGuard drive(runtime);
   if (!drive) return drive.status();
-  return pollRuntime(runtime, now_ms);
+  return pollRuntime(runtime, now_ms, false);
 }
 
-extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime) {
+extern "C" int ex_hermes_poll_with_external_keep_alive(
+    ExactHermesRuntime* runtime,
+    uint64_t now_ms) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return drive.status();
+  return pollRuntime(runtime, now_ms, true);
+}
+
+static int64_t nextTimerUnchecked(ExactHermesRuntime* runtime) {
   if (!runtime || runtime->timers.empty()) {
     return -1;
   }
@@ -12804,15 +13511,20 @@ extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime) {
   return static_cast<int64_t>(next_due);
 }
 
+extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return -1;
+  return nextTimerUnchecked(runtime);
+}
+
 extern "C" void ex_hermes_set_keep_alive_on_async_error(
     ExactHermesRuntime* runtime, int enabled) {
-  if (!runtime) {
-    return;
-  }
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return;
   runtime->keep_alive_on_async_error = enabled != 0;
 }
 
-extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
+static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime) {
   if (!runtime) {
     return 0;
   }
@@ -12866,19 +13578,35 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
   return 0;
 }
 
-extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
-  if (!runtime) {
-    return 0;
-  }
+extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive) return 0;
+  return hasPendingTasksUnchecked(runtime);
+}
 
+extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
+  if (!runtime) return 0;
   uint64_t backlog = 0;
   {
-    std::lock_guard<std::mutex> lock(runtime->callbackMutex);
-    backlog = runtime->callbackQueue.size();
-  }
-  {
-    std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
-    backlog += runtime->finalizerQueue.size();
+    // This query is intentionally any-thread: the wake/idle planner calls it
+    // while an owner drive may be active. Pin the currently registered object
+    // through both queue locks so teardown cannot free either mutex between a
+    // liveness check and dereference. Lock order matches callback producers.
+    // @ref LLP 0002#runtime-driving-thread-contract
+    std::lock_guard<std::mutex> registryLock(g_runtimeRegistryMutex);
+    auto runtimeIt = g_activeRuntimes.find(runtime);
+    if (runtimeIt == g_activeRuntimes.end() ||
+        runtimeIt->second.state != RuntimeLifecycleState::Running) {
+      return 0;
+    }
+    {
+      std::lock_guard<std::mutex> callbackLock(runtime->callbackMutex);
+      backlog = runtime->callbackQueue.size();
+    }
+    {
+      std::lock_guard<std::mutex> finalizerLock(runtime->finalizerMutex);
+      backlog += runtime->finalizerQueue.size();
+    }
   }
   return static_cast<uint32_t>(
       std::min<uint64_t>(backlog, std::numeric_limits<uint32_t>::max()));
@@ -12924,14 +13652,16 @@ extern "C" void ex_hermes_schedule_watchdog_heartbeat_for_generation(
 // =============================================================================
 
 extern "C" void ex_hermes_gc(ExactHermesRuntime* runtime) {
-  if (!runtime || !runtime->runtime) return;
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->runtime) return;
   runtime->runtime->instrumentation().collectGarbage("ex_hermes_gc");
 }
 
 extern "C" char* ex_hermes_get_heap_info(
     ExactHermesRuntime* runtime,
     int include_expensive) {
-  if (!runtime || !runtime->runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->runtime) {
     return nullptr;
   }
 
@@ -12940,7 +13670,8 @@ extern "C" char* ex_hermes_get_heap_info(
 }
 
 extern "C" char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime) {
-  if (!runtime || !runtime->runtime) {
+  ExactRuntimeDriveGuard drive(runtime);
+  if (!drive || !runtime->runtime) {
     return nullptr;
   }
 
@@ -12951,6 +13682,145 @@ extern "C" char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime) {
     return nullptr;
   }
 }
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+// Establish deliberately foreign principal TLS around a nested public runtime
+// drive. This private probe lets the Rust consumer prove both isolation inside
+// runtime B and exact restoration of runtime A's still-live callback scope.
+extern "C" int32_t ibex_test_with_principal_tls_scope(
+    uint64_t module_id,
+    uint64_t native_principal,
+    const uint64_t* typed_principals,
+    size_t typed_principal_count,
+    int32_t (*body)(void* context),
+    void* context) {
+  if (body == nullptr || typed_principal_count > 64 ||
+      (typed_principal_count != 0 && typed_principals == nullptr)) {
+    return std::numeric_limits<int32_t>::min();
+  }
+  try {
+    std::vector<uint64_t> typed;
+    if (typed_principal_count != 0) {
+      typed.assign(
+          typed_principals, typed_principals + typed_principal_count);
+    }
+    const uint64_t previousModule = g_active_module_id;
+    g_active_module_id = module_id;
+    int32_t result = std::numeric_limits<int32_t>::min();
+    bool restored = false;
+    try {
+      ScopedNativePrincipal nativeScope(native_principal);
+      ScopedTypedPrincipalStack typedScope(typed);
+      result = body(context);
+      const auto observed = exactCollectTypedPrincipalStack();
+      restored = g_active_module_id == module_id &&
+          g_native_callback_principal_id == native_principal &&
+          std::all_of(
+              typed.begin(), typed.end(), [&](uint64_t principal) {
+                return std::find(
+                           observed.begin(), observed.end(), principal) !=
+                    observed.end();
+              });
+    } catch (...) {
+      g_active_module_id = previousModule;
+      return std::numeric_limits<int32_t>::min();
+    }
+    g_active_module_id = previousModule;
+    return restored ? result : std::numeric_limits<int32_t>::min();
+  } catch (...) {
+    return std::numeric_limits<int32_t>::min();
+  }
+}
+
+// Return a bit for each forbidden outer principal channel still visible in
+// the current scope: legacy module, native callback, and typed-FS stack.
+extern "C" uint32_t ibex_test_forbidden_principal_tls_mask(
+    uint64_t module_id,
+    uint64_t native_principal,
+    const uint64_t* typed_principals,
+    size_t typed_principal_count) {
+  if (typed_principal_count > 64 ||
+      (typed_principal_count != 0 && typed_principals == nullptr)) {
+    return UINT32_MAX;
+  }
+  uint32_t mask = 0;
+  if (g_active_module_id == module_id) mask |= 1u;
+  if (g_native_callback_principal_id == native_principal) mask |= 2u;
+  try {
+    const auto observed = exactCollectTypedPrincipalStack();
+    for (size_t index = 0; index < typed_principal_count; ++index) {
+      if (std::find(
+              observed.begin(), observed.end(), typed_principals[index]) !=
+          observed.end()) {
+        mask |= 4u;
+        break;
+      }
+    }
+  } catch (...) {
+    return UINT32_MAX;
+  }
+  return mask;
+}
+
+extern "C" uint32_t ibex_test_runtime_security_context_boundary(
+    ExactHermesRuntime* runtime,
+    uint64_t outer_runtime_nonce,
+    uint64_t module_id,
+    uint64_t native_principal,
+    const uint64_t* typed_principals,
+    size_t typed_principal_count) {
+  if (runtime == nullptr || outer_runtime_nonce == 0 ||
+      outer_runtime_nonce == runtime->runtime_nonce ||
+      typed_principal_count > 64 ||
+      (typed_principal_count != 0 && typed_principals == nullptr)) {
+    return UINT32_MAX;
+  }
+  try {
+    std::vector<uint64_t> typed;
+    if (typed_principal_count != 0) {
+      typed.assign(
+          typed_principals, typed_principals + typed_principal_count);
+    }
+    const uint64_t previousNonce = g_active_runtime_nonce;
+    const uint64_t previousModule = g_active_module_id;
+    g_active_runtime_nonce = outer_runtime_nonce;
+    g_active_module_id = module_id;
+    uint32_t failures = 0;
+    try {
+      ScopedNativePrincipal nativeScope(native_principal);
+      ScopedTypedPrincipalStack typedScope(typed);
+      {
+        ScopedRuntimeSecurityContext targetScope(runtime);
+        if (ibex_test_forbidden_principal_tls_mask(
+                module_id,
+                native_principal,
+                typed_principals,
+                typed_principal_count) != 0) {
+          failures |= 1u;
+        }
+        if (exactCurrentRuntimeNonce() != runtime->runtime_nonce) {
+          failures |= 2u;
+        }
+      }
+      if (ibex_test_forbidden_principal_tls_mask(
+              module_id,
+              native_principal,
+              typed_principals,
+              typed_principal_count) != 7u) {
+        failures |= 4u;
+      }
+      if (exactCurrentRuntimeNonce() != outer_runtime_nonce) failures |= 8u;
+    } catch (...) {
+      failures = UINT32_MAX;
+    }
+    g_active_module_id = previousModule;
+    g_active_runtime_nonce = previousNonce;
+    return failures;
+  } catch (...) {
+    return UINT32_MAX;
+  }
+}
+#endif
 
 // =============================================================================
 // HTTP server stubs (deliberate no-host builds only)

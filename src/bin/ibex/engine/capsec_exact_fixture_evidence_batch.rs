@@ -15,6 +15,20 @@ const FIXTURE_COMMAND: [&str; 10] = [
     "--nocapture",
 ];
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — only
+// these independently executed Exact mechanisms earn pilot fixture credit.
+const EXACT_FIXTURE_PILOT_TERMINALS: [&str; 9] = [
+    "callback:exact-host-call-async-resolve",
+    "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
+    "host-abi:ex_hermes_resolve_exact_host_call",
+    "host-abi:ex_hermes_set_exact_host_call_async",
+    "host-abi:ex_host_authorize_exact_endowment",
+    "host-abi:ex_host_build_exact_armed_embedder_artifacts",
+    "host-abi:ex_host_prepare_armed_embedder_artifacts",
+    "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
+    "native-op:global:exact.invokeHostAsync",
+];
+
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
         .expect("Exact fixture evidence must have canonical JSON bytes");
@@ -94,12 +108,21 @@ fn expected_exact_mechanism(recipe: &serde_json::Value) -> &'static str {
         | "host-abi:ex_hermes_resolve_exact_host_call" => "exact-host-call-round-trip",
         "host-abi:ex_hermes_set_exact_host_call_async" => "exact-endowment-install",
         "host-abi:ex_host_authorize_exact_endowment" => "exact-endowment-authorize",
-        "host-abi:ex_host_prepare_armed_embedder_artifacts" => {
+        "host-abi:ex_host_build_exact_armed_embedder_artifacts"
+        | "host-abi:ex_host_prepare_armed_embedder_artifacts"
+        | "host-abi:ex_host_prepare_exact_armed_embedder_artifacts" => {
             "exact-artifact-prepare-round-trip"
         }
         "native-op:global:exact.invokeHostAsync" => "exact-unendowed-operation",
         other => panic!("unsupported Exact pilot terminal {other}"),
     }
+}
+
+fn is_exact_fixture_pilot_recipe(recipe: &serde_json::Value) -> bool {
+    recipe["status"] == "fully-executable"
+        && recipe["terminalObservedKey"]
+            .as_str()
+            .is_some_and(|terminal| EXACT_FIXTURE_PILOT_TERMINALS.contains(&terminal))
 }
 
 fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
@@ -120,27 +143,30 @@ fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
         .as_array()
         .expect("recipe catalog has no recipes")
         .iter()
-        .filter(|recipe| {
-            matches!(
-                recipe["terminalObservedKey"].as_str(),
-                Some(
-                    "callback:exact-host-call-async-resolve"
-                        | "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
-                        | "host-abi:ex_hermes_resolve_exact_host_call"
-                        | "host-abi:ex_hermes_set_exact_host_call_async"
-                        | "host-abi:ex_host_authorize_exact_endowment"
-                        | "host-abi:ex_host_prepare_armed_embedder_artifacts"
-                        | "native-op:global:exact.invokeHostAsync"
-                )
-            )
-        })
+        .filter(|recipe| is_exact_fixture_pilot_recipe(recipe))
         .cloned()
         .collect::<Vec<_>>();
     recipes.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     assert_eq!(
         recipes.len(),
-        7,
-        "Exact fixture pilot must contain seven recipes"
+        EXACT_FIXTURE_PILOT_TERMINALS.len(),
+        "Exact fixture pilot must contain nine recipes"
+    );
+    let actual_terminals = recipes
+        .iter()
+        .map(|recipe| {
+            recipe["terminalObservedKey"]
+                .as_str()
+                .expect("Exact recipe has no terminal observed key")
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_terminals = EXACT_FIXTURE_PILOT_TERMINALS
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        actual_terminals, expected_terminals,
+        "Exact fixture pilot must contain exactly one recipe for every terminal"
     );
     for recipe in &recipes {
         assert_eq!(recipe["status"], "fully-executable");
@@ -238,8 +264,33 @@ fn validate_binding(
         .as_array()
         .expect("Exact fixture binding has no plans")
         .clone();
-    assert_eq!(plans.len(), 7);
+    assert_eq!(plans.len(), EXACT_FIXTURE_PILOT_TERMINALS.len());
     (execution_binding, binding_digest, plans)
+}
+
+#[test]
+fn exact_fixture_pilot_terminal_contract_includes_both_exact_artifact_abis() {
+    assert_eq!(EXACT_FIXTURE_PILOT_TERMINALS.len(), 9);
+    for terminal in [
+        "host-abi:ex_host_build_exact_armed_embedder_artifacts",
+        "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
+    ] {
+        assert!(EXACT_FIXTURE_PILOT_TERMINALS.contains(&terminal));
+        assert!(is_exact_fixture_pilot_recipe(&serde_json::json!({
+            "status": "fully-executable",
+            "terminalObservedKey": terminal,
+        })));
+        assert!(!is_exact_fixture_pilot_recipe(&serde_json::json!({
+            "status": "unresolved",
+            "terminalObservedKey": terminal,
+        })));
+        assert_eq!(
+            expected_exact_mechanism(&serde_json::json!({
+                "terminalObservedKey": terminal,
+            })),
+            "exact-artifact-prepare-round-trip"
+        );
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]

@@ -455,19 +455,19 @@ describe("LLP 0023 output-disposition dataset", () => {
     );
   });
 
-  test("accounts for all 7,321 covered surfaces and emits 6,409 context-bound output rows", async () => {
+  test("accounts for all 7,327 covered surfaces and emits 6,441 context-bound output rows", async () => {
     const { catalog, coverage } = await repositoryCatalogFixture();
     expect(catalog.outputShapeCatalogSchema).toBe(
       "ibex/capsec-output-shape-catalog/2",
     );
     expect(catalog.counts).toEqual({
-      coverageSurfaces: 7_321,
-      outputBearingSurfaces: 5_768,
-      structuralOnlySurfaces: 1_549,
+      coverageSurfaces: 7_327,
+      outputBearingSurfaces: 5_773,
+      structuralOnlySurfaces: 1_550,
       unresolvedSurfaces: 4,
-      catalogRows: 6_409,
+      catalogRows: 6_441,
       parameterizedBindings: 1,
-      sourceInventoryRows: 6_002,
+      sourceInventoryRows: 6_034,
       structuredRows: 407,
     });
     expect(catalog.surfaceAccounts).toHaveLength(coverage.edges.length);
@@ -482,8 +482,8 @@ describe("LLP 0023 output-disposition dataset", () => {
         parameterizedOutputBindings: catalog.parameterizedOutputBindings,
       }),
     ).toEqual({
-      "output-bearing": 5_768,
-      "structural-only": 1_549,
+      "output-bearing": 5_773,
+      "structural-only": 1_550,
       unresolved: 4,
     });
     expect(
@@ -1283,16 +1283,16 @@ describe("LLP 0023 output-disposition dataset", () => {
       return derived;
     });
 
-    expect(hostEdges).toHaveLength(306);
+    expect(hostEdges).toHaveLength(311);
     expect(countsBy(derivedAccounts, (account) => account.status)).toEqual({
-      "output-bearing": 256,
+      "output-bearing": 261,
       "structural-only": 50,
     });
     expect(
       derivedAccounts
         .filter((account) => account.status === "output-bearing")
         .flatMap((account) => account.outputChannels),
-    ).toHaveLength(474);
+    ).toHaveLength(506);
     expect(
       derivedAccounts.some(
         (account) =>
@@ -1453,10 +1453,10 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-disposition-policy/2",
     );
     expect(policy.catalogKeyDigest).toBe(
-      "sha256-Vd2srTKmEAUKF_7JcCTTIux-Ks67v_pJUlpEEvK5mAM",
+      "sha256-MisdO-TulHpe0mLw33pVBRtDVnh85Je8jF3iVz0ZbUU",
     );
     expect(policy.catalogKeyDigest).toBe(catalog.catalogKeyDigest);
-    expect(policy.overrides).toHaveLength(368);
+    expect(policy.overrides).toHaveLength(373);
     expect(
       new Set(
         policy.overrides.map((row) => canonicalOutputDispositionKey(row.key)),
@@ -1471,7 +1471,7 @@ describe("LLP 0023 output-disposition dataset", () => {
       ),
     ).toBe(true);
     expect(countsBy(policy.overrides, (row) => row.disposition)).toEqual({
-      absent: 151,
+      absent: 156,
       closed: 28,
       "non-path": 41,
       "private-native-path": 5,
@@ -1487,12 +1487,12 @@ describe("LLP 0023 output-disposition dataset", () => {
       "ibex/capsec-output-dispositions/2",
     );
     expect(dataset.counts).toEqual({
-      catalogRows: 6_409,
-      dispositionRows: 6_409,
+      catalogRows: 6_441,
+      dispositionRows: 6_441,
       byDisposition: {
-        absent: 151,
+        absent: 156,
         closed: 28,
-        "non-path": 6_082,
+        "non-path": 6_109,
         "private-native-path": 5,
         refused: 12,
         "reserved-constant": 1,
@@ -1505,12 +1505,12 @@ describe("LLP 0023 output-disposition dataset", () => {
     });
 
     // The legacy v1 policy had 494 explicit overrides. The exact-key join
-    // retained 227; 141 source-reviewed v2 corrections were then added.
+    // retained 227; 146 source-reviewed v2 corrections were then added.
     expect({
       legacyExplicitOverrides: 494,
       exactKeyRetained: 227,
       exactKeyDropped: 267,
-      reviewedV2Corrections: 141,
+      reviewedV2Corrections: 146,
       currentOverrides: policy.overrides.length,
       droppedByCatalogAccount: {
         "output-bearing-key-changed": 14,
@@ -1529,8 +1529,8 @@ describe("LLP 0023 output-disposition dataset", () => {
       legacyExplicitOverrides: 494,
       exactKeyRetained: 227,
       exactKeyDropped: 267,
-      reviewedV2Corrections: 141,
-      currentOverrides: 368,
+      reviewedV2Corrections: 146,
+      currentOverrides: 373,
       droppedByCatalogAccount: {
         "output-bearing-key-changed": 14,
         "structural-only": 137,

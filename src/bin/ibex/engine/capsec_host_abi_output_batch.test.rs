@@ -335,15 +335,53 @@ fn is_evaluation_result_selector(function_name: &str, selector: &str) -> bool {
         "ex_hermes_eval_structured_diagnostic"
             | "ex_hermes_evaluation_result_dispose"
             | "ex_hermes_evaluation_result_init"
+            | "ex_hermes_eval_lowered_session"
+            | "ex_hermes_eval_structured_session"
+            | "ex_hermes_resume_structured_session"
+            | "ex_hermes_structured_module_graph_finish"
     );
     supported_function
         && EVALUATION_RESULT_SELECTORS.contains(&selector)
-        && (function_name == "ex_hermes_eval_structured_diagnostic"
-            || !selector.starts_with("out:result.positions[]."))
+        && (!matches!(
+            function_name,
+            "ex_hermes_evaluation_result_dispose" | "ex_hermes_evaluation_result_init"
+        ) || !selector.starts_with("out:result.positions[]."))
+}
+
+fn is_module_runner_function(function_name: &str) -> bool {
+    matches!(
+        function_name,
+        "ex_hermes_commonjs_create_record"
+            | "ex_hermes_commonjs_record_create_esm_adapter"
+            | "ex_hermes_commonjs_record_declare_export"
+            | "ex_hermes_commonjs_record_evaluate"
+            | "ex_hermes_commonjs_record_link_dynamic_import"
+            | "ex_hermes_commonjs_record_link_require"
+            | "ex_hermes_commonjs_record_link_require_esm"
+            | "ex_hermes_graph_context_create"
+            | "ex_hermes_graph_context_retain"
+            | "ex_hermes_module_compile_factory"
+            | "ex_hermes_module_create_record"
+            | "ex_hermes_module_load_carrier_factory"
+            | "ex_hermes_module_pin_generation"
+            | "ex_hermes_module_record_declare_export"
+            | "ex_hermes_module_record_instantiate"
+            | "ex_hermes_module_record_link_dependency"
+            | "ex_hermes_module_record_link_dynamic_import"
+            | "ex_hermes_module_record_link_export"
+            | "ex_hermes_module_record_link_import"
+            | "ex_hermes_module_record_namespace_json"
+            | "ex_hermes_module_record_poll_evaluation"
+            | "ex_hermes_module_record_run_declare"
+            | "ex_hermes_module_record_run_execute"
+            | "ex_hermes_module_release_handle"
+            | "ex_hermes_module_unpin_generation"
+    )
 }
 
 fn is_bounded_family_output_selector(function_name: &str, selector: &str) -> bool {
     is_evaluation_result_selector(function_name, selector)
+        || (is_module_runner_function(function_name) && selector != "[[return]]")
         || matches!(
             (function_name, selector),
             ("ex_host_fs_pread", "out:buf")
@@ -415,6 +453,10 @@ fn is_bounded_family_output_selector(function_name: &str, selector: &str) -> boo
                 )
                 | ("ex_host_env_get", "out:buf")
                 | ("ex_host_random_fill", "out:buf")
+                | (
+                    "ex_hermes_structured_submission_admit",
+                    "out:work_target_id"
+                )
                 | ("ex_hermes_dispatch_worklet_calls", "out:delivered")
                 | (
                     "ex_hermes_value_safe_throw_metadata",
@@ -490,6 +532,55 @@ struct NativeEvaluationResult {
     stack: NativeOwnedBytes,
     positions: *mut NativeSourcePosition,
     position_count: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+struct NativeModuleHandle {
+    opaque: [u64; 3],
+}
+
+impl NativeModuleHandle {
+    fn is_null(self) -> bool {
+        self.opaque == [0; 3]
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NativeSessionCredential {
+    abi_version: u32,
+    struct_size: u32,
+    session_token: [u8; 32],
+    request_binding: [u8; 32],
+    ordinal: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NativeUtf8Slice {
+    data: *const u8,
+    length: usize,
+}
+
+#[repr(C)]
+struct NativeSessionImportPlan {
+    abi_version: u32,
+    struct_size: u32,
+    logical_referrer: *const u8,
+    logical_referrer_length: usize,
+    imports: *const std::ffi::c_void,
+    import_count: usize,
+    bindings: *const std::ffi::c_void,
+    binding_count: usize,
+    file_arguments: *const NativeUtf8Slice,
+    file_argument_count: usize,
+    source_id: *const u8,
+    source_id_length: usize,
+    generated_entry_record: *const u8,
+    generated_entry_record_length: usize,
+    source_kind: u32,
+    reserved: u32,
 }
 
 #[repr(C)]
@@ -719,6 +810,342 @@ extern "C" {
         callback: extern "C" fn(context: *mut std::ffi::c_void),
         context: *mut std::ffi::c_void,
     );
+
+    #[link_name = "ex_hermes_structured_session_bind"]
+    fn ex_output_hermes_structured_session_bind(
+        runtime: *mut HermesRuntimeOpaque,
+        session_token: *const u8,
+        session_token_length: usize,
+    ) -> u32;
+    #[link_name = "ex_hermes_structured_submission_admit"]
+    fn ex_output_hermes_structured_submission_admit(
+        runtime: *mut HermesRuntimeOpaque,
+        credential: *const NativeSessionCredential,
+        out_work_target_id: *mut u64,
+    ) -> u32;
+    #[link_name = "ex_hermes_structured_submission_settle"]
+    fn ex_output_hermes_structured_submission_settle(
+        runtime: *mut HermesRuntimeOpaque,
+        credential: *const NativeSessionCredential,
+    ) -> u32;
+    #[link_name = "ex_hermes_structured_module_graph_begin"]
+    fn ex_output_hermes_structured_module_graph_begin(
+        runtime: *mut HermesRuntimeOpaque,
+        credential: *const NativeSessionCredential,
+        file_arguments: *const NativeUtf8Slice,
+        file_argument_count: usize,
+    ) -> u32;
+    #[link_name = "ex_hermes_structured_module_graph_suspend"]
+    fn ex_output_hermes_structured_module_graph_suspend(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+    ) -> u32;
+    #[link_name = "ex_hermes_structured_module_graph_resume"]
+    fn ex_output_hermes_structured_module_graph_resume(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+    ) -> u32;
+    #[link_name = "ex_hermes_structured_module_graph_finish"]
+    fn ex_output_hermes_structured_module_graph_finish(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+        execution_outcome: u32,
+        error_token: u64,
+        result: *mut NativeEvaluationResult,
+    ) -> i32;
+    #[link_name = "ex_hermes_eval_structured_session"]
+    fn ex_output_hermes_eval_structured_session(
+        runtime: *mut HermesRuntimeOpaque,
+        credential: *const NativeSessionCredential,
+        source: *const u8,
+        source_length: usize,
+        source_label: *const u8,
+        source_label_length: usize,
+        result: *mut NativeEvaluationResult,
+    ) -> i32;
+    #[link_name = "ex_hermes_eval_lowered_session"]
+    fn ex_output_hermes_eval_lowered_session(
+        runtime: *mut HermesRuntimeOpaque,
+        credential: *const NativeSessionCredential,
+        lowering_protocol_version: u32,
+        lowered_source: *const u8,
+        lowered_source_length: usize,
+        lowered_source_map: *const u8,
+        lowered_source_map_length: usize,
+        source_label: *const u8,
+        source_label_length: usize,
+        declarations: *const std::ffi::c_void,
+        declaration_count: usize,
+        import_plan: *const NativeSessionImportPlan,
+        asynchronous: bool,
+        result: *mut NativeEvaluationResult,
+    ) -> i32;
+    #[link_name = "ex_hermes_resume_structured_session"]
+    fn ex_output_hermes_resume_structured_session(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+        result: *mut NativeEvaluationResult,
+    ) -> i32;
+    #[link_name = "ex_hermes_try_destroy"]
+    fn ex_output_hermes_try_destroy(runtime: *mut HermesRuntimeOpaque, runtime_nonce: u64) -> i32;
+
+    #[link_name = "ex_hermes_module_compile_factory"]
+    fn ex_output_hermes_module_compile_factory(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        source_goal: u32,
+        principal_id: u32,
+        graph_generation: u64,
+        compartment_identity: *const u8,
+        compartment_identity_len: usize,
+        semantic_digest: *const u8,
+        semantic_digest_len: usize,
+        source_id: *const u8,
+        source_id_len: usize,
+        factory_source: *const u8,
+        factory_source_len: usize,
+        source_label: *const u8,
+        source_label_len: usize,
+        out_factory: *mut NativeModuleHandle,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_load_carrier_factory"]
+    fn ex_output_hermes_module_load_carrier_factory(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        source_goal: u32,
+        principal_id: u32,
+        graph_generation: u64,
+        compartment_identity: *const u8,
+        compartment_identity_len: usize,
+        semantic_digest: *const u8,
+        semantic_digest_len: usize,
+        source_id: *const u8,
+        source_id_len: usize,
+        carrier_digest: *const u8,
+        carrier_digest_len: usize,
+        carrier_bytes: *const u8,
+        carrier_bytes_len: usize,
+        carrier_encoding: u32,
+        entry_id: *const u8,
+        entry_id_len: usize,
+        source_label: *const u8,
+        source_label_len: usize,
+        out_factory: *mut NativeModuleHandle,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_graph_context_create"]
+    fn ex_output_hermes_graph_context_create(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+        requesting_source_id: *const u8,
+        requesting_source_id_len: usize,
+        effect_owner: u32,
+        schedule_owner: u32,
+        constrained_principals: *const u32,
+        constrained_principals_len: usize,
+        out_context: *mut NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_graph_context_retain"]
+    fn ex_output_hermes_graph_context_retain(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        context: NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_pin_generation"]
+    fn ex_output_hermes_module_pin_generation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_unpin_generation"]
+    fn ex_output_hermes_module_unpin_generation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        graph_generation: u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_release_handle"]
+    fn ex_output_hermes_module_release_handle(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        handle: NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_create_record"]
+    fn ex_output_hermes_module_create_record(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        factory: NativeModuleHandle,
+        context: NativeModuleHandle,
+        source_id: *const u8,
+        source_id_len: usize,
+        out_record: *mut NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_declare_export"]
+    fn ex_output_hermes_module_record_declare_export(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        export_name: *const u8,
+        export_name_len: usize,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_link_export"]
+    fn ex_output_hermes_module_record_link_export(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        export_name: *const u8,
+        export_name_len: usize,
+        target_record: NativeModuleHandle,
+        target_export: *const u8,
+        target_export_len: usize,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_link_import"]
+    fn ex_output_hermes_module_record_link_import(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        imported_name: *const u8,
+        imported_name_len: usize,
+        target_record: NativeModuleHandle,
+        target_export: *const u8,
+        target_export_len: usize,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_link_dependency"]
+    fn ex_output_hermes_module_record_link_dependency(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_link_dynamic_import"]
+    fn ex_output_hermes_module_record_link_dynamic_import(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_instantiate"]
+    fn ex_output_hermes_module_record_instantiate(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        meta_url: *const u8,
+        meta_url_len: usize,
+        virtual_path: *const u8,
+        virtual_path_len: usize,
+        is_main: i32,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_run_declare"]
+    fn ex_output_hermes_module_record_run_declare(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_run_execute"]
+    fn ex_output_hermes_module_record_run_execute(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_async: *mut i32,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_poll_evaluation"]
+    fn ex_output_hermes_module_record_poll_evaluation(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_state: *mut i32,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_module_record_namespace_json"]
+    fn ex_output_hermes_module_record_namespace_json(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_json: *mut *mut std::os::raw::c_char,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_commonjs_create_record"]
+    fn ex_output_hermes_commonjs_create_record(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        factory: NativeModuleHandle,
+        context: NativeModuleHandle,
+        source_id: *const u8,
+        source_id_len: usize,
+        filename: *const u8,
+        filename_len: usize,
+        dirname: *const u8,
+        dirname_len: usize,
+        out_record: *mut NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_commonjs_record_declare_export"]
+    fn ex_output_hermes_commonjs_record_declare_export(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        export_name: *const u8,
+        export_name_len: usize,
+    ) -> i32;
+    #[link_name = "ex_hermes_commonjs_record_link_require"]
+    fn ex_output_hermes_commonjs_record_link_require(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_commonjs_record_link_require_esm"]
+    fn ex_output_hermes_commonjs_record_link_require_esm(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_commonjs_record_link_dynamic_import"]
+    fn ex_output_hermes_commonjs_record_link_dynamic_import(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
+    #[link_name = "ex_hermes_commonjs_record_evaluate"]
+    fn ex_output_hermes_commonjs_record_evaluate(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_evicted: *mut i32,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
+    #[link_name = "ex_hermes_commonjs_record_create_esm_adapter"]
+    fn ex_output_hermes_commonjs_record_create_esm_adapter(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        out_adapter: *mut NativeModuleHandle,
+        out_error: *mut *mut std::os::raw::c_char,
+        out_error_token: *mut u64,
+    ) -> i32;
 }
 
 fn tagged_bytes_digest(bytes: &[u8]) -> String {
@@ -762,6 +1189,10 @@ fn returned_string(value: String) -> Value {
 
 fn returned_object() -> Value {
     raw("return", "object", Value::Null)
+}
+
+fn observed_absent() -> Value {
+    raw("absent", "absent", Value::Null)
 }
 
 // The sweep's error outcome is named `throw` because most executors observe
@@ -831,6 +1262,18 @@ fn evaluation_result_observation(
     result: &NativeEvaluationResult,
     selector: &str,
 ) -> Result<Value, String> {
+    if result.position_count == 0 && !result.positions.is_null() {
+        return Err(
+            "structured result represented absent positions with a non-NULL pointer".into(),
+        );
+    }
+    if result.capability_flags & (1 << 2) == 0
+        && (!result.positions.is_null() || result.position_count != 0)
+    {
+        return Err(
+            "structured result populated positions while SourcePositions was unavailable".into(),
+        );
+    }
     let positions = if result.positions.is_null() {
         if result.position_count != 0 {
             return Err("structured result had null positions with a nonzero count".into());
@@ -884,6 +1327,12 @@ fn evaluation_result_observation(
                 .collect::<Vec<_>>()),
         ),
         "out:result.positions[].source_label.data" => {
+            if result.positions.is_null()
+                && result.position_count == 0
+                && result.capability_flags & (1 << 2) == 0
+            {
+                return Ok(observed_absent());
+            }
             let labels = positions
                 .iter()
                 .map(|position| native_owned_bytes_value(position.source_label))
@@ -1677,6 +2126,33 @@ fn execute_authenticated_stateful_host(
                     snapshot.len(),
                     expected.as_ptr(),
                     expected.len(),
+                )
+            })
+        }
+        "ex_host_prepare_exact_armed_embedder_artifacts" => {
+            let snapshot = b"{}";
+            let expected = b"{}";
+            let operation_manifest = b"{}";
+            raw_host_string(unsafe {
+                crate::host::abi::ex_host_prepare_exact_armed_embedder_artifacts(
+                    snapshot.as_ptr(),
+                    snapshot.len(),
+                    expected.as_ptr(),
+                    expected.len(),
+                    operation_manifest.as_ptr(),
+                    operation_manifest.len(),
+                )
+            })
+        }
+        "ex_host_build_exact_armed_embedder_artifacts" => {
+            let project_root = sandbox.root.to_string_lossy();
+            let operation_manifest = b"{}";
+            raw_host_string(unsafe {
+                crate::host::abi::ex_host_build_exact_armed_embedder_artifacts(
+                    project_root.as_bytes().as_ptr(),
+                    project_root.len(),
+                    operation_manifest.as_ptr(),
+                    operation_manifest.len(),
                 )
             })
         }
@@ -2620,6 +3096,1485 @@ fn execute_authenticated_armed_create(sandbox: &FsSandbox) -> Result<Value, Stri
     Ok(returned_object())
 }
 
+struct OwnedAuthenticatedSessionRuntime {
+    raw: *mut HermesRuntimeOpaque,
+    credential: NativeSessionCredential,
+    _engine: HermesEngine,
+    _reset: super::HostResetGuard,
+    _engine_lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl OwnedAuthenticatedSessionRuntime {
+    fn new(sandbox: &FsSandbox) -> Result<Self, String> {
+        let engine_lock = hermes_engine_test_lock().blocking_lock();
+        std::fs::create_dir_all(sandbox.root.join("node_modules/image-lib"))
+            .map_err(|error| format!("create armed-session package fixture: {error}"))?;
+        let (host, digest) = build_armed_test_host_custom(
+            Some(&sandbox.root),
+            true,
+            true,
+            true,
+            Vec::new(),
+            None,
+            |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] = json!(["node:fs"]);
+            },
+        );
+        if crate::host::abi::install_host(host) == 0 {
+            return Err("install armed-session Host context".into());
+        }
+        let reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
+            .map_err(|error| format!("create armed-session engine: {error}"))?;
+        let async_runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| format!("create armed-session async driver: {error}"))?;
+        async_runtime
+            .block_on(engine.load_runtime())
+            .map_err(|error| format!("load and seal armed-session runtime: {error}"))?;
+        let raw = async_runtime
+            .block_on(async {
+                let runtime = engine.runtime.lock().await;
+                runtime
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("armed-session runtime was not retained"))?
+                    .with_runtime(|raw| raw)
+            })
+            .map_err(|error| format!("borrow armed-session runtime: {error}"))?;
+        let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+        if nonce == 0 {
+            return Err("armed-session runtime had no live nonce".into());
+        }
+        Ok(Self {
+            raw,
+            credential: NativeSessionCredential {
+                abi_version: 2,
+                struct_size: std::mem::size_of::<NativeSessionCredential>() as u32,
+                session_token: [0xA5; 32],
+                request_binding: [0x5A; 32],
+                ordinal: 1,
+            },
+            _engine: engine,
+            _reset: reset,
+            _engine_lock: engine_lock,
+        })
+    }
+
+    fn bind(&self) -> Result<u32, String> {
+        let fault = unsafe {
+            ex_output_hermes_structured_session_bind(
+                self.raw,
+                self.credential.session_token.as_ptr(),
+                self.credential.session_token.len(),
+            )
+        };
+        if fault == 0 {
+            Ok(fault)
+        } else {
+            Err(format!("armed-session bind returned fault {fault}"))
+        }
+    }
+
+    fn admit(&self) -> Result<(u32, u64), String> {
+        let mut work_target_id = 0_u64;
+        let fault = unsafe {
+            ex_output_hermes_structured_submission_admit(
+                self.raw,
+                &self.credential,
+                &mut work_target_id,
+            )
+        };
+        if fault != 0 || work_target_id == 0 {
+            return Err(format!(
+                "armed-session admission returned fault {fault} and target {work_target_id}"
+            ));
+        }
+        Ok((fault, work_target_id))
+    }
+}
+
+fn release_evaluation_value(
+    runtime: *mut HermesRuntimeOpaque,
+    result: &NativeEvaluationResult,
+) -> Result<(), String> {
+    if result.value.handle_id == 0 {
+        return Ok(());
+    }
+    let fault = unsafe { ex_hermes_value_release(runtime, result.value) };
+    if fault == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "structured result value handle release returned fault {fault}"
+        ))
+    }
+}
+
+fn dispose_owned_evaluation_result(
+    runtime: *mut HermesRuntimeOpaque,
+    result: &mut NativeEvaluationResult,
+) -> Result<(), String> {
+    let release = release_evaluation_value(runtime, result);
+    unsafe { ex_hermes_evaluation_result_dispose(result) };
+    release
+}
+
+fn project_owned_evaluation_result(
+    runtime: *mut HermesRuntimeOpaque,
+    result: &mut NativeEvaluationResult,
+    status: i32,
+    selector: &str,
+) -> Result<Value, String> {
+    let observation = if selector == "[[return]]" {
+        Ok(returned_number(status))
+    } else if status != 0 {
+        Err(format!(
+            "structured evaluator returned layout status {status}"
+        ))
+    } else {
+        if selector == "out:result.positions[].source_label.data"
+            && (result.capability_flags & (1 << 2) != 0
+                || !result.positions.is_null()
+                || result.position_count != 0)
+        {
+            Err("unavailable source-position stratum was not represented as exact absence".into())
+        } else {
+            evaluation_result_observation(result, selector)
+        }
+    };
+    dispose_owned_evaluation_result(runtime, result)?;
+    observation
+}
+
+fn empty_session_import_plan(logical_referrer: &[u8]) -> NativeSessionImportPlan {
+    NativeSessionImportPlan {
+        abi_version: 4,
+        struct_size: std::mem::size_of::<NativeSessionImportPlan>() as u32,
+        logical_referrer: logical_referrer.as_ptr(),
+        logical_referrer_length: logical_referrer.len(),
+        imports: std::ptr::null(),
+        import_count: 0,
+        bindings: std::ptr::null(),
+        binding_count: 0,
+        file_arguments: std::ptr::null(),
+        file_argument_count: 0,
+        source_id: std::ptr::null(),
+        source_id_length: 0,
+        generated_entry_record: std::ptr::null(),
+        generated_entry_record_length: 0,
+        source_kind: 1,
+        reserved: 0,
+    }
+}
+
+fn begin_bounded_module_graph(runtime: &OwnedAuthenticatedSessionRuntime) -> Result<u64, String> {
+    runtime.bind()?;
+    let (_, work_target_id) = runtime.admit()?;
+    let runtime_arg = b"ibex:runtime";
+    let entry_arg = b"/project/capsec-host-abi-output.mjs";
+    let arguments = [
+        NativeUtf8Slice {
+            data: runtime_arg.as_ptr(),
+            length: runtime_arg.len(),
+        },
+        NativeUtf8Slice {
+            data: entry_arg.as_ptr(),
+            length: entry_arg.len(),
+        },
+    ];
+    let fault = unsafe {
+        ex_output_hermes_structured_module_graph_begin(
+            runtime.raw,
+            &runtime.credential,
+            arguments.as_ptr(),
+            arguments.len(),
+        )
+    };
+    if fault != 0 {
+        return Err(format!("bounded module-graph begin returned fault {fault}"));
+    }
+    Ok(work_target_id)
+}
+
+fn finish_bounded_module_graph(
+    runtime: &OwnedAuthenticatedSessionRuntime,
+    work_target_id: u64,
+) -> Result<(), String> {
+    let mut result = NativeEvaluationResult::zeroed();
+    unsafe { ex_hermes_evaluation_result_init(&mut result) };
+    let status = unsafe {
+        ex_output_hermes_structured_module_graph_finish(
+            runtime.raw,
+            work_target_id,
+            0,
+            0,
+            &mut result,
+        )
+    };
+    let projected = project_owned_evaluation_result(
+        runtime.raw,
+        &mut result,
+        status,
+        "out:result.outcome_tag",
+    )?;
+    if projected["value"] != 1 {
+        return Err("bounded module graph did not finish with the observed Empty outcome".into());
+    }
+    Ok(())
+}
+
+fn execute_authenticated_session_output(
+    function_name: &str,
+    selector: &str,
+    sandbox: &FsSandbox,
+) -> Result<Value, String> {
+    let runtime = OwnedAuthenticatedSessionRuntime::new(sandbox)?;
+    match function_name {
+        "ex_hermes_structured_session_bind" => Ok(returned_number(runtime.bind()?)),
+        "ex_hermes_structured_submission_admit" => {
+            runtime.bind()?;
+            let (fault, work_target_id) = runtime.admit()?;
+            let observation = if selector == "out:work_target_id" {
+                returned_number(work_target_id)
+            } else {
+                returned_number(fault)
+            };
+            let settle_fault = unsafe {
+                ex_output_hermes_structured_submission_settle(runtime.raw, &runtime.credential)
+            };
+            if settle_fault != 0 {
+                return Err(format!(
+                    "bounded admission cleanup returned fault {settle_fault}"
+                ));
+            }
+            Ok(observation)
+        }
+        "ex_hermes_structured_submission_settle" => {
+            runtime.bind()?;
+            runtime.admit()?;
+            Ok(returned_number(unsafe {
+                ex_output_hermes_structured_submission_settle(runtime.raw, &runtime.credential)
+            }))
+        }
+        "ex_hermes_structured_module_graph_begin" => {
+            let work_target_id = begin_bounded_module_graph(&runtime)?;
+            finish_bounded_module_graph(&runtime, work_target_id)?;
+            Ok(returned_number(0))
+        }
+        "ex_hermes_structured_module_graph_suspend" => {
+            let work_target_id = begin_bounded_module_graph(&runtime)?;
+            let status = unsafe {
+                ex_output_hermes_structured_module_graph_suspend(runtime.raw, work_target_id)
+            };
+            if status == 0 {
+                let resume = unsafe {
+                    ex_output_hermes_structured_module_graph_resume(runtime.raw, work_target_id)
+                };
+                if resume != 0 {
+                    return Err(format!("module-graph cleanup resume returned {resume}"));
+                }
+            }
+            finish_bounded_module_graph(&runtime, work_target_id)?;
+            Ok(returned_number(status))
+        }
+        "ex_hermes_structured_module_graph_resume" => {
+            let work_target_id = begin_bounded_module_graph(&runtime)?;
+            let suspend = unsafe {
+                ex_output_hermes_structured_module_graph_suspend(runtime.raw, work_target_id)
+            };
+            if suspend != 0 {
+                return Err(format!("module-graph setup suspend returned {suspend}"));
+            }
+            let status = unsafe {
+                ex_output_hermes_structured_module_graph_resume(runtime.raw, work_target_id)
+            };
+            finish_bounded_module_graph(&runtime, work_target_id)?;
+            Ok(returned_number(status))
+        }
+        "ex_hermes_structured_module_graph_finish" => {
+            let work_target_id = begin_bounded_module_graph(&runtime)?;
+            let mut result = NativeEvaluationResult::zeroed();
+            unsafe { ex_hermes_evaluation_result_init(&mut result) };
+            let status = unsafe {
+                ex_output_hermes_structured_module_graph_finish(
+                    runtime.raw,
+                    work_target_id,
+                    0,
+                    0,
+                    &mut result,
+                )
+            };
+            project_owned_evaluation_result(runtime.raw, &mut result, status, selector)
+        }
+        "ex_hermes_eval_structured_session" => {
+            runtime.bind()?;
+            let source = b"throw new Error('bounded direct structured session')";
+            let source_label = b"file:///project/capsec-host-abi-output-direct.js";
+            let mut result = NativeEvaluationResult::zeroed();
+            unsafe { ex_hermes_evaluation_result_init(&mut result) };
+            let status = unsafe {
+                ex_output_hermes_eval_structured_session(
+                    runtime.raw,
+                    &runtime.credential,
+                    source.as_ptr(),
+                    source.len(),
+                    source_label.as_ptr(),
+                    source_label.len(),
+                    &mut result,
+                )
+            };
+            if status == 0 && (result.fault != 0 || result.outcome_tag != 3) {
+                let outcome_tag = result.outcome_tag;
+                let fault = result.fault;
+                dispose_owned_evaluation_result(runtime.raw, &mut result)?;
+                return Err(format!(
+                    "direct structured session did not produce a real throw (outcome {}, fault {})",
+                    outcome_tag, fault
+                ));
+            }
+            project_owned_evaluation_result(runtime.raw, &mut result, status, selector)
+        }
+        "ex_hermes_eval_lowered_session" | "ex_hermes_resume_structured_session" => {
+            runtime.bind()?;
+            let (_, work_target_id) = runtime.admit()?;
+            let asynchronous = function_name == "ex_hermes_resume_structured_session";
+            let lowered_source: &[u8] = if asynchronous {
+                b"(async function (__ibex_session_hooks) { await new Promise(function (resolve) { setTimeout(resolve, 0); }); throw new Error('bounded resumed session'); })"
+            } else {
+                b"(function (__ibex_session_hooks) { throw new Error('bounded lowered session'); })"
+            };
+            let source_label = b"file:///project/capsec-host-abi-output-lowered.js";
+            let logical_referrer = b"ibex:capsec-host-abi-output";
+            let import_plan = empty_session_import_plan(logical_referrer);
+            let mut result = NativeEvaluationResult::zeroed();
+            unsafe { ex_hermes_evaluation_result_init(&mut result) };
+            let status = unsafe {
+                ex_output_hermes_eval_lowered_session(
+                    runtime.raw,
+                    &runtime.credential,
+                    1,
+                    lowered_source.as_ptr(),
+                    lowered_source.len(),
+                    std::ptr::null(),
+                    0,
+                    source_label.as_ptr(),
+                    source_label.len(),
+                    std::ptr::null(),
+                    0,
+                    &import_plan,
+                    asynchronous,
+                    &mut result,
+                )
+            };
+            if function_name == "ex_hermes_eval_lowered_session" {
+                if status == 0 && (result.fault != 0 || result.outcome_tag != 3) {
+                    let outcome_tag = result.outcome_tag;
+                    let fault = result.fault;
+                    dispose_owned_evaluation_result(runtime.raw, &mut result)?;
+                    return Err(format!(
+                        "lowered structured session did not produce a real throw (outcome {}, fault {})",
+                        outcome_tag, fault
+                    ));
+                }
+                return project_owned_evaluation_result(runtime.raw, &mut result, status, selector);
+            }
+            if status != 0 || result.outcome_tag != 7 || result.work_target_id != work_target_id {
+                let outcome_tag = result.outcome_tag;
+                let fault = result.fault;
+                let actual_work_target_id = result.work_target_id;
+                dispose_owned_evaluation_result(runtime.raw, &mut result)?;
+                return Err(format!(
+                    "async lowered setup did not suspend (status {status}, outcome {}, fault {}, target {})",
+                    outcome_tag, fault, actual_work_target_id
+                ));
+            }
+            dispose_owned_evaluation_result(runtime.raw, &mut result)?;
+            let mut resumed = NativeEvaluationResult::zeroed();
+            unsafe { ex_hermes_evaluation_result_init(&mut resumed) };
+            let mut resume_status = 0;
+            for _ in 0..32 {
+                let _ = unsafe { ex_hermes_poll(runtime.raw, ex_hermes_now_ms()) };
+                resume_status = unsafe {
+                    ex_output_hermes_resume_structured_session(
+                        runtime.raw,
+                        work_target_id,
+                        &mut resumed,
+                    )
+                };
+                if resume_status != 0 || resumed.outcome_tag != 7 {
+                    break;
+                }
+                dispose_owned_evaluation_result(runtime.raw, &mut resumed)?;
+            }
+            if resume_status == 0 && (resumed.fault != 0 || resumed.outcome_tag != 3) {
+                let outcome_tag = resumed.outcome_tag;
+                let fault = resumed.fault;
+                dispose_owned_evaluation_result(runtime.raw, &mut resumed)?;
+                return Err(format!(
+                    "resumed structured session did not produce a real throw (outcome {}, fault {})",
+                    outcome_tag, fault
+                ));
+            }
+            project_owned_evaluation_result(runtime.raw, &mut resumed, resume_status, selector)
+        }
+        other => Err(format!("unsupported authenticated session output {other}")),
+    }
+}
+
+fn execute_owned_runtime_teardown() -> Result<Value, String> {
+    let _engine_lock = hermes_engine_test_lock().blocking_lock();
+    fresh_legacy_host();
+    let raw = unsafe { ex_hermes_create_diagnostic() };
+    if raw.is_null() {
+        return Err("owned teardown fixture could not create a diagnostic runtime".into());
+    }
+    let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+    if nonce == 0 {
+        unsafe { ex_hermes_destroy(raw) };
+        return Err("owned teardown fixture had no runtime nonce".into());
+    }
+    let status = unsafe { ex_output_hermes_try_destroy(raw, nonce) };
+    if status != 0 {
+        unsafe { ex_hermes_destroy(raw) };
+    }
+    Ok(returned_number(status))
+}
+
+fn execute_authenticated_public_vfs_facade(
+    runtime: &OwnedAuthenticatedSessionRuntime,
+    source: &[u8],
+    expected: &str,
+    backing_root: &Path,
+) -> Result<(), String> {
+    runtime.bind()?;
+    let source_label = b"file:///project/capsec-host-abi-vfs-facade.js";
+    let mut result = NativeEvaluationResult::zeroed();
+    unsafe { ex_hermes_evaluation_result_init(&mut result) };
+    let status = unsafe {
+        ex_output_hermes_eval_structured_session(
+            runtime.raw,
+            &runtime.credential,
+            source.as_ptr(),
+            source.len(),
+            source_label.as_ptr(),
+            source_label.len(),
+            &mut result,
+        )
+    };
+    let observation = (|| {
+        if status != 0 || result.outcome_tag != 2 || result.value.handle_id == 0 {
+            let detail = if result.message.data.is_null() || result.message.length > 16 * 1024 {
+                None
+            } else {
+                let bytes = unsafe {
+                    std::slice::from_raw_parts(result.message.data, result.message.length)
+                };
+                Some(String::from_utf8_lossy(bytes).into_owned())
+            };
+            return Err(format!(
+                "public VFS facade returned status {status}, outcome {}, fault {}, handle {}, message {detail:?}",
+                result.outcome_tag, result.fault, result.value.handle_id,
+            ));
+        }
+        let mut data = std::ptr::null_mut();
+        let mut length = 0_usize;
+        let mut truncated = 0_u32;
+        let render_status = unsafe {
+            ex_hermes_value_stage1_text(
+                runtime.raw,
+                result.value,
+                &mut data,
+                &mut length,
+                &mut truncated,
+            )
+        };
+        let rendered = if render_status != 0 {
+            Err(format!(
+                "public VFS facade Stage-1 rendering returned fault {render_status}"
+            ))
+        } else if truncated != 0 {
+            Err("public VFS facade result was unexpectedly truncated".into())
+        } else if data.is_null() {
+            Err("public VFS facade result did not produce bounded string text".into())
+        } else if length > 1024 {
+            Err("public VFS facade result exceeded the evidence bound".into())
+        } else {
+            let bytes = unsafe { std::slice::from_raw_parts(data, length) };
+            std::str::from_utf8(bytes)
+                .map(str::to_owned)
+                .map_err(|error| format!("public VFS facade result was not UTF-8: {error}"))
+        };
+        if !data.is_null() {
+            unsafe { ex_hermes_free_string(data.cast()) };
+        }
+        let rendered = rendered?;
+        let facade_value = rendered.strip_prefix("absent|").unwrap_or(&rendered);
+        let backing_root = backing_root.to_string_lossy();
+        if facade_value == PRIVATE_NATIVE_PATH_CLASS
+            || (!backing_root.is_empty() && facade_value.contains(backing_root.as_ref()))
+            || (Path::new(facade_value).is_absolute() && !facade_value.starts_with("/project"))
+        {
+            return Err(format!(
+                "public VFS facade projected a private or host-absolute path {facade_value:?}"
+            ));
+        }
+        if rendered != expected {
+            return Err(format!(
+                "public VFS facade returned {rendered:?}, expected {expected:?}"
+            ));
+        }
+        Ok(())
+    })();
+    let cleanup = dispose_owned_evaluation_result(runtime.raw, &mut result);
+    cleanup?;
+    observation
+}
+
+fn execute_javascript_absence(function_name: &str, sandbox: &FsSandbox) -> Result<Value, String> {
+    let runtime = OwnedAuthenticatedSessionRuntime::new(sandbox)?;
+    let private_name = serde_json::to_string(function_name)
+        .map_err(|error| format!("serialize private VFS symbol: {error}"))?;
+    let (facade_body, expected_path) = match function_name {
+        "ex_host_vfs_chdir" => (
+            "process.chdir('/project/node_modules'); var facadeValue = process.cwd();",
+            "/project/node_modules",
+        ),
+        "ex_host_vfs_resolve_path" => (
+            "var facadeValue = require('node:fs').realpathSync('/project/node_modules');",
+            "/project/node_modules",
+        ),
+        "ex_host_vfs_bind_runtime" | "ex_host_vfs_unbind_runtime" | "ex_host_vfs_get_cwd" => {
+            ("var facadeValue = process.cwd();", "/project")
+        }
+        other => {
+            return Err(format!(
+                "unsupported private VFS JavaScript absence {other}"
+            ))
+        }
+    };
+    let source = format!(
+        "(function () {{ var privateName = {private_name}; var symbolAbsent = !Object.prototype.hasOwnProperty.call(globalThis, privateName); {facade_body} return (symbolAbsent ? 'absent|' : 'present|') + facadeValue; }})()"
+    );
+    execute_authenticated_public_vfs_facade(
+        &runtime,
+        source.as_bytes(),
+        &format!("absent|{expected_path}"),
+        &sandbox.root,
+    )?;
+    // Runtime destruction is itself the production unbind route. Make that
+    // lifecycle edge occur before this absence row is reported as exercised.
+    drop(runtime);
+    if function_name == "ex_host_vfs_unbind_runtime" {
+        let rebound = OwnedAuthenticatedSessionRuntime::new(sandbox)?;
+        execute_authenticated_public_vfs_facade(
+            &rebound,
+            b"(function () { return process.cwd(); })()",
+            "/project",
+            &sandbox.root,
+        )?;
+        drop(rebound);
+    }
+    Ok(observed_absent())
+}
+
+struct OwnedModuleRunnerFixture {
+    runtime: OwnedDiagnosticRuntime,
+    nonce: u64,
+    handles: Vec<NativeModuleHandle>,
+    _engine_lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl OwnedModuleRunnerFixture {
+    fn new() -> Result<Self, String> {
+        let engine_lock = hermes_engine_test_lock().blocking_lock();
+        let runtime = OwnedDiagnosticRuntime::new()?;
+        let nonce = unsafe { ex_hermes_runtime_nonce(runtime.raw) };
+        if nonce == 0 {
+            return Err("module-runner fixture had no live runtime nonce".into());
+        }
+        Ok(Self {
+            runtime,
+            nonce,
+            handles: Vec::new(),
+            _engine_lock: engine_lock,
+        })
+    }
+
+    fn track(&mut self, handle: NativeModuleHandle) {
+        if !handle.is_null() {
+            self.handles.push(handle);
+        }
+    }
+
+    fn compile(&mut self, source_goal: u32, source: &[u8]) -> Result<NativeModuleHandle, String> {
+        let semantic_digest = tagged_bytes_digest(source);
+        let source_id = if source_goal == 1 {
+            b"ibex-source-id-v1:capsec-commonjs".as_slice()
+        } else {
+            b"ibex-source-id-v1:capsec-module".as_slice()
+        };
+        let source_label = if source_goal == 1 {
+            b"file:///project/capsec-host-abi-output.cjs".as_slice()
+        } else {
+            b"file:///project/capsec-host-abi-output.mjs".as_slice()
+        };
+        let mut factory = NativeModuleHandle::default();
+        let mut error = std::ptr::null_mut();
+        let mut error_token = 0_u64;
+        let status = unsafe {
+            ex_output_hermes_module_compile_factory(
+                self.runtime.raw,
+                self.nonce,
+                source_goal,
+                0,
+                1,
+                std::ptr::null(),
+                0,
+                semantic_digest.as_bytes().as_ptr(),
+                semantic_digest.len(),
+                source_id.as_ptr(),
+                source_id.len(),
+                source.as_ptr(),
+                source.len(),
+                source_label.as_ptr(),
+                source_label.len(),
+                &mut factory,
+                &mut error,
+                &mut error_token,
+            )
+        };
+        let detail = take_hermes_string(error);
+        if status != 0 || factory.is_null() {
+            return Err(format!(
+                "module factory setup failed with status {status}, token {error_token}, detail {detail:?}"
+            ));
+        }
+        self.track(factory);
+        Ok(factory)
+    }
+
+    fn context(&mut self) -> Result<NativeModuleHandle, String> {
+        let source_id = b"ibex-source-id-v1:capsec-module";
+        let principals = [0_u32];
+        let mut context = NativeModuleHandle::default();
+        let status = unsafe {
+            ex_output_hermes_graph_context_create(
+                self.runtime.raw,
+                self.nonce,
+                1,
+                source_id.as_ptr(),
+                source_id.len(),
+                0,
+                0,
+                principals.as_ptr(),
+                principals.len(),
+                &mut context,
+            )
+        };
+        if status != 0 || context.is_null() {
+            return Err(format!(
+                "module graph-context setup failed with status {status}"
+            ));
+        }
+        self.track(context);
+        Ok(context)
+    }
+
+    fn module_record(&mut self) -> Result<NativeModuleHandle, String> {
+        let source = b"function ($export, context) { return { declare: function () {}, execute: function () { $export('value', 42); } }; }";
+        let factory = self.compile(0, source)?;
+        let context = self.context()?;
+        let source_id = b"ibex-source-id-v1:capsec-module";
+        let mut record = NativeModuleHandle::default();
+        let status = unsafe {
+            ex_output_hermes_module_create_record(
+                self.runtime.raw,
+                self.nonce,
+                factory,
+                context,
+                source_id.as_ptr(),
+                source_id.len(),
+                &mut record,
+            )
+        };
+        if status != 0 || record.is_null() {
+            return Err(format!("module record setup failed with status {status}"));
+        }
+        self.track(record);
+        Ok(record)
+    }
+
+    fn commonjs_record(&mut self) -> Result<NativeModuleHandle, String> {
+        let source = b"function (exports, module, require, __filename, __dirname, dynamicImport) { module.exports.value = 42; }";
+        let factory = self.compile(1, source)?;
+        let context = self.context()?;
+        let source_id = b"ibex-source-id-v1:capsec-commonjs";
+        let filename = b"/project/capsec-host-abi-output.cjs";
+        let dirname = b"/project";
+        let mut record = NativeModuleHandle::default();
+        let status = unsafe {
+            ex_output_hermes_commonjs_create_record(
+                self.runtime.raw,
+                self.nonce,
+                factory,
+                context,
+                source_id.as_ptr(),
+                source_id.len(),
+                filename.as_ptr(),
+                filename.len(),
+                dirname.as_ptr(),
+                dirname.len(),
+                &mut record,
+            )
+        };
+        if status != 0 || record.is_null() {
+            return Err(format!("CommonJS record setup failed with status {status}"));
+        }
+        self.track(record);
+        Ok(record)
+    }
+
+    fn release_target(&mut self, handle: NativeModuleHandle) -> i32 {
+        if let Some(index) = self
+            .handles
+            .iter()
+            .rposition(|candidate| candidate.opaque == handle.opaque)
+        {
+            self.handles.remove(index);
+        }
+        let status =
+            unsafe { ex_output_hermes_module_release_handle(self.runtime.raw, self.nonce, handle) };
+        if status != 0 {
+            self.track(handle);
+        }
+        status
+    }
+}
+
+impl Drop for OwnedModuleRunnerFixture {
+    fn drop(&mut self) {
+        for handle in self.handles.drain(..).rev() {
+            let _ = unsafe {
+                ex_output_hermes_module_release_handle(self.runtime.raw, self.nonce, handle)
+            };
+        }
+    }
+}
+
+fn native_handle_observation(handle: NativeModuleHandle) -> Value {
+    raw("return", "array", json!(handle.opaque))
+}
+
+fn project_module_call(
+    selector: &str,
+    status: i32,
+    handle: NativeModuleHandle,
+    scalar: i32,
+    error: Option<String>,
+    error_token: u64,
+    output_json: Option<String>,
+) -> Result<Value, String> {
+    Ok(match selector {
+        "[[return]]" => returned_number(status),
+        "out:adapter" | "out:context" | "out:factory" | "out:record" => {
+            native_handle_observation(handle)
+        }
+        "out:async" | "out:evicted" | "out:state" => returned_number(scalar),
+        "out:error" => error.map_or_else(returned_null, returned_string),
+        "out:error_token" => returned_number(error_token),
+        "out:json" => output_json.map_or_else(returned_null, returned_string),
+        other => return Err(format!("unsupported module-runner selector {other}")),
+    })
+}
+
+fn take_module_outputs(
+    selector: &str,
+    status: i32,
+    handle: NativeModuleHandle,
+    scalar: i32,
+    error: *mut std::os::raw::c_char,
+    error_token: u64,
+    output_json: *mut std::os::raw::c_char,
+) -> Result<Value, String> {
+    project_module_call(
+        selector,
+        status,
+        handle,
+        scalar,
+        take_hermes_string(error),
+        error_token,
+        take_hermes_string(output_json),
+    )
+}
+
+fn instantiate_module_record(
+    fixture: &mut OwnedModuleRunnerFixture,
+    record: NativeModuleHandle,
+) -> Result<(), String> {
+    let export_name = b"value";
+    let declare_status = unsafe {
+        ex_output_hermes_module_record_declare_export(
+            fixture.runtime.raw,
+            fixture.nonce,
+            record,
+            export_name.as_ptr(),
+            export_name.len(),
+        )
+    };
+    if declare_status != 0 {
+        return Err(format!(
+            "module record export setup failed with status {declare_status}"
+        ));
+    }
+    let meta_url = b"file:///project/capsec-host-abi-output.mjs";
+    let virtual_path = b"/project/capsec-host-abi-output.mjs";
+    let mut error = std::ptr::null_mut();
+    let mut error_token = 0_u64;
+    let status = unsafe {
+        ex_output_hermes_module_record_instantiate(
+            fixture.runtime.raw,
+            fixture.nonce,
+            record,
+            meta_url.as_ptr(),
+            meta_url.len(),
+            virtual_path.as_ptr(),
+            virtual_path.len(),
+            1,
+            &mut error,
+            &mut error_token,
+        )
+    };
+    let detail = take_hermes_string(error);
+    if status != 0 {
+        Err(format!(
+            "module record instantiate setup failed with status {status}, token {error_token}, detail {detail:?}"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn declare_module_record(
+    fixture: &mut OwnedModuleRunnerFixture,
+    record: NativeModuleHandle,
+) -> Result<(), String> {
+    let mut error = std::ptr::null_mut();
+    let mut error_token = 0_u64;
+    let status = unsafe {
+        ex_output_hermes_module_record_run_declare(
+            fixture.runtime.raw,
+            fixture.nonce,
+            record,
+            &mut error,
+            &mut error_token,
+        )
+    };
+    let detail = take_hermes_string(error);
+    if status != 0 {
+        Err(format!(
+            "module record declare setup failed with status {status}, token {error_token}, detail {detail:?}"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn execute_module_runner_output(function_name: &str, selector: &str) -> Result<Value, String> {
+    let mut fixture = OwnedModuleRunnerFixture::new()?;
+    let raw = fixture.runtime.raw;
+    let nonce = fixture.nonce;
+    let mut handle = NativeModuleHandle::default();
+    let mut scalar = 0_i32;
+    let mut error = std::ptr::null_mut();
+    let mut error_token = 0_u64;
+    let mut output_json = std::ptr::null_mut();
+
+    let status = match function_name {
+        "ex_hermes_module_compile_factory" => {
+            let source = b"function ($export, context) { return { declare: function () {}, execute: function () { $export('value', 42); } }; }";
+            let semantic_digest = tagged_bytes_digest(source);
+            let source_id = b"ibex-source-id-v1:capsec-module";
+            let source_label = b"file:///project/capsec-host-abi-output.mjs";
+            let status = unsafe {
+                ex_output_hermes_module_compile_factory(
+                    raw,
+                    nonce,
+                    0,
+                    0,
+                    1,
+                    std::ptr::null(),
+                    0,
+                    semantic_digest.as_bytes().as_ptr(),
+                    semantic_digest.len(),
+                    source_id.as_ptr(),
+                    source_id.len(),
+                    source.as_ptr(),
+                    source.len(),
+                    source_label.as_ptr(),
+                    source_label.len(),
+                    &mut handle,
+                    &mut error,
+                    &mut error_token,
+                )
+            };
+            fixture.track(handle);
+            status
+        }
+        "ex_hermes_module_load_carrier_factory" => {
+            let carrier = b"not-a-valid-authenticated-carrier";
+            let semantic_digest = tagged_bytes_digest(carrier);
+            let carrier_digest = tagged_bytes_digest(carrier);
+            let source_id = b"ibex-source-id-v1:capsec-module";
+            let entry_id = b"capsec-entry";
+            let source_label = b"file:///project/capsec-host-abi-carrier.mjs";
+            let status = unsafe {
+                ex_output_hermes_module_load_carrier_factory(
+                    raw,
+                    nonce,
+                    0,
+                    0,
+                    1,
+                    std::ptr::null(),
+                    0,
+                    semantic_digest.as_bytes().as_ptr(),
+                    semantic_digest.len(),
+                    source_id.as_ptr(),
+                    source_id.len(),
+                    carrier_digest.as_bytes().as_ptr(),
+                    carrier_digest.len(),
+                    carrier.as_ptr(),
+                    carrier.len(),
+                    0,
+                    entry_id.as_ptr(),
+                    entry_id.len(),
+                    source_label.as_ptr(),
+                    source_label.len(),
+                    &mut handle,
+                    &mut error,
+                    &mut error_token,
+                )
+            };
+            fixture.track(handle);
+            status
+        }
+        "ex_hermes_graph_context_create" => {
+            let source_id = b"ibex-source-id-v1:capsec-module";
+            let principals = [0_u32];
+            let status = unsafe {
+                ex_output_hermes_graph_context_create(
+                    raw,
+                    nonce,
+                    1,
+                    source_id.as_ptr(),
+                    source_id.len(),
+                    0,
+                    0,
+                    principals.as_ptr(),
+                    principals.len(),
+                    &mut handle,
+                )
+            };
+            fixture.track(handle);
+            status
+        }
+        "ex_hermes_graph_context_retain" => {
+            let context = fixture.context()?;
+            let status = unsafe { ex_output_hermes_graph_context_retain(raw, nonce, context) };
+            if status == 0 {
+                fixture.track(context);
+            }
+            status
+        }
+        "ex_hermes_module_pin_generation" => unsafe {
+            ex_output_hermes_module_pin_generation(raw, nonce, 1)
+        },
+        "ex_hermes_module_unpin_generation" => {
+            let _ = unsafe { ex_output_hermes_module_pin_generation(raw, nonce, 1) };
+            unsafe { ex_output_hermes_module_unpin_generation(raw, nonce, 1) }
+        }
+        "ex_hermes_module_release_handle" => {
+            let context = fixture.context()?;
+            fixture.release_target(context)
+        }
+        "ex_hermes_module_create_record" => {
+            let source = b"function ($export) { return { declare: function () {}, execute: function () { $export('value', 42); } }; }";
+            let factory = fixture.compile(0, source)?;
+            let context = fixture.context()?;
+            let source_id = b"ibex-source-id-v1:capsec-created-module";
+            let status = unsafe {
+                ex_output_hermes_module_create_record(
+                    raw,
+                    nonce,
+                    factory,
+                    context,
+                    source_id.as_ptr(),
+                    source_id.len(),
+                    &mut handle,
+                )
+            };
+            fixture.track(handle);
+            status
+        }
+        "ex_hermes_commonjs_create_record" => {
+            let source = b"function (exports, module, require, __filename, __dirname, dynamicImport) { module.exports.value = 42; }";
+            let factory = fixture.compile(1, source)?;
+            let context = fixture.context()?;
+            let source_id = b"ibex-source-id-v1:capsec-commonjs-created";
+            let filename = b"/project/capsec-created.cjs";
+            let dirname = b"/project";
+            let status = unsafe {
+                ex_output_hermes_commonjs_create_record(
+                    raw,
+                    nonce,
+                    factory,
+                    context,
+                    source_id.as_ptr(),
+                    source_id.len(),
+                    filename.as_ptr(),
+                    filename.len(),
+                    dirname.as_ptr(),
+                    dirname.len(),
+                    &mut handle,
+                )
+            };
+            fixture.track(handle);
+            status
+        }
+        name if name.starts_with("ex_hermes_commonjs_record_") => {
+            let record = fixture.commonjs_record()?;
+            let specifier = b"./target.mjs";
+            let export_name = b"value";
+            match name {
+                "ex_hermes_commonjs_record_declare_export" => unsafe {
+                    ex_output_hermes_commonjs_record_declare_export(
+                        raw,
+                        nonce,
+                        record,
+                        export_name.as_ptr(),
+                        export_name.len(),
+                    )
+                },
+                "ex_hermes_commonjs_record_link_require" => unsafe {
+                    ex_output_hermes_commonjs_record_link_require(
+                        raw,
+                        nonce,
+                        record,
+                        specifier.as_ptr(),
+                        specifier.len(),
+                        record,
+                    )
+                },
+                "ex_hermes_commonjs_record_link_require_esm" => {
+                    let target = fixture.module_record()?;
+                    unsafe {
+                        ex_output_hermes_commonjs_record_link_require_esm(
+                            raw,
+                            nonce,
+                            record,
+                            specifier.as_ptr(),
+                            specifier.len(),
+                            target,
+                        )
+                    }
+                }
+                "ex_hermes_commonjs_record_link_dynamic_import" => {
+                    let target = fixture.module_record()?;
+                    unsafe {
+                        ex_output_hermes_commonjs_record_link_dynamic_import(
+                            raw,
+                            nonce,
+                            record,
+                            specifier.as_ptr(),
+                            specifier.len(),
+                            target,
+                        )
+                    }
+                }
+                "ex_hermes_commonjs_record_evaluate" => unsafe {
+                    ex_output_hermes_commonjs_record_evaluate(
+                        raw,
+                        nonce,
+                        record,
+                        &mut scalar,
+                        &mut error,
+                        &mut error_token,
+                    )
+                },
+                "ex_hermes_commonjs_record_create_esm_adapter" => {
+                    let status = unsafe {
+                        ex_output_hermes_commonjs_record_create_esm_adapter(
+                            raw,
+                            nonce,
+                            record,
+                            &mut handle,
+                            &mut error,
+                            &mut error_token,
+                        )
+                    };
+                    fixture.track(handle);
+                    status
+                }
+                _ => unreachable!(),
+            }
+        }
+        name if name.starts_with("ex_hermes_module_record_") => {
+            let record = fixture.module_record()?;
+            let export_name = b"value";
+            let specifier = b"./target.mjs";
+            match name {
+                "ex_hermes_module_record_declare_export" => unsafe {
+                    ex_output_hermes_module_record_declare_export(
+                        raw,
+                        nonce,
+                        record,
+                        export_name.as_ptr(),
+                        export_name.len(),
+                    )
+                },
+                "ex_hermes_module_record_link_export" => unsafe {
+                    ex_output_hermes_module_record_link_export(
+                        raw,
+                        nonce,
+                        record,
+                        export_name.as_ptr(),
+                        export_name.len(),
+                        record,
+                        export_name.as_ptr(),
+                        export_name.len(),
+                    )
+                },
+                "ex_hermes_module_record_link_import" => unsafe {
+                    ex_output_hermes_module_record_link_import(
+                        raw,
+                        nonce,
+                        record,
+                        specifier.as_ptr(),
+                        specifier.len(),
+                        export_name.as_ptr(),
+                        export_name.len(),
+                        record,
+                        export_name.as_ptr(),
+                        export_name.len(),
+                    )
+                },
+                "ex_hermes_module_record_link_dependency" => unsafe {
+                    ex_output_hermes_module_record_link_dependency(raw, nonce, record, record)
+                },
+                "ex_hermes_module_record_link_dynamic_import" => unsafe {
+                    ex_output_hermes_module_record_link_dynamic_import(
+                        raw,
+                        nonce,
+                        record,
+                        specifier.as_ptr(),
+                        specifier.len(),
+                        record,
+                    )
+                },
+                "ex_hermes_module_record_instantiate" => {
+                    let meta_url = b"file:///project/capsec-host-abi-output.mjs";
+                    let virtual_path = b"/project/capsec-host-abi-output.mjs";
+                    unsafe {
+                        ex_output_hermes_module_record_instantiate(
+                            raw,
+                            nonce,
+                            record,
+                            meta_url.as_ptr(),
+                            meta_url.len(),
+                            virtual_path.as_ptr(),
+                            virtual_path.len(),
+                            1,
+                            &mut error,
+                            &mut error_token,
+                        )
+                    }
+                }
+                "ex_hermes_module_record_run_declare" => {
+                    instantiate_module_record(&mut fixture, record)?;
+                    unsafe {
+                        ex_output_hermes_module_record_run_declare(
+                            raw,
+                            nonce,
+                            record,
+                            &mut error,
+                            &mut error_token,
+                        )
+                    }
+                }
+                "ex_hermes_module_record_run_execute" => {
+                    instantiate_module_record(&mut fixture, record)?;
+                    declare_module_record(&mut fixture, record)?;
+                    unsafe {
+                        ex_output_hermes_module_record_run_execute(
+                            raw,
+                            nonce,
+                            record,
+                            &mut scalar,
+                            &mut error,
+                            &mut error_token,
+                        )
+                    }
+                }
+                "ex_hermes_module_record_poll_evaluation" => {
+                    instantiate_module_record(&mut fixture, record)?;
+                    declare_module_record(&mut fixture, record)?;
+                    let mut asynchronous = 0_i32;
+                    let execute_status = unsafe {
+                        ex_output_hermes_module_record_run_execute(
+                            raw,
+                            nonce,
+                            record,
+                            &mut asynchronous,
+                            &mut error,
+                            &mut error_token,
+                        )
+                    };
+                    let setup_error = take_hermes_string(error);
+                    error = std::ptr::null_mut();
+                    if execute_status != 0 {
+                        return Err(format!(
+                            "module poll setup execute failed with status {execute_status}, detail {setup_error:?}"
+                        ));
+                    }
+                    unsafe {
+                        ex_output_hermes_module_record_poll_evaluation(
+                            raw,
+                            nonce,
+                            record,
+                            &mut scalar,
+                            &mut error,
+                            &mut error_token,
+                        )
+                    }
+                }
+                "ex_hermes_module_record_namespace_json" => {
+                    instantiate_module_record(&mut fixture, record)?;
+                    declare_module_record(&mut fixture, record)?;
+                    let mut asynchronous = 0_i32;
+                    let execute_status = unsafe {
+                        ex_output_hermes_module_record_run_execute(
+                            raw,
+                            nonce,
+                            record,
+                            &mut asynchronous,
+                            &mut error,
+                            &mut error_token,
+                        )
+                    };
+                    let setup_error = take_hermes_string(error);
+                    error = std::ptr::null_mut();
+                    if execute_status != 0 {
+                        return Err(format!(
+                            "module namespace setup execute failed with status {execute_status}, detail {setup_error:?}"
+                        ));
+                    }
+                    unsafe {
+                        ex_output_hermes_module_record_namespace_json(
+                            raw,
+                            nonce,
+                            record,
+                            &mut output_json,
+                            &mut error,
+                            &mut error_token,
+                        )
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        other => return Err(format!("unsupported module-runner ABI {other}")),
+    };
+
+    take_module_outputs(
+        selector,
+        status,
+        handle,
+        scalar,
+        error,
+        error_token,
+        output_json,
+    )
+}
+
+#[cfg(feature = "host-http-server")]
+struct OwnedHttpServer {
+    server_id: u32,
+    serve_json: String,
+    closed: bool,
+}
+
+#[cfg(feature = "host-http-server")]
+impl OwnedHttpServer {
+    fn new() -> Result<Self, String> {
+        let pointer = crate::host::http_server::ex_host_http_serve(0, std::ptr::null());
+        let serve_json =
+            take_host_string(pointer).ok_or("HTTP live-server fixture returned NULL from serve")?;
+        let envelope: Value = serde_json::from_str(&serve_json)
+            .map_err(|error| format!("HTTP serve returned invalid JSON: {error}"))?;
+        let server_id = envelope["id"]
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value != 0)
+            .ok_or_else(|| format!("HTTP serve did not return a live server id: {serve_json}"))?;
+        if envelope["port"].as_u64().is_none_or(|port| port == 0) {
+            let _ = crate::host::http_server::ex_host_http_close(server_id, 1);
+            return Err(format!(
+                "HTTP serve did not bind a concrete loopback port: {serve_json}"
+            ));
+        }
+        Ok(Self {
+            server_id,
+            serve_json,
+            closed: false,
+        })
+    }
+}
+
+#[cfg(feature = "host-http-server")]
+impl Drop for OwnedHttpServer {
+    fn drop(&mut self) {
+        if !self.closed {
+            let _ = crate::host::http_server::ex_host_http_close(self.server_id, 1);
+            self.closed = true;
+        }
+    }
+}
+
+#[cfg(feature = "host-http-server")]
+fn execute_http_output(function_name: &str) -> Result<Value, String> {
+    let mut server = OwnedHttpServer::new()?;
+    let server_id = server.server_id;
+    let request_id = u32::MAX - 17;
+    let body = b"bounded HTTP output";
+    let headers = CString::new("[]").unwrap();
+    let observation = match function_name {
+        "ex_host_http_serve" => returned_string(server.serve_json.clone()),
+        "ex_host_http_address" => {
+            raw_host_string(crate::host::http_server::ex_host_http_address(server_id))
+        }
+        "ex_host_http_poll" => {
+            raw_host_string(crate::host::http_server::ex_host_http_poll(server_id))
+        }
+        "ex_host_http_drain" => {
+            raw_host_string(crate::host::http_server::ex_host_http_drain(server_id, 8))
+        }
+        "ex_host_http_wait" => {
+            raw_host_string(crate::host::http_server::ex_host_http_wait(server_id, 1))
+        }
+        "ex_host_http_wait_owned" => raw_host_string(
+            crate::host::http_server::ex_host_http_wait_owned(server_id, 1, 0),
+        ),
+        "ex_host_http_read_body" => raw_host_string(
+            crate::host::http_server::ex_host_http_read_body(server_id, request_id),
+        ),
+        "ex_host_http_respond" => returned_number(crate::host::http_server::ex_host_http_respond(
+            server_id,
+            request_id,
+            200,
+            headers.as_ptr(),
+            body.as_ptr(),
+            body.len() as u32,
+        )),
+        "ex_host_http_respond_text" => {
+            returned_number(crate::host::http_server::ex_host_http_respond_text(
+                server_id,
+                request_id,
+                200,
+                body.as_ptr(),
+                body.len() as u32,
+            ))
+        }
+        "ex_host_http_respond_json" => {
+            returned_number(crate::host::http_server::ex_host_http_respond_json(
+                server_id,
+                request_id,
+                200,
+                b"{}".as_ptr(),
+                2,
+            ))
+        }
+        "ex_host_http_respond_string" => {
+            returned_number(crate::host::http_server::ex_host_http_respond_string(
+                server_id,
+                request_id,
+                200,
+                headers.as_ptr(),
+                body.as_ptr(),
+                body.len() as u32,
+            ))
+        }
+        "ex_host_http_respond_stream" => {
+            returned_number(crate::host::http_server::ex_host_http_respond_stream(
+                server_id,
+                request_id,
+                200,
+                headers.as_ptr(),
+            ))
+        }
+        "ex_host_http_respond_chunk" => {
+            returned_number(crate::host::http_server::ex_host_http_respond_chunk(
+                server_id,
+                request_id,
+                body.as_ptr(),
+                body.len() as u32,
+            ))
+        }
+        "ex_host_http_respond_chunk_try" => {
+            returned_number(crate::host::http_server::ex_host_http_respond_chunk_try(
+                server_id,
+                request_id,
+                body.as_ptr(),
+                body.len() as u32,
+            ))
+        }
+        "ex_host_http_respond_end" => returned_number(
+            crate::host::http_server::ex_host_http_respond_end(server_id, request_id),
+        ),
+        "ex_host_http_respond_end_try" => returned_number(
+            crate::host::http_server::ex_host_http_respond_end_try(server_id, request_id),
+        ),
+        "ex_host_http_respond_abort" => returned_number(
+            crate::host::http_server::ex_host_http_respond_abort(server_id, request_id),
+        ),
+        "ex_host_http_await_writable" => returned_number(
+            crate::host::http_server::ex_host_http_await_writable(server_id, request_id, 1),
+        ),
+        "ex_host_http_await_writable_owned" => {
+            returned_number(crate::host::http_server::ex_host_http_await_writable_owned(
+                server_id, request_id, 1, 0,
+            ))
+        }
+        "ex_host_http_is_referenced" => returned_number(
+            crate::host::http_server::ex_host_http_is_referenced(server_id),
+        ),
+        "ex_host_http_has_referenced" => {
+            returned_number(crate::host::http_server::ex_host_http_has_referenced())
+        }
+        "ex_host_http_has_pending_requests" => {
+            returned_number(crate::host::http_server::ex_host_http_has_pending_requests())
+        }
+        "ex_host_http_cleanup_runtime" => returned_number(
+            crate::host::http_server::ex_host_http_cleanup_runtime(0x4341_5053_4543_4854, 1) as u64,
+        ),
+        "ex_host_http_close" => {
+            let status = crate::host::http_server::ex_host_http_close(server_id, 1);
+            if status == 0 {
+                server.closed = true;
+            }
+            returned_number(status)
+        }
+        other => return Err(format!("unsupported HTTP Host ABI {other}")),
+    };
+    Ok(observation)
+}
+
+#[cfg(not(feature = "host-http-server"))]
+fn execute_http_output(function_name: &str) -> Result<Value, String> {
+    Err(format!(
+        "{function_name}: Host HTTP output executor requires the host-http-server feature"
+    ))
+}
+
 fn execute_bounded_dispatch(function_name: &str, selector: &str) -> Result<Value, String> {
     let runtime = OwnedDiagnosticRuntime::new()?;
     let observation = match function_name {
@@ -3031,9 +4986,9 @@ fn execute_hermes_stateless(function_name: &str, selector: &str) -> Result<Value
         "ex_hermes_evaluation_result_init" => {
             let mut result = NativeEvaluationResult::zeroed();
             unsafe { ex_hermes_evaluation_result_init(&mut result) };
-            let observation = evaluation_result_observation(&result, selector)?;
+            let observation = evaluation_result_observation(&result, selector);
             unsafe { ex_hermes_evaluation_result_dispose(&mut result) };
-            observation
+            observation?
         }
         "ex_hermes_free_string" => {
             unsafe { ex_hermes_free_string(std::ptr::null_mut()) };
@@ -3123,16 +5078,7 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
                     &mut output,
                 )
             };
-            let observation = if selector == "[[return]]" {
-                returned_number(status)
-            } else {
-                evaluation_result_observation(&output, selector)?
-            };
-            if output.value.handle_id != 0 {
-                let _ = unsafe { ex_hermes_value_release(runtime.raw, output.value) };
-            }
-            unsafe { ex_hermes_evaluation_result_dispose(&mut output) };
-            observation
+            project_owned_evaluation_result(runtime.raw, &mut output, status, selector)?
         }
         "ex_hermes_finish_bootstrap" => {
             returned_number(unsafe { ex_hermes_finish_bootstrap(runtime.raw) })
@@ -3154,6 +5100,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
         "ex_hermes_poll" => {
             returned_number(unsafe { ex_hermes_poll(runtime.raw, ex_hermes_now_ms()) })
         }
+        "ex_hermes_poll_with_external_keep_alive" => returned_number(unsafe {
+            ex_hermes_poll_with_external_keep_alive(runtime.raw, ex_hermes_now_ms())
+        }),
         "ex_hermes_resolve_host_call" => {
             let payload = CString::new("null").unwrap();
             unsafe { ex_hermes_resolve_host_call(runtime.raw, 1, payload.as_ptr()) };
@@ -3837,6 +5786,43 @@ struct ValidatedRow {
     selector: String,
 }
 
+fn is_structured_vfs_output_key(
+    function_name: &str,
+    selector: &str,
+    alias: &str,
+    mode: &str,
+    return_variant: &str,
+) -> bool {
+    let javascript_absence = mode == "javascript"
+        && return_variant == "absent"
+        && ((selector == "[[return]]"
+            && alias == function_name
+            && matches!(
+                function_name,
+                "ex_host_vfs_bind_runtime"
+                    | "ex_host_vfs_chdir"
+                    | "ex_host_vfs_get_cwd"
+                    | "ex_host_vfs_resolve_path"
+                    | "ex_host_vfs_unbind_runtime"
+            ))
+            || (function_name == "ex_host_vfs_resolve_path"
+                && selector == "out:backing"
+                && alias == "ex_host_vfs_resolve_path.out_backing"));
+    let private_structured = mode == "private-native"
+        && return_variant == "success"
+        && selector == "out:virtual"
+        && matches!(
+            (function_name, alias),
+            ("ex_host_vfs_chdir", "ex_host_vfs_chdir.out_virtual")
+                | ("ex_host_vfs_get_cwd", "ex_host_vfs_get_cwd.out_virtual")
+                | (
+                    "ex_host_vfs_resolve_path",
+                    "ex_host_vfs_resolve_path.out_virtual"
+                )
+        );
+    javascript_absence || private_structured
+}
+
 fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
     let key = row
         .get("key")
@@ -3873,10 +5859,14 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
     let function_name = descriptor["functionName"]
         .as_str()
         .ok_or("missing function name")?;
-    let expected_path_contract = expected_path_output_contract(function_name, selector);
+    let structured_vfs_output =
+        is_structured_vfs_output_key(function_name, selector, alias, mode, return_variant);
+    let expected_path_contract = (!structured_vfs_output)
+        .then(|| expected_path_output_contract(function_name, selector))
+        .flatten();
     let expected_legacy_contract =
         expected_legacy_output_contract(function_name, selector, alias, mode, return_variant);
-    if mode != "all" && expected_legacy_contract.is_none() {
+    if mode != "all" && expected_legacy_contract.is_none() && !structured_vfs_output {
         return Err(format!(
             "{function_name}: non-default Host ABI mode has no bounded native executor"
         ));
@@ -3884,6 +5874,7 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
     if selector != "[[return]]"
         && expected_path_contract.is_none()
         && expected_legacy_contract.is_none()
+        && !structured_vfs_output
         && !is_bounded_family_output_selector(function_name, selector)
     {
         return Err(format!(
@@ -3897,6 +5888,18 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
                 != Some("host.private-native-call-initialized"))
     {
         return Err(format!("{function_name}: bounded path output key drift"));
+    }
+    if structured_vfs_output {
+        let expected_context = if mode == "javascript" {
+            "javascript.package-property-read-loaded"
+        } else {
+            "host.private-native-call-initialized"
+        };
+        if key.get("contextId").and_then(Value::as_str) != Some(expected_context) {
+            return Err(format!(
+                "{function_name}: structured VFS output context drift"
+            ));
+        }
     }
     if let Some(expected) = expected_legacy_contract {
         if alias != expected.alias
@@ -4094,7 +6097,11 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
             if ownership == "caller-owned"
                 && !matches!(
                     release.as_deref(),
-                    Some("ex_hermes_evaluation_result_dispose" | "ex_hermes_free_string")
+                    Some(
+                        "ex_host_free_buffer"
+                            | "ex_hermes_evaluation_result_dispose"
+                            | "ex_hermes_free_string"
+                    )
                 )
             {
                 return Err(format!(
@@ -4210,8 +6217,6 @@ fn return_record_result(row: &Value, raw: Value) -> Value {
             "kind": "loaded-engine-return-record",
             "fixtureId": row["probe"]["fixtureId"],
             "sourceDescriptorDigest": row["probe"]["sourceDescriptorDigest"],
-            "outputContractSchema": row["probe"]["sourceDescriptor"]["outputContractSchema"],
-            "selectedOutput": row["probe"]["sourceDescriptor"]["selectedOutput"],
             "recordPath": row["probe"]["recordPath"],
             "rawValueShape": raw["rawValueShape"],
         },
@@ -4284,6 +6289,48 @@ fn validate_bounded_observation(validated: &ValidatedRow, raw: Value) -> Result<
         return Ok(raw);
     }
 
+    if validated.operation == "rust-host-authenticated-javascript-absence" {
+        if raw["kind"] != "absent"
+            || raw["rawValueShape"] != "absent"
+            || !raw["value"].is_null()
+            || !raw["errorCode"].is_null()
+        {
+            return Err(format!(
+                "{}: JavaScript-private VFS route was not observed as exact absence",
+                validated.function_name
+            ));
+        }
+        return Ok(raw);
+    }
+
+    if validated.selector == "out:result.positions[].source_label.data" {
+        if raw["kind"] != "absent"
+            || raw["rawValueShape"] != "absent"
+            || !raw["value"].is_null()
+            || !raw["errorCode"].is_null()
+        {
+            return Err(format!(
+                "{}: unavailable source-position labels were not observed as exact absence",
+                validated.function_name
+            ));
+        }
+        return Ok(raw);
+    }
+
+    if validated.operation == "rust-host-authenticated-vfs-structured-output" {
+        if raw["kind"] != "return"
+            || raw["rawValueShape"] != "string"
+            || raw["value"] != VIRTUAL_ABSOLUTE_CLASS
+            || !raw["errorCode"].is_null()
+        {
+            return Err(format!(
+                "{}: private structured VFS output did not retain its validated virtual class",
+                validated.function_name
+            ));
+        }
+        return Ok(raw);
+    }
+
     if validated.selector == "[[return]]" {
         let shape_is_valid = match (
             validated.selected_output_kind.as_str(),
@@ -4312,6 +6359,13 @@ fn validate_bounded_observation(validated: &ValidatedRow, raw: Value) -> Result<
 
     if is_bounded_family_output_selector(&validated.function_name, &validated.selector) {
         let shape_is_valid = if validated.selector.contains("[]") {
+            raw["rawValueShape"] == "array"
+        } else if is_module_runner_function(&validated.function_name)
+            && matches!(
+                validated.selector.as_str(),
+                "out:adapter" | "out:context" | "out:factory" | "out:record"
+            )
+        {
             raw["rawValueShape"] == "array"
         } else if matches!(
             (
@@ -4397,6 +6451,13 @@ fn execute_immediate_host_abi_output(
             execute_hermes_diagnostic(function_name, &validated.selector)
         }
         "native-hermes-authenticated-armed-create" => execute_authenticated_armed_create(sandbox),
+        "native-hermes-authenticated-session-runtime" => {
+            execute_authenticated_session_output(function_name, &validated.selector, sandbox)
+        }
+        "native-hermes-module-runner-runtime" => {
+            execute_module_runner_output(function_name, &validated.selector)
+        }
+        "native-hermes-owned-runtime-teardown" => execute_owned_runtime_teardown(),
         "native-hermes-bounded-dispatch-runtime" => {
             execute_bounded_dispatch(function_name, &validated.selector)
         }
@@ -4411,11 +6472,16 @@ fn execute_immediate_host_abi_output(
         "rust-host-authenticated-stateful-output"
         | "rust-host-authenticated-typed-authority"
         | "rust-host-authenticated-vfs-output"
-        | "rust-host-authenticated-vfs-path-output" => {
+        | "rust-host-authenticated-vfs-path-output"
+        | "rust-host-authenticated-vfs-structured-output" => {
             return Err(format!(
                 "{function_name}: authenticated Host output was scheduled as an immediate call"
             ))
         }
+        "rust-host-authenticated-javascript-absence" => {
+            execute_javascript_absence(function_name, sandbox)
+        }
+        "rust-host-http-live-server" => execute_http_output(function_name),
         "rust-host-legacy-path-output" | "rust-host-legacy-directory-output" => {
             execute_legacy_output(validated, sandbox)
         }
@@ -4443,6 +6509,7 @@ pub(super) fn execute_host_abi_output_rows(rows: &[Value]) -> (Vec<Value>, Vec<V
             Ok(row)
                 if row.operation != "rust-host-authenticated-vfs-path-output"
                     && row.operation != "rust-host-authenticated-vfs-output"
+                    && row.operation != "rust-host-authenticated-vfs-structured-output"
                     && row.operation != "rust-host-authenticated-typed-authority"
                     && row.operation != "rust-host-authenticated-stateful-output" =>
             {
@@ -4462,6 +6529,7 @@ pub(super) fn execute_host_abi_output_rows(rows: &[Value]) -> (Vec<Value>, Vec<V
                 .filter(|row| {
                     row.operation == "rust-host-authenticated-vfs-path-output"
                         || row.operation == "rust-host-authenticated-vfs-output"
+                        || row.operation == "rust-host-authenticated-vfs-structured-output"
                 })
                 .map(|_| index)
         })
@@ -4956,6 +7024,62 @@ fn legacy_host_output_executor_rejects_a_resigned_mode_variant_mismatch() {
 }
 
 #[test]
+fn structured_position_absence_rejects_a_non_null_zero_count_pointer() {
+    let mut result = NativeEvaluationResult::zeroed();
+    unsafe { ex_hermes_evaluation_result_init(&mut result) };
+    result.positions = std::ptr::NonNull::<NativeSourcePosition>::dangling().as_ptr();
+    let error = evaluation_result_observation(&result, "out:result.positions[].source_label.data")
+        .expect_err("a non-NULL zero-count position array must not prove absence");
+    assert!(error.contains("non-NULL pointer"));
+    // The dangling pointer is a mutation-only sentinel and was never owned by
+    // the result. Restore exact absence before invoking the native disposer.
+    result.positions = std::ptr::null_mut();
+    unsafe { ex_hermes_evaluation_result_dispose(&mut result) };
+}
+
+#[test]
+fn structured_projection_releases_and_disposes_before_reporting_a_contradiction() {
+    let _engine_lock = hermes_engine_test_lock().blocking_lock();
+    let runtime = OwnedDiagnosticRuntime::new().expect("create diagnostic runtime");
+    let source = b"throw new Error('bounded cleanup mutation')";
+    let source_label = b"ibex:capsec-host-abi-cleanup-mutation";
+    let mut result = NativeEvaluationResult::zeroed();
+    unsafe { ex_hermes_evaluation_result_init(&mut result) };
+    let status = unsafe {
+        ex_hermes_eval_structured_diagnostic(
+            runtime.raw,
+            source.as_ptr(),
+            source.len(),
+            source_label.as_ptr(),
+            source_label.len(),
+            &mut result,
+        )
+    };
+    assert_eq!(status, 0);
+    assert_ne!(result.value.handle_id, 0);
+    let handle = result.value;
+    result.capability_flags |= 1 << 2;
+    let error = project_owned_evaluation_result(
+        runtime.raw,
+        &mut result,
+        status,
+        "out:result.positions[].source_label.data",
+    )
+    .expect_err("a source-position capability contradiction must fail closed");
+    assert!(error.contains("exact absence"));
+    assert_eq!(result.value.handle_id, 0, "result was not disposed");
+    assert!(
+        result.positions.is_null(),
+        "position storage was not disposed"
+    );
+    assert_ne!(
+        unsafe { ex_hermes_value_release(runtime.raw, handle) },
+        0,
+        "value handle was not released before the contradiction propagated"
+    );
+}
+
+#[test]
 fn capsec_host_abi_output_batch() {
     let Ok(plan_path) = std::env::var("IBEX_CAPSEC_HOST_ABI_OUTPUT_PLAN") else {
         eprintln!("IBEX_CAPSEC_HOST_ABI_OUTPUT_PLAN is unset; skipping Host ABI output batch");
@@ -4967,6 +7091,34 @@ fn capsec_host_abi_output_batch() {
     let text = std::str::from_utf8(&bytes).expect("Host ABI output plan is UTF-8");
     let plan = capsec_semantics::strict_json::parse_strict(text)
         .expect("Host ABI output plan is strict JSON");
+    assert_eq!(
+        plan["hostAbiOutputPlanSchema"],
+        "ibex/capsec-host-abi-output-plan/2"
+    );
+    assert_eq!(plan["profile"], "ibex/capsec/1");
+    assert_eq!(
+        plan["executor"],
+        "ibex-public-surface-harness/output-shape-sweep-v3"
+    );
+    let compiled_registrar_ids = compiled_host_abi_edges()
+        .into_keys()
+        .map(Value::String)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        plan["compiledRegistrarIds"],
+        Value::Array(compiled_registrar_ids.clone()),
+        "Host ABI plan must bind every compiled Host surface account"
+    );
+    let identity_before = HermesEngine::loaded_engine_identity()
+        .expect("attest loaded engine before Host ABI output execution");
+    ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
+        .expect("verify mapped engine before Host ABI output execution");
+    let identity_before_value =
+        serde_json::to_value(&identity_before).expect("serialize loaded engine identity");
+    assert_eq!(
+        identity_before_value, plan["engine"],
+        "Host ABI output plan selected another loaded engine"
+    );
     let rows = plan["rows"].as_array().expect("Host ABI output plan rows");
     let (results, unexercisable) = execute_host_abi_output_rows(rows);
     assert_eq!(
@@ -4974,8 +7126,23 @@ fn capsec_host_abi_output_batch() {
         rows.len(),
         "every authored Host ABI output row is accounted for"
     );
+    let identity_after = HermesEngine::loaded_engine_identity()
+        .expect("attest loaded engine after Host ABI output execution");
+    assert_eq!(identity_after, identity_before);
+    ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_after)
+        .expect("re-verify mapped engine after Host ABI output execution");
     let artifact = json!({
-        "hostAbiOutputExecutorBatchSchema": "ibex/capsec-host-abi-output-executor-batch/1",
+        "hostAbiOutputExecutorBatchSchema": "ibex/capsec-host-abi-output-executor-batch/2",
+        "profile": plan["profile"].clone(),
+        "executor": plan["executor"].clone(),
+        "sourceRevision": plan["sourceRevision"].clone(),
+        "sourceTreeDigest": plan["sourceTreeDigest"].clone(),
+        "target": plan["target"].clone(),
+        "catalogKeyDigest": plan["catalogKeyDigest"].clone(),
+        "sweepPlanDigest": plan["sweepPlanDigest"].clone(),
+        "loadedEngineIdentity": serde_json::to_value(identity_after)
+            .expect("serialize post-execution engine identity"),
+        "compiledRegistrarIds": compiled_registrar_ids,
         "results": results,
         "unexercisable": unexercisable,
     });

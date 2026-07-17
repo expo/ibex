@@ -89,6 +89,9 @@
   }
   var __privJsonParse = JSON.parse;
   var __privJsonStringify = JSON.stringify;
+  var __privString = String;
+  var __privPromiseResolve = Promise.resolve.bind(Promise);
+  var __privPromiseThen = Function.prototype.call.bind(Promise.prototype.then);
   var __privArrayIsArray = Array.isArray;
   var __privObjectFreeze = Object.freeze;
   var __privObjectDefineProperty = Object.defineProperty;
@@ -4617,12 +4620,17 @@
     }
   }
   function transformDynamicImport(source) {
-    if (!source || source.indexOf("import(") === -1) {
+    if (!source || source.indexOf("import") === -1) {
       return source;
     }
     // Replace dynamic import() calls with the module-local helper that closes
     // over this module's filename/referrer. A global import polyfill cannot
     // resolve `import("./local.js")` relative to the caller. (ENG-22718)
+    // Some compatibility transforms lower the same syntax to the exact
+    // `globalThis["import"](...)` spelling before this loader sees it. Relocalize
+    // that compiler form too; otherwise a delayed import loses its authenticated
+    // module referrer and incorrectly falls back to a cwd-observe request.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
     // Skip replacements inside string literals to avoid breaking error messages etc.
     var result = "";
     var i = 0;
@@ -4729,6 +4737,20 @@
             continue;
           }
           templateStack[templateStack.length - 1] = top - 1;
+        }
+      }
+      // Check for the compiler-lowered global import spelling. Do not match a
+      // property named `globalThis` on another object.
+      if ((i === 0 || !/[A-Za-z0-9_$]/.test(source[i - 1])) &&
+          (lastCode === -1 || source[lastCode] !== '.')) {
+        var lowered = source.slice(i).match(
+          /^globalThis\s*\[\s*(["'])import\1\s*\]\s*\(/
+        );
+        if (lowered) {
+          result += '__exactDynamicImport(';
+          i += lowered[0].length;
+          lastCode = i - 1;
+          continue;
         }
       }
       // Check for import( pattern
@@ -5843,7 +5865,8 @@
     structuredStaticGraph,
     structuredDirectEntry,
     authenticatedCacheAuthorization,
-    resolutionKind
+    resolutionKind,
+    structuredSessionRoot
   ) {
     __exactPinProcessStreams();
     var typedResolutionKind =
@@ -5983,20 +6006,36 @@
     // identity and must return to the ordinary principal-aware resolver.
     // @ref LLP 0023#73-referrer-capture
     // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
-    var useStructuredRootResolver =
-      structuredDirectEntry !== undefined && authenticatedRecord === undefined;
+    var useStructuredRootResolver = authenticatedRecord === undefined &&
+      (structuredDirectEntry !== undefined || structuredSessionRoot === true);
     var resolverMode = manifestBuiltinInternal
       ? 'manifest-builtin'
-      : (useStructuredRootResolver ? 'session-root' : 'module');
+      : ((useStructuredRootResolver || structuredSessionRoot === true)
+          ? 'session-root'
+          : 'module');
+    var __cacheAuthorizationRecordMatches = authenticatedRecord === undefined ||
+      (authenticatedCacheAuthorization &&
+       structuredSessionRoot === true &&
+       authenticatedRecord !== null &&
+       typeof authenticatedRecord === 'object' &&
+       authenticatedRecord.schema === 'ibex/module-resolution/1' &&
+       authenticatedRecord.kind !== 'builtin' &&
+       authenticatedRecord.sourceId === authenticatedCacheAuthorization.cacheKey);
     var __usesCacheAuthorization = authenticatedCacheAuthorization &&
-      authenticatedRecord === undefined &&
+      __cacheAuthorizationRecordMatches &&
       authenticatedCacheAuthorization.resolverMode === resolverMode &&
       authenticatedCacheAuthorization.resolutionKind === typedResolutionKind &&
       authenticatedCacheAuthorization.specifier === resolvedSpecifier &&
       authenticatedCacheAuthorization.referrer === (referrer || '') &&
       typeof authenticatedCacheAuthorization.routeKey === 'string' &&
       typeof authenticatedCacheAuthorization.nativeReferrer === 'string';
-    var authenticatedResolution = authenticatedRecord === undefined
+    // A structured session-root dynamic import resolves while its caller frame
+    // is live, then supplies that authenticated record to the detached Promise
+    // turn. Retain its route identity even with a supplied record so the first
+    // load seeds the SourceId memo and later imports can reauthorize without a
+    // second source probe.
+    var authenticatedResolution =
+      authenticatedRecord === undefined || structuredSessionRoot === true
       ? (__usesCacheAuthorization
           ? {
               routeKey: authenticatedCacheAuthorization.routeKey,
@@ -6023,9 +6062,12 @@
         // locators exactly; this therefore closes leaked-require, package-to-
         // root, and same-name/different-locator reuse without a filesystem
         // lookup. @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+        if (__usesCacheAuthorization &&
+            authenticatedCacheAuthorization.cacheKey !== memoizedRoute.cacheKey) {
+          throw new Error('Authenticated module cache authorization changed identity');
+        }
         var __memoPreauthorized = __usesCacheAuthorization &&
-          authenticatedCacheAuthorization.routeKey === authenticatedRouteKey &&
-          authenticatedCacheAuthorization.cacheKey === memoizedRoute.cacheKey;
+          authenticatedCacheAuthorization.routeKey === authenticatedRouteKey;
         if (!__memoPreauthorized) {
           var __memoRequester = (parent && typeof parent.__exactPackageId === 'number')
             ? parent.__exactPackageId : undefined;
@@ -6038,6 +6080,13 @@
         return memoizedModule.exports;
       }
       if (memoizedRoute) delete __authenticatedResolutionMemo[authenticatedRouteKey];
+      // A live-frame cache-hit authorization is a one-tuple capability, not
+      // permission to retry resolution later under the loader's detached
+      // Promise frame. If its exact memo/cache pair disappeared, fail closed.
+      if (__usesCacheAuthorization &&
+          authenticatedCacheAuthorization.cacheExpected !== false) {
+        throw new Error('Authenticated module cache authorization became stale');
+      }
     }
     if (manifestBuiltinInternal && !__privResolveManifestBuiltinInternal) {
       throw new Error("Internal builtin resolver is unavailable");
@@ -6836,6 +6885,24 @@
   // native roots.
   // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
   var __pendingSessionEntry = null;
+  function wrapDynamicImportValue(module) {
+    // Wrap CommonJS modules to look like ESM: { default: module, ...module }.
+    // This allows `const mod = await import('foo')` to use either `default` or
+    // a detected enumerable name without changing native ESM namespace values.
+    if (module && !module.__esModule) {
+      var moduleType = typeof module;
+      if (moduleType === 'object' || moduleType === 'function') {
+        var wrapped = { default: module };
+        if (moduleType === 'object') {
+          for (var key in module) {
+            if (module.hasOwnProperty(key)) wrapped[key] = module[key];
+          }
+        }
+        return wrapped;
+      }
+    }
+    return module;
+  }
   var __sessionStaticImport = function(
     action,
     first,
@@ -7061,6 +7128,147 @@
         mainModule = null;
       }
       return true;
+    }
+    if (action === 'dynamic-import') {
+      // @ref LLP 0024#71-the-environment-a-modified-globalenvironmentrecord
+      var dynamicSpecifier = first;
+      var dynamicLogicalReferrer = second;
+      var dynamicError = null;
+      var dynamicRecord;
+      var dynamicCacheAuthorization = null;
+      try {
+        if (typeof dynamicLogicalReferrer !== 'string' ||
+            dynamicLogicalReferrer.length === 0 ||
+            dynamicLogicalReferrer.indexOf('\0') !== -1 ||
+            typeof __privSessionModuleResolve !== 'function') {
+          throw new TypeError('Invalid authenticated session dynamic import');
+        }
+        // ImportCall applies the language ToString operation before asking the
+        // host to resolve. Preserve observable object coercion while rejecting
+        // Symbols, whose special treatment by the String constructor is not
+        // the ToString semantics required by dynamic import.
+        if (typeof dynamicSpecifier === 'symbol') {
+          throw new TypeError('Cannot convert a Symbol value to a string');
+        }
+        dynamicSpecifier = __privString(dynamicSpecifier);
+        var dynamicResolvedSpecifier = stripViteImportQuery(dynamicSpecifier);
+        var dynamicResolution = authenticatedResolutionContext(
+          dynamicResolvedSpecifier,
+          dynamicLogicalReferrer,
+          'session-root',
+          2
+        );
+        if (dynamicResolution === null) {
+          throw new TypeError('Authenticated session dynamic-import route is unavailable');
+        }
+        // This call still runs under the importing callback's live frame. The
+        // C-only logical referrer selects the exact session-root resolver and
+        // never falls back to a realm-global cwd.
+        checkImportGate(dynamicSpecifier);
+        var dynamicRoute = __authenticatedResolutionMemo[dynamicResolution.routeKey];
+        if (dynamicRoute && cache[dynamicRoute.cacheKey]) {
+          // The memo is identity, never authority. Reauthorize the exact
+          // SourceId synchronously while the importing frame is live; the
+          // detached Promise turn may consume only this complete tuple.
+          checkImportGate(
+            dynamicResolvedSpecifier,
+            undefined,
+            dynamicRoute.cacheKey
+          );
+          dynamicCacheAuthorization = {
+            resolverMode: 'session-root',
+            resolutionKind: 2,
+            specifier: dynamicResolvedSpecifier,
+            referrer: dynamicLogicalReferrer,
+            routeKey: dynamicResolution.routeKey,
+            nativeReferrer: dynamicResolution.nativeReferrer,
+            cacheKey: dynamicRoute.cacheKey,
+            cacheExpected: true
+          };
+        } else {
+          if (dynamicRoute) {
+            delete __authenticatedResolutionMemo[dynamicResolution.routeKey];
+          }
+          // Classify a relative package boundary without reading its body, so
+          // an import-policy denial occurs before source acquisition.
+          if (isPathSpecifier(dynamicResolvedSpecifier)) {
+            if (typeof __privSessionModuleResolveMeta !== 'function') {
+              throw new Error('Session-root metadata resolver is unavailable');
+            }
+            var dynamicMetaJson = __privSessionModuleResolveMeta(
+              dynamicResolvedSpecifier,
+              dynamicLogicalReferrer,
+              2
+            );
+            if (!dynamicMetaJson) {
+              throw new Error('Module not found: ' + dynamicSpecifier);
+            }
+            var dynamicMetaRecord = __privJsonParse(dynamicMetaJson);
+            if (!dynamicMetaRecord || typeof dynamicMetaRecord !== 'object' ||
+                __privArrayIsArray(dynamicMetaRecord)) {
+              throw new TypeError('Invalid authenticated dynamic-import metadata');
+            }
+            if (dynamicMetaRecord.error) {
+              throw moduleResolutionError(dynamicMetaRecord);
+            }
+            var dynamicTargetPackage = packageNameForRecord(dynamicMetaRecord, null);
+            if (dynamicTargetPackage) checkImportGate(dynamicTargetPackage);
+          }
+          var dynamicJson = __privSessionModuleResolve(
+            dynamicResolvedSpecifier,
+            dynamicLogicalReferrer,
+            2
+          );
+          if (!dynamicJson) throw new Error('Module not found: ' + dynamicSpecifier);
+          dynamicRecord = __privJsonParse(dynamicJson);
+          if (!dynamicRecord || typeof dynamicRecord !== 'object' ||
+              __privArrayIsArray(dynamicRecord)) {
+            throw new TypeError('Invalid authenticated dynamic-import record');
+          }
+          if (dynamicRecord.error) throw moduleResolutionError(dynamicRecord);
+          // Full session resolution authenticates a cold edge. Also bind its
+          // exact file SourceId while the importing frame is live so a queued
+          // concurrent import may consume a cache entry created before its own
+          // Promise turn without falling back to detached-frame attribution.
+          if (dynamicRecord.schema === 'ibex/module-resolution/1' &&
+              dynamicRecord.kind !== 'builtin' &&
+              typeof dynamicRecord.sourceId === 'string' &&
+              dynamicRecord.sourceId.indexOf('ibex-source-id-v1:') === 0) {
+            checkImportGate(
+              dynamicResolvedSpecifier,
+              undefined,
+              dynamicRecord.sourceId
+            );
+            dynamicCacheAuthorization = {
+              resolverMode: 'session-root',
+              resolutionKind: 2,
+              specifier: dynamicResolvedSpecifier,
+              referrer: dynamicLogicalReferrer,
+              routeKey: dynamicResolution.routeKey,
+              nativeReferrer: dynamicResolution.nativeReferrer,
+              cacheKey: dynamicRecord.sourceId,
+              cacheExpected: false
+            };
+          }
+        }
+      } catch (error) {
+        dynamicError = error;
+      }
+      return __privPromiseThen(__privPromiseResolve(), function() {
+        if (dynamicError) throw dynamicError;
+        return wrapDynamicImportValue(load(
+          dynamicSpecifier,
+          dynamicLogicalReferrer,
+          null,
+          false,
+          dynamicRecord,
+          true,
+          undefined,
+          dynamicCacheAuthorization,
+          2,
+          true
+        ));
+      });
     }
     if (action === 'prepare-generated-originals' ||
         action === 'begin-generated-original' ||
@@ -7545,7 +7753,7 @@
         if (__itp && __itp !== __irp) checkImportGate(__itp); // denial propagates to the catch below
       }
     } catch (e) { gateError = e; }
-    return Promise.resolve().then(function() {
+    return __privPromiseThen(__privPromiseResolve(), function() {
       if (gateError) throw gateError;
       var module = load(
         specifier,
@@ -7558,25 +7766,7 @@
         authenticatedCacheAuthorization,
         2
       );
-      // Wrap CommonJS modules to look like ESM: { default: module, ...module }
-      // This allows: const mod = await import('foo'); mod.default or mod.something
-      if (module && !module.__esModule) {
-        var moduleType = typeof module;
-        // Wrap objects and functions
-        if (moduleType === 'object' || moduleType === 'function') {
-          var wrapped = { default: module };
-          // For objects, copy properties to wrapped
-          if (moduleType === 'object') {
-            for (var key in module) {
-              if (module.hasOwnProperty(key)) {
-                wrapped[key] = module[key];
-              }
-            }
-          }
-          return wrapped;
-        }
-      }
-      return module;
+      return wrapDynamicImportValue(module);
     });
   };
 

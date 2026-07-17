@@ -141,6 +141,13 @@ struct TransferableFdOwner {
 static std::unordered_map<int, TransferableFdOwner> g_transferable_fds;
 static thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
 
+const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
+    const std::vector<uint64_t>* replacement) {
+  const auto* previous = g_typed_principal_stack;
+  g_typed_principal_stack = replacement;
+  return previous;
+}
+
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
 static std::atomic<int32_t> g_test_requested_fs_authorization_override{-1};
 static std::atomic<uint64_t> g_test_armed_path_lookup_count{0};

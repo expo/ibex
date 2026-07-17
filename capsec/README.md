@@ -81,7 +81,7 @@ bun run generate:capsec-conformance
 The report is written under `target/` and is intentionally incomplete unless
 independently produced fixture evidence supplies one unique, passing,
 artifact-digested result for every exact fixture obligation. The runner's
-repo-local pilot produces seven such Exact embedder records; `--fixture-evidence`
+repo-local pilot produces nine such Exact embedder records; `--fixture-evidence`
 may supply the same strictly validated artifact shape explicitly. Each
 execution must carry the binding digest for the report's source revision,
 source tree, engine binary, target, vocabulary, registry, implementation

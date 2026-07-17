@@ -4279,7 +4279,7 @@ impl Host {
         Ok(private_path)
     }
 
-    /// Resolve one structured-session static edge from the authenticated
+    /// Resolve one structured-session root edge from the authenticated
     /// logical directory captured in its source credential. The caller cannot
     /// provide a host spelling: this method derives it from the immutable
     /// armed root graph, validates the binding object, round-trips the mapping,
@@ -4291,7 +4291,11 @@ impl Host {
     /// containing logical directory; appending a fixed private basename makes
     /// relative and package-`imports` resolution use that exact directory.
     /// @ref LLP 0023#73-referrer-capture
+    /// Static imports use this during phase 4. Lowering protocol v2 also calls
+    /// it only after a live dynamic-import expression, with the same immutable
+    /// logical referrer and the distinct typed resolution kind.
     /// @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+    /// @ref LLP 0026#6-top-level-await-and-dynamic-import
     pub fn resolve_session_static_import(
         &self,
         specifier: &str,
@@ -6890,6 +6894,7 @@ fn typed_import_allowed(
 fn is_module_path_specifier(specifier: &str) -> bool {
     specifier.starts_with("./")
         || specifier.starts_with("../")
+        || specifier.starts_with('#')
         || std::path::Path::new(specifier).is_absolute()
 }
 
@@ -7891,7 +7896,7 @@ mod tests {
     }
 
     #[test]
-    fn session_static_import_refuses_graph_and_root_escape_before_source_read() {
+    fn session_import_refuses_graph_and_root_escape_before_source_read() {
         let root = test_project_root();
         let denied_package = root.join("node_modules/session-static-denied");
         std::fs::create_dir_all(&denied_package).unwrap();
@@ -7912,30 +7917,31 @@ mod tests {
         let host = example_vfs_armed_host();
         let referrer = session_static_import_referrer(&["images"]);
 
-        let graph_error = host
-            .resolve_session_static_import(
-                "session-static-denied",
-                &referrer,
-                crate::module_loader::identity::ResolutionKind::EsmStatic,
-            )
-            .unwrap_err()
-            .to_string();
-        assert_eq!(graph_error, "Import denied by authenticated package graph");
-        assert!(!graph_error.contains("UTF-8"));
+        for resolution_kind in [
+            crate::module_loader::identity::ResolutionKind::EsmStatic,
+            crate::module_loader::identity::ResolutionKind::DynamicImport,
+        ] {
+            let graph_error = host
+                .resolve_session_static_import("session-static-denied", &referrer, resolution_kind)
+                .unwrap_err()
+                .to_string();
+            assert_eq!(graph_error, "Import denied by authenticated package graph");
+            assert!(!graph_error.contains("UTF-8"));
 
-        let escape_error = host
-            .resolve_session_static_import(
-                "../../ibex-session-static-outside.mjs",
-                &referrer,
-                crate::module_loader::identity::ResolutionKind::EsmStatic,
-            )
-            .unwrap_err()
-            .to_string();
-        assert!(
-            escape_error.contains("authenticated logical-root binding"),
-            "{escape_error}"
-        );
-        assert!(!escape_error.contains("UTF-8"));
+            let escape_error = host
+                .resolve_session_static_import(
+                    "../../ibex-session-static-outside.mjs",
+                    &referrer,
+                    resolution_kind,
+                )
+                .unwrap_err()
+                .to_string();
+            assert!(
+                escape_error.contains("authenticated logical-root binding"),
+                "{resolution_kind:?}: {escape_error}"
+            );
+            assert!(!escape_error.contains("UTF-8"));
+        }
     }
 
     #[test]
@@ -9734,7 +9740,7 @@ mod tests {
         std::fs::write(
             &entry,
             format!(
-                "import {{ packageObservation }} from 'image-lib';\nconst marker = {marker:?};\nconst packageOwnsMarker = packageObservation.ownsMarker;\nconst packageMarker = packageObservation.marker;\nexport const result = {{ packageOwnsMarker: packageOwnsMarker, packageMarker: packageMarker, rootOwnsMarker: Object.prototype.hasOwnProperty.call(globalThis, marker) }};\n",
+                "import {{ packageObservation }} from 'image-lib';\nconst marker = {marker:?};\nconst observations = {{ packageObservation }};\nconst packageOwnsMarker = observations.packageObservation.ownsMarker;\nconst packageMarker = observations.packageObservation.marker;\nexport const result = {{ packageOwnsMarker: packageOwnsMarker, packageMarker: packageMarker, rootOwnsMarker: Object.prototype.hasOwnProperty.call(globalThis, marker) }};\n",
                 marker = MARKER,
             ),
         )
@@ -9900,11 +9906,7 @@ mod tests {
             "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100);\n",
         )
         .unwrap();
-        std::fs::write(
-            &dependency,
-            "exports.value = 39 + require('./data.json').bump;\n",
-        )
-        .unwrap();
+        std::fs::write(&dependency, "exports.value = 41;\n").unwrap();
         std::fs::write(&data, "{\"bump\":2}\n").unwrap();
         crate::host::abi::install_host(example_armed_host_with(|value| {
             value["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
@@ -10011,7 +10013,7 @@ mod tests {
             serde_json::from_slice(&std::fs::read(&index_path).unwrap()).unwrap();
         for record in index["records"].as_array_mut().unwrap() {
             if record["carrierIndex"] == 0 {
-                record["artifact"]["payload"]["carrierDigest"] =
+                record["artifact"]["payload"]["carrier_digest"] =
                     serde_json::json!(forged_digest.as_str());
             }
         }
@@ -11248,9 +11250,11 @@ mod tests {
         )
         .cache_key();
 
+        assert!(host.check_import("7", "#inside"));
         assert!(host.check_cached_module_import("0", "./images/photo.jpg", &root_source));
         assert!(!host.check_cached_module_import("7", "../images/photo.jpg", &root_source));
         assert!(host.check_cached_module_import("7", "./index.js", &package_source));
+        assert!(host.check_cached_module_import("7", "#inside", &package_source));
         assert!(host.check_cached_module_import("0", "image-lib", &package_source));
 
         let different_locator: capsec_semantics::model::Principal =
@@ -11429,6 +11433,9 @@ mod tests {
                 "{specifier}"
             );
         }
+        assert!(host
+            .resolve_manifest_builtin_internal("internal/test/binding")
+            .is_err());
     }
 
     #[test]

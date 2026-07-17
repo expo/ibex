@@ -19,6 +19,8 @@ import crypto from "node:crypto";
 import {
   canonicalOutputDispositionKey,
   OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR,
+  buildOutputDispositionDataset,
+  buildOutputShapeCatalog,
   outputExecutionContextsForRows,
   outputParameterizedBindingDigest,
   outputShapeCatalogKeyDigest,
@@ -65,7 +67,11 @@ import {
   NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
   validateNativeFreezeOutputInvocation,
 } from "./capsec-native-freeze-output-templates.mjs";
-import { buildHostAbiOutputProbePartition } from "./capsec-host-abi-output-templates.mjs";
+import {
+  HOST_ABI_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+  buildHostAbiOutputProbePartition,
+} from "./capsec-host-abi-output-templates.mjs";
+import { validatePublicSurfaceExecutionArtifact } from "./capsec-public-surface-evidence.mjs";
 
 export const OUTPUT_SHAPE_SWEEP_EXECUTOR = OUTPUT_DISPOSITION_EVIDENCE_EXECUTOR;
 
@@ -78,6 +84,15 @@ const PLAN_DIGEST_DOMAIN = "ibex:capsec:output-shape-sweep-plan:3";
 const ARTIFACT_DIGEST_DOMAIN = "ibex:capsec:output-shape-sweep-artifact:3";
 const EXECUTION_PARTITION_SCHEMA =
   "ibex/capsec-output-shape-execution-partition/1";
+const HOST_ABI_EXECUTOR_BATCH_SCHEMA =
+  "ibex/capsec-host-abi-output-executor-batch/2";
+const TARGET_ABSENCE_OUTPUT_SOURCE_DESCRIPTOR_KIND =
+  "source-bound-target-absence-output";
+const TARGET_ABSENCE_RECORD_PATH = Object.freeze([
+  "runtimeObservation",
+  "invocation",
+  "result",
+]);
 const DIGEST_PATTERN = /^sha256-[A-Za-z0-9_-]{43}$/u;
 const REVISION_PATTERN = /^[0-9a-f]{40}$/u;
 const TARGET_FIELDS = Object.freeze(["triple", "features"]);
@@ -157,6 +172,89 @@ function canonicalJson(value) {
     .sort(compareText)
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
     .join(",")}}`;
+}
+
+/**
+ * Re-derive the generated output catalog and reviewed disposition dataset from
+ * the current source inventory and coverage registry. A self-consistent stale
+ * subset is not current-source evidence merely because its plan IDs remain a
+ * subset of the compiled registrar set.
+ */
+export function validateCurrentSourceOutputDispositionArtifacts({
+  catalog,
+  dispositionDataset,
+  coverage,
+  surfaces,
+  repoRoot,
+  policy,
+  trackedEvidence,
+}) {
+  const sourceSurfaces = Array.isArray(surfaces)
+    ? surfaces
+    : surfaces?.surfaces;
+  if (
+    !Array.isArray(coverage?.edges) ||
+    !Array.isArray(sourceSurfaces) ||
+    typeof repoRoot !== "string" ||
+    repoRoot.length === 0
+  ) {
+    throw new Error(
+      "current-source output validation requires coverage, source surfaces, and the repository root",
+    );
+  }
+  const sourceByObservedKey = new Map();
+  for (const [index, surface] of sourceSurfaces.entries()) {
+    if (
+      typeof surface?.observedKey !== "string" ||
+      !Array.isArray(surface.sourceRefs) ||
+      sourceByObservedKey.has(surface.observedKey)
+    ) {
+      throw new Error(
+        `current-source output surface ${index} is malformed or duplicated`,
+      );
+    }
+    sourceByObservedKey.set(surface.observedKey, surface);
+  }
+  const implementationRows = coverage.edges.map((edge) => {
+    const observedKey = `${edge?.surface?.kind}:${edge?.surface?.name}`;
+    const surface = sourceByObservedKey.get(observedKey);
+    if (!surface) {
+      throw new Error(
+        `${edge?.id ?? "unknown coverage edge"}: current source inventory lacks ${observedKey}`,
+      );
+    }
+    return {
+      edgeId: edge.id,
+      observedKey,
+      sourceRefs: [...surface.sourceRefs],
+    };
+  });
+  const derivedCatalog = buildOutputShapeCatalog({
+    coverage,
+    implementationRows,
+    surfaces: sourceSurfaces,
+    repoRoot,
+    liveEvidence: trackedEvidence,
+  });
+  if (canonicalJson(catalog) !== canonicalJson(derivedCatalog)) {
+    throw new Error(
+      "generated output-shape catalog differs from the current source-derived catalog",
+    );
+  }
+  const derivedDispositionDataset = buildOutputDispositionDataset({
+    catalog: derivedCatalog,
+    policy,
+    evidence: trackedEvidence,
+  });
+  if (
+    canonicalJson(dispositionDataset) !==
+    canonicalJson(derivedDispositionDataset)
+  ) {
+    throw new Error(
+      "generated output dispositions differ from the current source-derived reviewed dataset",
+    );
+  }
+  return { catalog, dispositionDataset };
 }
 
 function computeDomainDigest(domain, payload, omitFields) {
@@ -411,6 +509,59 @@ function validateSweepCatalog(catalog, label = "output-shape catalog") {
   return catalog;
 }
 
+function validateTargetAbsenceOutputProbe(probe, key, label) {
+  const descriptor = probe?.sourceDescriptor;
+  if (descriptor?.kind !== TARGET_ABSENCE_OUTPUT_SOURCE_DESCRIPTOR_KIND) {
+    return false;
+  }
+  exactKeys(
+    descriptor,
+    [
+      "kind",
+      "recipeCatalogDigest",
+      "fixtureId",
+      "recipePlanDigest",
+      "terminalObservedKey",
+      "invocationSchema",
+      "targetSourceDescriptorDigest",
+      "publicSurfaceProbe",
+    ],
+    `${label}.sourceDescriptor`,
+  );
+  const publicProbe = descriptor.publicSurfaceProbe;
+  exactKeys(
+    publicProbe,
+    ["kind", "surfaceObservedKey", "command", "invocation"],
+    `${label}.sourceDescriptor.publicSurfaceProbe`,
+  );
+  const invocation = publicProbe.invocation;
+  if (
+    !DIGEST_PATTERN.test(descriptor.recipeCatalogDigest ?? "") ||
+    !DIGEST_PATTERN.test(descriptor.recipePlanDigest ?? "") ||
+    !DIGEST_PATTERN.test(descriptor.targetSourceDescriptorDigest ?? "") ||
+    descriptor.fixtureId !== probe.fixtureId ||
+    descriptor.invocationSchema !==
+      "ibex/capsec-target-absence-invocation/1" ||
+    publicProbe.kind !== "target-absence-probe" ||
+    !Array.isArray(publicProbe.command) ||
+    publicProbe.command.length === 0 ||
+    publicProbe.command.some(
+      (component) => typeof component !== "string" || component.length === 0,
+    ) ||
+    publicProbe.surfaceObservedKey !== descriptor.terminalObservedKey ||
+    invocation?.invocationSchema !== descriptor.invocationSchema ||
+    invocation.kind !== "target-absence" ||
+    invocation.surfaceKind !== key.sourceKind ||
+    invocation.surfaceName !== key.alias ||
+    invocation.sourceDescriptorDigest !==
+      descriptor.targetSourceDescriptorDigest ||
+    canonicalJson(probe.recordPath) !== canonicalJson(TARGET_ABSENCE_RECORD_PATH)
+  ) {
+    throw new Error(`${label}: invalid source-bound target-absence route`);
+  }
+  return true;
+}
+
 function validateProbe(probe, key, label) {
   assertNoExpectedValueEcho(probe, label);
   validateOutputValueProofKind(probe?.kind, `${label}.kind`);
@@ -606,6 +757,7 @@ function validateProbe(probe, key, label) {
           `${label}: source descriptor digest does not match route`,
         );
       }
+      if (validateTargetAbsenceOutputProbe(probe, key, label)) return;
       if (
         probe.sourceDescriptor.kind ===
         NATIVE_FREEZE_OUTPUT_SOURCE_DESCRIPTOR_KIND
@@ -2824,6 +2976,112 @@ export function buildOutputShapeSweepExecutionPartition({
   };
 }
 
+/**
+ * Turn exact Host-ABI target-absence recipe bindings into ordinary sweep
+ * probes. The plan retains the complete authored public probe, but never the
+ * reviewed output expectation or a claimed runtime result.
+ */
+export function buildTargetAbsenceOutputShapeProbes({
+  targetAbsenceBindings,
+  recipeCatalog,
+  target,
+}) {
+  if (
+    !Array.isArray(targetAbsenceBindings) ||
+    !Array.isArray(recipeCatalog?.recipes) ||
+    !DIGEST_PATTERN.test(recipeCatalog?.recipeCatalogDigest ?? "")
+  ) {
+    throw new Error(
+      "target-absence output probes require exact bindings and a digested recipe catalog",
+    );
+  }
+  exactTarget(target, "target-absence output target");
+  if (canonicalJson(recipeCatalog.target) !== canonicalJson(target)) {
+    throw new Error(
+      "target-absence output recipe catalog targets another candidate cell",
+    );
+  }
+  const recipes = new Map();
+  for (const recipe of recipeCatalog.recipes) {
+    if (
+      typeof recipe?.fixtureId !== "string" ||
+      recipe.fixtureId.length === 0 ||
+      recipes.has(recipe.fixtureId)
+    ) {
+      throw new Error("target-absence recipe fixture IDs are not unique");
+    }
+    recipes.set(recipe.fixtureId, recipe);
+  }
+  const probes = targetAbsenceBindings.map((binding, index) => {
+    exactKeys(
+      binding,
+      [
+        "key",
+        "fixtureId",
+        "planDigest",
+        "terminalObservedKey",
+        "invocationSchema",
+        "sourceDescriptorDigest",
+      ],
+      `target-absence output binding ${index}`,
+    );
+    canonicalOutputDispositionKey(
+      binding.key,
+      `target-absence output binding ${index}.key`,
+    );
+    const recipe = recipes.get(binding.fixtureId);
+    const publicProbe = recipe?.publicSurfaceProbe;
+    const invocation = publicProbe?.invocation;
+    if (
+      binding.key.sourceKind !== "host-abi" ||
+      !recipe ||
+      recipe.status !== "fully-executable" ||
+      recipe.scenario !== "absent" ||
+      recipe.planDigest !== binding.planDigest ||
+      recipe.terminalObservedKey !== binding.terminalObservedKey ||
+      !DIGEST_PATTERN.test(binding.planDigest ?? "") ||
+      !DIGEST_PATTERN.test(binding.sourceDescriptorDigest ?? "") ||
+      publicProbe?.kind !== "target-absence-probe" ||
+      publicProbe.surfaceObservedKey !== binding.terminalObservedKey ||
+      invocation?.invocationSchema !== binding.invocationSchema ||
+      invocation.kind !== "target-absence" ||
+      invocation.surfaceKind !== "host-abi" ||
+      invocation.surfaceName !== binding.key.alias ||
+      invocation.targetTriple !== target.triple ||
+      invocation.sourceDescriptorDigest !== binding.sourceDescriptorDigest
+    ) {
+      throw new Error(
+        `${binding.fixtureId}: target-absence output binding differs from its authored recipe`,
+      );
+    }
+    const sourceDescriptor = {
+      kind: TARGET_ABSENCE_OUTPUT_SOURCE_DESCRIPTOR_KIND,
+      recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
+      fixtureId: binding.fixtureId,
+      recipePlanDigest: binding.planDigest,
+      terminalObservedKey: binding.terminalObservedKey,
+      invocationSchema: binding.invocationSchema,
+      targetSourceDescriptorDigest: binding.sourceDescriptorDigest,
+      publicSurfaceProbe: structuredClone(publicProbe),
+    };
+    const probe = {
+      kind: "loaded-engine-return-record",
+      fixtureId: binding.fixtureId,
+      sourceDescriptor,
+      sourceDescriptorDigest: outputShapeSourceDescriptorDigest(sourceDescriptor),
+      recordPath: [...TARGET_ABSENCE_RECORD_PATH],
+    };
+    validateProbe(
+      probe,
+      binding.key,
+      `target-absence output probe ${binding.fixtureId}`,
+    );
+    return { key: structuredClone(binding.key), probe };
+  });
+  uniqueKeyMap(probes, "target-absence output probes");
+  return sortedRows(probes);
+}
+
 function sortedRows(rows) {
   return [...rows].sort((left, right) =>
     compareText(
@@ -3953,6 +4211,290 @@ export function buildOutputShapeSweepArtifactFromExecutorBatch({
   });
   validateOutputShapeSweepArtifact(artifact, plan);
   return artifact;
+}
+
+function validateBoundHostAbiExecutorBatch({ batch, plan, expectedRows }) {
+  exactKeys(
+    batch,
+    [
+      "hostAbiOutputExecutorBatchSchema",
+      "profile",
+      "executor",
+      "sourceRevision",
+      "sourceTreeDigest",
+      "target",
+      "catalogKeyDigest",
+      "sweepPlanDigest",
+      "loadedEngineIdentity",
+      "compiledRegistrarIds",
+      "results",
+      "unexercisable",
+    ],
+    "Host ABI output executor batch",
+  );
+  if (
+    batch.hostAbiOutputExecutorBatchSchema !== HOST_ABI_EXECUTOR_BATCH_SCHEMA ||
+    batch.profile !== PROFILE ||
+    batch.executor !== OUTPUT_SHAPE_SWEEP_EXECUTOR ||
+    batch.sourceRevision !== plan.sourceRevision ||
+    batch.sourceTreeDigest !== plan.sourceTreeDigest ||
+    canonicalJson(batch.target) !== canonicalJson(plan.target) ||
+    batch.catalogKeyDigest !== plan.catalogKeyDigest ||
+    batch.sweepPlanDigest !== plan.sweepPlanDigest ||
+    canonicalJson(batch.loadedEngineIdentity) !== canonicalJson(plan.engine) ||
+    !Array.isArray(batch.results) ||
+    !Array.isArray(batch.unexercisable) ||
+    !Array.isArray(batch.compiledRegistrarIds)
+  ) {
+    throw new Error("Host ABI output executor batch has stale bindings");
+  }
+  if (batch.unexercisable.length !== 0) {
+    const sample = batch.unexercisable
+      .slice(0, 8)
+      .map((row) => `${canonicalOutputDispositionKey(row.key)}: ${row.reason}`)
+      .join("; ");
+    throw new Error(
+      `Host ABI output executor could not honestly exercise ${batch.unexercisable.length} rows: ${sample}`,
+    );
+  }
+  assertBidirectionalKeys(
+    expectedRows,
+    batch.results,
+    "Host ABI output executor results",
+  );
+  assertCanonicalRowOrder(batch.results, "Host ABI output executor batch");
+  return batch;
+}
+
+function targetAbsenceExecutorResult({ planRow, execution }) {
+  const descriptor = planRow.probe.sourceDescriptor;
+  const evidence = execution?.evidence;
+  const runtime = evidence?.runtimeObservation;
+  const invocation = runtime?.invocation;
+  const result = invocation?.result;
+  if (
+    execution?.fixtureId !== descriptor.fixtureId ||
+    execution.outcome !== "passed" ||
+    evidence?.fixtureId !== descriptor.fixtureId ||
+    evidence.planDigest !== descriptor.recipePlanDigest ||
+    evidence.engineBinaryDigest === undefined ||
+    canonicalJson(evidence.probe) !==
+      canonicalJson(descriptor.publicSurfaceProbe) ||
+    evidence.terminalObservedKey !== descriptor.terminalObservedKey ||
+    runtime?.observationSchema !== "ibex/capsec-runtime-public-observation/1" ||
+    runtime.legacyObservationCount !== 0 ||
+    !Array.isArray(runtime.typedDecisions) ||
+    runtime.typedDecisions.length !== 0 ||
+    invocation?.invocationSchema !== descriptor.invocationSchema ||
+    invocation.kind !== "target-absence" ||
+    invocation.surfaceObservedKey !== descriptor.terminalObservedKey ||
+    invocation.surfaceKind !== planRow.key.sourceKind ||
+    invocation.surfaceName !== planRow.key.alias ||
+    invocation.sourceDescriptorDigest !==
+      descriptor.targetSourceDescriptorDigest ||
+    result?.kind !== "absent" ||
+    result.surfaceKind !== planRow.key.sourceKind ||
+    result.surfaceName !== planRow.key.alias ||
+    result.targetTriple !==
+      descriptor.publicSurfaceProbe.invocation.targetTriple
+  ) {
+    throw new Error(
+      `${descriptor.fixtureId}: public execution did not prove the exact target-absent output row`,
+    );
+  }
+  return {
+    key: structuredClone(planRow.key),
+    proof: {
+      kind: "loaded-engine-return-record",
+      fixtureId: planRow.probe.fixtureId,
+      sourceDescriptorDigest: planRow.probe.sourceDescriptorDigest,
+      recordPath: structuredClone(planRow.probe.recordPath),
+      rawValueShape: "absent",
+    },
+    raw: {
+      kind: "absent",
+      rawValueShape: "absent",
+      value: null,
+      errorCode: null,
+    },
+  };
+}
+
+/**
+ * Validate the independently executed generic, Host-ABI, and target-absence
+ * partitions, then lift them into the one complete executor batch required by
+ * the v3 plan/artifact contract.
+ */
+export function composeOutputShapeSweepArtifactFromDelegatedBatches({
+  catalog,
+  plan,
+  genericCatalog,
+  genericPlan,
+  genericBatch,
+  hostAbiBatch,
+  targetAbsenceProbes,
+  targetAbsenceExecutionArtifact = null,
+  recipeCatalog = null,
+  coverage,
+}) {
+  const bindings = {
+    sourceRevision: plan.sourceRevision,
+    sourceTreeDigest: plan.sourceTreeDigest,
+    target: plan.target,
+    engine: plan.engine,
+  };
+  validateOutputShapeSweepPlan(plan, { catalog, ...bindings });
+  validateOutputShapeSweepPlan(genericPlan, {
+    catalog: genericCatalog,
+    ...bindings,
+  });
+  const genericArtifact = buildOutputShapeSweepArtifactFromExecutorBatch({
+    plan: genericPlan,
+    batch: genericBatch,
+  });
+
+  const hostRows = [];
+  const targetAbsenceRows = [];
+  const genericRows = [];
+  for (const row of plan.rows) {
+    const descriptorKind = row.probe?.sourceDescriptor?.kind;
+    if (descriptorKind === HOST_ABI_OUTPUT_SOURCE_DESCRIPTOR_KIND) {
+      hostRows.push(row);
+    } else if (descriptorKind === TARGET_ABSENCE_OUTPUT_SOURCE_DESCRIPTOR_KIND) {
+      targetAbsenceRows.push(row);
+    } else {
+      genericRows.push(row);
+    }
+  }
+  const { expected: genericByKey, actual: projectedGenericByKey } =
+    assertBidirectionalKeys(
+      genericPlan.rows,
+      genericRows,
+      "generic/full output-shape plan projection",
+    );
+  for (const [key, row] of genericByKey) {
+    if (canonicalJson(row) !== canonicalJson(projectedGenericByKey.get(key))) {
+      throw new Error(`generic output-shape probe drift for ${key}`);
+    }
+  }
+  const { expected: absenceByKey, actual: authoredAbsenceByKey } =
+    assertBidirectionalKeys(
+      targetAbsenceRows,
+      targetAbsenceProbes,
+      "target-absence/full output-shape plan projection",
+    );
+  for (const [key, row] of absenceByKey) {
+    if (canonicalJson(row) !== canonicalJson(authoredAbsenceByKey.get(key))) {
+      throw new Error(`target-absence output-shape probe drift for ${key}`);
+    }
+  }
+  assertBidirectionalKeys(
+    plan.rows,
+    [...genericRows, ...hostRows, ...targetAbsenceRows],
+    "complete delegated output-shape plan",
+  );
+
+  validateBoundHostAbiExecutorBatch({
+    batch: hostAbiBatch,
+    plan,
+    expectedRows: hostRows,
+  });
+  if (!Array.isArray(coverage?.edges)) {
+    throw new Error("delegated output-shape composition requires coverage edges");
+  }
+  const hostSurfaceAccountIds = coverage.edges
+    .filter((edge) => edge.surface?.kind === "host-abi")
+    .map((edge) => edge.id)
+    .sort(compareText);
+  if (
+    canonicalJson(hostAbiBatch.compiledRegistrarIds) !==
+    canonicalJson(hostSurfaceAccountIds)
+  ) {
+    throw new Error(
+      "Host ABI compiled registrar IDs do not cover the exact Host catalog accounts",
+    );
+  }
+
+  let targetAbsenceResults = [];
+  if (targetAbsenceRows.length > 0) {
+    if (!recipeCatalog || !targetAbsenceExecutionArtifact) {
+      throw new Error(
+        "target-absence output rows require their validated public execution artifact",
+      );
+    }
+    validatePublicSurfaceExecutionArtifact(targetAbsenceExecutionArtifact, {
+      recipeCatalog,
+      target: plan.target,
+      sourceRevision: plan.sourceRevision,
+      sourceTreeDigest: plan.sourceTreeDigest,
+      engine: plan.engine,
+      coverage,
+    });
+    const executions = new Map(
+      targetAbsenceExecutionArtifact.executions.map((execution) => [
+        execution.fixtureId,
+        execution,
+      ]),
+    );
+    targetAbsenceResults = targetAbsenceRows.map((row) => {
+      if (
+        row.probe.sourceDescriptor.recipeCatalogDigest !==
+        recipeCatalog.recipeCatalogDigest
+      ) {
+        throw new Error(
+          `${row.probe.fixtureId}: target-absence plan selected another recipe catalog`,
+        );
+      }
+      const execution = executions.get(row.probe.fixtureId);
+      if (!execution) {
+        throw new Error(
+          `${row.probe.fixtureId}: target-absence public execution is missing`,
+        );
+      }
+      if (execution.evidence?.engineBinaryDigest !== plan.engine.binaryDigest) {
+        throw new Error(
+          `${row.probe.fixtureId}: target-absence execution used another engine`,
+        );
+      }
+      return targetAbsenceExecutorResult({ planRow: row, execution });
+    });
+  } else if (
+    targetAbsenceExecutionArtifact !== null ||
+    (Array.isArray(targetAbsenceProbes) && targetAbsenceProbes.length !== 0)
+  ) {
+    throw new Error("empty target-absence partition carried delegated evidence");
+  }
+
+  const compiledRegistrarIds = [
+    ...new Set([
+      ...genericArtifact.compiledRegistrarIds,
+      ...hostAbiBatch.compiledRegistrarIds,
+    ]),
+  ].sort(compareText);
+  const composedBatch = {
+    outputShapeExecutorBatchSchema: EXECUTOR_BATCH_SCHEMA,
+    profile: PROFILE,
+    executor: OUTPUT_SHAPE_SWEEP_EXECUTOR,
+    sourceRevision: plan.sourceRevision,
+    sourceTreeDigest: plan.sourceTreeDigest,
+    target: structuredClone(plan.target),
+    catalogKeyDigest: plan.catalogKeyDigest,
+    sweepPlanDigest: plan.sweepPlanDigest,
+    loadedEngineIdentity: structuredClone(plan.engine),
+    compiledRegistrarIds,
+    results: sortedRows([
+      ...genericBatch.results,
+      ...hostAbiBatch.results,
+      ...targetAbsenceResults,
+    ]),
+    parameterizedResults: structuredClone(genericBatch.parameterizedResults),
+    unexercisable: [],
+  };
+  const artifact = buildOutputShapeSweepArtifactFromExecutorBatch({
+    plan,
+    batch: composedBatch,
+  });
+  return { artifact, batch: composedBatch };
 }
 
 /** Seal executor-owned raw observations without consulting disposition policy. */

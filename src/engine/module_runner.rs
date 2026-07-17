@@ -52,6 +52,7 @@ unsafe extern "C" {
         source_label_len: usize,
         out_factory: *mut NativeModuleHandle,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_module_load_carrier_factory(
         runtime: *mut c_void,
@@ -76,6 +77,7 @@ unsafe extern "C" {
         source_label_len: usize,
         out_factory: *mut NativeModuleHandle,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_module_release_handle(
         runtime: *mut c_void,
@@ -162,6 +164,7 @@ unsafe extern "C" {
         record: NativeModuleHandle,
         out_evicted: *mut i32,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_commonjs_record_create_esm_adapter(
         runtime: *mut c_void,
@@ -169,6 +172,7 @@ unsafe extern "C" {
         record: NativeModuleHandle,
         out_adapter: *mut NativeModuleHandle,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_module_create_record(
         runtime: *mut c_void,
@@ -234,12 +238,14 @@ unsafe extern "C" {
         virtual_path_len: usize,
         is_main: i32,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_module_record_run_declare(
         runtime: *mut c_void,
         runtime_nonce: u64,
         record: NativeModuleHandle,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_module_record_run_execute(
         runtime: *mut c_void,
@@ -247,6 +253,7 @@ unsafe extern "C" {
         record: NativeModuleHandle,
         out_async: *mut i32,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_module_record_poll_evaluation(
         runtime: *mut c_void,
@@ -254,6 +261,7 @@ unsafe extern "C" {
         record: NativeModuleHandle,
         out_state: *mut i32,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_module_record_namespace_json(
         runtime: *mut c_void,
@@ -261,6 +269,7 @@ unsafe extern "C" {
         record: NativeModuleHandle,
         out_json: *mut *mut c_char,
         out_error: *mut *mut c_char,
+        out_error_token: *mut u64,
     ) -> i32;
     fn ex_hermes_free_string(value: *mut c_char);
     #[cfg(test)]
@@ -272,6 +281,55 @@ unsafe extern "C" {
         is_bytecode: i32,
         out_value: *mut *mut c_char,
     ) -> i32;
+}
+
+/// Exact native module-runner failure. A nonzero token names the retained raw
+/// JavaScript value for this operation only; engine/protocol failures carry 0
+/// and can never borrow a stale throw from another record.
+#[derive(Clone, Debug)]
+pub struct NativeModuleExecutionError {
+    operation: String,
+    status: i32,
+    detail: String,
+    error_token: u64,
+}
+
+impl NativeModuleExecutionError {
+    pub fn error_token(&self) -> Option<std::num::NonZeroU64> {
+        std::num::NonZeroU64::new(self.error_token)
+    }
+}
+
+impl std::fmt::Display for NativeModuleExecutionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "native {} refused ({}): {}",
+            self.operation, self.status, self.detail
+        )
+    }
+}
+
+impl std::error::Error for NativeModuleExecutionError {}
+
+pub fn execution_error_token(error: &anyhow::Error) -> Option<std::num::NonZeroU64> {
+    error
+        .chain()
+        .find_map(|source| source.downcast_ref::<NativeModuleExecutionError>())
+        .and_then(NativeModuleExecutionError::error_token)
+}
+
+fn sticky_module_error(error: &anyhow::Error) -> NativeModuleExecutionError {
+    error
+        .chain()
+        .find_map(|source| source.downcast_ref::<NativeModuleExecutionError>())
+        .cloned()
+        .unwrap_or_else(|| NativeModuleExecutionError {
+            operation: "module graph evaluation".to_owned(),
+            status: -1,
+            detail: error.to_string(),
+            error_token: 0,
+        })
 }
 
 /// Borrowed owner-thread access to one live Hermes runtime generation.
@@ -407,6 +465,7 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         let source_id = artifact.semantics.source_id.0.encode()?;
         let mut handle = NativeModuleHandle::default();
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_module_compile_factory(
                 self.raw.as_ptr(),
@@ -426,11 +485,12 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
                 source_label.len(),
                 &mut handle,
                 &mut error,
+                &mut error_token,
             )
         };
         if status != 0 {
-            let detail = take_error(error);
-            bail!("native module factory compile refused ({status}): {detail}");
+            native_result(status, error, error_token, "module factory compile")?;
+            unreachable!("nonzero factory status returned success");
         }
         if !error.is_null() {
             unsafe { ex_hermes_free_string(error) };
@@ -492,6 +552,7 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
         let source_id = artifact.semantics.source_id.0.encode()?;
         let mut handle = NativeModuleHandle::default();
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_module_load_carrier_factory(
                 self.raw.as_ptr(),
@@ -516,14 +577,17 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
                 source_label.len(),
                 &mut handle,
                 &mut error,
+                &mut error_token,
             )
         };
         if status != 0 {
-            let detail = take_error(error);
-            if status == 2 {
-                bail!("prepared Hermes bytecode refused before execution: {detail}");
-            }
-            bail!("native prepared module factory load refused ({status}): {detail}");
+            let operation = if status == 2 {
+                "prepared Hermes bytecode load"
+            } else {
+                "prepared module factory load"
+            };
+            native_result(status, error, error_token, operation)?;
+            unreachable!("nonzero prepared-factory status returned success");
         }
         if !error.is_null() {
             unsafe { ex_hermes_free_string(error) };
@@ -919,6 +983,7 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         let handle = self.live_handle()?;
         let mut evicted = 0;
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_commonjs_record_evaluate(
                 self.runtime.raw.as_ptr(),
@@ -926,17 +991,19 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
                 handle,
                 &mut evicted,
                 &mut error,
+                &mut error_token,
             )
         };
         if evicted == 1 {
             self.handle = None;
         }
-        native_result(status, error, "CommonJS record evaluation")
+        native_result(status, error, error_token, "CommonJS record evaluation")
     }
 
     pub fn create_esm_adapter(&self) -> Result<NativeModuleRecord<'runtime>> {
         let mut adapter = NativeModuleHandle::default();
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_commonjs_record_create_esm_adapter(
                 self.runtime.raw.as_ptr(),
@@ -944,9 +1011,10 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
                 self.live_handle()?,
                 &mut adapter,
                 &mut error,
+                &mut error_token,
             )
         };
-        native_result(status, error, "CommonJS ESM-adapter creation")?;
+        native_result(status, error, error_token, "CommonJS ESM-adapter creation")?;
         Ok(NativeModuleRecord {
             runtime: self.runtime,
             handle: Some(adapter),
@@ -1140,6 +1208,7 @@ impl NativeModuleRecord<'_> {
         }
         let virtual_path = virtual_path.unwrap_or("");
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_module_record_instantiate(
                 self.runtime.raw.as_ptr(),
@@ -1151,27 +1220,31 @@ impl NativeModuleRecord<'_> {
                 virtual_path.len(),
                 i32::from(is_main),
                 &mut error,
+                &mut error_token,
             )
         };
-        native_result(status, error, "ModuleRecord instantiation")
+        native_result(status, error, error_token, "ModuleRecord instantiation")
     }
 
     pub fn run_declare(&mut self) -> Result<()> {
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_module_record_run_declare(
                 self.runtime.raw.as_ptr(),
                 self.runtime.nonce,
                 self.live_handle()?,
                 &mut error,
+                &mut error_token,
             )
         };
-        native_result(status, error, "ModuleRecord declaration")
+        native_result(status, error, error_token, "ModuleRecord declaration")
     }
 
     pub fn run_execute(&mut self) -> Result<ModuleExecutionKind> {
         let mut asynchronous = 0;
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_module_record_run_execute(
                 self.runtime.raw.as_ptr(),
@@ -1179,9 +1252,10 @@ impl NativeModuleRecord<'_> {
                 self.live_handle()?,
                 &mut asynchronous,
                 &mut error,
+                &mut error_token,
             )
         };
-        native_result(status, error, "ModuleRecord execution")?;
+        native_result(status, error, error_token, "ModuleRecord execution")?;
         match asynchronous {
             0 => Ok(ModuleExecutionKind::Synchronous),
             1 => Ok(ModuleExecutionKind::Asynchronous),
@@ -1196,6 +1270,7 @@ impl NativeModuleRecord<'_> {
     pub fn poll_evaluation(&self) -> Result<ModuleEvaluationState> {
         let mut state = -1;
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_module_record_poll_evaluation(
                 self.runtime.raw.as_ptr(),
@@ -1203,9 +1278,10 @@ impl NativeModuleRecord<'_> {
                 self.live_handle()?,
                 &mut state,
                 &mut error,
+                &mut error_token,
             )
         };
-        native_result(status, error, "ModuleRecord evaluation poll")?;
+        native_result(status, error, error_token, "ModuleRecord evaluation poll")?;
         match state {
             0 => Ok(ModuleEvaluationState::Pending),
             1 => Ok(ModuleEvaluationState::Evaluated),
@@ -1216,6 +1292,7 @@ impl NativeModuleRecord<'_> {
     pub fn namespace_json(&self) -> Result<String> {
         let mut json = std::ptr::null_mut();
         let mut error = std::ptr::null_mut();
+        let mut error_token = 0;
         let status = unsafe {
             ex_hermes_module_record_namespace_json(
                 self.runtime.raw.as_ptr(),
@@ -1223,9 +1300,10 @@ impl NativeModuleRecord<'_> {
                 self.live_handle()?,
                 &mut json,
                 &mut error,
+                &mut error_token,
             )
         };
-        native_result(status, error, "ModuleRecord namespace read")?;
+        native_result(status, error, error_token, "ModuleRecord namespace read")?;
         if json.is_null() {
             bail!("native ModuleRecord namespace read returned no JSON");
         }
@@ -1290,7 +1368,7 @@ pub struct NativeSynchronousGraph<'runtime> {
     entry: SourceId,
     evaluation_order: Vec<SourceId>,
     records: BTreeMap<SourceId, NativeLinkedRecord<'runtime>>,
-    evaluation_outcome: Option<std::result::Result<(), String>>,
+    evaluation_outcome: Option<std::result::Result<(), NativeModuleExecutionError>>,
     _authorization_receipts: Vec<AuthorizedGraphOperation>,
 }
 
@@ -1306,6 +1384,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
     ) -> Result<Self> {
+        plan.ensure_native_call_time_edges_supported()?;
         let evaluation_order = plan.synchronous_evaluation_order(entry)?;
         let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
@@ -1334,6 +1413,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
         prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>,
     ) -> Result<Self> {
+        plan.ensure_native_call_time_edges_supported()?;
         let evaluation_order = plan.synchronous_evaluation_order(entry)?;
         let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
@@ -1507,9 +1587,11 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             records.insert(source_id.clone(), record);
             module_metadata.insert(source_id.clone(), (config.meta_url, config.virtual_path));
         }
-        // Configurations for denied or unselected dynamic candidates remain
-        // inert: no native record, factory compilation, or call-time table
-        // entry is created for them.
+        // This filtering remains for diagnostic/private-ABI callers. The
+        // authenticated production entries currently reject every authored
+        // dynamic edge before reaching this machinery. In either case,
+        // unselected candidates remain inert: no native record, factory
+        // compilation, or call-time table entry is created for them.
 
         // Materialize every namespace shape before linking any aliases. This
         // is the cycle boundary: every record identity and cell already exists.
@@ -1696,7 +1778,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
 
     pub fn evaluate(&mut self) -> Result<()> {
         if let Some(outcome) = &self.evaluation_outcome {
-            return outcome.clone().map_err(|detail| anyhow!(detail));
+            return outcome.clone().map_err(anyhow::Error::new);
         }
         let outcome = (|| {
             for source_id in &self.evaluation_order {
@@ -1725,9 +1807,9 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                 Ok(())
             }
             Err(error) => {
-                let detail = error.to_string();
-                self.evaluation_outcome = Some(Err(detail.clone()));
-                Err(anyhow!(detail))
+                let sticky = sticky_module_error(&error);
+                self.evaluation_outcome = Some(Err(sticky.clone()));
+                Err(anyhow::Error::new(sticky))
             }
         }
     }
@@ -1763,7 +1845,7 @@ pub struct NativeAsynchronousGraph<'runtime> {
     records: BTreeMap<SourceId, NativeLinkedRecord<'runtime>>,
     next_scc: usize,
     suspended_records: Vec<SourceId>,
-    evaluation_outcome: Option<std::result::Result<(), String>>,
+    evaluation_outcome: Option<std::result::Result<(), NativeModuleExecutionError>>,
     _authorization_receipts: Vec<AuthorizedGraphOperation>,
 }
 
@@ -1777,6 +1859,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
     ) -> Result<Self> {
+        plan.ensure_native_call_time_edges_supported()?;
         let schedule = plan.asynchronous_evaluation_plan(entry)?;
         let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
@@ -1803,6 +1886,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
         prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>,
     ) -> Result<Self> {
+        plan.ensure_native_call_time_edges_supported()?;
         let schedule = plan.asynchronous_evaluation_plan(entry)?;
         let mut receipts =
             plan.authorize_reachable_operations(entry, authorizer, authority_contexts)?;
@@ -1885,7 +1969,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
             return outcome
                 .clone()
                 .map(|()| AsyncGraphPoll::Evaluated)
-                .map_err(|detail| anyhow!(detail));
+                .map_err(anyhow::Error::new);
         }
         let outcome: Result<AsyncGraphPoll> = (|| {
             if !self.suspended_records.is_empty() {
@@ -1945,9 +2029,9 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
             }
             Ok(AsyncGraphPoll::Suspended) => Ok(AsyncGraphPoll::Suspended),
             Err(error) => {
-                let detail = error.to_string();
-                self.evaluation_outcome = Some(Err(detail.clone()));
-                Err(anyhow!(detail))
+                let sticky = sticky_module_error(&error);
+                self.evaluation_outcome = Some(Err(sticky.clone()));
+                Err(anyhow::Error::new(sticky))
             }
         }
     }
@@ -2019,10 +2103,16 @@ fn take_error(error: *mut c_char) -> String {
     detail
 }
 
-fn native_result(status: i32, error: *mut c_char, operation: &str) -> Result<()> {
+fn native_result(status: i32, error: *mut c_char, error_token: u64, operation: &str) -> Result<()> {
     if status != 0 {
         let detail = take_error(error);
-        bail!("native {operation} refused ({status}): {detail}");
+        return Err(NativeModuleExecutionError {
+            operation: operation.to_owned(),
+            status,
+            detail,
+            error_token,
+        }
+        .into());
     }
     if !error.is_null() {
         unsafe { ex_hermes_free_string(error) };
@@ -2042,7 +2132,8 @@ mod tests {
     use crate::module_loader::carrier::{
         AdmittedPreparedCarrierV1, PreparedCarrierAdmissionV1, PreparedModuleCarrierV1,
     };
-    use crate::module_loader::identity::ImportAttributes;
+    use crate::module_loader::graph::GraphEdgeKey;
+    use crate::module_loader::identity::{ImportAttributes, ResolutionKind};
     use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
 
     #[allow(clashing_extern_declarations)]
@@ -2059,6 +2150,23 @@ mod tests {
             global_name: *const c_char,
             compartment_identity: *const c_char,
         ) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_begin_structured_module_error_capture(runtime: *mut c_void) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_end_structured_module_error_capture(runtime: *mut c_void) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_structured_module_error_token_matches_utf8(
+            runtime: *mut c_void,
+            error_token: u64,
+            expected: *const u8,
+            expected_length: usize,
+        ) -> i32;
+        #[cfg(feature = "capsec-conformance-observer")]
+        fn ibex_test_structured_module_error_token_for_utf8(
+            runtime: *mut c_void,
+            expected: *const u8,
+            expected_length: usize,
+        ) -> u64;
     }
 
     fn digest(label: &str) -> Digest {
@@ -2109,6 +2217,29 @@ mod tests {
             source_id,
             factory,
             SourceGoalV1::CommonJs,
+            Vec::new(),
+            Vec::new(),
+            Some(CommonJsExportsV1 {
+                detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
+                detector_version: NonEmptyString::new("2.1.0").unwrap(),
+                names: detected_names
+                    .iter()
+                    .map(|name| NonEmptyString::new(*name).unwrap())
+                    .collect(),
+                reexports: Vec::new(),
+            }),
+        )
+    }
+
+    fn test_builtin_artifact(
+        source_id: SourceId,
+        factory: &str,
+        detected_names: &[&str],
+    ) -> ModuleArtifactV1 {
+        test_artifact_for_goal(
+            source_id,
+            factory,
+            SourceGoalV1::Builtin,
             Vec::new(),
             Vec::new(),
             Some(CommonJsExportsV1 {
@@ -2213,6 +2344,120 @@ mod tests {
                     .unwrap(),
             })
             .unwrap()
+    }
+
+    struct PanicGraphPolicy;
+
+    impl GraphImportPolicy for PanicGraphPolicy {
+        fn snapshot_digest(&self) -> &Digest {
+            panic!("call-time edge guard ran after policy authorization")
+        }
+
+        fn snapshot_generations(&self) -> capsec_semantics::arming::SnapshotGenerations {
+            panic!("call-time edge guard ran after policy authorization")
+        }
+
+        fn authenticates_module_edge(
+            &self,
+            _importer: &Principal,
+            _request_specifier: &str,
+            _imported: &Principal,
+            _resolution_kind: &str,
+            _conditions: &[String],
+            _attributes: &BTreeMap<String, String>,
+        ) -> bool {
+            panic!("call-time edge guard ran after policy authorization")
+        }
+    }
+
+    #[test]
+    fn every_authenticated_linker_refuses_call_time_edges_before_authorization() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "guarded-entry").unwrap();
+            let target_id = SourceId::synthetic("module-runner-test", "guarded-target").unwrap();
+            let entry_artifact = asynchronous_artifact(
+                test_artifact(entry_id.clone()),
+                vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./target.mjs").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+            );
+            let target_artifact = test_artifact(target_id.clone());
+            let plan = SynchronousGraphPlan::new_typed([
+                (
+                    verify_test_artifact(&entry_artifact),
+                    BTreeMap::from([(
+                        GraphEdgeKey::new("./target.mjs", ResolutionKind::DynamicImport),
+                        target_id.clone(),
+                    )]),
+                ),
+                (verify_test_artifact(&target_artifact), BTreeMap::new()),
+            ])
+            .unwrap();
+            let policy = PanicGraphPolicy;
+            let authorizer = ModuleGraphAuthorizer::new(&policy);
+            let prepared_entries = BTreeMap::new();
+
+            let errors = [
+                NativeSynchronousGraph::link_authorized(
+                    &runtime,
+                    &plan,
+                    &entry_id,
+                    BTreeMap::new(),
+                    &authorizer,
+                    &BTreeMap::new(),
+                )
+                .err()
+                .expect("synchronous linker accepted an authored dynamic edge"),
+                NativeSynchronousGraph::link_authorized_prepared(
+                    &runtime,
+                    &plan,
+                    &entry_id,
+                    BTreeMap::new(),
+                    &authorizer,
+                    &BTreeMap::new(),
+                    &prepared_entries,
+                )
+                .err()
+                .expect("prepared synchronous linker accepted an authored dynamic edge"),
+                NativeAsynchronousGraph::link_authorized(
+                    &runtime,
+                    &plan,
+                    &entry_id,
+                    BTreeMap::new(),
+                    &authorizer,
+                    &BTreeMap::new(),
+                )
+                .err()
+                .expect("asynchronous linker accepted an authored dynamic edge"),
+                NativeAsynchronousGraph::link_authorized_prepared(
+                    &runtime,
+                    &plan,
+                    &entry_id,
+                    BTreeMap::new(),
+                    &authorizer,
+                    &BTreeMap::new(),
+                    &prepared_entries,
+                )
+                .err()
+                .expect("prepared asynchronous linker accepted an authored dynamic edge"),
+            ];
+            for error in errors {
+                assert!(
+                    error.to_string().contains("dynamic-import activation"),
+                    "unexpected authenticated-linker refusal: {error:#}"
+                );
+            }
+
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
     }
 
     fn prepared_admission(
@@ -2744,8 +2989,8 @@ mod tests {
             record.run_declare().unwrap();
             let tdz = record.namespace_json().unwrap_err().to_string();
             assert!(
-                tdz.contains("before initialization"),
-                "namespace getter must preserve TDZ: {tdz}"
+                tdz.contains("module namespace serialization threw"),
+                "namespace getter must preserve the opaque throw boundary: {tdz}"
             );
             assert_eq!(
                 record.run_execute().unwrap(),
@@ -2912,7 +3157,7 @@ mod tests {
                 .namespace_json(&entry_id)
                 .unwrap_err()
                 .to_string()
-                .contains("before initialization"));
+                .contains("module namespace serialization threw"));
             graph.evaluate().unwrap();
             graph.evaluate().unwrap();
             assert_eq!(
@@ -2931,7 +3176,7 @@ mod tests {
     }
 
     #[test]
-    fn synchronous_graph_links_esm_imports_to_pre_evaluation_commonjs_adapter() {
+    fn synchronous_graph_links_esm_imports_to_commonjs_with_length_bearing_export_names() {
         let _host_guard = crate::host::abi::host_test_lock();
         crate::host::abi::install_host(crate::host::Host::strict());
         unsafe {
@@ -2943,25 +3188,34 @@ mod tests {
             let entry_id = SourceId::synthetic("module-runner-test", "mixed-entry").unwrap();
             let cjs = test_artifact_for_goal(
                 cjs_id.clone(),
-                "function (require, module, exports) { exports.answer = 41; }",
+                "function (require, module, exports) { exports.answer = 41; exports['nul\\u0000named'] = 2; }",
                 SourceGoalV1::CommonJs,
                 Vec::new(),
                 Vec::new(),
                 Some(CommonJsExportsV1 {
                     detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
                     detector_version: NonEmptyString::new("2.1.0").unwrap(),
-                    names: vec![NonEmptyString::new("answer").unwrap()],
+                    names: vec![
+                        NonEmptyString::new("answer").unwrap(),
+                        NonEmptyString::new("nul\0named").unwrap(),
+                    ],
                     reexports: Vec::new(),
                 }),
             );
             let entry = test_graph_artifact(
                 entry_id.clone(),
-                "function ($export, context) { return { declare: function () {}, execute: function () { var named = context.importValue('./legacy', 'answer'); var value = context.importValue('./legacy', 'default'); $export('observed', String(named) + ':' + String(value.answer === named)); } }; }",
+                "function ($export, context) { return { declare: function () {}, execute: function () { var named = context.importValue('./legacy', 'answer'); var nulNamed = context.importValue('./legacy', 'nul\\u0000named'); var value = context.importValue('./legacy', 'default'); $export('observed', String(named) + ':' + String(nulNamed) + ':' + String(value.answer === named)); } }; }",
                 vec![
                     StaticEdgeV1::Named {
                         specifier: NonEmptyString::new("./legacy").unwrap(),
                         imported: NonEmptyString::new("answer").unwrap(),
                         local: NonEmptyString::new("answer").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
+                    StaticEdgeV1::Named {
+                        specifier: NonEmptyString::new("./legacy").unwrap(),
+                        imported: NonEmptyString::new("nul\0named").unwrap(),
+                        local: NonEmptyString::new("nulNamed").unwrap(),
                         attributes: ImportAttributes::default(),
                     },
                     StaticEdgeV1::Default {
@@ -3007,11 +3261,11 @@ mod tests {
             graph.evaluate().unwrap();
             assert_eq!(
                 graph.namespace_json(&entry_id).unwrap(),
-                r#"{"observed":"41:true"}"#
+                r#"{"observed":"41:2:true"}"#
             );
             assert_eq!(
                 graph.namespace_json(&cjs_id).unwrap(),
-                r#"{"answer":41,"default":{"answer":41},"module.exports":{"answer":41}}"#
+                r#"{"answer":41,"default":{"answer":41,"nul\u0000named":2},"module.exports":{"answer":41,"nul\u0000named":2},"nul\u0000named":2}"#
             );
 
             drop(graph);
@@ -3021,7 +3275,7 @@ mod tests {
     }
 
     #[test]
-    fn synchronous_graph_links_commonjs_require_of_evaluated_esm() {
+    fn synchronous_graph_links_commonjs_require_of_esm_with_length_bearing_export_names() {
         let _host_guard = crate::host::abi::host_test_lock();
         crate::host::abi::install_host(crate::host::Host::strict());
         unsafe {
@@ -3033,12 +3287,12 @@ mod tests {
             let cjs_id = SourceId::synthetic("module-runner-test", "requiring-cjs").unwrap();
             let esm = test_artifact_with_factory(
                 esm_id.clone(),
-                "function ($export) { return { declare: function () {}, execute: function () { $export('default', 9); $export('named', 4); } }; }",
-                &["default", "named"],
+                "function ($export) { return { declare: function () {}, execute: function () { $export('default', 9); $export('named', 4); $export('nul\\u0000named', 5); } }; }",
+                &["default", "named", "nul\0named"],
             );
             let cjs = test_artifact_for_goal(
                 cjs_id.clone(),
-                "function (require, module, exports) { var namespace = require('./esm'); exports.observed = String(namespace.default + namespace.named) + ':' + String(namespace.__esModule === true); }",
+                "function (require, module, exports) { var namespace = require('./esm'); exports.observed = String(namespace.default + namespace.named + namespace['nul\\u0000named']) + ':' + String(namespace.__esModule === true); }",
                 SourceGoalV1::CommonJs,
                 vec![StaticEdgeV1::CommonJsRequire {
                     specifier: NonEmptyString::new("./esm").unwrap(),
@@ -3079,10 +3333,21 @@ mod tests {
                 ]),
             )
             .unwrap();
+            assert_eq!(
+                graph
+                    .records
+                    .get_mut(&esm_id)
+                    .unwrap()
+                    .esm_mut()
+                    .unwrap()
+                    .run_execute()
+                    .unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
             graph.evaluate().unwrap();
             assert_eq!(
                 graph.namespace_json(&cjs_id).unwrap(),
-                r#"{"default":{"observed":"13:true"},"module.exports":{"observed":"13:true"},"observed":"13:true"}"#
+                r#"{"default":{"observed":"18:true"},"module.exports":{"observed":"18:true"},"observed":"18:true"}"#
             );
 
             drop(graph);
@@ -3252,7 +3517,7 @@ mod tests {
             let rejection = asynchronous_artifact(
                 test_artifact_with_factory(
                     rejection_id.clone(),
-                    "function () { return { declare: function () {}, execute: function () { return Promise.reject(new Error('tla boom')); } }; }",
+                    "function () { return { declare: function () {}, execute: function () { var hostile = { toString: function () { throw new Error('rejection toString was called'); } }; hostile[Symbol.toPrimitive] = function () { throw new Error('rejection Symbol.toPrimitive was called'); }; return Promise.reject(hostile); } }; }",
                     &[],
                 ),
                 Vec::new(),
@@ -3274,10 +3539,226 @@ mod tests {
             assert_ne!(ex_hermes_poll(raw, 0), -1);
             let first = rejection_graph.poll().unwrap_err().to_string();
             let second = rejection_graph.poll().unwrap_err().to_string();
-            assert!(first.contains("tla boom"), "unexpected rejection: {first}");
+            assert!(
+                first.contains("module evaluation promise rejected"),
+                "unexpected rejection: {first}"
+            );
+            assert!(
+                !first.contains("was called"),
+                "hostile coercion ran: {first}"
+            );
             assert_eq!(second, first);
 
             drop(rejection_graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn asynchronous_record_errors_keep_exact_tokens_under_reverse_polling() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            assert_eq!(ibex_test_begin_structured_module_error_capture(raw), 1);
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let a_id = SourceId::synthetic("module-runner-test", "token-a").unwrap();
+            let b_id = SourceId::synthetic("module-runner-test", "token-b").unwrap();
+            let rejection = |source_id: SourceId, sentinel: &str| {
+                asynchronous_artifact(
+                    test_artifact_with_factory(
+                        source_id,
+                        &format!(
+                            "function () {{ return {{ declare: function () {{}}, execute: function () {{ return Promise.reject({sentinel:?}); }} }}; }}"
+                        ),
+                        &[],
+                    ),
+                    Vec::new(),
+                )
+            };
+            let a = rejection(a_id.clone(), "sentinel-a");
+            let b = rejection(b_id.clone(), "sentinel-b");
+            let a_plan =
+                SynchronousGraphPlan::new([(verify_test_artifact(&a), BTreeMap::new())]).unwrap();
+            let b_plan =
+                SynchronousGraphPlan::new([(verify_test_artifact(&b), BTreeMap::new())]).unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    format!("{label}.mjs"),
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let mut graph_a = NativeAsynchronousGraph::link(
+                &runtime,
+                &a_plan,
+                &a_id,
+                BTreeMap::from([(a_id.clone(), config(a_id.clone(), "token-a"))]),
+            )
+            .unwrap();
+            let mut graph_b = NativeAsynchronousGraph::link(
+                &runtime,
+                &b_plan,
+                &b_id,
+                BTreeMap::from([(b_id.clone(), config(b_id.clone(), "token-b"))]),
+            )
+            .unwrap();
+
+            assert_eq!(graph_a.poll().unwrap(), AsyncGraphPoll::Suspended);
+            assert_eq!(graph_b.poll().unwrap(), AsyncGraphPoll::Suspended);
+            assert_ne!(ex_hermes_poll(raw, 0), -1);
+
+            // Poll in the opposite order from execution. Each sticky Rust
+            // error must retain the token for its own raw rejection value.
+            let error_b = graph_b.poll().unwrap_err();
+            let token_b = execution_error_token(&error_b)
+                .expect("record B rejection omitted its raw-value token");
+            let error_a = graph_a.poll().unwrap_err();
+            let token_a = execution_error_token(&error_a)
+                .expect("record A rejection omitted its raw-value token");
+            assert_ne!(token_a, token_b, "distinct rejections shared one token");
+            assert_eq!(
+                ibex_test_structured_module_error_token_matches_utf8(
+                    raw,
+                    token_a.get(),
+                    b"sentinel-a".as_ptr(),
+                    b"sentinel-a".len(),
+                ),
+                1
+            );
+            assert_eq!(
+                ibex_test_structured_module_error_token_matches_utf8(
+                    raw,
+                    token_b.get(),
+                    b"sentinel-b".as_ptr(),
+                    b"sentinel-b".len(),
+                ),
+                1
+            );
+            assert_eq!(
+                execution_error_token(&graph_a.poll().unwrap_err()),
+                Some(token_a),
+                "record A did not keep its first error token sticky"
+            );
+            assert_eq!(
+                execution_error_token(&graph_b.poll().unwrap_err()),
+                Some(token_b),
+                "record B did not keep its first error token sticky"
+            );
+
+            // A dynamic target rejection is handled by its importing entry,
+            // so the graph succeeds while the target's raw value remains in
+            // the graph-local token table.
+            let handled_target_id =
+                SourceId::synthetic("module-runner-test", "token-handled-target").unwrap();
+            let handled_entry_id =
+                SourceId::synthetic("module-runner-test", "token-handled-entry").unwrap();
+            let handled_target = rejection(handled_target_id.clone(), "handled-dynamic");
+            let handled_entry = asynchronous_artifact(
+                test_artifact_with_factory(
+                    handled_entry_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { return context.dynamicImport('./target').then(function () { throw new Error('dynamic rejection was not observed'); }, function () { $export('handled', true); }); } }; }",
+                    &["handled"],
+                ),
+                vec![DynamicEdgeV1::Literal {
+                    specifier: NonEmptyString::new("./target").unwrap(),
+                    attributes: ImportAttributes::default(),
+                }],
+            );
+            let handled_plan = SynchronousGraphPlan::new([
+                (verify_test_artifact(&handled_target), BTreeMap::new()),
+                (
+                    verify_test_artifact(&handled_entry),
+                    BTreeMap::from([("./target".into(), handled_target_id.clone())]),
+                ),
+            ])
+            .unwrap();
+            let mut handled_graph = NativeAsynchronousGraph::link(
+                &runtime,
+                &handled_plan,
+                &handled_entry_id,
+                BTreeMap::from([
+                    (
+                        handled_target_id.clone(),
+                        config(handled_target_id.clone(), "token-handled-target"),
+                    ),
+                    (
+                        handled_entry_id.clone(),
+                        config(handled_entry_id.clone(), "token-handled-entry"),
+                    ),
+                ]),
+            )
+            .unwrap();
+            assert_eq!(handled_graph.poll().unwrap(), AsyncGraphPoll::Suspended);
+            let mut handled_settled = false;
+            for tick in 1..=8 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+                match handled_graph.poll().unwrap() {
+                    AsyncGraphPoll::Evaluated => {
+                        handled_settled = true;
+                        break;
+                    }
+                    AsyncGraphPoll::Suspended => {}
+                }
+            }
+            assert!(handled_settled, "handled dynamic rejection did not settle");
+            assert_eq!(
+                handled_graph.namespace_json(&handled_entry_id).unwrap(),
+                r#"{"handled":true}"#
+            );
+            assert_ne!(
+                ibex_test_structured_module_error_token_for_utf8(
+                    raw,
+                    b"handled-dynamic".as_ptr(),
+                    b"handled-dynamic".len(),
+                ),
+                0,
+                "handled dynamic rejection was not retained under its own token"
+            );
+
+            // A later native protocol failure occurs while both raw values
+            // and the handled dynamic rejection remain retained. It must carry
+            // token 0 instead of borrowing any prior rejection.
+            let protocol_id = SourceId::synthetic("module-runner-test", "token-protocol").unwrap();
+            let protocol_artifact = test_artifact(protocol_id.clone());
+            let factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&protocol_artifact),
+                    0,
+                    None,
+                    1,
+                    "token-protocol.mjs",
+                )
+                .unwrap();
+            let context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(protocol_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let mut record = factory.create_record(&context, &protocol_id).unwrap();
+            let protocol_error = record
+                .run_declare()
+                .expect_err("declaring an uninstantiated record must fail");
+            assert_eq!(
+                execution_error_token(&protocol_error),
+                None,
+                "a protocol failure borrowed an unrelated raw rejection"
+            );
+
+            assert_eq!(ibex_test_end_structured_module_error_capture(raw), 1);
+            drop(record);
+            drop(context);
+            drop(factory);
+            drop(handled_graph);
+            drop(graph_b);
+            drop(graph_a);
             drop(runtime);
             ex_hermes_destroy(raw);
         }
@@ -3623,7 +4104,7 @@ mod tests {
             assert_ne!(ex_hermes_poll(raw, 0), -1);
             let error = graph.poll().unwrap_err().to_string();
             assert!(
-                error.contains("ERR_ASYNC_MODULE_CYCLE"),
+                error.contains("module evaluation promise rejected"),
                 "unexpected async cycle error: {error}"
             );
 
@@ -3723,6 +4204,268 @@ mod tests {
             drop(cjs_context);
             drop(esm_factory);
             drop(esm_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn manifest_builtin_require_cannot_escape_synchronous_initialization() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let dependency_id =
+                SourceId::builtin("ibex-runtime", "builtin-private-dependency").unwrap();
+            let owner_id = SourceId::builtin("ibex-runtime", "builtin-private-owner").unwrap();
+            let ordinary_id =
+                SourceId::synthetic("module-runner-test", "ordinary-cjs-target").unwrap();
+            let dynamic_id =
+                SourceId::synthetic("module-runner-test", "ordinary-dynamic-target").unwrap();
+            let dependency_artifact = test_builtin_artifact(
+                dependency_id.clone(),
+                "function (require, module) { module.exports = { value: 41 }; }",
+                &[],
+            );
+            let owner_artifact = test_builtin_artifact(
+                owner_id.clone(),
+                "function (require) { globalThis.__builtinInitValue = require('./dep').value; globalThis.__leakedBuiltinRequire = require; }",
+                &[],
+            );
+            let ordinary_artifact = test_commonjs_artifact(
+                ordinary_id.clone(),
+                "function (require, module) { module.exports = {}; }",
+                &[],
+            );
+            let dynamic_artifact = test_artifact(dynamic_id.clone());
+            let dependency_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(dependency_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let owner_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(owner_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let ordinary_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(ordinary_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let dynamic_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(dynamic_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let dependency_factory = runtime
+                .compile_verified_builtin_factory(
+                    verify_test_artifact(&dependency_artifact),
+                    0,
+                    None,
+                    1,
+                    "builtin-private-dependency.js",
+                )
+                .unwrap();
+            let owner_factory = runtime
+                .compile_verified_builtin_factory(
+                    verify_test_artifact(&owner_artifact),
+                    0,
+                    None,
+                    1,
+                    "builtin-private-owner.js",
+                )
+                .unwrap();
+            let ordinary_factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&ordinary_artifact),
+                    0,
+                    None,
+                    1,
+                    "ordinary-cjs-target.cjs",
+                )
+                .unwrap();
+            let dynamic_factory = runtime
+                .compile_verified_factory(
+                    verify_test_artifact(&dynamic_artifact),
+                    0,
+                    None,
+                    1,
+                    "ordinary-dynamic-target.mjs",
+                )
+                .unwrap();
+            let dependency = dependency_factory
+                .create_commonjs_record(
+                    &dependency_context,
+                    &dependency_id,
+                    "builtin:private-dependency",
+                    "builtin:",
+                )
+                .unwrap();
+            let mut owner = owner_factory
+                .create_commonjs_record(
+                    &owner_context,
+                    &owner_id,
+                    "builtin:private-owner",
+                    "builtin:",
+                )
+                .unwrap();
+            let ordinary = ordinary_factory
+                .create_commonjs_record(
+                    &ordinary_context,
+                    &ordinary_id,
+                    "/project/ordinary.cjs",
+                    "/project",
+                )
+                .unwrap();
+            let dynamic = dynamic_factory
+                .create_record(&dynamic_context, &dynamic_id)
+                .unwrap();
+            assert!(
+                owner.link_require("./ordinary", &ordinary).is_err(),
+                "manifest-builtin private linkage accepted a non-builtin target"
+            );
+            assert!(
+                owner.link_dynamic_import("./dynamic", &dynamic).is_err(),
+                "manifest-builtin private linkage accepted a dynamic target"
+            );
+            owner.link_require("./dep", &dependency).unwrap();
+            owner.evaluate().unwrap();
+
+            let source = "String(globalThis.__builtinInitValue) + ':' + (function () { try { globalThis.__leakedBuiltinRequire('./dep'); return 'allowed'; } catch (error) { return String(error && error.message); } })()";
+            let source_url = CString::new("builtin-require-scope-observation.js").unwrap();
+            let mut output = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_eval(
+                    raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut output,
+                ),
+                0
+            );
+            assert!(!output.is_null());
+            assert_eq!(
+                CStr::from_ptr(output).to_string_lossy(),
+                "41:manifest builtin require is unavailable outside synchronous initialization"
+            );
+            ex_hermes_free_string(output);
+
+            drop(dynamic);
+            drop(ordinary);
+            drop(owner);
+            drop(dependency);
+            drop(dynamic_factory);
+            drop(ordinary_factory);
+            drop(owner_factory);
+            drop(dependency_factory);
+            drop(dynamic_context);
+            drop(ordinary_context);
+            drop(owner_context);
+            drop(dependency_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn manifest_builtin_require_cannot_reenter_through_another_active_record() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            assert_eq!(ibex_test_begin_structured_module_error_capture(raw), 1);
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let a_id = SourceId::builtin("ibex-runtime", "builtin-owner-a").unwrap();
+            let b_id = SourceId::builtin("ibex-runtime", "builtin-owner-b").unwrap();
+            let dep_id = SourceId::builtin("ibex-runtime", "builtin-owner-dep").unwrap();
+            let a_artifact = test_builtin_artifact(
+                a_id.clone(),
+                "function (require, module, exports) { exports.leaked = require; require('./b'); }",
+                &[],
+            );
+            let b_artifact = test_builtin_artifact(
+                b_id.clone(),
+                "function (require) { var owner = require('./a'); try { owner.leaked('./dep'); } catch (error) { throw String(error && error.message); } }",
+                &[],
+            );
+            let dep_artifact = test_builtin_artifact(
+                dep_id.clone(),
+                "function (require, module) { module.exports = { value: 1 }; }",
+                &[],
+            );
+            let context = |source_id: SourceId| {
+                runtime
+                    .create_graph_context(
+                        GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    )
+                    .unwrap()
+            };
+            let a_context = context(a_id.clone());
+            let b_context = context(b_id.clone());
+            let dep_context = context(dep_id.clone());
+            let compile = |artifact: &ModuleArtifactV1, label: &str| {
+                runtime
+                    .compile_verified_builtin_factory(
+                        verify_test_artifact(artifact),
+                        0,
+                        None,
+                        1,
+                        label,
+                    )
+                    .unwrap()
+            };
+            let a_factory = compile(&a_artifact, "builtin-owner-a.js");
+            let b_factory = compile(&b_artifact, "builtin-owner-b.js");
+            let dep_factory = compile(&dep_artifact, "builtin-owner-dep.js");
+            let mut a = a_factory
+                .create_commonjs_record(&a_context, &a_id, "builtin:a", "builtin:")
+                .unwrap();
+            let mut b = b_factory
+                .create_commonjs_record(&b_context, &b_id, "builtin:b", "builtin:")
+                .unwrap();
+            let dep = dep_factory
+                .create_commonjs_record(&dep_context, &dep_id, "builtin:dep", "builtin:")
+                .unwrap();
+            a.link_require("./b", &b).unwrap();
+            a.link_require("./dep", &dep).unwrap();
+            b.link_require("./a", &a).unwrap();
+
+            let error = a
+                .evaluate()
+                .expect_err("another active builtin record reused a leaked require closure");
+            let token = execution_error_token(&error)
+                .expect("the reentrant builtin refusal omitted its raw throw token");
+            let expected =
+                b"manifest builtin require is unavailable outside synchronous initialization";
+            assert_eq!(
+                ibex_test_structured_module_error_token_matches_utf8(
+                    raw,
+                    token.get(),
+                    expected.as_ptr(),
+                    expected.len(),
+                ),
+                1
+            );
+            assert_eq!(ibex_test_end_structured_module_error_capture(raw), 1);
+
+            drop(dep);
+            drop(b);
+            drop(a);
+            drop(dep_factory);
+            drop(b_factory);
+            drop(a_factory);
+            drop(dep_context);
+            drop(b_context);
+            drop(a_context);
             drop(runtime);
             ex_hermes_destroy(raw);
         }
@@ -3849,7 +4592,10 @@ mod tests {
                     .create_commonjs_record(&context, &source_id, "/pkg/throw.cjs", "/pkg")
                     .unwrap();
                 let error = record.evaluate().unwrap_err().to_string();
-                assert!(error.contains("cjs boom"), "unexpected error: {error}");
+                assert!(
+                    error.contains("CommonJS record evaluation threw"),
+                    "unexpected error: {error}"
+                );
                 assert!(record.create_esm_adapter().is_err());
             }
 

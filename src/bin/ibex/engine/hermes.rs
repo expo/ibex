@@ -17,13 +17,22 @@ use crate::cdp::{self, BreakpointInfo, CdpBackend, DebugCommand, ScriptInfo};
 use crate::subprocess::{output_with_timeout, parse_timeout_ms, DEFAULT_HERMESC_TIMEOUT_MS};
 use anyhow::{anyhow, Context, Result};
 use ibex_runtime::engine::evaluation::{
-    ArmedSessionToken, CapabilityStratum, NativeErrorClass, SourceRequest, ThrowMetadata,
+    ArmedSessionToken, CapabilityStratum, EngineFault, NativeErrorClass, SourceRequest,
+    ThrowMetadata,
 };
 use ibex_runtime::engine::hermes_structured::{
     acknowledge_stage1_display, consume_authenticated_json,
     evaluate_authenticated_generated_stage1, evaluate_authenticated_stage1,
     render_and_release_async_failure_value, resume_authenticated_stage1, Stage1Display,
-    Stage1DisplayReceipt, Stage1EvaluationOutcome, Stage1EvaluationProgress, ValueKind,
+    Stage1DisplayReceipt, Stage1Evaluation, Stage1EvaluationOutcome, Stage1EvaluationProgress,
+    ValueKind,
+};
+#[cfg(feature = "module-runner")]
+use ibex_runtime::engine::hermes_structured::{
+    admit_prepare_authenticated_module_graph, materialize_authenticated_progress_stage1,
+    AuthenticatedModuleGraphAdmission,
+    AuthenticatedModuleGraphPreparation as StructuredModuleGraphPreparation,
+    ModuleGraphExecutionOutcome, ModuleGraphSuspension,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -33,7 +42,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 #[cfg(feature = "module-runner")]
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use tokio::process::Command;
@@ -191,6 +200,26 @@ fn authenticated_throw_metadata(metadata: ThrowMetadata) -> AuthenticatedThrowMe
                 })
                 .collect(),
         },
+    }
+}
+
+fn authenticated_evaluation(evaluation: Stage1Evaluation) -> AuthenticatedEvaluation {
+    match evaluation.outcome {
+        Stage1EvaluationOutcome::Empty => AuthenticatedEvaluation::Empty,
+        Stage1EvaluationOutcome::Value { display, receipt } => AuthenticatedEvaluation::Value {
+            display: authenticated_display(display),
+            receipt: Some(receipt),
+        },
+        Stage1EvaluationOutcome::Throw { value, metadata } => {
+            AuthenticatedEvaluation::Throw(AuthenticatedThrow {
+                value: authenticated_display(value),
+                metadata: authenticated_throw_metadata(metadata),
+            })
+        }
+        Stage1EvaluationOutcome::Cancelled => AuthenticatedEvaluation::Cancelled,
+        Stage1EvaluationOutcome::Lifecycle { exit_code } => {
+            AuthenticatedEvaluation::Lifecycle(exit_code)
+        }
     }
 }
 
@@ -420,12 +449,6 @@ extern "C" {
         runtime_nonce: u64,
         graph_generation: u64,
     ) -> i32;
-    #[cfg(feature = "module-runner")]
-    fn ex_hermes_module_unpin_generation(
-        runtime: *mut HermesRuntimeOpaque,
-        runtime_nonce: u64,
-        graph_generation: u64,
-    ) -> i32;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
         runtime: *mut HermesRuntimeOpaque,
@@ -483,6 +506,10 @@ extern "C" {
     ) -> i32;
     fn ex_hermes_free_string(value: *mut std::os::raw::c_char);
     fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+    fn ex_hermes_poll_with_external_keep_alive(
+        runtime: *mut HermesRuntimeOpaque,
+        now_ms: u64,
+    ) -> i32;
     // Monotonic timer clock shared with the C++ scheduler (nowMs). See
     // current_time_ms() for why the Rust loop must not use its own clock.
     fn ex_hermes_now_ms() -> u64;
@@ -526,6 +553,40 @@ extern "C" {
     fn ibex_private_test_cancel_queued_fs_operations(runtime: *mut HermesRuntimeOpaque) -> u64;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_enable_work_unit_publication(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_begin_module_graph_transition_probe(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+        scheduling_id: u64,
+    ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_begin_callback_during_module_graph_gap(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+        scheduling_id: u64,
+    ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_end_callback_during_module_graph_gap(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+        scheduling_id: u64,
+    ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_end_module_graph_transition_probe(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+        cooperative_cancellation: i32,
+    ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ex_hermes_structured_module_graph_suspend(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+    ) -> u32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ex_hermes_structured_module_graph_resume(
+        runtime: *mut HermesRuntimeOpaque,
+        work_target_id: u64,
+    ) -> u32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_native_freeze_observation(
         runtime: *mut HermesRuntimeOpaque,
@@ -1332,6 +1393,11 @@ struct RuntimeHandle {
 
 struct SharedRuntime {
     raw: AtomicPtr<HermesRuntimeOpaque>,
+    // Native graph records belong to the runtime/session generation, not one
+    // initial quiescence pass. Keep generation 1 pinned until runtime teardown
+    // so `--keep-alive` can later run unref'd timers and delayed imports.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
+    module_generation_pinned: AtomicU64,
     // Hermes/JSI values have thread-affine destruction. Keep the creator here
     // as a Rust-side fail-safe so a legal `Arc<dyn Engine + Send + Sync>` last
     // drop on another thread leaks the native runtime instead of crossing the
@@ -1350,6 +1416,21 @@ struct SharedRuntime {
     // counter before freeing, so no debugger op ever touches a freed runtime.
     // (ENG-22958)
     debugger_inflight: AtomicUsize,
+}
+
+/// Owner-thread lease over the live runtime pointer. The native graph future
+/// deliberately retains this lease across TLA waits: its local (non-Send)
+/// future cannot migrate threads, and abort drops graph handles plus the
+/// structured guard before releasing the FFI serialization lock.
+struct OwnerRuntimeLease<'a> {
+    raw: *mut HermesRuntimeOpaque,
+    _guard: std::sync::MutexGuard<'a, ()>,
+}
+
+impl OwnerRuntimeLease<'_> {
+    fn raw(&self) -> *mut HermesRuntimeOpaque {
+        self.raw
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1397,6 +1478,7 @@ impl SharedRuntime {
         }
         Ok(Self {
             raw: AtomicPtr::new(raw),
+            module_generation_pinned: AtomicU64::new(0),
             owner_thread: std::thread::current().id(),
             ffi_lock: std::sync::Mutex::new(()),
             debugger_inflight: AtomicUsize::new(0),
@@ -1420,11 +1502,46 @@ impl SharedRuntime {
         Ok(f(raw))
     }
 
+    fn owner_runtime_lease(&self) -> Result<OwnerRuntimeLease<'_>> {
+        if std::thread::current().id() != self.owner_thread {
+            anyhow::bail!("Hermes runtime operation must run on its owner thread");
+        }
+        let guard = match self.ffi_lock.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let raw = self.raw.load(Ordering::SeqCst);
+        if raw.is_null() {
+            anyhow::bail!("Hermes runtime has been shut down");
+        }
+        Ok(OwnerRuntimeLease { raw, _guard: guard })
+    }
+
     fn finish_bootstrap(&self) -> Result<()> {
         let fault = self.with_runtime(|raw| unsafe { ex_hermes_finish_bootstrap(raw) })?;
         if fault != 0 {
             anyhow::bail!("Hermes refused to seal armed bootstrap (fault {fault})");
         }
+        Ok(())
+    }
+
+    fn ensure_module_generation_pinned(&self, nonce: u64, generation: u64) -> Result<()> {
+        let pinned = self.module_generation_pinned.load(Ordering::Acquire);
+        if pinned != 0 {
+            anyhow::ensure!(
+                pinned == generation,
+                "Hermes runtime already owns module generation {pinned}, not {generation}"
+            );
+            return Ok(());
+        }
+        let status = self.with_runtime(|raw| unsafe {
+            ex_hermes_module_pin_generation(raw, nonce, generation)
+        })?;
+        if status != 0 {
+            anyhow::bail!("native module graph generation pin refused ({status})");
+        }
+        self.module_generation_pinned
+            .store(generation, Ordering::Release);
         Ok(())
     }
 
@@ -1840,69 +1957,122 @@ impl HermesEngine {
     }
 
     #[cfg(feature = "module-runner")]
-    async fn run_native_module_graph(
+    async fn evaluate_native_module_graph(
         &self,
-        graph: &crate::module_loader::runner_pipeline::SourceModuleGraphV1,
-    ) -> Result<Option<String>> {
+        session: &ArmedSessionToken,
+        request: SourceRequest,
+        prepare: super::AuthenticatedModuleGraphPreparer<'_>,
+    ) -> Result<AuthenticatedEvaluation> {
         use ibex_runtime::engine::module_runner::{
             AsyncGraphPoll, NativeAsynchronousGraph, NativeModuleRuntime, NativeSynchronousGraph,
         };
         use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
 
+        self.load_runtime().await?;
         self.maybe_enable_debugger().await?;
         self.ensure_thread()?;
         let runtime = self.ensure_runtime().await?;
         let generation = 1;
         let nonce = runtime.with_runtime(|raw| unsafe { ex_hermes_runtime_nonce(raw) })?;
-        let pin_status = runtime.with_runtime(|raw| unsafe {
-            ex_hermes_module_pin_generation(raw, nonce, generation)
-        })?;
-        if pin_status != 0 {
-            anyhow::bail!("native module graph generation pin refused ({pin_status})");
-        }
-        let evaluation = runtime
-            .with_runtime(|raw| -> Result<Option<String>> {
-                let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
-                let raw = NonNull::new(raw.cast())
-                    .ok_or_else(|| anyhow!("Hermes module runtime pointer is null"))?;
-                let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
-                let plan = graph.plan()?;
-                let (configs, authority_contexts) = graph.native_execution_inputs(generation)?;
-                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
-                let prepared_entries = graph.prepared_entries()?;
-                let has_top_level_await = plan.evaluation_order(graph.entry())?.iter().try_fold(
-                    false,
-                    |found, source_id| {
-                        Ok::<_, anyhow::Error>(found || plan.has_top_level_await(source_id)?)
-                    },
-                )?;
-
-                if !has_top_level_await {
-                    let mut linked = match prepared_entries.as_ref() {
-                        Some(entries) => NativeSynchronousGraph::link_authorized_prepared(
-                            &native_runtime,
-                            &plan,
-                            graph.entry(),
-                            configs,
-                            &authorizer,
-                            &authority_contexts,
-                            entries,
-                        )?,
-                        None => NativeSynchronousGraph::link_authorized(
-                            &native_runtime,
-                            &plan,
-                            graph.entry(),
-                            configs,
-                            &authorizer,
-                            &authority_contexts,
-                        )?,
-                    };
-                    linked.evaluate()?;
-                    return Ok(None);
+        runtime.ensure_module_generation_pinned(nonce, generation)?;
+        // This local, owner-thread future holds the runtime lease across TLA
+        // waits. Aborting it drops native graph records and the structured
+        // evaluation guard on the owner thread before releasing the FFI lock;
+        // no graph handle is made Send and no cleanup ticket can be stranded.
+        let lease = runtime.owner_runtime_lease()?;
+        let raw = lease.raw();
+        let armed_snapshot_digest = self.armed_snapshot_digest.clone();
+        let admitted = unsafe {
+            admit_prepare_authenticated_module_graph(raw.cast(), session, request, |request| {
+                let preparation = prepare(request).map_err(|_| {
+                    EngineFault::Rejected(Arc::from(
+                        "authenticated module graph preparation failed",
+                    ))
+                })?;
+                match preparation {
+                    super::AuthenticatedModuleGraphPreparation::Native(graph) => {
+                        if armed_snapshot_digest.as_deref()
+                            != Some(request.authenticated_snapshot_digest().as_str())
+                            || graph.snapshot().digest()
+                                != request.authenticated_snapshot_digest()
+                            || graph.entry().defining_principal()
+                                != Some(request.authenticated_principal())
+                            || request.source_id() != Some(graph.entry_vfs_source_id())
+                        {
+                            return Err(EngineFault::Rejected(Arc::from(
+                                "authenticated module graph does not belong to its admitted request",
+                            )));
+                        }
+                        Ok(StructuredModuleGraphPreparation::Native(graph))
+                    }
+                    super::AuthenticatedModuleGraphPreparation::LegacyRequired => {
+                        Ok(StructuredModuleGraphPreparation::LegacyRequired)
+                    }
                 }
+            })
+        }
+        .map_err(anyhow::Error::new)?;
 
+        let (graph, mut structured) = match admitted {
+            AuthenticatedModuleGraphAdmission::Native {
+                preparation,
+                evaluation,
+            } => (preparation, evaluation),
+            AuthenticatedModuleGraphAdmission::Legacy(progress) => {
+                let mut progress =
+                    unsafe { materialize_authenticated_progress_stage1(raw.cast(), progress) }
+                        .map_err(anyhow::Error::new)?;
+                let evaluation = loop {
+                    match progress {
+                        Stage1EvaluationProgress::Settled(evaluation) => break evaluation,
+                        Stage1EvaluationProgress::Suspended(suspension) => {
+                            let now = current_time_ms();
+                            let executed = unsafe { ex_hermes_poll(raw, now) };
+                            let next_timer = unsafe { ex_hermes_next_timer(raw) };
+                            progress =
+                                unsafe { resume_authenticated_stage1(raw.cast(), suspension) }
+                                    .map_err(anyhow::Error::new)?;
+                            if executed < -2 || executed == -1 {
+                                return Err(anyhow::anyhow!(
+                                    "Hermes failed while driving a legacy authenticated module evaluation"
+                                ));
+                            }
+                            if matches!(progress, Stage1EvaluationProgress::Suspended(_))
+                                && executed == 0
+                            {
+                                wait_for_callback_or_sleep(structured_settlement_wait(
+                                    next_timer, now,
+                                ))
+                                .await;
+                            }
+                        }
+                    }
+                };
+                drop(lease);
+                return Ok(authenticated_evaluation(evaluation));
+            }
+        };
+        let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+        let raw_module_runtime = NonNull::new(raw.cast())
+            .ok_or_else(|| anyhow!("Hermes module runtime pointer is null"))?;
+        let native_runtime = unsafe { NativeModuleRuntime::from_raw(raw_module_runtime, nonce)? };
+        let mut forced_terminal = None;
+
+        let graph_result: Result<()> = async {
+            let plan = graph.plan()?;
+            let (configs, authority_contexts) = graph.native_execution_inputs(generation)?;
+            let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+            let prepared_entries = graph.prepared_entries()?;
+            let has_top_level_await = plan.evaluation_order(graph.entry())?.iter().try_fold(
+                false,
+                |found, source_id| {
+                    Ok::<_, anyhow::Error>(found || plan.has_top_level_await(source_id)?)
+                },
+            )?;
+
+            if !has_top_level_await {
                 let mut linked = match prepared_entries.as_ref() {
-                    Some(entries) => NativeAsynchronousGraph::link_authorized_prepared(
+                    Some(entries) => NativeSynchronousGraph::link_authorized_prepared(
                         &native_runtime,
                         &plan,
                         graph.entry(),
@@ -1911,7 +2081,7 @@ impl HermesEngine {
                         &authority_contexts,
                         entries,
                     )?,
-                    None => NativeAsynchronousGraph::link_authorized(
+                    None => NativeSynchronousGraph::link_authorized(
                         &native_runtime,
                         &plan,
                         graph.entry(),
@@ -1920,56 +2090,160 @@ impl HermesEngine {
                         &authority_contexts,
                     )?,
                 };
+                linked.evaluate()?;
+                return Ok(());
+            }
+
+            let mut linked = match prepared_entries.as_ref() {
+                Some(entries) => NativeAsynchronousGraph::link_authorized_prepared(
+                    &native_runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &authority_contexts,
+                    entries,
+                )?,
+                None => NativeAsynchronousGraph::link_authorized(
+                    &native_runtime,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &authority_contexts,
+                )?,
+            };
+            // `ex_hermes_poll` always drains the Hermes job queue, but its
+            // return value counts host callbacks/timers rather than Promise
+            // jobs. Give the suspended graph one advancement attempt after
+            // each poll/wake epoch before deciding that quiescence means an
+            // unresolved TLA. The flag stays false across an unchanged graph
+            // suspension, preventing a no-work retry loop.
+            // @ref LLP 0026#6-top-level-await-and-dynamic-import
+            let mut retry_graph_after_runtime_poll = true;
+            let trace_graph = self.loop_trace_enabled;
+            let mut graph_poll_iteration = 0usize;
+
+            loop {
+                graph_poll_iteration += 1;
+                let graph_poll = linked.poll()?;
+                if trace_graph {
+                    eprintln!(
+                        "[module-graph] graph_poll iteration={graph_poll_iteration} state={}",
+                        match &graph_poll {
+                            AsyncGraphPoll::Evaluated => "evaluated",
+                            AsyncGraphPoll::Suspended => "suspended",
+                        }
+                    );
+                }
+                match graph_poll {
+                    AsyncGraphPoll::Evaluated => return Ok(()),
+                    AsyncGraphPoll::Suspended => match unsafe { structured.suspend() }? {
+                        ModuleGraphSuspension::Suspended => {}
+                        ModuleGraphSuspension::CancellationPending => {
+                            forced_terminal =
+                                Some(ModuleGraphExecutionOutcome::CooperativeCancellation);
+                            return Ok(());
+                        }
+                    },
+                }
+
+                // The graph target is absent while host work runs. Timers,
+                // callbacks, and I/O completions therefore publish and receive
+                // cancellation under their own exact work-target identities.
                 loop {
-                    match linked.poll()? {
-                        AsyncGraphPoll::Evaluated => return Ok(None),
-                        AsyncGraphPoll::Suspended => {
-                            let now = unsafe { ex_hermes_now_ms() };
-                            let executed = unsafe { ex_hermes_poll(raw.as_ptr().cast(), now) };
-                            if executed < 0 {
-                                anyhow::bail!(
-                                    "Hermes task execution failed while evaluating module graph"
-                                );
-                            }
-                            if executed == 0 {
-                                let next = unsafe { ex_hermes_next_timer(raw.as_ptr().cast()) };
-                                if next < 0 {
-                                    anyhow::bail!(
-                                    "top-level-await module graph suspended without a runnable task"
-                                );
-                                }
-                                let delay = (next as u64).saturating_sub(now).min(50);
-                                if delay > 0 {
-                                    std::thread::sleep(std::time::Duration::from_millis(delay));
-                                }
-                            }
+                    let now = current_time_ms();
+                    if trace_graph {
+                        eprintln!("[module-graph] runtime_poll_start now={now}");
+                    }
+                    let executed = unsafe { ex_hermes_poll(raw, now) };
+                    if trace_graph {
+                        eprintln!("[module-graph] runtime_poll_end executed={executed}");
+                    }
+                    if executed == -2 {
+                        // Native lifecycle state outranks this provisional
+                        // completion when the structured result is finished.
+                        forced_terminal = Some(ModuleGraphExecutionOutcome::Completed);
+                        return Ok(());
+                    }
+                    if executed < 0 {
+                        anyhow::bail!("Hermes task execution failed while evaluating module graph");
+                    }
+                    if executed > 0 {
+                        retry_graph_after_runtime_poll = true;
+                    }
+                    if retry_graph_after_runtime_poll {
+                        retry_graph_after_runtime_poll = false;
+                        unsafe { structured.resume() }?;
+                        break;
+                    }
+
+                    let host_pending = unsafe {
+                        ex_host_http_has_referenced() != 0
+                            || ex_host_http_has_pending_requests() != 0
+                            || native_ws_has_active() != 0
+                    };
+                    let runtime_pending = unsafe { ex_hermes_has_pending_tasks(raw) } != 0;
+                    if trace_graph {
+                        eprintln!(
+                            "[module-graph] pending host={host_pending} runtime={runtime_pending}"
+                        );
+                    }
+                    if !host_pending && !runtime_pending {
+                        forced_terminal =
+                            Some(ModuleGraphExecutionOutcome::UnresolvedTopLevelAwait);
+                        return Ok(());
+                    }
+
+                    let next = unsafe { ex_hermes_next_timer(raw) };
+                    if next < 0 {
+                        // Host I/O and callback-only waits have no timer. The
+                        // wake hook interrupts this park as soon as work lands.
+                        wait_for_callback_or_sleep(IDLE_PARK).await;
+                        retry_graph_after_runtime_poll = true;
+                    } else {
+                        let delay = (next as u64).saturating_sub(now);
+                        if delay > 0 {
+                            wait_for_callback_or_sleep(std::time::Duration::from_millis(delay))
+                                .await;
+                            retry_graph_after_runtime_poll = true;
                         }
                     }
                 }
-            })
-            .and_then(|result| result);
-        let result = match evaluation {
-            Ok(result) => result,
-            Err(error) => {
-                let _ = runtime.with_runtime(|raw| unsafe {
-                    ex_hermes_module_unpin_generation(raw, nonce, generation)
-                });
-                return Err(error);
             }
-        };
-        // File execution owns the same post-evaluation event-loop drive as
-        // `run_file`: timers and host callbacks scheduled by a synchronous
-        // module graph must not be dropped merely because graph evaluation
-        // itself did not suspend on top-level await.
-        let drive_result = self.drive_event_loop().await;
-        let unpin_status = runtime.with_runtime(|raw| unsafe {
-            ex_hermes_module_unpin_generation(raw, nonce, generation)
-        })?;
-        if unpin_status != 0 {
-            anyhow::bail!("native module graph generation unpin refused ({unpin_status})");
         }
-        drive_result?;
-        Ok(result)
+        .await;
+
+        let terminal = forced_terminal.unwrap_or_else(|| match &graph_result {
+            Ok(()) => ModuleGraphExecutionOutcome::Completed,
+            Err(error) => ibex_runtime::engine::module_runner::execution_error_token(error)
+                .map(ModuleGraphExecutionOutcome::JavaScriptThrow)
+                .unwrap_or(ModuleGraphExecutionOutcome::EngineFault),
+        });
+        let settled = unsafe { structured.finish(terminal) }.map_err(anyhow::Error::new);
+        drop(lease);
+
+        // Foreground graph settlement is immediate. The outer authenticated
+        // file-program owner performs quiescence, while the runtime-lifetime
+        // generation pin preserves records for delayed `--keep-alive` imports.
+        match (graph_result, settled) {
+            (Ok(()), Ok(evaluation)) => Ok(authenticated_evaluation(evaluation)),
+            (Ok(()), Err(error)) => Err(error),
+            (Err(_graph_error), Ok(evaluation))
+                if matches!(
+                    &evaluation.outcome,
+                    Stage1EvaluationOutcome::Throw { .. }
+                        | Stage1EvaluationOutcome::Cancelled
+                        | Stage1EvaluationOutcome::Lifecycle { .. }
+                ) =>
+            {
+                Ok(authenticated_evaluation(evaluation))
+            }
+            (Err(graph_error), Ok(_)) => Err(graph_error),
+            (Err(graph_error), Err(settlement_error)) => Err(graph_error.context(format!(
+                "structured native module graph settlement failed: {settlement_error}"
+            ))),
+        }
     }
 
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
@@ -2270,9 +2544,13 @@ impl HermesEngine {
     /// interrupt, and timers scheduled from DevTools need the loop to run. The
     /// old loop only ticked a counter and never polled, so both hung. Unlike
     /// `drive_event_loop`, this never parks on a future timer, leaving the
-    /// caller in charge of the wait cadence and shutdown handling.
+    /// caller in charge of the wait cadence and shutdown handling. The caller
+    /// itself is the live reference for these turns, so already-due unref'd
+    /// timers remain eligible without becoming part of ordinary quiescence.
     /// @ref LLP 0003#the-event-loop — the host drives Hermes by polling
-    /// `ex_hermes_poll`; the keep-alive loop must do so too. (ENG-22958)
+    /// the owner thread; host-held liveness is explicit. (ENG-22958)
+    /// @ref LLP 0024#1-the-in-memory-source-api — ready-only modes run
+    /// scheduled work on their idle pump without letting it hold the prompt.
     async fn pump_ready_tasks(&self) -> Result<()> {
         self.ensure_thread()?;
         // Bounded: a self-rescheduling 0-delay timer is due on every poll, so an
@@ -2288,7 +2566,9 @@ impl HermesEngine {
                     None => return Ok(()),
                 };
                 let now = current_time_ms();
-                handle.with_runtime(|raw| unsafe { ex_hermes_poll(raw, now) })?
+                handle.with_runtime(|raw| unsafe {
+                    ex_hermes_poll_with_external_keep_alive(raw, now)
+                })?
             };
             if executed < 0 {
                 return Err(anyhow::anyhow!("Hermes task execution failed"));
@@ -3157,11 +3437,14 @@ impl Engine for HermesEngine {
     }
 
     #[cfg(feature = "module-runner")]
-    async fn run_authenticated_module_graph(
-        &self,
-        graph: &crate::module_loader::runner_pipeline::SourceModuleGraphV1,
-    ) -> Result<Option<String>> {
-        self.run_native_module_graph(graph).await
+    fn evaluate_authenticated_module_graph<'a>(
+        &'a self,
+        session: &'a ArmedSessionToken,
+        request: SourceRequest,
+        prepare: super::AuthenticatedModuleGraphPreparer<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<AuthenticatedEvaluation>> + 'a>>
+    {
+        Box::pin(self.evaluate_native_module_graph(session, request, prepare))
     }
 
     async fn run_file_immediate(&self, path: &str) -> Result<Option<String>> {
@@ -4343,6 +4626,176 @@ mod tests {
         assert_eq!(
             engine.eval_immediate("1 + 1").await.unwrap().as_deref(),
             Some("2")
+        );
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn module_graph_gap_publishes_callback_target_and_cooperates_with_cancellation() {
+        const GRAPH_TARGET: u64 = 0x7001;
+        const CALLBACK_TARGET: u64 = 0x7002;
+        const GRAPH_SCHEDULE: u64 = 41;
+        const CALLBACK_SCHEDULE: u64 = 42;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ibex_test_enable_work_unit_publication(raw), 1);
+                assert_eq!(
+                    ibex_test_begin_module_graph_transition_probe(
+                        raw,
+                        GRAPH_TARGET,
+                        GRAPH_SCHEDULE,
+                    ),
+                    1
+                );
+            })
+            .unwrap();
+        assert_eq!(engine.active_authenticated_target(), Some(GRAPH_TARGET));
+
+        assert_eq!(
+            runtime
+                .with_runtime(|raw| unsafe {
+                    ex_hermes_structured_module_graph_suspend(raw, GRAPH_TARGET)
+                })
+                .unwrap(),
+            0
+        );
+        assert_eq!(engine.active_authenticated_target(), None);
+        assert_eq!(
+            engine.cancel_authenticated_target(GRAPH_TARGET),
+            AuthenticatedCancellationStatus::Unavailable,
+            "a suspended graph must not remain the cancellation target"
+        );
+
+        assert_eq!(
+            runtime
+                .with_runtime(|raw| unsafe {
+                    ibex_test_begin_callback_during_module_graph_gap(
+                        raw,
+                        CALLBACK_TARGET,
+                        CALLBACK_SCHEDULE,
+                    )
+                })
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            engine.active_authenticated_target(),
+            Some(CALLBACK_TARGET),
+            "host work did not receive an independent exact target"
+        );
+        assert_eq!(
+            engine.cancel_authenticated_target(GRAPH_TARGET),
+            AuthenticatedCancellationStatus::StaleTarget,
+            "the suspended graph target must not alias its callback"
+        );
+        assert_eq!(
+            runtime
+                .with_runtime(|raw| unsafe {
+                    ibex_test_end_callback_during_module_graph_gap(
+                        raw,
+                        CALLBACK_TARGET,
+                        CALLBACK_SCHEDULE,
+                    )
+                })
+                .unwrap(),
+            1
+        );
+
+        assert_eq!(
+            runtime
+                .with_runtime(|raw| unsafe {
+                    ex_hermes_structured_module_graph_resume(raw, GRAPH_TARGET)
+                })
+                .unwrap(),
+            0
+        );
+        assert_eq!(engine.active_authenticated_target(), Some(GRAPH_TARGET));
+        assert_eq!(
+            engine.cancel_authenticated_target(GRAPH_TARGET),
+            AuthenticatedCancellationStatus::Accepted
+        );
+        assert_eq!(
+            runtime
+                .with_runtime(|raw| unsafe {
+                    ex_hermes_structured_module_graph_suspend(raw, GRAPH_TARGET)
+                })
+                .unwrap(),
+            1,
+            "an executing graph did not observe its pending cancellation boundary"
+        );
+        assert_eq!(
+            runtime
+                .with_runtime(|raw| unsafe {
+                    ibex_test_end_module_graph_transition_probe(raw, GRAPH_TARGET, 1)
+                })
+                .unwrap(),
+            1
+        );
+
+        let mut events = Vec::new();
+        while let Some(event) = engine.next_authenticated_work_unit().unwrap() {
+            events.push((
+                event.kind,
+                event.phase,
+                event.target_id,
+                event.scheduling_id,
+            ));
+        }
+        assert_eq!(
+            events,
+            vec![
+                (
+                    AuthenticatedWorkUnitKind::Evaluation,
+                    AuthenticatedWorkUnitPhase::Begin,
+                    GRAPH_TARGET,
+                    GRAPH_SCHEDULE,
+                ),
+                (
+                    AuthenticatedWorkUnitKind::Evaluation,
+                    AuthenticatedWorkUnitPhase::Suspended,
+                    GRAPH_TARGET,
+                    GRAPH_SCHEDULE,
+                ),
+                (
+                    AuthenticatedWorkUnitKind::Callback,
+                    AuthenticatedWorkUnitPhase::Begin,
+                    CALLBACK_TARGET,
+                    CALLBACK_SCHEDULE,
+                ),
+                (
+                    AuthenticatedWorkUnitKind::Callback,
+                    AuthenticatedWorkUnitPhase::End,
+                    CALLBACK_TARGET,
+                    CALLBACK_SCHEDULE,
+                ),
+                (
+                    AuthenticatedWorkUnitKind::Evaluation,
+                    AuthenticatedWorkUnitPhase::End,
+                    GRAPH_TARGET,
+                    GRAPH_SCHEDULE,
+                ),
+            ]
+        );
+        let cancellation = engine
+            .next_authenticated_cancellation()
+            .unwrap()
+            .expect("cooperative graph cancellation omitted its terminal record");
+        assert_eq!(cancellation.target_id, GRAPH_TARGET);
+        assert_eq!(
+            cancellation.resolution,
+            AuthenticatedCancellationResolution::Accepted
+        );
+        assert!(engine.next_authenticated_cancellation().unwrap().is_none());
+        assert_eq!(
+            engine.eval_immediate("6 * 7").await.unwrap().as_deref(),
+            Some("42"),
+            "graph cancellation left the runtime unusable"
         );
     }
 
@@ -10379,8 +10832,28 @@ module.exports = JSON.stringify({
     #[tokio::test(flavor = "current_thread")]
     async fn armed_unported_network_surfaces_refuse_synchronously_and_unix_listen_leaves_no_path() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let (host, digest) =
-            build_armed_test_host_custom(None, false, false, false, vec![], None, |snapshot| {
+        let fetch_listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .expect("bind no-I/O fetch observer");
+        let fetch_port = fetch_listener.local_addr().unwrap().port();
+        let fetch_floor = serde_json::json!({
+            "cap": "network:fetch",
+            "resource": {
+                "kind": "fetch-endpoint",
+                "schemes": ["http"],
+                "host": {"kind": "ip", "address": "127.0.0.1"},
+                "port": {"kind": "exact", "value": fetch_port},
+                "peerClasses": ["loopback"],
+                "route": {"kind": "direct"}
+            }
+        });
+        let (host, digest) = build_armed_test_host_custom(
+            None,
+            false,
+            false,
+            false,
+            vec![fetch_floor],
+            None,
+            |snapshot| {
                 snapshot["principals"][0]["denials"] = serde_json::json!([{
                     "cap": "network:listen",
                     "resource": {
@@ -10392,7 +10865,8 @@ module.exports = JSON.stringify({
                         "peerClasses": ["loopback"]
                     }
                 }]);
-            });
+            },
+        );
         assert_ne!(crate::host::abi::install_host(host), 0);
         let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
@@ -10417,7 +10891,14 @@ module.exports = JSON.stringify({
                 function refuses(name, call) {{
                   try {{ call(); denied[name] = false; }} catch (_) {{ denied[name] = true; }}
                 }}
-                refuses('fetch', function() {{ __nativeFetch('http://127.0.0.1:9/', {{}}); }});
+                try {{
+                  __nativeFetch('http://127.0.0.1:{fetch_port}/', {{}});
+                  denied.fetch = false;
+                }} catch (error) {{
+                  denied.fetch = String(error && error.message || error).indexOf(
+                    'typed network:fetch transport is unavailable'
+                  ) !== -1;
+                }}
                 refuses('dns', function() {{ __exactDnsLookup('localhost', 4); }});
                 refuses('websocket', function() {{ __exactWsConnect('ws://127.0.0.1:9/', '', {{}}); }});
                 var nulUrlRejected = false;
@@ -10436,6 +10917,7 @@ module.exports = JSON.stringify({
                 return JSON.stringify(denied);
             }})()"#,
             socket_path = socket_path.to_str().unwrap(),
+            fetch_port = fetch_port,
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
         let outcome: serde_json::Value = serde_json::from_str(outcome.as_deref().unwrap()).unwrap();
@@ -10453,6 +10935,13 @@ module.exports = JSON.stringify({
             })
         );
         assert!(!socket_path.exists());
+        fetch_listener.set_nonblocking(true).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        match fetch_listener.accept() {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            Ok(_) => panic!("closed typed fetch reached the loopback listener"),
+            Err(error) => panic!("failed to observe closed typed fetch: {error}"),
+        }
         engine.load_runtime().await.unwrap();
     }
 

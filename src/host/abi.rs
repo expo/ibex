@@ -1165,12 +1165,10 @@ fn lock_connection(connection: &Mutex<Connection>) -> MutexGuard<'_, Connection>
     }
 }
 
-fn insert_host_context(host: Arc<Host>, claimed: bool) -> u64 {
-    // Capture at most once for the process, before engine JavaScript exists.
-    // Unclaimed Host replacement does not clone or discard the lease; only the
-    // first eligible claimed context can consume it.
-    initialize_process_ipc_bootstrap_lease(&host);
-    // Random, non-zero context tokens are capabilities, not enumerable IDs.
+fn allocate_host_context(host: Arc<Host>, claimed: bool) -> u64 {
+    // Random context tokens are capabilities, not enumerable IDs. Zero is the
+    // absent token and `u64::MAX` is the `ex_host_enter_context` failure
+    // sentinel, so neither value may ever name a live context.
     // Entropy failure or repeated collisions fail closed instead of falling
     // back to a wrapping process-global counter.
     for _ in 0..32 {
@@ -1179,7 +1177,7 @@ fn insert_host_context(host: Arc<Host>, claimed: bool) -> u64 {
             return 0;
         }
         let context_id = u64::from_ne_bytes(bytes);
-        if context_id == 0 {
+        if context_id == 0 || context_id == u64::MAX {
             continue;
         }
         let contexts = HOST_CONTEXTS.get_or_init(|| RwLock::new(HashMap::new()));
@@ -1201,6 +1199,23 @@ fn insert_host_context(host: Arc<Host>, claimed: bool) -> u64 {
         return context_id;
     }
     0
+}
+
+fn insert_host_context(host: Arc<Host>, claimed: bool) -> u64 {
+    // Capture at most once for the process, before engine JavaScript exists.
+    // Unclaimed Host replacement does not clone or discard the lease; only the
+    // first eligible claimed context can consume it.
+    initialize_process_ipc_bootstrap_lease(&host);
+    allocate_host_context(host, claimed)
+}
+
+/// Give a restricted auxiliary runtime its own closed Host selection without
+/// consuming or replacing the thread's install-to-constructor handoff. This is
+/// an implementation bridge rather than a public embedder surface.
+/// @ref LLP 0002#runtime-driving-thread-contract
+#[export_name = "ibex_private_claim_restricted_host_context"]
+pub(crate) extern "C" fn private_claim_restricted_host_context() -> u64 {
+    allocate_host_context(Arc::new(Host::closed_unarmed()), true)
 }
 
 fn release_unclaimed_host_context(context_id: u64) {
@@ -1553,6 +1568,16 @@ pub(crate) fn resolve_module_for_runner(
             }
             host.load_authenticated_module_source_for_runner(meta)
         },
+        Err(anyhow::anyhow!("module runner host is not installed")),
+    )
+}
+
+#[cfg(any(test, feature = "module-runner"))]
+pub(crate) fn resolve_manifest_builtin_internal_for_runner(
+    specifier: &str,
+) -> anyhow::Result<crate::module_loader::ResolvedModule> {
+    with_host(
+        |host| host.resolve_manifest_builtin_internal(specifier),
         Err(anyhow::anyhow!("module runner host is not installed")),
     )
 }
@@ -5715,12 +5740,38 @@ pub extern "C" fn ex_host_module_resolve(
     module_resolve_cstring(&payload)
 }
 
-/// C-only structured-session resolver. The referrer is a canonical
+// Observer-only call counts let end-to-end structured-session tests prove a
+// cache hit did not quietly reacquire source through either resolver surface.
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
+static SESSION_ROOT_FULL_RESOLVE_COUNT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
+static SESSION_ROOT_META_RESOLVE_COUNT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
+pub fn reset_session_root_resolve_counts_for_test() {
+    SESSION_ROOT_FULL_RESOLVE_COUNT.store(0, std::sync::atomic::Ordering::Release);
+    SESSION_ROOT_META_RESOLVE_COUNT.store(0, std::sync::atomic::Ordering::Release);
+}
+
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
+pub fn session_root_resolve_counts_for_test() -> (u64, u64) {
+    (
+        SESSION_ROOT_FULL_RESOLVE_COUNT.load(std::sync::atomic::Ordering::Acquire),
+        SESSION_ROOT_META_RESOLVE_COUNT.load(std::sync::atomic::Ordering::Acquire),
+    )
+}
+
+/// C-only structured-session root resolver. The referrer is a canonical
 /// `LogicalPath` copied from the already-authenticated source request; unlike
 /// the public loader bridge, no caller-controlled host pathname enters this
-/// seam. Native phase 4 passes the returned full record only to the captured
-/// loader closure, never to a realm-global require function.
+/// seam. Native phase 4 uses it for static imports, and lowering protocol v2
+/// uses the same typed route at a live dynamic-import call. The returned full
+/// record reaches only the captured loader closure, never a realm-global
+/// require/import function.
 /// @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+/// @ref LLP 0026#6-top-level-await-and-dynamic-import
 #[no_mangle]
 pub extern "C" fn ex_host_session_static_import_resolve(
     logical_referrer: *const u8,
@@ -5729,6 +5780,8 @@ pub extern "C" fn ex_host_session_static_import_resolve(
     specifier_length: usize,
     resolution_kind: u32,
 ) -> *mut c_char {
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    SESSION_ROOT_FULL_RESOLVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     let payload = (|| -> anyhow::Result<serde_json::Value> {
         if logical_referrer.is_null()
             || logical_referrer_length == 0
@@ -5785,6 +5838,8 @@ pub extern "C" fn ex_host_session_static_import_resolve_meta(
     specifier_length: usize,
     resolution_kind: u32,
 ) -> *mut c_char {
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    SESSION_ROOT_META_RESOLVE_COUNT.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
     let payload = (|| -> anyhow::Result<serde_json::Value> {
         if logical_referrer.is_null()
             || logical_referrer_length == 0
@@ -8071,27 +8126,64 @@ mod tests {
     }
 
     #[test]
-    fn runtime_vfs_bind_rejects_package_binding_outside_project_without_publishing() {
+    fn runtime_vfs_bind_rejects_stale_project_identity_without_publishing() {
         let _guard = host_test_lock();
-        let outside = tempfile::tempdir().unwrap();
-        let outside_package = outside.path().join("image-lib");
-        std::fs::create_dir_all(&outside_package).unwrap();
-        let host = crate::host::tests::example_vfs_armed_host_with(|snapshot| {
-            snapshot["rootBindings"][0]["hostPath"]["components"] =
-                serde_json::to_value(crate::host::host_path_components(&outside_package).unwrap())
-                    .unwrap();
-            snapshot["rootBindings"][0]["object"] = serde_json::to_value(
-                crate::host::object_identity_for_host_path(&outside_package).unwrap(),
-            )
+        let fixture = tempfile::Builder::new()
+            .prefix("runtime-vfs-stale-project-")
+            .tempdir_in(crate::host::tests::test_project_root())
             .unwrap();
+        let project_root = fixture.path().join("project");
+        let package_root = project_root.join("node_modules/image-lib");
+        std::fs::create_dir_all(&package_root).unwrap();
+        let host = crate::host::tests::example_vfs_armed_host_with(|snapshot| {
+            for binding in snapshot["rootBindings"].as_array_mut().unwrap() {
+                let path = match binding["logicalRoot"].as_str().unwrap() {
+                    "project" => &project_root,
+                    "package" => &package_root,
+                    _ => continue,
+                };
+                binding["hostPath"]["components"] =
+                    serde_json::to_value(crate::host::host_path_components(path).unwrap()).unwrap();
+                binding["object"] =
+                    serde_json::to_value(crate::host::object_identity_for_host_path(path).unwrap())
+                        .unwrap();
+            }
         });
+        let armed_project_object = host
+            .armed_snapshot()
+            .unwrap()
+            .root_bindings()
+            .unwrap()
+            .iter()
+            .find(|binding| {
+                binding.logical_root == capsec_semantics::model::LogicalRoot::Project
+                    && binding.owner.is_none()
+            })
+            .unwrap()
+            .object
+            .clone();
+        let stale_project_root = fixture.path().join("stale-project");
+        std::fs::rename(&project_root, &stale_project_root).unwrap();
+        std::fs::create_dir_all(project_root.join("node_modules/image-lib")).unwrap();
+        let replacement_project_object =
+            crate::host::object_identity_for_host_path(&project_root).unwrap();
+        assert_eq!(
+            replacement_project_object.platform,
+            armed_project_object.platform
+        );
+        assert_eq!(
+            replacement_project_object.volume,
+            armed_project_object.volume
+        );
+        assert_ne!(replacement_project_object.file, armed_project_object.file);
+
         let context_id = insert_host_context(Arc::new(host), true);
         assert_ne!(context_id, 0);
         let runtime_nonce = 0x8877_6655_4433_2211;
 
         assert_eq!(
             ex_host_vfs_bind_runtime(context_id, runtime_nonce),
-            EX_HOST_VFS_RESULT_MALFORMED_INPUT
+            EX_HOST_VFS_RESULT_STALE_IDENTITY
         );
         assert_eq!(
             runtime_vfs_session(runtime_nonce, "regression")

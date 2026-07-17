@@ -152,7 +152,11 @@ type StaticDispatcher = (
   fourth?: unknown,
 ) => any;
 
-function makeLoader(compartmentBindResult = true) {
+function makeLoader(
+  compartmentBindResult = true,
+  deniedSpecifier?: string,
+  promiseConstructor: PromiseConstructor = Promise,
+) {
   let dispatcher: StaticDispatcher | undefined;
   const resolutionCounts = new Map<string, number>();
   const packageRegistrations: Array<{
@@ -171,7 +175,7 @@ function makeLoader(compartmentBindResult = true) {
   const packageCompartment = Object.freeze({ package: packageLocator });
   const sandbox: any = {
     console,
-    Promise,
+    Promise: promiseConstructor,
     Symbol,
     process: { env: {}, argv: [] },
     __originalRuns: { a: 0, b: 0 },
@@ -200,7 +204,7 @@ function makeLoader(compartmentBindResult = true) {
       targetSourceId: string | undefined,
     ) {
       importChecks.push({ hint, specifier, targetSourceId });
-      return true;
+      return specifier !== deniedSpecifier;
     },
     __exactPinProcessStreams() {},
   };
@@ -208,6 +212,7 @@ function makeLoader(compartmentBindResult = true) {
   const resolve = (specifier: string) => {
     resolutionCounts.set(specifier, (resolutionCounts.get(specifier) ?? 0) + 1);
     if (specifier === 'a.js') return JSON.stringify(rawRecord('a'));
+    if (specifier === './a.js') return JSON.stringify(rawRecord('a'));
     if (specifier === 'b.js') return JSON.stringify(rawRecord('b'));
     if (specifier === 'dep-entry.js') return JSON.stringify(rawPackageRecord());
     if (specifier === 'forged-bundle') return JSON.stringify(generatedBundleRecord());
@@ -286,6 +291,141 @@ test('native-only registry protocol makes bundle-first entries exact raw hits', 
   expect(rawB).toBe(bundle.b);
   expect(rawA).not.toBe(rawB);
   expect(sandbox.__originalRuns).toEqual({ a: 1, b: 1 });
+});
+
+test('structured-session dynamic import reauthorizes the exact SourceId without re-resolving', async () => {
+  const {
+    sandbox,
+    dispatcher,
+    resolutionCounts,
+    importChecks,
+  } = makeLoader();
+  const logicalReferrer = JSON.stringify({
+    root: 'project',
+    components: [{ encoding: 'utf8', value: 'entry.mjs' }],
+  });
+
+  const first = await dispatcher(
+    'dynamic-import',
+    './a.js?version=one',
+    logicalReferrer,
+  );
+  const resolutionsAfterFirstImport = resolutionCounts.get('./a.js');
+  const exactChecksAfterFirstImport = importChecks.filter(
+    ({ targetSourceId }) => targetSourceId !== undefined,
+  ).length;
+  const second = await dispatcher(
+    'dynamic-import',
+    './a.js#version-two',
+    logicalReferrer,
+  );
+
+  expect(first.default).toBe(second.default);
+  expect(first.name).toBe('a');
+  expect(sandbox.__originalRuns.a).toBe(1);
+  expect(resolutionsAfterFirstImport).toBeGreaterThan(0);
+  expect(resolutionCounts.get('./a.js')).toBe(resolutionsAfterFirstImport);
+  expect(exactChecksAfterFirstImport).toBe(1);
+  expect(
+    importChecks.filter(({ targetSourceId }) => targetSourceId !== undefined),
+  ).toEqual([
+    { hint: 0, specifier: './a.js', targetSourceId: sourceA },
+    { hint: 0, specifier: './a.js', targetSourceId: sourceA },
+  ]);
+});
+
+test('structured-session dynamic import preserves ToString and rejects before source acquisition', async () => {
+  const logicalReferrer = JSON.stringify({
+    root: 'project',
+    components: [{ encoding: 'utf8', value: 'entry.mjs' }],
+  });
+  const allowed = makeLoader();
+  let coercions = 0;
+  const imported = await allowed.dispatcher(
+    'dynamic-import',
+    {
+      toString() {
+        coercions += 1;
+        return 'a.js';
+      },
+    },
+    logicalReferrer,
+  );
+  expect(imported.name).toBe('a');
+  expect(coercions).toBe(1);
+  await expect(
+    allowed.dispatcher('dynamic-import', Symbol('a.js'), logicalReferrer),
+  ).rejects.toThrow('Cannot convert a Symbol value to a string');
+
+  const denied = makeLoader(true, 'a.js');
+  await expect(
+    denied.dispatcher('dynamic-import', 'a.js', logicalReferrer),
+  ).rejects.toThrow("Import denied: 'a.js'");
+  expect(denied.resolutionCounts.get('a.js')).toBeUndefined();
+});
+
+test('structured-session dynamic import uses captured Promise intrinsics', async () => {
+  class LoaderPromise<T> extends Promise<T> {}
+  const { sandbox, dispatcher } = makeLoader(
+    true,
+    undefined,
+    LoaderPromise,
+  );
+  const originalPromise = sandbox.Promise;
+  const logicalReferrer = JSON.stringify({
+    root: 'project',
+    components: [{ encoding: 'utf8', value: 'entry.mjs' }],
+  });
+  sandbox.Promise = {
+    resolve() {
+      throw new Error('mutable global Promise.resolve was used');
+    },
+    prototype: {
+      then() {
+        throw new Error('mutable global Promise.prototype.then was used');
+      },
+    },
+  };
+  Object.defineProperty(LoaderPromise.prototype, 'then', {
+    configurable: true,
+    value() {
+      throw new Error('mutable captured Promise.prototype.then was used');
+    },
+  });
+
+  let synchronous = false;
+  let importedPromise: Promise<unknown> | undefined;
+  let rejectedPromise: Promise<unknown> | undefined;
+  try {
+    importedPromise = dispatcher('dynamic-import', 'a.js', logicalReferrer);
+    rejectedPromise = dispatcher(
+      'dynamic-import',
+      Symbol('a.js'),
+      logicalReferrer,
+    );
+  } catch {
+    synchronous = true;
+  } finally {
+    delete (LoaderPromise.prototype as { then?: unknown }).then;
+  }
+
+  expect(synchronous).toBe(false);
+  expect(importedPromise).toBeInstanceOf(originalPromise);
+  expect(rejectedPromise).toBeInstanceOf(originalPromise);
+  const [importedResult, rejectedResult] = await originalPromise.allSettled([
+    importedPromise!,
+    rejectedPromise!,
+  ]);
+  expect(importedResult).toMatchObject({
+    status: 'fulfilled',
+    value: { name: 'a' },
+  });
+  expect(rejectedResult.status).toBe('rejected');
+  if (rejectedResult.status === 'rejected') {
+    expect(String(rejectedResult.reason)).toContain(
+      'Cannot convert a Symbol value to a string',
+    );
+  }
 });
 
 test('generated user code receives no original-module registry capability', () => {

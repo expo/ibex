@@ -37185,7 +37185,8 @@
       "outputKinds": [
         "[[return]]",
         "out:adapter",
-        "out:error"
+        "out:error",
+        "out:error_token"
       ]
     },
     {
@@ -37209,6 +37210,7 @@
       "outputKinds": [
         "[[return]]",
         "out:error",
+        "out:error_token",
         "out:evicted"
       ]
     },
@@ -37747,6 +37749,7 @@
       "outputKinds": [
         "[[return]]",
         "out:error",
+        "out:error_token",
         "out:factory"
       ]
     },
@@ -37772,6 +37775,7 @@
       "outputKinds": [
         "[[return]]",
         "out:error",
+        "out:error_token",
         "out:factory"
       ]
     },
@@ -37806,7 +37810,8 @@
       ],
       "outputKinds": [
         "[[return]]",
-        "out:error"
+        "out:error",
+        "out:error_token"
       ]
     },
     {
@@ -37863,6 +37868,7 @@
       "outputKinds": [
         "[[return]]",
         "out:error",
+        "out:error_token",
         "out:json"
       ]
     },
@@ -37876,6 +37882,7 @@
       "outputKinds": [
         "[[return]]",
         "out:error",
+        "out:error_token",
         "out:state"
       ]
     },
@@ -37888,7 +37895,8 @@
       ],
       "outputKinds": [
         "[[return]]",
-        "out:error"
+        "out:error",
+        "out:error_token"
       ]
     },
     {
@@ -37901,7 +37909,8 @@
       "outputKinds": [
         "[[return]]",
         "out:async",
-        "out:error"
+        "out:error",
+        "out:error_token"
       ]
     },
     {
@@ -37963,6 +37972,17 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_poll"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.poll.with.external.keep.alive.0r6b22j",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_poll_with_external_keep_alive"
       ],
       "outputKinds": [
         "[[return]]"
@@ -38183,6 +38203,68 @@
       "reasonCode": "source-derived-host-abi-output",
       "sourceRefs": [
         "src/engine/hermes_runtime.cc#ex_hermes_structured_active_work_target"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.begin.0j3s7a8",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_begin"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+      ],
+      "outputKinds": [
+        "[[return]]",
+        "out:result.abi_version",
+        "out:result.capability_flags",
+        "out:result.fault",
+        "out:result.lifecycle_exit_code",
+        "out:result.message.data",
+        "out:result.outcome_tag",
+        "out:result.positions",
+        "out:result.positions[].column",
+        "out:result.positions[].line",
+        "out:result.positions[].source_label.data",
+        "out:result.stack.data",
+        "out:result.struct_size",
+        "out:result.throw_error_class",
+        "out:result.throw_metadata_fields",
+        "out:result.throw_metadata_status",
+        "out:result.value.handle_id",
+        "out:result.value.runtime_nonce",
+        "out:result.work_target_id"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.resume.15vxx9g",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_resume"
+      ],
+      "outputKinds": [
+        "[[return]]"
+      ]
+    },
+    {
+      "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.suspend.0m9an5x",
+      "status": "output-bearing",
+      "reasonCode": "source-derived-host-abi-output",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_suspend"
       ],
       "outputKinds": [
         "[[return]]"
@@ -43274,6 +43356,15 @@
       "reasonCode": "loader-structural-route",
       "sourceRefs": [
         "src/engine/bootstrap/module-loader.js#wrapAsyncModule"
+      ],
+      "outputKinds": []
+    },
+    {
+      "surfaceId": "surface.loader.function.javascript.wrapdynamicimportvalue.080bqbs",
+      "status": "structural-only",
+      "reasonCode": "loader-structural-route",
+      "sourceRefs": [
+        "src/engine/bootstrap/module-loader.js#wrapDynamicImportValue"
       ],
       "outputKinds": []
     },
@@ -83373,15 +83464,15 @@
     }
   ],
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
-  "catalogKeyDigest": "sha256-Vd2srTKmEAUKF_7JcCTTIux-Ks67v_pJUlpEEvK5mAM",
+  "catalogKeyDigest": "sha256-MisdO-TulHpe0mLw33pVBRtDVnh85Je8jF3iVz0ZbUU",
   "counts": {
-    "coverageSurfaces": 7321,
-    "outputBearingSurfaces": 5768,
-    "structuralOnlySurfaces": 1549,
+    "coverageSurfaces": 7327,
+    "outputBearingSurfaces": 5773,
+    "structuralOnlySurfaces": 1550,
     "unresolvedSurfaces": 4,
-    "catalogRows": 6409,
+    "catalogRows": 6441,
     "parameterizedBindings": 1,
-    "sourceInventoryRows": 6002,
+    "sourceInventoryRows": 6034,
     "structuredRows": 407
   },
   "rows": [
@@ -145638,6 +145729,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.create.esm.adapter.1ijrxpo",
+        "output": "out:error_token",
+        "alias": "ex_hermes_commonjs_record_create_esm_adapter",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_create_esm_adapter"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_create_esm_adapter"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.declare.export.1xxi1rd",
         "output": "[[return]]",
         "alias": "ex_hermes_commonjs_record_declare_export",
@@ -145682,6 +145794,27 @@
       "key": {
         "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
         "output": "out:error",
+        "alias": "ex_hermes_commonjs_record_evaluate",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_commonjs_record_evaluate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_evaluate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn",
+        "output": "out:error_token",
         "alias": "ex_hermes_commonjs_record_evaluate",
         "mode": "all",
         "sourceKind": "host-abi",
@@ -148333,6 +148466,27 @@
     {
       "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
+        "output": "out:error_token",
+        "alias": "ex_hermes_module_compile_factory",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_compile_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_compile_factory"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.compile.factory.0iy3wyo",
         "output": "out:factory",
         "alias": "ex_hermes_module_compile_factory",
         "mode": "all",
@@ -148438,6 +148592,27 @@
     {
       "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
+        "output": "out:error_token",
+        "alias": "ex_hermes_module_load_carrier_factory",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_load_carrier_factory"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_load_carrier_factory"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.load.carrier.factory.0m3jepm",
         "output": "out:factory",
         "alias": "ex_hermes_module_load_carrier_factory",
         "mode": "all",
@@ -148523,6 +148698,27 @@
       "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu",
         "output": "out:error",
+        "alias": "ex_hermes_module_record_instantiate",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_instantiate"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_instantiate"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.instantiate.043epyu",
+        "output": "out:error_token",
         "alias": "ex_hermes_module_record_instantiate",
         "mode": "all",
         "sourceKind": "host-abi",
@@ -148669,6 +148865,27 @@
     {
       "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
+        "output": "out:error_token",
+        "alias": "ex_hermes_module_record_namespace_json",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_namespace_json"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.namespace.json.0ycmc1c",
         "output": "out:json",
         "alias": "ex_hermes_module_record_namespace_json",
         "mode": "all",
@@ -148712,6 +148929,27 @@
       "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
         "output": "out:error",
+        "alias": "ex_hermes_module_record_poll_evaluation",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_poll_evaluation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_poll_evaluation"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.poll.evaluation.0u9d6ua",
+        "output": "out:error_token",
         "alias": "ex_hermes_module_record_poll_evaluation",
         "mode": "all",
         "sourceKind": "host-abi",
@@ -148794,6 +149032,27 @@
     },
     {
       "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.run.declare.1mvfw3a",
+        "output": "out:error_token",
+        "alias": "ex_hermes_module_record_run_declare",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_run_declare"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_declare"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
         "output": "[[return]]",
         "alias": "ex_hermes_module_record_run_execute",
@@ -148838,6 +149097,27 @@
       "key": {
         "surfaceId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
         "output": "out:error",
+        "alias": "ex_hermes_module_record_run_execute",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_module_record_run_execute"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_run_execute"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.module.record.run.execute.07z0pon",
+        "output": "out:error_token",
         "alias": "ex_hermes_module_record_run_execute",
         "mode": "all",
         "sourceKind": "host-abi",
@@ -148956,6 +149236,27 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_poll"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.poll.with.external.keep.alive.0r6b22j",
+        "output": "[[return]]",
+        "alias": "ex_hermes_poll_with_external_keep_alive",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_poll_with_external_keep_alive"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_poll_with_external_keep_alive"
         ]
       },
       "requiredValueProof": "live-value-observation"
@@ -149901,6 +150202,468 @@
         ],
         "sourceRefs": [
           "src/engine/hermes_runtime.cc#ex_hermes_structured_active_work_target"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.begin.0j3s7a8",
+        "output": "[[return]]",
+        "alias": "ex_hermes_structured_module_graph_begin",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_begin"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_begin"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "[[return]]",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.abi_version",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.capability_flags",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.fault",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.lifecycle_exit_code",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.message.data",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.outcome_tag",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.positions",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.positions[].column",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.positions[].line",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.positions[].source_label.data",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.stack.data",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.struct_size",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.throw_error_class",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.throw_metadata_fields",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.throw_metadata_status",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.value.handle_id",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.value.runtime_nonce",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.work_target_id",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_finish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_finish"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.resume.15vxx9g",
+        "output": "[[return]]",
+        "alias": "ex_hermes_structured_module_graph_resume",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_resume"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_resume"
+        ]
+      },
+      "requiredValueProof": "live-value-observation"
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.suspend.0m9an5x",
+        "output": "[[return]]",
+        "alias": "ex_hermes_structured_module_graph_suspend",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "discovery": {
+        "kind": "source-inventory-surface",
+        "observedKeys": [
+          "host-abi:ex_hermes_structured_module_graph_suspend"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_structured_module_graph_suspend"
         ]
       },
       "requiredValueProof": "live-value-observation"

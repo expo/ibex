@@ -60,6 +60,33 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
     ]),
   }),
   Object.freeze({
+    id: "checked-native-module-graph",
+    assertion:
+      "Advertised direct-file module graphs consume the exact structured admission before Host graph discovery or lowering, retain the admitted request's snapshot, principal, VFS SourceId, and argv, and either begin native graph execution or continue the bounded session-lowering fallback with that same admission.",
+    sourceEvidence: Object.freeze([
+      freezeEvidence("src/bin/ibex/runtime.rs", [
+        ".evaluate_authenticated_module_graph(",
+        "Box::new(|admitted_request|",
+        "self.prepare_authenticated_module_graph(admitted_request)",
+        "build_authenticated_source_graph_v1_for_host(",
+        "request.source_id() == Some(graph.entry_vfs_source_id())",
+      ]),
+      freezeEvidence("src/engine/hermes_structured.rs", [
+        "pub unsafe fn admit_prepare_authenticated_module_graph<T, F>(",
+        "let mut admission = unsafe { admit_authenticated_submission(runtime, session, &mut request)? };",
+        "let preparation = match prepare(&request) {",
+        "ex_hermes_structured_module_graph_begin(",
+        "evaluate_authenticated_inner_with_admission(request, None, admission)",
+      ]),
+      freezeEvidence("src/engine/hermes_runtime.cc", [
+        "extern \"C\" uint32_t ex_hermes_structured_submission_admit(",
+        "extern \"C\" uint32_t ex_hermes_structured_module_graph_begin(",
+        "structuredAdmittedCredentialMatches(runtime, credential)",
+        "runtime->structured_module_graph_work_target_id = workTargetId;",
+      ]),
+    ]),
+  }),
+  Object.freeze({
     id: "checked-session-lowering",
     assertion:
       "Authenticated Program requests cross the exact native submission boundary before syntax/lowering, so parse failures consume their ordinal; the checked AST pipeline and native lowered-session ABI then compile and preflight the complete declaration plan before mutating persistent session state.",
@@ -547,6 +574,7 @@ export const REQUIRED_AUTHENTICATED_INGRESS_ROUTES = Object.freeze([
   "cli:repl-command:time",
   "host-abi:ex_hermes_eval_lowered_session",
   "host-abi:ex_hermes_eval_structured_session",
+  "host-abi:ex_hermes_structured_module_graph_begin",
 ]);
 
 // Each authenticated edge has an exact, closed profile. CLI routes inherit the
@@ -554,6 +582,7 @@ export const REQUIRED_AUTHENTICATED_INGRESS_ROUTES = Object.freeze([
 // their delegation non-bypassable; unknown future routes fail closed.
 export const REQUIRED_INGRESS_ROW_PROFILES = Object.freeze({
   "cli:authenticated-direct-file-ingress": fileObligationProfile(
+    "checked-native-module-graph",
     "checked-session-lowering",
     "file-argv-bound",
     "file-program-adapter-bound",
@@ -596,6 +625,11 @@ export const REQUIRED_INGRESS_ROW_PROFILES = Object.freeze({
     "checked-session-lowering",
   ),
   "host-abi:ex_hermes_eval_structured_session": obligationProfile(),
+  "host-abi:ex_hermes_structured_module_graph_begin": fileObligationProfile(
+    "checked-native-module-graph",
+    "file-argv-bound",
+    "file-vfs-source-bound",
+  ),
 });
 
 function compareText(left, right) {
@@ -628,7 +662,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "structured-session-contract",
       "/// Bind one opaque authenticated-session token to an armed runtime.",
       "enum {\n  EX_HERMES_CANCEL_UNAVAILABLE",
-      "sha256-NFZ0WPCvDQ2BrqeEVOE8H3zv-ymqMSicrURTUTYKNaI",
+      "sha256-hjFhCaWLDfwc9C1qsacCh6MP-9stmAVEEYsNLB3nmZ0",
     ),
   ]),
   "src/bin/ibex/main.rs": Object.freeze([
@@ -670,19 +704,19 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "closed-ingress-types",
       "pub(crate) struct ReplSessionIngress {",
       "impl AuthenticatedFileIngress {",
-      "sha256-QM8gSal-4nbJYh2lScWUH3UAOK5U1grtRT8EIQW-2kA",
+      "sha256-HBzPnc-EROisdl1yfmqp1z6O8EWCiU_Pa1yi-UJ93aU",
     ),
     freezeReviewedRange(
       "runtime-ingress-constructors",
       "    pub(crate) fn repl_session_ingress(&self) -> Result<ReplSessionIngress> {",
       "    pub fn session_io_plan(&self) -> Option<crate::terminal_session::SessionIoPlan> {",
-      "sha256-y7CsG-MhvEtA4tCU80D_azeT6z3tmBW5ACS9VPZInQk",
+      "sha256-FrVwKFkoWJuvPmzSSTpkyf1joz5YcCE5bbHy-S9mXYI",
     ),
     freezeReviewedRange(
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      "sha256-72a25vZ5JnRFu-OFNaD6CSMSdRVTdfVAgH2gFA43SeU",
+      "sha256-I5-AyQuk1RmoNeOMfsHGZM6Maz5gmOAppvQAT51Hqck",
     ),
     freezeReviewedRange(
       "runtime-file-execution",
@@ -722,7 +756,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "immutable-request-and-native-credential",
       "struct SubmissionPermit {",
       "fn credential_binding_from_request(",
-      "sha256-YckoRxv-8NipAjW1WkzMAZ-6I6w1Zr-j6vyOm8G0OOM",
+      "sha256-zOTyR0x1e9oNG84pQ9jJc_Hhgx9kjedfipkyPTjM75A",
     ),
     freezeReviewedRange(
       "request-binding",
@@ -736,19 +770,19 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "finish-bootstrap",
       'extern "C" uint32_t ex_hermes_finish_bootstrap(',
       'extern "C" void ex_hermes_destroy(',
-      "sha256-dzkF5FWqgC_edtr13TK0yfAlwGLOu4SPGC6jt5XVXI0",
+      "sha256-3lFRyEuLpBO2YptCHLec6OQoDNyhOt8VHOCDzAtP6tg",
     ),
     freezeReviewedRange(
       "structured-session-ingress",
       'extern "C" uint32_t ex_hermes_structured_session_bind(',
       'extern "C" int ex_hermes_resume_structured_session(',
-      "sha256-veuZZFeWmOjEBQOTsNXFd4EsL3HMi7ckzmwKwaYEMC0",
+      "sha256-wRrb1mirZHf1qYj-lYDo6Ba15ojz7AJPLEQGhI34IWU",
     ),
     freezeReviewedRange(
       "sealed-bare-evaluator",
       'extern "C" int ex_hermes_eval(',
       'extern "C" int ibex_test_install_capsec_context_observer(',
-      "sha256-kh3KQCFc4DST1V69TUsd0A1w3gNxnGjLe3El45h2ypw",
+      "sha256-y_NGtLoFIY-ovUeuoVtnQ22rMicI5isC98-CxG7XLwU",
     ),
   ]),
   "src/engine/hermes_structured.rs": Object.freeze([
@@ -756,13 +790,13 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "lowered-session-protocol",
       "use super::session_lowering::{",
       "pub struct StructuredEvaluation {",
-      "sha256-E3Yx5XcKP7UpME-HY61cd6MLV5029hFVJEf-etsopWk",
+      "sha256-5SMphAyc8CTKlFWUuwgmp2AkjMmRk2XJnK-XSAhak1c",
     ),
     freezeReviewedRange(
       "authenticated-lowering-adapter",
-      "unsafe fn admit_authenticated_submission(",
+      "pub unsafe fn admit_prepare_authenticated_module_graph<T, F>(",
       "/// Poll the nonblocking native settlement state for one exact suspended",
-      "sha256-Mfh8LvKU8o1eD7hUiePRyCMJHuLDkl_oeaw1_bav0Nw",
+      "sha256-tewuyRf15sG7xlkkpLdaackVlr9w6A5prAnB9WRQbBU",
     ),
   ]),
   "src/engine/session_lowering.rs": Object.freeze([

@@ -1,7 +1,7 @@
 {
   "outputDispositionPolicySchema": "ibex/capsec-output-disposition-policy/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-Vd2srTKmEAUKF_7JcCTTIux-Ks67v_pJUlpEEvK5mAM",
+  "catalogKeyDigest": "sha256-MisdO-TulHpe0mLw33pVBRtDVnh85Je8jF3iVz0ZbUU",
   "defaultDisposition": "non-path",
   "defaultRationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them.",
   "overrides": [
@@ -6260,6 +6260,91 @@
         "normalizedValue": "absent"
       },
       "rationale": "The source-bound macOS/aarch64 native-global lookup recipe surface.native.op.global.exact.nodeexists.1qt4kt0.target.aarch64-apple-darwin.3d544c06b0a529d28ac559076fbfe797de963221f3f8a11f898b911afb7350ab.absent, bound to source descriptor sha256-oMj5h_0R0hCliHx_FH7Yqp4vthU3uh6QVFVXqR_kJuU, requires the loaded target to observe this exact output key absent."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.lowered.session.1anyth1",
+        "output": "out:result.positions[].source_label.data",
+        "alias": "ex_hermes_eval_lowered_session",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The owned source-position stratum is explicitly unavailable until every active transform emits a composable map; a lowered result therefore proves positions == NULL and position_count == 0 instead of fabricating a label."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.structured.diagnostic.1viduch",
+        "output": "out:result.positions[].source_label.data",
+        "alias": "ex_hermes_eval_structured_diagnostic",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The diagnostic evaluator advertises no owned source-position stratum, so its result proves positions == NULL and position_count == 0 rather than projecting a source label."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.eval.structured.session.00rtb0y",
+        "output": "out:result.positions[].source_label.data",
+        "alias": "ex_hermes_eval_structured_session",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "The owned source-position stratum is explicitly unavailable until every active transform emits a composable map; a structured session result therefore proves positions == NULL and position_count == 0."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.resume.structured.session.0q4sn5x",
+        "output": "out:result.positions[].source_label.data",
+        "alias": "ex_hermes_resume_structured_session",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "A resumed session preserves the explicitly unavailable owned source-position stratum and proves positions == NULL and position_count == 0 rather than fabricating a label."
+    },
+    {
+      "key": {
+        "surfaceId": "surface.host.abi.ex.hermes.structured.module.graph.finish.02unby0",
+        "output": "out:result.positions[].source_label.data",
+        "alias": "ex_hermes_structured_module_graph_finish",
+        "mode": "all",
+        "sourceKind": "host-abi",
+        "returnVariant": "default",
+        "contextId": "host.private-native-call-initialized"
+      },
+      "disposition": "absent",
+      "expectation": {
+        "outcome": "absent",
+        "normalizedValue": "absent"
+      },
+      "rationale": "Native module-graph completion preserves the explicitly unavailable owned source-position stratum and proves positions == NULL and position_count == 0 rather than fabricating a request label."
     }
   ]
 }

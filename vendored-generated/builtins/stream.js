@@ -11,8 +11,12 @@ try {
 var _exactPipelineDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_DEBUG === "1" || !!(typeof process === "object" && process && process.__exactPipelineDebug);
 var _exactPipelineStateDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_STATE_DEBUG === "1";
 if (typeof Symbol !== "undefined") {
-	if (!Symbol.dispose) Symbol.dispose = Symbol.for("nodejs.dispose");
-	if (!Symbol.asyncDispose) Symbol.asyncDispose = Symbol.for("nodejs.asyncDispose");
+	if (!Symbol.dispose) try {
+		Symbol.dispose = Symbol.for("nodejs.dispose");
+	} catch (_err) {}
+	if (!Symbol.asyncDispose) try {
+		Symbol.asyncDispose = Symbol.for("nodejs.asyncDispose");
+	} catch (_err) {}
 }
 var defaultHighWaterMark = 65536;
 var defaultHighWaterMarkObjectMode = 16;

@@ -253,6 +253,7 @@ struct NativeModuleRecordEntry {
   // @ref LLP 0026#6-top-level-await-and-dynamic-import
   std::shared_ptr<facebook::jsi::Object> evaluation_promise;
   std::string error_message;
+  uint64_t error_token{0};
 };
 
 enum class NativeCommonJsRecordState : uint8_t {
@@ -273,6 +274,7 @@ struct NativeCommonJsRequireBinding {
 
 struct NativeCommonJsRecordEntry {
   uint64_t graph_generation{0};
+  uint8_t source_goal{0};
   std::string source_id;
   uint64_t context_handle_id{0};
   std::shared_ptr<facebook::jsi::Function> factory;
@@ -376,6 +378,15 @@ struct ExactHermesRuntime {
   uint64_t structured_admitted_submission_ordinal{0};
   std::array<uint8_t, 32> structured_admitted_request_binding{};
   uint64_t structured_admitted_work_target_id{0};
+  // The native module graph is orchestrated in Rust. Raw JS values are retained
+  // per failing runner operation and selected by an exact nonzero token; a
+  // handled or later failure can never overwrite the foreground outcome.
+  bool structured_module_graph_in_flight{false};
+  bool structured_module_graph_suspended{false};
+  uint64_t structured_module_graph_work_target_id{0};
+  uint64_t next_structured_module_error_token{1};
+  std::unordered_map<uint64_t, std::unique_ptr<facebook::jsi::Value>>
+      structured_module_error_values;
   // Exact, any-thread cancellation is paired with the native-published unit
   // that is executing now. The mutex closes the query -> cancel -> successor
   // race: a cancellation can only arm the target that is still current while
@@ -678,9 +689,22 @@ struct ExactHermesRuntime {
   void* exact_host_call_async_context = nullptr;
 };
 
+// Replace the captured typed-filesystem principal constraint for the current
+// thread and return the previous scope. The implementation is platform-local
+// because the typed filesystem bridge owns this TLS on both POSIX and Windows.
+// Runtime-drive entry uses a null replacement to prevent an outer runtime's
+// captured principals from becoming authority in a nested different-runtime
+// drive; the returned pointer remains owned by the still-live outer scope.
+const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
+    const std::vector<uint64_t>* replacement);
+
 /// Common owner-thread, liveness, generation, and non-reentrancy gate for
-/// every entry point that drives JSI or module-runner state.
+/// every entry point that drives JSI or module-runner state. A successful
+/// guard also selects this runtime's exact Host/VFS and frame-attribution
+/// contexts for the complete drive, restoring any outer runtime on unwind.
 /// @ref LLP 0002#runtime-driving-thread-contract
+/// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+/// @ref LLP 0013#mechanism-3
 class ExactRuntimeDriveGuard {
  public:
   ExactRuntimeDriveGuard(ExactHermesRuntime* runtime, uint64_t expectedNonce = 0);
@@ -694,8 +718,30 @@ class ExactRuntimeDriveGuard {
  private:
   ExactHermesRuntime* runtime_{nullptr};
   uint64_t nonce_{0};
+  uint64_t previous_runtime_nonce_{0};
+  uint64_t previous_host_context_{UINT64_MAX};
+  uint64_t previous_module_id_{0};
+  uint64_t previous_native_principal_{UINT64_MAX};
+  const std::vector<uint64_t>* previous_typed_principal_stack_{nullptr};
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  void* previous_attribution_runtime_{nullptr};
+#endif
+  bool principal_scope_active_{false};
+  bool dynamic_scope_active_{false};
   int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
+
+/// Construction-only evaluator used before registerRuntime publishes the
+/// generation. Public embedders must use ex_hermes_eval, whose drive guard can
+/// therefore reject every stale/off-owner/reentrant caller before dereference.
+/// @ref LLP 0002#runtime-driving-thread-contract
+int exactHermesBootstrapEval(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outValue);
 
 struct NativeWebSocketCallbackContext {
   RuntimeCallbackTarget target;
@@ -722,6 +768,7 @@ extern "C" int32_t ibex_private_take_process_ipc_bootstrap(
     uint64_t host_context_id,
     int32_t* out_fd,
     uint32_t* out_serialization);
+extern "C" uint64_t ibex_private_claim_restricted_host_context();
 extern "C" uint64_t ex_hermes_current_runtime_nonce(void);
 extern "C" int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
                                                    uint64_t* out_inode);
@@ -739,9 +786,13 @@ extern thread_local uint64_t g_active_module_id;
 constexpr uint64_t kNoNativePrincipalOverride = std::numeric_limits<uint64_t>::max();
 extern thread_local uint64_t g_native_callback_principal_id;
 extern thread_local uint64_t g_active_runtime_nonce;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+extern thread_local void* g_vm_runtime;
+#endif
 
 extern "C" uint64_t ex_host_enter_context(uint64_t context_id);
 extern "C" void ex_host_restore_context(uint64_t previous);
+extern "C" void ex_host_release_context(uint64_t context_id);
 extern "C" uint32_t ex_host_vfs_bind_runtime(
     uint64_t context_id, uint64_t runtime_nonce);
 extern "C" uint32_t ex_host_vfs_unbind_runtime(uint64_t runtime_nonce);
@@ -791,6 +842,13 @@ inline uint64_t exactCurrentRuntimeNonce() {
   return g_active_runtime_nonce;
 }
 
+// Select one runtime's Host/generation boundary for internal work that cannot
+// use the registered drive guard (construction, Closing teardown, and pinned
+// worker operations). Crossing generations also isolates every principal TLS;
+// same-runtime helper nesting preserves the caller's active JS/callback scope.
+// Off-owner worker scopes deliberately leave g_vm_runtime null and must install
+// any captured typed-principal constraint explicitly after construction.
+// @ref LLP 0002#runtime-driving-thread-contract
 class ScopedRuntimeSecurityContext {
  public:
   explicit ScopedRuntimeSecurityContext(const ExactHermesRuntime* runtime)
@@ -798,9 +856,33 @@ class ScopedRuntimeSecurityContext {
     if (runtime != nullptr) {
       g_active_runtime_nonce = runtime->runtime_nonce;
       previousHost_ = ex_host_enter_context(runtime->host_context_id);
+      if (previousRuntime_ != runtime->runtime_nonce) {
+        previousModule_ = g_active_module_id;
+        previousNativePrincipal_ = g_native_callback_principal_id;
+        previousTypedPrincipalStack_ =
+            exactSwapTypedPrincipalStackForRuntimeDrive(nullptr);
+        g_active_module_id = 0;
+        g_native_callback_principal_id = kNoNativePrincipalOverride;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+        previousAttributionRuntime_ = g_vm_runtime;
+        g_vm_runtime = runtime->runtime_thread == std::this_thread::get_id()
+            ? runtime->attribution_runtime
+            : nullptr;
+#endif
+        principalBoundary_ = true;
+      }
     }
   }
   ~ScopedRuntimeSecurityContext() {
+    if (principalBoundary_) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+      g_vm_runtime = previousAttributionRuntime_;
+#endif
+      exactSwapTypedPrincipalStackForRuntimeDrive(
+          previousTypedPrincipalStack_);
+      g_native_callback_principal_id = previousNativePrincipal_;
+      g_active_module_id = previousModule_;
+    }
     if (previousHost_ != UINT64_MAX) ex_host_restore_context(previousHost_);
     g_active_runtime_nonce = previousRuntime_;
   }
@@ -810,6 +892,13 @@ class ScopedRuntimeSecurityContext {
  private:
   uint64_t previousRuntime_;
   uint64_t previousHost_;
+  uint64_t previousModule_{0};
+  uint64_t previousNativePrincipal_{kNoNativePrincipalOverride};
+  const std::vector<uint64_t>* previousTypedPrincipalStack_{nullptr};
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  void* previousAttributionRuntime_{nullptr};
+#endif
+  bool principalBoundary_{false};
 };
 
 struct ExactResolvedVfsPath {
@@ -956,8 +1045,9 @@ extern "C" int ex_hermes_vm_take_failed_job_context(
 // runtime creation. Null on unpatched engines and until the runtime is created.
 // THREAD-LOCAL: names the runtime the current thread created and drives, so
 // concurrent runtimes on other threads (unit-test harness, worklets) can't
-// clobber or free the pointer this thread's attribution walk reads. (ENG-23011)
-extern thread_local void* g_vm_runtime;
+// clobber or free the pointer this thread's attribution walk reads. The extern
+// is declared above with the other runtime-bound TLS so construction and
+// teardown scopes can select it too. (ENG-23011)
 // The reserved principal for runtime-internal code (bootstrap, module loader,
 // lockdown/compartment installers). Domains stamped with it are transparent to
 // frame attribution — the walk skips them so the nearest user frame is charged.
@@ -1655,6 +1745,15 @@ facebook::jsi::Function makeProcessExitFn(
     facebook::jsi::Runtime& rt);
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 void exactForgetNativeFetchTarget(uint32_t requestId, uint64_t runtimeNonce);
+
+// Retain one exact raw JavaScript failure value and return its graph-local
+// nonzero token. No property access or coercion is performed here.
+uint64_t exactRetainStructuredModuleGraphError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::JSError& error) noexcept;
+uint64_t exactRetainStructuredModuleGraphError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Value& value) noexcept;
 
 bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            const char* source,
