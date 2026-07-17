@@ -24,7 +24,7 @@ use super::transform_config_generated as transform_config;
 use swc_common::comments::SingleThreadedComments;
 use swc_common::sync::Lrc;
 use swc_common::{Globals, Mark, SourceMap, GLOBALS};
-use swc_ecma_ast::{EsVersion, Program};
+use swc_ecma_ast::{EsVersion, Expr, MemberProp, MetaPropKind, Program};
 use swc_ecma_codegen::text_writer::JsWriter;
 use swc_ecma_codegen::Emitter;
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
@@ -120,6 +120,74 @@ pub fn transpile_to_cjs(source: &str, path: &Path) -> Result<String> {
     })
 }
 
+/// Lower `import.meta.url` / bare `import.meta` before the CommonJS pass.
+///
+/// swc's `common_js` would otherwise lower `import.meta.url` to
+/// `require("url").pathToFileURL(__filename).toString()`. On the standalone
+/// tier (no bun/node on PATH) that routes through the `url` builtin's
+/// fallback URL class, whose accessors do not survive the compartment
+/// membrane — `import.meta.url` came back as the literal string
+/// "[object Object]". Lower to the same `__filename`-based `file://`
+/// expression the loader's string-transpile tier uses
+/// (`importMetaPropertyReplacements` in engine/bootstrap/module-loader.js)
+/// so both tiers agree and neither depends on the url builtin at startup.
+struct LowerImportMeta {
+    url_expr: Expr,
+    meta_expr: Expr,
+}
+
+impl swc_ecma_visit::VisitMut for LowerImportMeta {
+    fn visit_mut_expr(&mut self, n: &mut Expr) {
+        if let Expr::Member(member) = n {
+            if let Expr::MetaProp(meta) = &*member.obj {
+                if meta.kind == MetaPropKind::ImportMeta {
+                    if let MemberProp::Ident(prop) = &member.prop {
+                        if prop.sym == *"url" {
+                            *n = self.url_expr.clone();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        if let Expr::MetaProp(meta) = n {
+            if meta.kind == MetaPropKind::ImportMeta {
+                *n = self.meta_expr.clone();
+                return;
+            }
+        }
+        swc_ecma_visit::VisitMutWith::visit_mut_children_with(n, self);
+    }
+}
+
+/// Parse a trusted expression snippet into an AST for injection. Only called
+/// with the two constant replacement expressions below.
+fn parse_replacement_expr(cm: &Lrc<SourceMap>, snippet: &'static str) -> Result<Expr> {
+    let fm = cm.new_source_file(
+        Lrc::new(swc_common::FileName::Internal(
+            "import-meta-lowering".into(),
+        )),
+        snippet.to_string(),
+    );
+    let lexer = Lexer::new(
+        Syntax::Es(Default::default()),
+        EsVersion::Es2022,
+        StringInput::from(&*fm),
+        None,
+    );
+    let mut parser = Parser::new_from(lexer);
+    let expr = parser.parse_expr().map_err(|err| {
+        anyhow!(
+            "Failed to parse replacement expression: {}",
+            err.kind().msg()
+        )
+    })?;
+    Ok(*expr)
+}
+
+const IMPORT_META_URL_EXPR: &str = r#"("file://" + (__filename.charAt(0) === "/" ? __filename : "/" + __filename).replace(/\\/g, "/"))"#;
+const IMPORT_META_EXPR: &str = "globalThis.__exactImportMeta";
+
 fn transpile_with_swc(source: &str, path: &Path) -> Result<String> {
     let cm: Lrc<SourceMap> = Lrc::default();
     let file_name = swc_common::FileName::Real(path.to_path_buf());
@@ -162,6 +230,16 @@ fn transpile_with_swc(source: &str, path: &Path) -> Result<String> {
     let top_level_mark = Mark::new();
 
     let mut program: Program = program;
+    // Lower import.meta before the resolver so the injected `__filename` /
+    // `globalThis` identifiers get resolved and hygiene-protected exactly
+    // like source-authored ones.
+    {
+        let mut lower_import_meta = LowerImportMeta {
+            url_expr: parse_replacement_expr(&cm, IMPORT_META_URL_EXPR)?,
+            meta_expr: parse_replacement_expr(&cm, IMPORT_META_EXPR)?,
+        };
+        swc_ecma_visit::VisitMutWith::visit_mut_with(&mut program, &mut lower_import_meta);
+    }
     program.mutate(resolver(unresolved_mark, top_level_mark, true));
     program.mutate(typescript(
         Default::default(),
@@ -378,6 +456,43 @@ mod tests {
         // Documentation assertion: record what swc does with import.meta and
         // dynamic import under CJS lowering so the loader can compensate.
         println!("import.meta/dynamic-import lowering: {out}");
+        // import.meta.url lowers to the loader tier's __filename-based
+        // file:// expression, never through the url builtin's pathToFileURL
+        // (broken on the standalone tier — see LowerImportMeta).
+        assert!(
+            out.contains(r#""file://""#),
+            "import.meta.url should lower to the file:// expression: {out}"
+        );
+        assert!(
+            !out.contains("pathToFileURL"),
+            "import.meta.url must not depend on the url builtin: {out}"
+        );
+    }
+
+    #[test]
+    fn bare_import_meta_lowers_to_the_polyfill_object() {
+        let source = "console.log(import.meta);\nconsole.log(import.meta.main);\n";
+        let out =
+            transpile_to_cjs(source, &PathBuf::from("/tmp/spike-meta-bare.ts")).expect("transpile");
+        assert!(
+            out.contains("globalThis.__exactImportMeta"),
+            "bare import.meta should lower to the polyfill object: {out}"
+        );
+    }
+
+    #[test]
+    fn import_meta_inside_string_literals_is_untouched() {
+        let source = "console.log('import.meta.url');\nconst s = \"import.meta\";\n";
+        let out =
+            transpile_to_cjs(source, &PathBuf::from("/tmp/spike-meta-str.ts")).expect("transpile");
+        assert!(
+            out.contains("'import.meta.url'") || out.contains("\"import.meta.url\""),
+            "string literals mentioning import.meta must survive lowering: {out}"
+        );
+        assert!(
+            !out.contains("file://"),
+            "no file:// expression should be injected for string mentions: {out}"
+        );
     }
 
     #[test]
