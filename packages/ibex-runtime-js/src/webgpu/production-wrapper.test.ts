@@ -234,9 +234,9 @@ function isolatedGlobal(): typeof globalThis {
 }
 
 describe('production-private WebGPU wrapper gate', () => {
-  test('keeps generated codecs injection-only while the native decoder is absent', () => {
+  test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-only-native-decoder-absent',
+      'generated-injection-and-request-adapter-payload-codegen-input-native-codec-not-installed',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {

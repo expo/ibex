@@ -46,6 +46,23 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(authority.provenance.sourceCommitAndArtifactSha256Disposition).toBe(
       "provenance-only-not-executable-acceptance",
     );
+    const nativePrograms = authority.payload.wireEnvelope.nativeCodecPrograms;
+    expect(nativePrograms.schema).toBe("ibex/webgpu-native-codec-programs/1");
+    expect(nativePrograms.scope.excluded).toBe(
+      "full-call-or-event-construction-and-global-v2-carrier-validation",
+    );
+    expect(nativePrograms.carrierValidationDependency.programOwns).toBe(
+      "selected-payload-layout-plus-operation-specific-carrier-joins-and-constraints-only",
+    );
+    expect(nativePrograms.routes.map((route) => route.operationId)).toEqual([
+      "GPU.requestAdapter",
+    ]);
+    expect(nativePrograms.routes[0].request.catalog.wireTag).toBe(2);
+    expect(nativePrograms.routes[0].completion.catalog.wireTag).toBe(3);
+    expect(nativePrograms.routes[0].completion.variants[0].payload).toEqual({
+      kind: "empty",
+      exactLengthBytes: 0,
+    });
   });
 
   test("carries every authenticated operation field into one bijective wrapper route", () => {
@@ -212,6 +229,51 @@ describe("test-only WebGPU wrapper generator", () => {
     const installed = clone(authority);
     installed.payload.installInventory.actualInstalledOperationCount = 1;
     mutations.push(installed);
+
+    const nativeSchema = clone(authority);
+    nativeSchema.payload.wireEnvelope.nativeCodecPrograms.schema =
+      "ibex/webgpu-native-codec-programs/2";
+    mutations.push(nativeSchema);
+
+    const nativeBodyOrder = clone(authority);
+    nativeBodyOrder.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+      .request.payload.fields.reverse();
+    mutations.push(nativeBodyOrder);
+
+    const nativeScope = clone(authority);
+    nativeScope.payload.wireEnvelope.nativeCodecPrograms.scope.excluded = "none";
+    mutations.push(nativeScope);
+
+    const nativeCarrierDependency = clone(authority);
+    nativeCarrierDependency.payload.wireEnvelope.nativeCodecPrograms
+      .carrierValidationDependency.globallyOwnedCarrierInvariants.pop();
+    mutations.push(nativeCarrierDependency);
+
+    const nativeCatalog = clone(authority);
+    nativeCatalog.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+      .request.catalog.wireTag = 3;
+    mutations.push(nativeCatalog);
+
+    const nativeOptions = clone(authority);
+    nativeOptions.payload.wireEnvelope.nativeCodecPrograms.types
+      .requestAdapterOptionsV1.unknownFields = "ignore";
+    mutations.push(nativeOptions);
+
+    const nativeJoin = clone(authority);
+    nativeJoin.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+      .request.carrierJoins.pop();
+    mutations.push(nativeJoin);
+
+    const nativeNull = clone(authority);
+    nativeNull.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+      .completion.variants[0].payload.exactLengthBytes = 13;
+    mutations.push(nativeNull);
+
+    const nativeProviderJoin = clone(authority);
+    nativeProviderJoin.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+      .completion.variants[1].carrierJoins[0].carrierPath =
+        "record.operation_result.operation.result_device.provider_generation";
+    mutations.push(nativeProviderJoin);
 
     for (const mutation of mutations) {
       expect(() => validateWebGpuWrapperAuthority(mutation)).toThrow();

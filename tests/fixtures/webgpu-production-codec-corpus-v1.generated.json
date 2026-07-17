@@ -1,10 +1,11 @@
 {
-  "schema": "ibex/webgpu-production-codec-corpus/1",
-  "disposition": "generated-language-neutral-request-adapter-conformance-no-native-install-claim",
+  "schema": "ibex/webgpu-production-codec-corpus/2",
+  "disposition": "generated-language-neutral-request-adapter-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
   "supportClaim": "none",
+  "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "7d7cf9535d97e9196ea65da45d1e29522fe78a91e6e66cba96d0d3cf1330d65e"
+    "manifestSha256": "5b3cd9922f870c13a97bc5446b159ad51b43cea517049e2bc71276cc8b70865e"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
@@ -12,12 +13,13 @@
     "operationSet": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
     "semanticProgramSet": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
     "runtimeRouting": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-    "webgpuCVocabulary": "99e66bfda21c162810c2da99f7b9bc91d1780c976020e1d2b0772c36c6c4d654",
-    "projection": "0c9087d350f3ee683e0cc6ff62438faf9f0fd158baa43e48ebcb01ec0c866249"
+    "webgpuCVocabulary": "1ac6b5c6d3bd938317fee5c11f03ea195f85536e442b09a386b6f420d5a23290",
+    "projection": "23487decb740812135f6b310118c8e87bdce9bcf82e1c78e34637f5c7f2e04ff"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
     "wireId": 1660448199,
+    "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/1",
     "requestCodec": "gpu-request-adapter-service-request-v1",
     "requestCodecTag": 2,
     "completionCodec": "nullable-gpu-adapter-service-completion-v1",
@@ -25,8 +27,92 @@
   },
   "vectors": [
     {
+      "id": "request-adapter-default",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 1660448199,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "0",
+          "logical_device_generation": "0",
+          "provider_generation": "0"
+        },
+        "provider_generation": "0",
+        "operation_instance_id": "11",
+        "promise_id": "7",
+        "captured_scope_id": "0",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "0",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 1,
+          "flags": 0,
+          "object_id": "23",
+          "object_generation": "4"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "bytesHex": "4942475101000200c76df8620117000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000007030000000c000000666561747572654c6576656c0504000000636f726514000000666f72636546616c6c6261636b41646170746572010c0000007872436f6d70617469626c6501",
+      "expected": {
+        "receiver": {
+          "kind": "GPU",
+          "objectId": "23",
+          "objectGeneration": "4",
+          "logicalDeviceId": "0",
+          "logicalDeviceGeneration": "0",
+          "providerGeneration": "0"
+        },
+        "target": null,
+        "capturedScopeId": "0",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "0",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "forceFallbackAdapter": false,
+          "featureLevel": "core",
+          "xrCompatible": false
+        }
+      }
+    },
+    {
       "id": "request-adapter-high-performance",
       "kind": "request",
+      "carrierProjection": {
+        "operation_id": 1660448199,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "0",
+          "logical_device_generation": "0",
+          "provider_generation": "0"
+        },
+        "provider_generation": "0",
+        "operation_instance_id": "11",
+        "promise_id": "7",
+        "captured_scope_id": "0",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "0",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 1,
+          "flags": 0,
+          "object_id": "23",
+          "object_generation": "4"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
       "bytesHex": "4942475101000200c76df8620117000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000007040000000c000000666561747572654c6576656c0504000000636f726514000000666f72636546616c6c6261636b41646170746572010f000000706f776572507265666572656e63650510000000686967682d706572666f726d616e63650c0000007872436f6d70617469626c6501",
       "expected": {
         "receiver": {
@@ -52,14 +138,119 @@
       }
     },
     {
+      "id": "request-adapter-compatibility-low-power",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 1660448199,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "0",
+          "logical_device_generation": "0",
+          "provider_generation": "0"
+        },
+        "provider_generation": "0",
+        "operation_instance_id": "11",
+        "promise_id": "7",
+        "captured_scope_id": "0",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "0",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 1,
+          "flags": 0,
+          "object_id": "23",
+          "object_generation": "4"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "bytesHex": "4942475101000200c76df8620117000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000007040000000c000000666561747572654c6576656c050d000000636f6d7061746962696c69747914000000666f72636546616c6c6261636b41646170746572020f000000706f776572507265666572656e636505090000006c6f772d706f7765720c0000007872436f6d70617469626c6502",
+      "expected": {
+        "receiver": {
+          "kind": "GPU",
+          "objectId": "23",
+          "objectGeneration": "4",
+          "logicalDeviceId": "0",
+          "logicalDeviceGeneration": "0",
+          "providerGeneration": "0"
+        },
+        "target": null,
+        "capturedScopeId": "0",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "0",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "forceFallbackAdapter": true,
+          "featureLevel": "compatibility",
+          "xrCompatible": true,
+          "powerPreference": "low-power"
+        }
+      }
+    },
+    {
       "id": "request-adapter-object-result",
       "kind": "result",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 3,
+            "status": 0,
+            "operation": {
+              "operation_id": 1660448199,
+              "operation_instance_id": "11",
+              "promise_id": "7",
+              "provider_admission": 1,
+              "physical_sequence": "5",
+              "captured_scope_id": "0",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "0",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "0",
+                "logical_device_generation": "0",
+                "provider_generation": "0"
+              },
+              "result_device": {
+                "logical_device_id": "0",
+                "logical_device_generation": "0",
+                "provider_generation": "0"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 1,
+                "flags": 0,
+                "object_id": "23",
+                "object_generation": "4"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
       "event": {
+        "kind": 1,
         "operationId": 1660448199,
         "resultKind": 3,
+        "status": 0,
         "providerAdmission": 1,
         "physicalSequence": "5",
         "deviceTransition": 0,
+        "ingressLogicalDeviceId": "0",
+        "ingressLogicalDeviceGeneration": "0",
+        "ingressProviderGeneration": "0",
         "logicalDeviceId": "0",
         "logicalDeviceGeneration": "0",
         "providerGeneration": "0",
@@ -79,16 +270,133 @@
     {
       "id": "request-adapter-null-result",
       "kind": "result",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 2,
+            "status": 0,
+            "operation": {
+              "operation_id": 1660448199,
+              "operation_instance_id": "11",
+              "promise_id": "7",
+              "provider_admission": 1,
+              "physical_sequence": "5",
+              "captured_scope_id": "0",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "0",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "0",
+                "logical_device_generation": "0",
+                "provider_generation": "0"
+              },
+              "result_device": {
+                "logical_device_id": "0",
+                "logical_device_generation": "0",
+                "provider_generation": "0"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 1,
+                "flags": 0,
+                "object_id": "23",
+                "object_generation": "4"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
       "event": {
+        "kind": 1,
         "operationId": 1660448199,
         "resultKind": 2,
+        "status": 0,
         "providerAdmission": 1,
         "physicalSequence": "5",
         "deviceTransition": 0,
+        "ingressLogicalDeviceId": "0",
+        "ingressLogicalDeviceGeneration": "0",
+        "ingressProviderGeneration": "0",
         "logicalDeviceId": "0",
         "logicalDeviceGeneration": "0",
         "providerGeneration": "0",
         "operationProviderGeneration": "9"
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "null"
+      }
+    },
+    {
+      "id": "request-adapter-not-admitted-null-result",
+      "kind": "result",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 2,
+            "status": 0,
+            "operation": {
+              "operation_id": 1660448199,
+              "operation_instance_id": "11",
+              "promise_id": "7",
+              "provider_admission": 0,
+              "physical_sequence": "0",
+              "captured_scope_id": "0",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "0",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "0",
+                "logical_device_generation": "0",
+                "provider_generation": "0"
+              },
+              "result_device": {
+                "logical_device_id": "0",
+                "logical_device_generation": "0",
+                "provider_generation": "0"
+              },
+              "provider_generation": "0",
+              "receiver": {
+                "kind": 1,
+                "flags": 0,
+                "object_id": "23",
+                "object_generation": "4"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "event": {
+        "kind": 1,
+        "operationId": 1660448199,
+        "resultKind": 2,
+        "status": 0,
+        "providerAdmission": 0,
+        "physicalSequence": "0",
+        "deviceTransition": 0,
+        "ingressLogicalDeviceId": "0",
+        "ingressLogicalDeviceGeneration": "0",
+        "ingressProviderGeneration": "0",
+        "logicalDeviceId": "0",
+        "logicalDeviceGeneration": "0",
+        "providerGeneration": "0",
+        "operationProviderGeneration": "0"
       },
       "bytesHex": "",
       "expected": {

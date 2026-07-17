@@ -17,11 +17,11 @@ import crypto from "node:crypto";
 import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  projection: "0c9087d350f3ee683e0cc6ff62438faf9f0fd158baa43e48ebcb01ec0c866249",
+  projection: "23487decb740812135f6b310118c8e87bdce9bcf82e1c78e34637f5c7f2e04ff",
   operationSet: "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
   semanticProgramSet: "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
   runtimeRouting: "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-  webgpuCVocabulary: "99e66bfda21c162810c2da99f7b9bc91d1780c976020e1d2b0772c36c6c4d654",
+  webgpuCVocabulary: "1ac6b5c6d3bd938317fee5c11f03ea195f85536e442b09a386b6f420d5a23290",
 });
 
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
@@ -91,6 +91,468 @@ function assertDigest(actual, expected, label) {
   assert(actual === expected, label + " digest drifted (got " + actual + ")");
 }
 
+function assertCanonical(actual, expected, label) {
+  assert(canonicalJson(actual) === canonicalJson(expected), label + " drifted");
+}
+
+function validateNativeCodecPrograms(payload) {
+  const envelope = payload.wireEnvelope;
+  const program = envelope?.nativeCodecPrograms;
+  assert(
+    program?.schema === "ibex/webgpu-native-codec-programs/1" &&
+      program.disposition ===
+        "request-adapter-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+    "native codec program identity or disposition drifted",
+  );
+  assertCanonical(
+    program.dispatch,
+    {
+      carrierPath: "ExactGpuSemanticCallV2.operation_id",
+      payloadOperationWireIdRole:
+        "constant-and-equality-check-only-never-dispatch",
+      payloadCodecTagRole:
+        "route-selected-constant-and-equality-check-only-never-dispatch",
+    },
+    "native codec dispatch authority",
+  );
+  assertCanonical(
+    program.scope,
+    {
+      request:
+        "service-request-payload-decoder-plus-operation-specific-call-joins",
+      completion:
+        "service-completion-payload-codec-plus-operation-specific-event-joins",
+      excluded:
+        "full-call-or-event-construction-and-global-v2-carrier-validation",
+    },
+    "native codec program scope",
+  );
+  assertCanonical(
+    program.carrierValidationDependency,
+    {
+      authority: "ExactGpuSemanticCallV2-and-ExactGpuServiceEventV2",
+      requestStructuralValidationMustPrecede:
+        "native-request-payload-decode",
+      requestStatefulValidationMustPrecede:
+        "semantic-execution-and-provider-admission",
+      completionEncoderRequires:
+        "authenticated-retained-call-plus-service-owned-operation-result",
+      completionValidationMustPrecede:
+        "completion-payload-decode-and-wrapper-exposure",
+      globallyOwnedCarrierInvariants: [
+        "exact-struct-size-abi-version-flags-reserved-and-payload-bounds",
+        "valid-realm-account-topology-and-authority-context",
+        "retained-operation-instance-promise-scope-ordinals-receiver-target-correlation",
+        "valid-provider-admission-physical-sequence-and-device-transition-provenance",
+        "result-kind-record-size-status-and-payload-shape",
+      ],
+      programOwns:
+        "selected-payload-layout-plus-operation-specific-carrier-joins-and-constraints-only",
+    },
+    "native codec carrier-validation dependency",
+  );
+  assertCanonical(
+    program.constants,
+    { providerTopologyId: payload.providerDescriptor.topologyId },
+    "native codec constants",
+  );
+  assertCanonical(
+    program.primitiveEncodings,
+    {
+      ascii4: { widthBytes: 4, encoding: "ascii" },
+      u8: { widthBytes: 1, encoding: "unsigned-integer" },
+      u16le: {
+        widthBytes: 2,
+        encoding: "unsigned-integer",
+        byteOrder: "little-endian",
+      },
+      u32le: {
+        widthBytes: 4,
+        encoding: "unsigned-integer",
+        byteOrder: "little-endian",
+      },
+      u64le: {
+        widthBytes: 8,
+        encoding: "unsigned-integer",
+        byteOrder: "little-endian",
+      },
+      f64le: {
+        widthBytes: 8,
+        encoding: "ieee754-binary64",
+        byteOrder: "little-endian",
+        constraints: ["finite"],
+      },
+      utf8: {
+        kind: "length-prefixed-bytes",
+        lengthType: "u32le",
+        encoding: "utf8",
+        constraints: ["well-formed"],
+      },
+    },
+    "native codec primitive encodings",
+  );
+
+  const types = program.types;
+  assertCanonical(
+    Object.keys(types || {}).sort(),
+    [
+      "canonicalValueV1",
+      "headerV1",
+      "objectReferenceV1",
+      "optionalReferenceV1",
+      "requestAdapterOptionsV1",
+    ],
+    "native codec type inventory",
+  );
+  assertCanonical(
+    types.headerV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "magic", type: "ascii4" },
+        { name: "version", type: "u16le" },
+        { name: "codecTag", type: "u16le" },
+        { name: "operationWireId", type: "u32le" },
+      ],
+    },
+    "native codec header type",
+  );
+  assertCanonical(
+    types.objectReferenceV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "kind", type: "u8", catalog: "objectKindTags" },
+        { name: "objectId", type: "u64le" },
+        { name: "objectGeneration", type: "u64le" },
+        { name: "logicalDeviceId", type: "u64le" },
+        { name: "logicalDeviceGeneration", type: "u64le" },
+        { name: "providerGeneration", type: "u64le" },
+      ],
+    },
+    "native codec object-reference type",
+  );
+  assertCanonical(
+    types.optionalReferenceV1,
+    {
+      kind: "optional",
+      discriminantType: "u8",
+      absentTag: 0,
+      presentTag: 1,
+      valueType: "objectReferenceV1",
+    },
+    "native codec optional-reference type",
+  );
+  assertCanonical(
+    types.canonicalValueV1,
+    {
+      kind: "recursive-tagged-union",
+      tagType: "u8",
+      maxDepthFrom: "codecLayout.nestingMaxDepth",
+      rootDepth: 0,
+      depthLimitOperator: "less-than-or-equal",
+      variants: [
+        { name: "null", tag: envelope.codecLayout.valueTags.null, payload: { kind: "empty" } },
+        { name: "false", tag: envelope.codecLayout.valueTags.false, payload: { kind: "empty" } },
+        { name: "true", tag: envelope.codecLayout.valueTags.true, payload: { kind: "empty" } },
+        { name: "u32", tag: envelope.codecLayout.valueTags.u32, payload: { kind: "scalar", type: "u32le" } },
+        { name: "f64", tag: envelope.codecLayout.valueTags.f64, payload: { kind: "scalar", type: "f64le" } },
+        { name: "string", tag: envelope.codecLayout.valueTags.string, payload: { kind: "scalar", type: "utf8" } },
+        {
+          name: "sequence",
+          tag: envelope.codecLayout.valueTags.sequence,
+          payload: {
+            kind: "sequence",
+            countType: "u32le",
+            elementType: "canonicalValueV1",
+            maxCountFrom: "codecLayout.sequenceMaxCount",
+            countLimitOperator: "less-than-or-equal",
+          },
+        },
+        {
+          name: "dictionary",
+          tag: envelope.codecLayout.valueTags.dictionary,
+          payload: {
+            kind: "dictionary",
+            countType: "u32le",
+            keyType: "utf8",
+            valueType: "canonicalValueV1",
+            maxCountFrom: "codecLayout.dictionaryMaxFields",
+            countLimitOperator: "less-than-or-equal",
+            keyConstraints: [
+              "unique",
+              "strictly-increasing-unsigned-utf8-bytes-shorter-prefix-first",
+            ],
+          },
+        },
+      ],
+    },
+    "native canonical-value type",
+  );
+  assertCanonical(
+    types.requestAdapterOptionsV1,
+    {
+      kind: "closed-dictionary",
+      encodingType: "canonicalValueV1",
+      unknownFields: "reject",
+      fields: [
+        {
+          name: "featureLevel",
+          required: true,
+          value: { kind: "string-enum", values: ["core", "compatibility"] },
+        },
+        {
+          name: "forceFallbackAdapter",
+          required: true,
+          value: { kind: "boolean" },
+        },
+        {
+          name: "powerPreference",
+          required: false,
+          value: {
+            kind: "string-enum",
+            values: ["low-power", "high-performance"],
+          },
+        },
+        {
+          name: "xrCompatible",
+          required: true,
+          value: { kind: "boolean" },
+        },
+      ],
+      preEncodingBranches: [
+        {
+          condition: "featureLevel-not-core-or-compatibility",
+          disposition: "wrapper-local-null-no-service-call",
+        },
+      ],
+    },
+    "native requestAdapter option type",
+  );
+
+  assert(Array.isArray(program.routes) && program.routes.length === 1,
+    "native codec program must contain exactly one route");
+  const route = program.routes[0];
+  const operation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPU.requestAdapter",
+  );
+  assert(
+    operation && route.operationId === operation.operationId &&
+      route.wireId === operation.wireId,
+    "native requestAdapter operation identity drifted",
+  );
+  const requestCatalogIndex = payload.codecCatalog.serviceArguments.findIndex(
+    (codec) => codec.tag === operation.serviceArgumentCodec,
+  );
+  const completionCatalogIndex = payload.codecCatalog.serviceCompletions.findIndex(
+    (codec) => codec.tag === operation.serviceCompletionCodec,
+  );
+  assertCanonical(
+    route.request.catalog,
+    {
+      name: "serviceArguments",
+      tag: operation.serviceArgumentCodec,
+      wireTag: requestCatalogIndex + 1,
+    },
+    "native requestAdapter request catalog selection",
+  );
+  assert(
+    route.request.payloadRole ===
+      "service-request-payload-decoder-plus-operation-specific-call-joins",
+    "native requestAdapter request payload role drifted",
+  );
+  assertCanonical(
+    route.completion.catalog,
+    {
+      name: "serviceCompletions",
+      tag: operation.serviceCompletionCodec,
+      wireTag: completionCatalogIndex + 1,
+    },
+    "native requestAdapter completion catalog selection",
+  );
+  assert(
+    route.completion.payloadRole ===
+      "service-completion-payload-codec-plus-operation-specific-event-joins",
+    "native requestAdapter completion payload role drifted",
+  );
+  assertCanonical(
+    route.request.payload,
+    {
+      kind: "struct",
+      fields: [
+        {
+          name: "header",
+          type: "headerV1",
+          constants: {
+            magic: envelope.codecLayout.requestMagic,
+            version: envelope.codecLayout.version,
+            codecTag: requestCatalogIndex + 1,
+            operationWireId: operation.wireId,
+          },
+        },
+        { name: "receiver", type: "objectReferenceV1" },
+        { name: "target", type: "optionalReferenceV1" },
+        { name: "capturedScopeId", type: "u64le" },
+        { name: "adapterOrdinal", type: "u64le" },
+        { name: "deviceIngressOrdinal", type: "u64le" },
+        { name: "queueIngressOrdinal", type: "u64le" },
+        { name: "sealedLocalTimeline", type: "canonicalValueV1" },
+        {
+          name: "convertedArguments",
+          type: "canonicalValueV1",
+          constraintType: "requestAdapterOptionsV1",
+        },
+      ],
+    },
+    "native requestAdapter request layout",
+  );
+  assertCanonical(
+    route.request.carrierJoins,
+    [
+      ["header.operationWireId", "operation_id", "equal"],
+      ["receiver.kind", "receiver.kind", "equal"],
+      ["receiver.objectId", "receiver.object_id", "equal"],
+      ["receiver.objectGeneration", "receiver.object_generation", "equal"],
+      ["receiver.logicalDeviceId", "ingress_device.logical_device_id", "equal"],
+      ["receiver.logicalDeviceGeneration", "ingress_device.logical_device_generation", "equal"],
+      ["receiver.providerGeneration", "ingress_device.provider_generation", "equal"],
+      ["receiver.providerGeneration", "provider_generation", "equal"],
+      ["target", "target", "absent-iff-all-zero-reference"],
+      ["capturedScopeId", "captured_scope_id", "equal"],
+      ["adapterOrdinal", "adapter_ordinal", "equal"],
+      ["deviceIngressOrdinal", "device_ingress_ordinal", "equal"],
+      ["queueIngressOrdinal", "queue_ingress_ordinal", "equal"],
+    ].map(([payloadPath, carrierPath, operator]) => ({
+      payloadPath,
+      carrierPath,
+      operator,
+    })),
+    "native requestAdapter carrier joins",
+  );
+  assertCanonical(
+    route.request.carrierConstraints,
+    [
+      { carrierPath: "operation_id", operator: "equal", value: operation.wireId },
+      { carrierPath: "flags", operator: "equal", value: 0 },
+      {
+        carrierPath: "topology_id",
+        operator: "equal",
+        valueFrom: "constants.providerTopologyId",
+      },
+      { carrierPath: "ingress_device", operator: "all-zero" },
+      { carrierPath: "provider_generation", operator: "equal", value: "0" },
+      { carrierPath: "operation_instance_id", operator: "positive" },
+      { carrierPath: "promise_id", operator: "positive" },
+      { carrierPath: "receiver.kind", operator: "equal", valueFrom: "objectKindTags.GPU" },
+      { carrierPath: "receiver.flags", operator: "equal", value: 0 },
+      { carrierPath: "receiver.object_id", operator: "positive" },
+      { carrierPath: "receiver.object_generation", operator: "positive" },
+      { carrierPath: "target", operator: "all-zero" },
+      { carrierPath: "captured_scope_id", operator: "equal", value: "0" },
+      { carrierPath: "adapter_ordinal", operator: "equal", value: "0" },
+      { carrierPath: "device_ingress_ordinal", operator: "equal", value: "0" },
+      { carrierPath: "queue_ingress_ordinal", operator: "equal", value: "0" },
+    ],
+    "native requestAdapter carrier constraints",
+  );
+  assertCanonical(
+    route.request.valueConstraints,
+    [
+      { payloadPath: "sealedLocalTimeline", operator: "exact-empty-sequence" },
+      {
+        payloadPath: "convertedArguments",
+        operator: "conforms-to-type",
+        type: "requestAdapterOptionsV1",
+      },
+    ],
+    "native requestAdapter value constraints",
+  );
+  assert(route.request.noTrailingBytes === true,
+    "native requestAdapter request must reject trailing bytes");
+  assertCanonical(
+    route.completion.commonCarrierConstraints,
+    [
+      {
+        carrierPath: "kind",
+        operator: "equal",
+        value: 1,
+        symbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+      },
+      {
+        carrierPath: "record.operation_result.status",
+        operator: "equal",
+        value: 0,
+      },
+      {
+        carrierPath: "record.operation_result.operation.operation_id",
+        operator: "equal",
+        value: operation.wireId,
+      },
+      {
+        carrierPath: "record.operation_result.operation.device_transition",
+        operator: "equal",
+        value: 0,
+        symbol: "EXACT_GPU_DEVICE_UNCHANGED_V2",
+      },
+      {
+        carrierPath: "record.operation_result.operation.ingress_device",
+        operator: "all-zero",
+      },
+      {
+        carrierPath: "record.operation_result.operation.result_device",
+        operator: "all-zero",
+      },
+    ],
+    "native requestAdapter completion carrier constraints",
+  );
+  assertCanonical(
+    route.completion.variants,
+    [
+      {
+        name: "null",
+        resultKind: 2,
+        resultKindSymbol: "EXACT_GPU_RESULT_NULL_V2",
+        payload: { kind: "empty", exactLengthBytes: 0 },
+      },
+      {
+        name: "object",
+        resultKind: 3,
+        resultKindSymbol: "EXACT_GPU_RESULT_OBJECT_V2",
+        objectKind: "GPUAdapter",
+        payload: {
+          kind: "struct",
+          fields: [
+            {
+              name: "header",
+              type: "headerV1",
+              constants: {
+                magic: envelope.codecLayout.resultMagic,
+                version: envelope.codecLayout.version,
+                codecTag: completionCatalogIndex + 1,
+                operationWireId: operation.wireId,
+              },
+            },
+            { name: "present", type: "u8", constant: 1 },
+            { name: "objectId", type: "u64le", constraint: "positive" },
+            { name: "objectGeneration", type: "u64le", constraint: "positive" },
+            { name: "providerGeneration", type: "u64le", constraint: "positive" },
+          ],
+        },
+        carrierJoins: [
+          {
+            payloadPath: "providerGeneration",
+            carrierPath:
+              "record.operation_result.operation.provider_generation",
+            operator: "equal",
+          },
+        ],
+        noTrailingBytes: true,
+      },
+    ],
+    "native requestAdapter completion variants",
+  );
+}
+
 export function validateWebGpuWrapperAuthority(authority) {
   assert(authority?.schema === "ibex/webgpu-test-wrapper-authority/1", "unknown schema");
   assert(authority.status === "test-only-no-runtime-install", "fixture must remain test-only");
@@ -121,6 +583,17 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.actualRuntimeInstall === "not-installed", "runtime install claim changed");
   assert(payload.claims?.publicGlobalStatus === "not-installed", "public global claim changed");
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
+  assert(
+    payload.claims?.wireCodecStatus ===
+      "generated-injection-and-request-adapter-payload-codegen-input-only-native-codec-not-installed",
+    "wire codec readiness claim drifted",
+  );
+  assert(
+    payload.claims?.nativeServiceDecoderStatus === "not-installed" &&
+      payload.claims?.semanticServiceStatus === "not-installed" &&
+      payload.claims?.embeddedCodecStatus === "undefined",
+    "native decoder, semantic service, or embedded codec claim changed",
+  );
   assert(
     payload.installInventory?.actualInstalledOperationCount === 0,
     "fixture claims installed operations",
@@ -165,6 +638,7 @@ export function validateWebGpuWrapperAuthority(authority) {
       }),
     "authenticated executable codec layout drifted",
   );
+  validateNativeCodecPrograms(payload);
 
   const operations = payload.operations;
   assert(Array.isArray(operations) && operations.length === 25, "operation inventory must have 25 rows");

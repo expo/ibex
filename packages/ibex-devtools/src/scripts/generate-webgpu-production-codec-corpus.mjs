@@ -82,79 +82,157 @@ function buildCorpus() {
   ) {
     fail(`${operationId} is not an executable generated codec route`);
   }
-
-  const convertedArguments =
-    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
-      operationId,
-      [
-        Object.freeze({
-          powerPreference: "high-performance",
-          forceFallbackAdapter: false,
-        }),
-      ],
-      Object.freeze({
-        reference() {
-          fail("requestAdapter conversion must not inspect a wrapper reference");
-        },
-      }),
-    );
-  const expectedConvertedArguments = Object.freeze({
-    forceFallbackAdapter: false,
-    featureLevel: "core",
-    xrCompatible: false,
-    powerPreference: "high-performance",
-  });
+  const nativeRoute = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes
+    .find((candidate) => candidate.operationId === operationId);
   if (
-    canonicalJson(convertedArguments) !==
-    canonicalJson(expectedConvertedArguments)
+    !nativeRoute ||
+    nativeRoute.wireId !== route.wireId ||
+    nativeRoute.request.catalog.tag !== requestCodec.tag ||
+    nativeRoute.request.catalog.wireTag !== requestCodec.wireTag ||
+    nativeRoute.completion.catalog.tag !== completionCodec.tag ||
+    nativeRoute.completion.catalog.wireTag !== completionCodec.wireTag
   ) {
-    fail("requestAdapter WebIDL default projection drifted");
+    fail("requestAdapter native codegen program does not select the generated route");
   }
 
-  const request = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-    Object.freeze({
-      operationId,
-      wireId: route.wireId,
-      convertedArguments,
-      receiver: Object.freeze({
-        kind: "GPU",
-        objectId: "23",
-        objectGeneration: "4",
-        logicalDeviceId: "0",
-        logicalDeviceGeneration: "0",
-        providerGeneration: "0",
+  const wrapperAccess = Object.freeze({
+    reference() {
+      fail("requestAdapter conversion must not inspect a wrapper reference");
+    },
+  });
+  const receiver = Object.freeze({
+    kind: "GPU",
+    objectId: "23",
+    objectGeneration: "4",
+    logicalDeviceId: "0",
+    logicalDeviceGeneration: "0",
+    providerGeneration: "0",
+  });
+  const zeroDevice = Object.freeze({
+    logical_device_id: "0",
+    logical_device_generation: "0",
+    provider_generation: "0",
+  });
+  const requestCarrier = Object.freeze({
+    operation_id: route.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: zeroDevice,
+    provider_generation: "0",
+    operation_instance_id: "11",
+    promise_id: "7",
+    captured_scope_id: "0",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: "0",
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPU,
+      flags: 0,
+      object_id: "23",
+      object_generation: "4",
+    }),
+    target: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.None,
+      flags: 0,
+      object_id: "0",
+      object_generation: "0",
+    }),
+  });
+  const requestVector = (id, options, expectedConvertedArguments) => {
+    const convertedArguments =
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        operationId,
+        [options],
+        wrapperAccess,
+      );
+    if (
+      canonicalJson(convertedArguments) !==
+      canonicalJson(expectedConvertedArguments)
+    ) {
+      fail(`${id} WebIDL projection drifted`);
+    }
+    const bytes = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
+      Object.freeze({
+        operationId,
+        wireId: route.wireId,
+        convertedArguments,
+        receiver,
+        capturedScopeId: "0",
+        adapterOrdinal: "0",
+        deviceIngressOrdinal: "0",
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline: Object.freeze([]),
       }),
+    );
+    const expected = {
+      receiver,
+      target: null,
       capturedScopeId: "0",
       adapterOrdinal: "0",
       deviceIngressOrdinal: "0",
       queueIngressOrdinal: "0",
-      sealedLocalTimeline: Object.freeze([]),
+      sealedLocalTimeline: [],
+      convertedArguments: expectedConvertedArguments,
+    };
+    const inspected =
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(bytes);
+    if (
+      canonicalJson(inspected) !==
+      canonicalJson({
+        operationId,
+        codec: requestCodec.tag,
+        ...expected,
+      })
+    ) {
+      fail(`${id} generated request does not round-trip through inspection`);
+    }
+    return {
+      id,
+      kind: "request",
+      carrierProjection: requestCarrier,
+      bytesHex: toHex(bytes),
+      expected,
+    };
+  };
+  const defaultRequest = requestVector(
+    "request-adapter-default",
+    undefined,
+    Object.freeze({
+      forceFallbackAdapter: false,
+      featureLevel: "core",
+      xrCompatible: false,
     }),
   );
-  const inspected =
-    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(request);
-  const expectedInspected = {
-    operationId,
-    codec: requestCodec.tag,
-    receiver: {
-      kind: "GPU",
-      objectId: "23",
-      objectGeneration: "4",
-      logicalDeviceId: "0",
-      logicalDeviceGeneration: "0",
-      providerGeneration: "0",
-    },
-    target: null,
-    capturedScopeId: "0",
-    adapterOrdinal: "0",
-    deviceIngressOrdinal: "0",
-    queueIngressOrdinal: "0",
-    sealedLocalTimeline: [],
-    convertedArguments: expectedConvertedArguments,
-  };
-  if (canonicalJson(inspected) !== canonicalJson(expectedInspected)) {
-    fail("requestAdapter generated request does not round-trip through inspection");
-  }
+  const highPerformanceRequest = requestVector(
+    "request-adapter-high-performance",
+    Object.freeze({
+      powerPreference: "high-performance",
+      forceFallbackAdapter: false,
+    }),
+    Object.freeze({
+      forceFallbackAdapter: false,
+      featureLevel: "core",
+      xrCompatible: false,
+      powerPreference: "high-performance",
+    }),
+  );
+  const compatibilityRequest = requestVector(
+    "request-adapter-compatibility-low-power",
+    Object.freeze({
+      featureLevel: "compatibility",
+      powerPreference: "low-power",
+      forceFallbackAdapter: true,
+      xrCompatible: true,
+    }),
+    Object.freeze({
+      forceFallbackAdapter: true,
+      featureLevel: "compatibility",
+      xrCompatible: true,
+      powerPreference: "low-power",
+    }),
+  );
 
   const objectResult =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(operationId, {
@@ -168,11 +246,16 @@ function buildCorpus() {
       kind: "null",
     });
   const objectResultEvent = Object.freeze({
+    kind: 1,
     operationId: route.wireId,
     resultKind: 3,
+    status: 0,
     providerAdmission: 1,
     physicalSequence: "5",
     deviceTransition: 0,
+    ingressLogicalDeviceId: "0",
+    ingressLogicalDeviceGeneration: "0",
+    ingressProviderGeneration: "0",
     logicalDeviceId: "0",
     logicalDeviceGeneration: "0",
     providerGeneration: "0",
@@ -180,16 +263,58 @@ function buildCorpus() {
     payload: objectResult,
   });
   const nullResultEvent = Object.freeze({
+    kind: 1,
     operationId: route.wireId,
     resultKind: 2,
+    status: 0,
     providerAdmission: 1,
     physicalSequence: "5",
     deviceTransition: 0,
+    ingressLogicalDeviceId: "0",
+    ingressLogicalDeviceGeneration: "0",
+    ingressProviderGeneration: "0",
     logicalDeviceId: "0",
     logicalDeviceGeneration: "0",
     providerGeneration: "0",
     operationProviderGeneration: "9",
     payload: nullResult,
+  });
+  const notAdmittedNullResultEvent = Object.freeze({
+    ...nullResultEvent,
+    providerAdmission: 0,
+    physicalSequence: "0",
+    operationProviderGeneration: "0",
+  });
+  const resultCarrierProjection = (
+    resultKind,
+    providerAdmission = 1,
+    physicalSequence = "5",
+    providerGeneration = "9",
+  ) => ({
+    kind: 1,
+    record: {
+      operation_result: {
+        result_kind: resultKind,
+        status: 0,
+        operation: {
+          operation_id: route.wireId,
+          operation_instance_id: "11",
+          promise_id: "7",
+          provider_admission: providerAdmission,
+          physical_sequence: physicalSequence,
+          captured_scope_id: "0",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "0",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: zeroDevice,
+          result_device: zeroDevice,
+          provider_generation: providerGeneration,
+          receiver: requestCarrier.receiver,
+          target: requestCarrier.target,
+        },
+      },
+    },
   });
   const decodedObject =
     WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
@@ -200,6 +325,11 @@ function buildCorpus() {
     operationId,
     nullResultEvent,
   );
+  const decodedNotAdmittedNull =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      operationId,
+      notAdmittedNullResultEvent,
+    );
   if (
     canonicalJson(decodedObject) !==
       canonicalJson({
@@ -211,7 +341,8 @@ function buildCorpus() {
           providerGeneration: "9",
         },
       }) ||
-    canonicalJson(decodedNull) !== canonicalJson({ kind: "null" })
+    canonicalJson(decodedNull) !== canonicalJson({ kind: "null" }) ||
+    canonicalJson(decodedNotAdmittedNull) !== canonicalJson({ kind: "null" })
   ) {
     fail("requestAdapter generated result does not join event provenance");
   }
@@ -231,10 +362,12 @@ function buildCorpus() {
   );
 
   return {
-    schema: "ibex/webgpu-production-codec-corpus/1",
+    schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-conformance-no-native-install-claim",
+      "generated-language-neutral-request-adapter-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
+    carrierProjectionScope:
+      "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
     source: {
       manifestPath,
       manifestSha256: sha256(manifestBytes),
@@ -245,43 +378,32 @@ function buildCorpus() {
     operation: {
       operationId,
       wireId: route.wireId,
+      nativeCodecProgramSchema:
+        WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
       requestCodec: requestCodec.tag,
       requestCodecTag: requestCodec.wireTag,
       completionCodec: completionCodec.tag,
       completionCodecTag: completionCodec.wireTag,
     },
     vectors: [
-      {
-        id: "request-adapter-high-performance",
-        kind: "request",
-        bytesHex: toHex(request),
-        expected: {
-          receiver: {
-            kind: "GPU",
-            objectId: "23",
-            objectGeneration: "4",
-            logicalDeviceId: "0",
-            logicalDeviceGeneration: "0",
-            providerGeneration: "0",
-          },
-          target: null,
-          capturedScopeId: "0",
-          adapterOrdinal: "0",
-          deviceIngressOrdinal: "0",
-          queueIngressOrdinal: "0",
-          sealedLocalTimeline: [],
-          convertedArguments: expectedConvertedArguments,
-        },
-      },
+      defaultRequest,
+      highPerformanceRequest,
+      compatibilityRequest,
       {
         id: "request-adapter-object-result",
         kind: "result",
+        carrierProjection: resultCarrierProjection(3),
         event: {
+          kind: 1,
           operationId: route.wireId,
           resultKind: 3,
+          status: 0,
           providerAdmission: 1,
           physicalSequence: "5",
           deviceTransition: 0,
+          ingressLogicalDeviceId: "0",
+          ingressLogicalDeviceGeneration: "0",
+          ingressProviderGeneration: "0",
           logicalDeviceId: "0",
           logicalDeviceGeneration: "0",
           providerGeneration: "0",
@@ -301,16 +423,45 @@ function buildCorpus() {
       {
         id: "request-adapter-null-result",
         kind: "result",
+        carrierProjection: resultCarrierProjection(2),
         event: {
+          kind: 1,
           operationId: route.wireId,
           resultKind: 2,
+          status: 0,
           providerAdmission: 1,
           physicalSequence: "5",
           deviceTransition: 0,
+          ingressLogicalDeviceId: "0",
+          ingressLogicalDeviceGeneration: "0",
+          ingressProviderGeneration: "0",
           logicalDeviceId: "0",
           logicalDeviceGeneration: "0",
           providerGeneration: "0",
           operationProviderGeneration: "9",
+        },
+        bytesHex: toHex(nullResult),
+        expected: { kind: "null" },
+      },
+      {
+        id: "request-adapter-not-admitted-null-result",
+        kind: "result",
+        carrierProjection: resultCarrierProjection(2, 0, "0", "0"),
+        event: {
+          kind: 1,
+          operationId: route.wireId,
+          resultKind: 2,
+          status: 0,
+          providerAdmission: 0,
+          physicalSequence: "0",
+          deviceTransition: 0,
+          ingressLogicalDeviceId: "0",
+          ingressLogicalDeviceGeneration: "0",
+          ingressProviderGeneration: "0",
+          logicalDeviceId: "0",
+          logicalDeviceGeneration: "0",
+          providerGeneration: "0",
+          operationProviderGeneration: "0",
         },
         bytesHex: toHex(nullResult),
         expected: { kind: "null" },
