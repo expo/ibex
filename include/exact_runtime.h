@@ -136,8 +136,11 @@ typedef enum ExactGpuDeviceTransitionV2 {
     EXACT_GPU_DEVICE_UNCHANGED_V2 = 0,
     /// The authenticated semantic service assigned a new logical device for a
     /// requestDevice-class operation whose ingress identity was absent. This
-    /// is orthogonal to provider admission: an already-lost service-detached
-    /// result may be returned with NOT_ADMITTED and physical_sequence zero.
+    /// is orthogonal to provider admission. ASSIGNED + NOT_ADMITTED with an
+    /// OBJECT result is the self-contained service-detached already-lost
+    /// requestDevice form: physical_sequence is zero, no logical-device-loss
+    /// lifecycle record precedes it, and the wrapper settles the fresh
+    /// device's stable lost promise before resolving the outer receipt.
     EXACT_GPU_DEVICE_ASSIGNED_V2 = 1,
 } ExactGpuDeviceTransitionV2;
 
@@ -527,6 +530,11 @@ typedef struct ExactGpuRetireBatchV2 {
 } ExactGpuRetireBatchV2;
 
 typedef struct ExactGpuOperationResultRecordV2 {
+    /// ASSIGNED + NOT_ADMITTED + OBJECT is authenticated by the retained call
+    /// key and carries the complete operation-selected detached-device result
+    /// bytes. It is an operation terminal rather than a realm-lifetime
+    /// lifecycle tombstone; service-attached device loss continues to use
+    /// EXACT_GPU_SERVICE_EVENT_LOGICAL_DEVICE_LOST_V2.
     ExactGpuOperationProvenanceV2 operation;
     uint32_t result_kind;
     int32_t status;

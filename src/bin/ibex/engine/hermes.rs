@@ -645,9 +645,7 @@ extern "C" {
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_last_rejected_promise_id() -> u64;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
-    fn ibex_test_gpu_v2_last_raw_event_order() -> u64;
-    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
-    fn ibex_test_gpu_v2_last_logical_loss_order() -> u64;
+    fn ibex_test_gpu_v2_last_detached_loss_order() -> u64;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_last_device_lost_reaction_order() -> u64;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
@@ -694,6 +692,8 @@ extern "C" {
     fn ibex_test_gpu_v2_pending_receipts(runtime: *mut HermesRuntimeOpaque) -> usize;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_mailbox_submissions(runtime: *mut HermesRuntimeOpaque) -> usize;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_lifecycle_tombstones(runtime: *mut HermesRuntimeOpaque) -> usize;
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_submit(
         runtime: *mut HermesRuntimeOpaque,
@@ -6127,8 +6127,32 @@ cp \"$input\" \"$out\"\n";
         let assigned_error = gpu_v2_error_event(detached_device, 1, 0, -1, &[]);
         unsafe { assert_eq!(ibex_test_gpu_v2_validate_event(&assigned_error), 0) };
 
-        let canonical_loss =
+        let detached_lifecycle =
             gpu_v2_logical_loss_event(realm, account, device, 1, 1, Some(detached_device), &[]);
+        unsafe { assert_eq!(ibex_test_gpu_v2_validate_event(&detached_lifecycle), 0) };
+
+        let mut attached_loss_operation = detached_device;
+        attached_loss_operation.operation_id = 13;
+        attached_loss_operation.ingress_device = device;
+        attached_loss_operation.result_device = device;
+        attached_loss_operation.provider_admission = 1;
+        attached_loss_operation.device_transition = 0;
+        attached_loss_operation.physical_sequence = 1;
+        attached_loss_operation.receiver = ExactGpuObjectRefV2 {
+            kind: 3,
+            flags: 0,
+            object_id: 55,
+            object_generation: 1,
+        };
+        let canonical_loss = gpu_v2_logical_loss_event(
+            realm,
+            account,
+            device,
+            1,
+            2,
+            Some(attached_loss_operation),
+            &[],
+        );
         unsafe { assert_eq!(ibex_test_gpu_v2_validate_event(&canonical_loss), 1) };
         unsafe {
             assert_eq!(
@@ -6238,20 +6262,20 @@ cp \"$input\" \"$out\"\n";
             nonzero_snapshot
                 .record
                 .logical_device_lost
-                .last_accepted_physical_sequence = 1;
+                .last_accepted_physical_sequence = 0;
             assert_eq!(ibex_test_gpu_v2_validate_event(&nonzero_snapshot), 0);
         }
         let mut physical_reason = canonical_loss;
         unsafe {
             physical_reason.record.logical_device_lost.loss_reason = 3;
             physical_reason.record.logical_device_lost.backend_class = 4;
-            assert_eq!(ibex_test_gpu_v2_validate_event(&physical_reason), 0);
+            assert_eq!(ibex_test_gpu_v2_validate_event(&physical_reason), 1);
         }
         let mut restart_reason = canonical_loss;
         unsafe {
             restart_reason.record.logical_device_lost.loss_reason = 4;
             restart_reason.record.logical_device_lost.backend_class = 5;
-            assert_eq!(ibex_test_gpu_v2_validate_event(&restart_reason), 0);
+            assert_eq!(ibex_test_gpu_v2_validate_event(&restart_reason), 1);
         }
         let mut admitted_without_sequence = adapter;
         unsafe {
@@ -7119,22 +7143,6 @@ cp \"$input\" \"$out\"\n";
                     provider_generation: 9,
                 };
                 assigned.device_transition = 1;
-                let lost = gpu_v2_logical_loss_event(
-                    assigned.realm,
-                    assigned.account,
-                    assigned.result_device,
-                    1,
-                    1,
-                    Some(assigned),
-                    &[],
-                );
-                assert_eq!(deliver_gpu_v2_event(&lost), 1);
-                unsafe {
-                    assert_eq!(ibex_test_gpu_v2_device_loss_calls(), 0);
-                    assert_eq!(ibex_test_gpu_v2_resolve_calls(), 2);
-                    assert_eq!(ibex_test_gpu_v2_pending_receipts(raw), 1);
-                }
-
                 let mut result_payload = Vec::new();
                 result_payload.extend_from_slice(&3_u32.to_le_bytes());
                 result_payload.extend_from_slice(&55_u64.to_le_bytes());
@@ -7143,25 +7151,25 @@ cp \"$input\" \"$out\"\n";
                     gpu_v2_typed_result_event(assigned, 3, &result_payload);
                 assert_eq!(deliver_gpu_v2_event(&device_event), 1);
                 unsafe {
-                    // Both callbacks enter before one owner poll. FIFO raw
-                    // delivery must enqueue device.lost's reaction before the
-                    // outer requestDevice receipt reaction.
+                    // The self-contained detached result reaches the private
+                    // wrapper before the receipt is resolved. The wrapper can
+                    // therefore create the fresh unregistered GPUDevice and
+                    // enqueue its stable lost reaction first.
                     assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
-                    assert_eq!(ibex_test_gpu_v2_device_loss_calls(), 1);
+                    assert_eq!(ibex_test_gpu_v2_device_loss_calls(), 0);
                     assert_eq!(ibex_test_gpu_v2_resolve_calls(), 3);
-                    assert_eq!(ibex_test_gpu_v2_wrapper_event_calls(), 4);
+                    assert_eq!(ibex_test_gpu_v2_wrapper_event_calls(), 3);
                     assert_eq!(ibex_test_gpu_v2_pending_receipts(raw), 0);
-                    let loss_order = ibex_test_gpu_v2_last_logical_loss_order();
+                    assert_eq!(ibex_test_gpu_v2_lifecycle_tombstones(raw), 0);
+                    let loss_order = ibex_test_gpu_v2_last_detached_loss_order();
                     let loss_reaction_order =
                         ibex_test_gpu_v2_last_device_lost_reaction_order();
-                    let result_order = ibex_test_gpu_v2_last_raw_event_order();
                     let reaction_order =
                         ibex_test_gpu_v2_last_promise_reaction_order();
                     assert!(
-                        loss_order < result_order
-                            && result_order < loss_reaction_order
+                        loss_order < loss_reaction_order
                             && loss_reaction_order < reaction_order,
-                        "back-to-back callbacks must publish loss before result and run device.lost.then before requestDevice.then"
+                        "detached result delivery must run device.lost.then before requestDevice.then"
                     );
                 }
             })
@@ -7177,7 +7185,7 @@ cp \"$input\" \"$out\"\n";
         feature = "capsec-conformance-observer"
     ))]
     #[tokio::test(flavor = "current_thread")]
-    async fn gpu_v2_request_device_result_cannot_precede_its_loss_tombstone() {
+    async fn gpu_v2_detached_request_device_result_needs_no_lifecycle_tombstone() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_gpu_v2_test_host();
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
@@ -7215,13 +7223,95 @@ cp \"$input\" \"$out\"\n";
                 payload.extend_from_slice(&3_u32.to_le_bytes());
                 payload.extend_from_slice(&55_u64.to_le_bytes());
                 payload.extend_from_slice(&1_u64.to_le_bytes());
-                let result_first = gpu_v2_typed_result_event(assigned, 3, &payload);
-                assert_eq!(deliver_gpu_v2_event(&result_first), -1);
+                let detached_result = gpu_v2_typed_result_event(assigned, 3, &payload);
+                assert_eq!(deliver_gpu_v2_event(&detached_result), 1);
                 unsafe {
                     assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
                     assert_eq!(ibex_test_gpu_v2_device_loss_calls(), 0);
-                    assert_eq!(ibex_test_gpu_v2_resolve_calls(), 0);
-                    assert_eq!(ibex_test_gpu_v2_realm_reduction_calls(), 1);
+                    assert_eq!(ibex_test_gpu_v2_resolve_calls(), 1);
+                    assert_eq!(ibex_test_gpu_v2_realm_reduction_calls(), 0);
+                    assert_eq!(ibex_test_gpu_v2_lifecycle_tombstones(raw), 0);
+                    assert!(
+                        ibex_test_gpu_v2_last_detached_loss_order()
+                            < ibex_test_gpu_v2_last_device_lost_reaction_order()
+                    );
+                    assert!(
+                        ibex_test_gpu_v2_last_device_lost_reaction_order()
+                            < ibex_test_gpu_v2_last_promise_reaction_order()
+                    );
+                }
+            })
+            .unwrap();
+        drop(runtime);
+        drop(engine);
+        release_fake_gpu_v2_client();
+    }
+
+    #[cfg(all(
+        feature = "webgpu-binding",
+        feature = "gpu-bridge-test-hooks",
+        feature = "capsec-conformance-observer"
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn gpu_v2_more_than_lifecycle_budget_detached_results_do_not_quarantine() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_gpu_v2_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| {
+                finalize_fake_gpu_v2_runtime(raw, 0);
+                unsafe { assert_eq!(ibex_test_gpu_v2_install_event_observer(raw), 1) };
+                let mut identities = std::collections::HashSet::new();
+
+                for index in 0_u64..1_025 {
+                    let mut request_device = gpu_v2_template_call(11, 0, &[]);
+                    request_device.provider_generation = 9;
+                    request_device.receiver = ExactGpuObjectRefV2 {
+                        kind: 2,
+                        flags: 0,
+                        object_id: 70,
+                        object_generation: 1,
+                    };
+                    request_device.target = ExactGpuObjectRefV2::default();
+                    request_device.captured_scope_id = 0;
+                    request_device.adapter_ordinal = index + 1;
+                    request_device.device_ingress_ordinal = 0;
+                    request_device.queue_ingress_ordinal = 0;
+                    assert_eq!(
+                        submit_gpu_v2_test_call(raw, &request_device, true),
+                        (0, index + 1, index + 1)
+                    );
+                    let call =
+                        fake_gpu_v2_state().lock().unwrap().submit_calls[index as usize].call;
+                    let mut assigned = gpu_v2_provenance(&call, false, 0);
+                    let logical_device_id = 10_000 + index;
+                    assert!(identities.insert(logical_device_id));
+                    assigned.result_device = ExactGpuDeviceIdentityV2 {
+                        logical_device_id,
+                        logical_device_generation: 1,
+                        provider_generation: 9,
+                    };
+                    assigned.device_transition = 1;
+                    let mut payload = Vec::new();
+                    payload.extend_from_slice(&3_u32.to_le_bytes());
+                    payload.extend_from_slice(&logical_device_id.to_le_bytes());
+                    payload.extend_from_slice(&1_u64.to_le_bytes());
+                    let result = gpu_v2_typed_result_event(assigned, 3, &payload);
+                    assert_eq!(deliver_gpu_v2_event(&result), 1);
+                    unsafe {
+                        assert_eq!(ex_hermes_poll(raw, ex_hermes_now_ms()), 1);
+                        assert_eq!(ibex_test_gpu_v2_pending_receipts(raw), 0);
+                        assert_eq!(ibex_test_gpu_v2_lifecycle_tombstones(raw), 0);
+                        assert_eq!(ibex_test_gpu_v2_realm_reduction_calls(), 0);
+                    }
+                }
+
+                assert_eq!(identities.len(), 1_025);
+                unsafe {
+                    assert_eq!(ibex_test_gpu_v2_resolve_calls(), 1_025);
+                    assert_eq!(ibex_test_gpu_v2_wrapper_event_calls(), 1_025);
+                    assert_eq!(ibex_test_gpu_v2_device_loss_calls(), 0);
                 }
             })
             .unwrap();

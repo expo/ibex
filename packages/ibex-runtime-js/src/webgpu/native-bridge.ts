@@ -104,6 +104,16 @@ export type NativeGpuEventV2 =
       readonly kind: 1;
       readonly resultKind: number;
       readonly status: 0;
+      /**
+       * True only for ASSIGNED + NOT_ADMITTED requestDevice results. The
+       * generated wrapper must keep this fresh device out of its strong realm
+       * registry and settle its stable lost promise before the outer receipt.
+       */
+      readonly detachedAlreadyLost: boolean;
+      /** Present exactly when detachedAlreadyLost is true. */
+      readonly lossReason?: 1;
+      /** Present exactly when detachedAlreadyLost is true. */
+      readonly backendClass?: 0;
       readonly payload: ArrayBufferView;
     })
   | (NativeGpuOperationProvenanceV2 & {

@@ -872,26 +872,6 @@ bool isServiceDetachedAssignedV2(
       operation.provider_admission == EXACT_GPU_PROVIDER_NOT_ADMITTED_V2;
 }
 
-bool hasMatchingDetachedLogicalLossV2(
-    const ExactGpuClientMailboxV2& mailbox,
-    const ExactGpuOperationProvenanceV2& operation) {
-  if (!isServiceDetachedAssignedV2(operation)) return true;
-  for (size_t index = 0; index < mailbox.lifecycle_tombstone_count; ++index) {
-    const auto& retained = mailbox.lifecycle_tombstones[index];
-    if (retained.kind != EXACT_GPU_SERVICE_EVENT_LOGICAL_DEVICE_LOST_V2) {
-      continue;
-    }
-    const auto& loss = retained.record.logical_device_lost;
-    if (loss.has_initiating_operation == 1 &&
-        equalDeviceV2(loss.device, operation.result_device) &&
-        equalOperationProvenanceRecordV2(
-            loss.initiating_operation, operation)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 const ExactGpuRealmIdentityV2* eventRealmV2(
     const ExactGpuServiceEventV2& event) {
   switch (event.kind) {
@@ -1012,22 +992,6 @@ bool physicalSequenceConflictsV2(
       if (candidate.provider_generation == loss.device.provider_generation &&
           candidate.physical_sequence >
               loss.last_accepted_physical_sequence) {
-        return true;
-      }
-    } else if (
-        retained.kind == EXACT_GPU_SERVICE_EVENT_LOGICAL_DEVICE_LOST_V2) {
-      const auto& loss = retained.record.logical_device_lost;
-      const auto& initiating = loss.initiating_operation;
-      const bool serviceDetachedAssigned =
-          loss.has_initiating_operation == 1 &&
-          initiating.device_transition == EXACT_GPU_DEVICE_ASSIGNED_V2 &&
-          initiating.provider_admission ==
-              EXACT_GPU_PROVIDER_NOT_ADMITTED_V2;
-      if (serviceDetachedAssigned &&
-          candidate.provider_admission == EXACT_GPU_PROVIDER_ADMITTED_V2 &&
-          candidate.provider_generation == loss.device.provider_generation &&
-          (equalDeviceV2(candidate.ingress_device, loss.device) ||
-           equalDeviceV2(candidate.result_device, loss.device))) {
         return true;
       }
     }
@@ -1258,15 +1222,12 @@ bool validEventPrefixV2(const ExactGpuServiceEventV2* event) {
           record.initiating_operation.provider_admission ==
               EXACT_GPU_PROVIDER_NOT_ADMITTED_V2;
       return validOperationProvenanceV2(record.initiating_operation) &&
+          !serviceDetachedAssigned &&
           equalRealmV2(record.initiating_operation.realm, record.realm) &&
           equalAccountV2(record.initiating_operation.account, record.account) &&
           equalDeviceV2(
               record.initiating_operation.result_device, record.device) &&
           record.initiating_operation.topology_id == record.topology_id &&
-          (!serviceDetachedAssigned ||
-           (record.loss_reason == EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2 &&
-            record.backend_class == EXACT_GPU_BACKEND_NONE_V2 &&
-            record.last_accepted_physical_sequence == 0)) &&
           (record.initiating_operation.physical_sequence == 0 ||
            record.initiating_operation.physical_sequence <=
                record.last_accepted_physical_sequence);
@@ -1441,8 +1402,11 @@ int32_t receiveGpuEventV2Impl(
     }
     if (!malformed) {
       if (const auto* operation = eventOperationV2(*event)) {
-        malformed = physicalSequenceConflictsV2(*mailbox, *operation) ||
-            !hasMatchingDetachedLogicalLossV2(*mailbox, *operation);
+        // ASSIGNED + NOT_ADMITTED is a self-contained operation terminal for
+        // a fresh service-detached already-lost device. It intentionally does
+        // not consume realm-lifetime lifecycle replay authority. Attached
+        // device loss still arrives through the typed lifecycle path below.
+        malformed = physicalSequenceConflictsV2(*mailbox, *operation);
       } else if (event->kind == EXACT_GPU_SERVICE_EVENT_PROVIDER_LOSS_V2) {
         malformed = providerLossContradictsObservedV2(
             *mailbox, event->record.provider_loss);
@@ -1615,6 +1579,7 @@ std::atomic<uint64_t> gGpuV2LastRejectedPromiseId{0};
 std::atomic<uint64_t> gGpuV2ObserverOrderClock{0};
 std::atomic<uint64_t> gGpuV2LastRawEventOrder{0};
 std::atomic<uint64_t> gGpuV2LastLogicalLossOrder{0};
+std::atomic<uint64_t> gGpuV2LastDetachedLossOrder{0};
 std::atomic<uint64_t> gGpuV2LastDeviceLostReactionOrder{0};
 std::atomic<uint64_t> gGpuV2LastPromiseReactionOrder{0};
 std::atomic<uint32_t> gGpuV2DrainPauseState{0};
@@ -2206,6 +2171,19 @@ facebook::jsi::Object makeGpuV2WrapperEvent(
       value.setProperty(
           rt, "resultKind", static_cast<double>(record.result_kind));
       value.setProperty(rt, "status", record.status);
+      const bool detachedAlreadyLost =
+          isServiceDetachedAssignedV2(record.operation);
+      value.setProperty(rt, "detachedAlreadyLost", detachedAlreadyLost);
+      if (detachedAlreadyLost) {
+        value.setProperty(
+            rt,
+            "lossReason",
+            static_cast<double>(EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2));
+        value.setProperty(
+            rt,
+            "backendClass",
+            static_cast<double>(EXACT_GPU_BACKEND_NONE_V2));
+      }
       break;
     }
     case EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2: {
@@ -2642,6 +2620,19 @@ void drainGpuMailboxV2(
               rt,
               "resultKind",
               static_cast<double>(resultRecord.result_kind));
+          const bool detachedAlreadyLost =
+              isServiceDetachedAssignedV2(resultRecord.operation);
+          result.setProperty(rt, "detachedAlreadyLost", detachedAlreadyLost);
+          if (detachedAlreadyLost) {
+            result.setProperty(
+                rt,
+                "lossReason",
+                static_cast<double>(EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2));
+            result.setProperty(
+                rt,
+                "backendClass",
+                static_cast<double>(EXACT_GPU_BACKEND_NONE_V2));
+          }
           result.setProperty(rt, "payload", makeUint8Array(rt, copied.payload));
 #ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
           gGpuV2ResolveCalls.fetch_add(1, std::memory_order_seq_cst);
@@ -3847,6 +3838,7 @@ extern "C" void ibex_test_gpu_v2_reset_observer(void) {
   gGpuV2ObserverOrderClock.store(0, std::memory_order_seq_cst);
   gGpuV2LastRawEventOrder.store(0, std::memory_order_seq_cst);
   gGpuV2LastLogicalLossOrder.store(0, std::memory_order_seq_cst);
+  gGpuV2LastDetachedLossOrder.store(0, std::memory_order_seq_cst);
   gGpuV2LastDeviceLostReactionOrder.store(0, std::memory_order_seq_cst);
   gGpuV2LastPromiseReactionOrder.store(0, std::memory_order_seq_cst);
   gGpuV2DrainPauseState.store(0, std::memory_order_seq_cst);
@@ -3991,6 +3983,10 @@ extern "C" uint64_t ibex_test_gpu_v2_last_logical_loss_order(void) {
   return gGpuV2LastLogicalLossOrder.load(std::memory_order_seq_cst);
 }
 
+extern "C" uint64_t ibex_test_gpu_v2_last_detached_loss_order(void) {
+  return gGpuV2LastDetachedLossOrder.load(std::memory_order_seq_cst);
+}
+
 extern "C" uint64_t ibex_test_gpu_v2_last_device_lost_reaction_order(void) {
   return gGpuV2LastDeviceLostReactionOrder.load(std::memory_order_seq_cst);
 }
@@ -4114,6 +4110,21 @@ extern "C" int32_t ibex_test_gpu_v2_install_event_observer(
                     lossResolvers->resolve->call(
                         rt, facebook::jsi::Value::undefined());
                   }
+                } else if (
+                    kind.isNumber() &&
+                    static_cast<uint32_t>(kind.asNumber()) ==
+                        EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2) {
+                  auto detached =
+                      event.getProperty(rt, "detachedAlreadyLost");
+                  if (detached.isBool() && detached.getBool()) {
+                    gGpuV2LastDetachedLossOrder.store(
+                        order, std::memory_order_seq_cst);
+                    if (!*lossResolved) {
+                      *lossResolved = true;
+                      lossResolvers->resolve->call(
+                          rt, facebook::jsi::Value::undefined());
+                    }
+                  }
                 }
               }
               return facebook::jsi::Value::undefined();
@@ -4207,6 +4218,20 @@ extern "C" size_t ibex_test_gpu_v2_mailbox_submissions(
   try {
     std::lock_guard<std::mutex> lock(runtime->gpu_binding_v2->mailbox->mutex);
     return runtime->gpu_binding_v2->mailbox->submissions.size();
+  } catch (...) {
+    return 0;
+  }
+}
+
+extern "C" size_t ibex_test_gpu_v2_lifecycle_tombstones(
+    ExactHermesRuntime* runtime) {
+  if (!runtime || runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->gpu_binding_v2 || !runtime->gpu_binding_v2->mailbox) {
+    return 0;
+  }
+  try {
+    std::lock_guard<std::mutex> lock(runtime->gpu_binding_v2->mailbox->mutex);
+    return runtime->gpu_binding_v2->mailbox->lifecycle_tombstone_count;
   } catch (...) {
     return 0;
   }

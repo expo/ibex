@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-16 (makes ASSIGNED + NOT_ADMITTED requestDevice results self-contained detached-loss operation terminals without lifecycle tombstones); 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
@@ -515,11 +515,15 @@ operation result, device error, provider loss, logical-device loss, account
 close, and realm close. Operation terminals carry the full immutable
 provenance key, provider-admission verdict, physical sequence, and device
 transition. Result payload canonicality is selected by `result_kind`; device
-errors cannot assign devices. An `ASSIGNED + NOT_ADMITTED` requestDevice
-terminal is accepted only after the exact initiating logical-device-loss
-tombstone. The raw loss callback therefore precedes the raw result, and one
-owner poll enqueues the stable `device.lost` Promise reaction before the outer
-requestDevice receipt reaction.
+errors cannot assign devices. `ASSIGNED + NOT_ADMITTED + OBJECT` is the
+self-contained service-detached already-lost requestDevice terminal. Its full
+retained call key authenticates the fresh result identity, it has physical
+sequence zero, and it consumes no realm-lifetime lifecycle tombstone. The
+owner delivers that terminal to the private wrapper sink before resolving its
+receipt; the wrapper keeps the object out of its strong live-device registry
+and settles the stable `device.lost` Promise, enqueueing that reaction before
+the outer requestDevice reaction. Actual service-attached device loss remains
+a `LOGICAL_DEVICE_LOST` lifecycle record with ordinary replay authority.
 
 Lifecycle tombstones are realm-lifetime, bounded replay authority. Exact
 replay is discarded even after its initiating operation ages beyond the
