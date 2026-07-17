@@ -105948,23 +105948,23 @@
     },
     {
       "id": "surface.builtin.export.node.timers.clearinterval.13z1kmz",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "builtin",
         "name": "export:node_timers:clearInterval"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.builtin.export.node.timers.cleartimeout.0gc6qy1",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "builtin",
         "name": "export:node_timers:clearTimeout"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.builtin.export.node.timers.default.00wct4q",
@@ -207554,23 +207554,23 @@
     },
     {
       "id": "surface.native.op.exacttimerref.0o8ksen",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "native-op",
         "name": "__exactTimerRef"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer ref-state mutation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.native.op.exacttimerunref.0x3mi6y",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "native-op",
         "name": "__exactTimerUnref"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer ref-state mutation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.native.op.exacttlsengineclose.1hnajr4",
@@ -214663,23 +214663,23 @@
     },
     {
       "id": "surface.native.op.global.clearinterval.11pm3v5",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "native-op",
         "name": "global:clearInterval"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.native.op.global.cleartimeout.0xeg86z",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "native-op",
         "name": "global:clearTimeout"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.native.op.global.clipboarditem.1winnmg",

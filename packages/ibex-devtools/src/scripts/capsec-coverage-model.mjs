@@ -6777,14 +6777,16 @@ export function assertReviewedSurfaceInventory(surfaces) {
       "builtin roots",
       REVIEWED_BUILTIN_ROOT_NAMES,
       names(
-        (row) => row.kind === "builtin" && row.metadata?.surfaceType !== "export",
+        (row) =>
+          row.kind === "builtin" && row.metadata?.surfaceType !== "export",
       ),
     ],
     [
       "builtin exports",
       REVIEWED_BUILTIN_EXPORT_NAMES,
       names(
-        (row) => row.kind === "builtin" && row.metadata?.surfaceType === "export",
+        (row) =>
+          row.kind === "builtin" && row.metadata?.surfaceType === "export",
       ),
     ],
     [
@@ -6812,15 +6814,29 @@ export function assertReviewedSurfaceInventory(surfaces) {
       REVIEWED_GLOBAL_API_NAMES,
       names((row) => row.metadata?.surfaceType === "global-api"),
     ],
-    ["host ABIs", REVIEWED_HOST_ABI_NAMES, names((row) => row.kind === "host-abi")],
+    [
+      "host ABIs",
+      REVIEWED_HOST_ABI_NAMES,
+      names((row) => row.kind === "host-abi"),
+    ],
     [
       "inspector natives",
       REVIEWED_INSPECTOR_NATIVE_NAMES,
-      names((row) => row.kind === "native-op" && row.name.startsWith("inspector.")),
+      names(
+        (row) => row.kind === "native-op" && row.name.startsWith("inspector."),
+      ),
     ],
     ["CLI surfaces", REVIEWED_CLI_NAMES, names((row) => row.kind === "cli")],
-    ["loader surfaces", REVIEWED_LOADER_NAMES, names((row) => row.kind === "loader")],
-    ["startup surfaces", REVIEWED_STARTUP_NAMES, names((row) => row.kind === "startup")],
+    [
+      "loader surfaces",
+      REVIEWED_LOADER_NAMES,
+      names((row) => row.kind === "loader"),
+    ],
+    [
+      "startup surfaces",
+      REVIEWED_STARTUP_NAMES,
+      names((row) => row.kind === "startup"),
+    ],
   ];
   for (const [label, reviewed, discovered] of inventories) {
     const missing = [...reviewed].filter((name) => !discovered.has(name));
@@ -6910,17 +6926,17 @@ export function enforcementBranchIdentity(edge, branch) {
     stubDisposition: branch.stubDisposition ?? null,
     semantics: enforcementSemanticShape(edge),
   });
-  const anchor = stableComponent(sourceRefs[0] ?? "effect-boundary")
-    .slice(-64)
-    .replace(/^\.+/u, "") || "effect.boundary";
+  const anchor =
+    stableComponent(sourceRefs[0] ?? "effect-boundary")
+      .slice(-64)
+      .replace(/^\.+/u, "") || "effect.boundary";
   return {
     id: validateStableId(
       `enforcement.${anchor}.${fnv1a32(key)}`,
       "enforcement branch id",
     ),
     key,
-    routeKind:
-      branch.enforcementRoute?.kind ?? "exact-source-and-semantics",
+    routeKind: branch.enforcementRoute?.kind ?? "exact-source-and-semantics",
   };
 }
 
@@ -8956,12 +8972,15 @@ function builtinExportClassification(surface) {
   }
 
   if (source === "node_timers" || source === "node_timers_promises") {
-    if (/^clear(?:immediate|interval|timeout)$/u.test(name)) {
+    if (/^clearimmediate$/u.test(name)) {
       return closedSpec(
         "runtime:inspect",
         "WP7",
         "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner.",
       );
+    }
+    if (/^clear(?:interval|timeout)$/u.test(name)) {
+      return nonCapabilitySpec("authority-release", "WP8");
     }
     if (/close|unenroll/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP8");
@@ -9282,7 +9301,9 @@ function loaderClassification(surface) {
 
   if (name.startsWith("operation:")) {
     const operation = name.split(":").at(-1);
-    if (/^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)) {
+    if (
+      /^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)
+    ) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (/^(?:read|read_to_string)$/u.test(operation)) {
@@ -9385,12 +9406,7 @@ function loaderClassification(surface) {
         functionName,
       )
     ) {
-      return effectSpec(
-        ["fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        loaderOptions,
-      );
+      return effectSpec(["fs:list", "fs:read"], "loader", "WP7", loaderOptions);
     }
     if (functionName === "drop") {
       return effectSpec(
@@ -11321,12 +11337,15 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   if (/^(?:import|importmodule|require)$/u.test(globalName)) {
     return nonCapabilitySpec("module-reachability-only", "WP7");
   }
-  if (/^(?:clearimmediate|cleartimeout|clearinterval)$/u.test(globalName)) {
+  if (/^clearimmediate$/u.test(globalName)) {
     return closedSpec(
       "runtime:inspect",
       "WP7",
       "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner.",
     );
+  }
+  if (/^clear(?:timeout|interval)$/u.test(globalName)) {
+    return nonCapabilitySpec("authority-release", "WP8");
   }
   if (
     /^(?:queuemicrotask|settimeout|setinterval|setimmediate|cleartimeout|clearinterval|clearimmediate)$/u.test(
@@ -11898,7 +11917,11 @@ function hostAbiClassification(name) {
     if (/^exhostfscopy(?:exclusive)?$/u.test(name)) {
       return effectSpec(["fs:read", "fs:write"], "filesystem", "WP5");
     }
-    if (/^exhostfs(?:access|fstat|lstat|readdir|realpath|stat|statfs)$/u.test(name)) {
+    if (
+      /^exhostfs(?:access|fstat|lstat|readdir|realpath|stat|statfs)$/u.test(
+        name,
+      )
+    ) {
       return effectSpec(["fs:list"], "filesystem", "WP5", descriptorOptions);
     }
     if (/^exhostfs(?:pread|read)$/u.test(name)) {
@@ -12173,10 +12196,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_module_record_run_execute",
       ]).has(surface.name)
     ) {
-      return nonCapabilitySpec(
-        "module-reachability-only",
-        "WP8",
-      );
+      return nonCapabilitySpec("module-reachability-only", "WP8");
     }
     if (surface.name === "ex_hermes_module_record_namespace_json") {
       return closedSpec(
@@ -12192,8 +12212,7 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
     }
     if (
-      surface.name ===
-      "ex_hermes_schedule_watchdog_heartbeat_for_generation"
+      surface.name === "ex_hermes_schedule_watchdog_heartbeat_for_generation"
     ) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
@@ -12463,11 +12482,7 @@ function classifyConcreteSurface(surface) {
     );
   }
   if (/^exacttimer(?:ref|unref)$/u.test(name)) {
-    return closedSpec(
-      "runtime:inspect",
-      "WP7",
-      "Timer ref-state mutation accepts a process-global sequential identifier without authenticating the timer owner.",
-    );
+    return nonCapabilitySpec("authority-control-plane", "WP8");
   }
   if (/^exacttlsownertoken$/u.test(name)) {
     return nonCapabilitySpec("authority-control-plane", "WP8");
@@ -13439,21 +13454,22 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
       continue;
     }
     const terminalObservedKey = `native-op:${evidence.terminals[0]}`;
-    const candidates = (terminalRowsByObservedKey.get(terminalObservedKey) ?? [])
-      .filter((candidate) => {
-        const terminalEdge = edgeById.get(candidate.edgeId);
-        return (
-          JSON.stringify(enforcementSemanticShape(terminalEdge)) ===
-            JSON.stringify(enforcementSemanticShape(edge)) &&
-          candidate.targetVariant === row.targetVariant &&
-          JSON.stringify(candidate.targetApplicability) ===
-            JSON.stringify(row.targetApplicability) &&
-          (candidate.backend ?? null) === (row.backend ?? null) &&
-          (candidate.implementationDisposition ?? null) ===
-            (row.implementationDisposition ?? null) &&
-          (candidate.stubDisposition ?? null) === (row.stubDisposition ?? null)
-        );
-      });
+    const candidates = (
+      terminalRowsByObservedKey.get(terminalObservedKey) ?? []
+    ).filter((candidate) => {
+      const terminalEdge = edgeById.get(candidate.edgeId);
+      return (
+        JSON.stringify(enforcementSemanticShape(terminalEdge)) ===
+          JSON.stringify(enforcementSemanticShape(edge)) &&
+        candidate.targetVariant === row.targetVariant &&
+        JSON.stringify(candidate.targetApplicability) ===
+          JSON.stringify(row.targetApplicability) &&
+        (candidate.backend ?? null) === (row.backend ?? null) &&
+        (candidate.implementationDisposition ?? null) ===
+          (row.implementationDisposition ?? null) &&
+        (candidate.stubDisposition ?? null) === (row.stubDisposition ?? null)
+      );
+    });
     if (candidates.length !== 1) continue;
     const terminal = candidates[0];
     row.enforcementRoute = {
@@ -13465,10 +13481,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     };
     const enforcement = enforcementBranchIdentity(edge, row);
     row.enforcementBranchId = enforcement.id;
-    row.fixtureObligations = fixtureObligationsForBranch(
-      edge,
-      enforcement.id,
-    );
+    row.fixtureObligations = fixtureObligationsForBranch(edge, enforcement.id);
   }
   const enforcementKeys = new Map();
   for (const row of implementationRows) {
@@ -13481,9 +13494,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     }
     const prior = enforcementKeys.get(enforcement.id);
     if (prior !== undefined && prior !== enforcement.key) {
-      throw new Error(
-        `enforcement branch id collision ${enforcement.id}`,
-      );
+      throw new Error(`enforcement branch id collision ${enforcement.id}`);
     }
     enforcementKeys.set(enforcement.id, enforcement.key);
   }

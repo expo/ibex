@@ -2291,13 +2291,13 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    assert_eq!(recipes.len(), 2_894);
+    assert_eq!(recipes.len(), 2_898);
     assert_eq!(by_scenario.get("attribution-missing-deny"), Some(&554));
     assert_eq!(by_scenario.get("generation-recheck"), Some(&554));
     assert_eq!(by_scenario.get("principal-restore"), Some(&554));
     assert_eq!(by_scenario.get("snapshot-mismatch-deny"), Some(&554));
-    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&335));
-    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&335));
+    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&337));
+    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&337));
     assert_eq!(by_scenario.get("non-capability"), Some(&8));
     let (branches, edges) = checked_registry_rows();
     for recipe in &recipes {

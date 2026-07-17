@@ -613,12 +613,11 @@ const nativeResultPropertyArgument = (
   arguments: argumentsList,
 });
 const generatedKeyArgument = (keyType, property, options = null) =>
-  nativeResultPropertyArgument(
-    property,
-    "__exactGenerateKeyPairSync",
-    3,
-    [literalArgument(keyType), literalArgument(options), literalArgument(null)],
-  );
+  nativeResultPropertyArgument(property, "__exactGenerateKeyPairSync", 3, [
+    literalArgument(keyType),
+    literalArgument(options),
+    literalArgument(null),
+  ]);
 const nativeNoEffectTemplate = (
   requiredSourceArity,
   argumentsList = [],
@@ -967,6 +966,42 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "clearTimeout",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "clearInterval",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setInterval", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "__exactTimerRef",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "__exactTimerUnref",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
     "__exactTcpConnect",
     Object.freeze({
       actionIds: ["network:connect"],
@@ -1078,6 +1113,142 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       ]),
       literalArgument("fixture-aad"),
       literalArgument(128),
+    ]),
+  ],
+  [
+    "__exactEcdhDeriveBits",
+    nativeNoEffectTemplate(3, [
+      literalArgument("P-256"),
+      generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+      generatedKeyArgument("ec", "publicKey", { namedCurve: "P-256" }),
+    ]),
+  ],
+  [
+    "__exactEcdsaSign",
+    nativeNoEffectTemplate(4, [
+      literalArgument("P-256"),
+      literalArgument("SHA-256"),
+      generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEcdsaVerify",
+    nativeNoEffectTemplate(5, [
+      literalArgument("P-256"),
+      literalArgument("SHA-256"),
+      generatedKeyArgument("ec", "publicKey", { namedCurve: "P-256" }),
+      nativeResultArgument("__exactEcdsaSign", 4, [
+        literalArgument("P-256"),
+        literalArgument("SHA-256"),
+        generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+        literalArgument("ibex"),
+      ]),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEd25519Sign",
+    nativeNoEffectTemplate(2, [
+      generatedKeyArgument("ed25519", "privateKey"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEd25519Verify",
+    nativeNoEffectTemplate(3, [
+      generatedKeyArgument("ed25519", "publicKey"),
+      nativeResultArgument("__exactEd25519Sign", 2, [
+        generatedKeyArgument("ed25519", "privateKey"),
+        literalArgument("ibex"),
+      ]),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEvpCipherEncrypt",
+    nativeNoEffectTemplate(4, [
+      literalArgument("aes-128-cbc"),
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEvpCipherDecrypt",
+    nativeNoEffectTemplate(5, [
+      literalArgument("aes-128-cbc"),
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      nativeResultArgument("__exactEvpCipherEncrypt", 4, [
+        literalArgument("aes-128-cbc"),
+        literalArgument("0123456789abcdef"),
+        literalArgument("fedcba9876543210"),
+        literalArgument("ibex"),
+      ]),
+      literalArgument(null),
+    ]),
+  ],
+  [
+    "__exactExportKeyPkcs8",
+    nativeNoEffectTemplate(2, [
+      literalArgument("rsa"),
+      generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+    ]),
+  ],
+  [
+    "__exactExportKeySpki",
+    nativeNoEffectTemplate(2, [
+      literalArgument("rsa"),
+      generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+    ]),
+  ],
+  [
+    "__exactImportKeyPkcs8",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactExportKeyPkcs8", 2, [
+        literalArgument("rsa"),
+        generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+      ]),
+    ]),
+  ],
+  [
+    "__exactImportKeySpki",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactExportKeySpki", 2, [
+        literalArgument("rsa"),
+        generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+      ]),
+    ]),
+  ],
+  [
+    "__exactRsaOaepEncrypt",
+    nativeNoEffectTemplate(4, [
+      generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+      literalArgument("SHA-256"),
+      literalArgument(""),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactRsaOaepDecrypt",
+    nativeNoEffectTemplate(4, [
+      generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+      literalArgument("SHA-256"),
+      literalArgument(""),
+      nativeResultArgument("__exactRsaOaepEncrypt", 4, [
+        generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+        literalArgument("SHA-256"),
+        literalArgument(""),
+        literalArgument("ibex"),
+      ]),
+    ]),
+  ],
+  [
+    "__exactX25519DeriveBits",
+    nativeNoEffectTemplate(2, [
+      generatedKeyArgument("x25519", "privateKey"),
+      generatedKeyArgument("x25519", "publicKey"),
     ]),
   ],
   [
@@ -1268,58 +1439,78 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactZlibCheckOwner",
-    nativeNoEffectTemplate(1, [
-      nativeResultArgument("__exactZlibCreate", 5, [
-        literalArgument(0),
-        literalArgument(0),
-        literalArgument(-1),
-        literalArgument(0),
-        literalArgument(null),
-      ]),
-    ], [], "closed-zlib-stream"),
+    nativeNoEffectTemplate(
+      1,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
   ],
   [
     "__exactZlibClose",
-    nativeNoEffectTemplate(1, [
-      nativeResultArgument("__exactZlibCreate", 5, [
-        literalArgument(0),
-        literalArgument(0),
-        literalArgument(-1),
-        literalArgument(0),
-        literalArgument(null),
-      ]),
-    ], [], "consumed-zlib-stream"),
+    nativeNoEffectTemplate(
+      1,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+      ],
+      [],
+      "consumed-zlib-stream",
+    ),
   ],
   [
     "__exactZlibParams",
-    nativeNoEffectTemplate(3, [
-      nativeResultArgument("__exactZlibCreate", 5, [
+    nativeNoEffectTemplate(
+      3,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+        literalArgument(6),
         literalArgument(0),
-        literalArgument(0),
-        literalArgument(-1),
-        literalArgument(0),
-        literalArgument(null),
-      ]),
-      literalArgument(6),
-      literalArgument(0),
-    ], [], "closed-zlib-stream"),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
   ],
   [
     "__exactZlibWrite",
-    nativeNoEffectTemplate(6, [
-      nativeResultArgument("__exactZlibCreate", 5, [
+    nativeNoEffectTemplate(
+      6,
+      [
+        nativeResultArgument("__exactZlibCreate", 5, [
+          literalArgument(0),
+          literalArgument(0),
+          literalArgument(-1),
+          literalArgument(0),
+          literalArgument(null),
+        ]),
+        literalArgument("ibex"),
         literalArgument(0),
-        literalArgument(0),
-        literalArgument(-1),
-        literalArgument(0),
-        literalArgument(null),
-      ]),
-      literalArgument("ibex"),
-      literalArgument(0),
-      literalArgument(true),
-      literalArgument(false),
-      literalArgument(1024),
-    ], [], "closed-zlib-stream"),
+        literalArgument(true),
+        literalArgument(false),
+        literalArgument(1024),
+      ],
+      [],
+      "closed-zlib-stream",
+    ),
   ],
   [
     "__exactTlsOwnerToken",
@@ -1383,21 +1574,31 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactTlsEngineWritePlain",
-    nativeNoEffectTemplate(2, [
-      tlsEngineArgument(),
-      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
-        literalArgument("ibex"),
-      ]),
-    ], [], "closed-tls-engine"),
+    nativeNoEffectTemplate(
+      2,
+      [
+        tlsEngineArgument(),
+        nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+          literalArgument("ibex"),
+        ]),
+      ],
+      [],
+      "closed-tls-engine",
+    ),
   ],
   [
     "__exactTlsEngineWriteTls",
-    nativeNoEffectTemplate(2, [
-      tlsEngineArgument(),
-      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
-        literalArgument(""),
-      ]),
-    ], [], "closed-tls-engine"),
+    nativeNoEffectTemplate(
+      2,
+      [
+        tlsEngineArgument(),
+        nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+          literalArgument(""),
+        ]),
+      ],
+      [],
+      "closed-tls-engine",
+    ),
   ],
   [
     "__exactUdpClose",
@@ -1445,9 +1646,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          additionalAllowedCoverageObservedKeys: [
-            "native-op:__exactMkdir",
-          ],
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactMkdir"],
           expectedCleanup: "removed-created-directory",
           expectedDecisionCounts: {
             allow: 4,
@@ -1527,9 +1726,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          additionalAllowedCoverageObservedKeys: [
-            "native-op:__exactMkdir",
-          ],
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactMkdir"],
           expectedCleanup: "removed-created-directory",
           expectedDecisionCounts: {
             allow: 4,
@@ -1609,9 +1806,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          additionalAllowedCoverageObservedKeys: [
-            "native-op:__exactReaddir",
-          ],
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactReaddir"],
           expectedDecisionCounts: {
             allow: 4,
             "branch-selection": 4,
@@ -1630,12 +1825,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           },
           expectedStages: {
             allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
+            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
             deny: ["requested"],
             malformed: ["requested", "discovery", "repeat", "repeat"],
             "missing-attribution": [
@@ -1644,12 +1834,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
               "repeat",
               "repeat",
             ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
+            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
           },
           requiredFloor: [
             {
@@ -1677,9 +1862,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          additionalAllowedCoverageObservedKeys: [
-            "native-op:__exactRealpath",
-          ],
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactRealpath"],
           expectedDecisionCounts: {
             allow: 4,
             "branch-selection": 4,
@@ -1698,12 +1881,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           },
           expectedStages: {
             allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
+            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
             deny: ["requested"],
             malformed: ["requested", "discovery", "repeat", "repeat"],
             "missing-attribution": [
@@ -1712,12 +1890,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
               "repeat",
               "repeat",
             ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
+            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
           },
           requiredFloor: [
             {
@@ -1763,12 +1936,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           },
           expectedStages: {
             allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
+            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
             deny: ["requested"],
             malformed: ["requested", "discovery", "repeat", "repeat"],
             "missing-attribution": [
@@ -1777,12 +1945,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
               "repeat",
               "repeat",
             ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
+            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
           },
           requiredFloor: [
             {
@@ -1831,13 +1994,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "wrong-principal": "return",
           },
           expectedStages: {
-            allow: [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
+            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
             "branch-selection": [
               "requested",
               "discovery",
@@ -1925,13 +2082,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "wrong-principal": "return",
           },
           expectedStages: {
-            allow: [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
+            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
             "branch-selection": [
               "requested",
               "discovery",
@@ -2019,13 +2170,7 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "wrong-principal": "return",
           },
           expectedStages: {
-            allow: [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
+            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
             "branch-selection": [
               "requested",
               "discovery",
@@ -2224,8 +2369,9 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
   ) {
     return clone(argument);
   }
-  const producer = liveByObservedKey.get(
-    `native-op:${argument.globalName}`,
+  const producer = (
+    liveByObservedKey.get(`native-op:${argument.globalName}`) ??
+    liveByObservedKey.get(`native-op:global:${argument.globalName}`)
   )?.metadata?.publicInvocation;
   if (
     !producer ||
@@ -2261,9 +2407,8 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
   ) {
     return clone(setup);
   }
-  const producer = liveByObservedKey.get(
-    `native-op:${setup.globalName}`,
-  )?.metadata?.publicInvocation;
+  const producer = liveByObservedKey.get(`native-op:${setup.globalName}`)
+    ?.metadata?.publicInvocation;
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -2435,8 +2580,8 @@ function nativePublicProbeForPlan({
   const sourceDescriptor = clone(invocation);
   const expectedStages = template.expectedStages[scenario];
   const additionalAllowedCoverageEdgeIds = [];
-  for (const observedKey of
-    template.additionalAllowedCoverageObservedKeys ?? []) {
+  for (const observedKey of template.additionalAllowedCoverageObservedKeys ??
+    []) {
     const additionalEdge = coverageByObservedKey.get(observedKey);
     if (!additionalEdge?.id) {
       return {

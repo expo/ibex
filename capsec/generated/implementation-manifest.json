@@ -71578,9 +71578,9 @@
       "sourceRefs": [
         "src/builtins/timers.js#exports:clearInterval"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.builtin.export.node.timers.clearinterval.13z1kmz.main.closed"
+        "surface.builtin.export.node.timers.clearinterval.13z1kmz.main.non-capability"
       ]
     },
     {
@@ -71609,9 +71609,9 @@
       "sourceRefs": [
         "src/builtins/timers.js#exports:clearTimeout"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.builtin.export.node.timers.cleartimeout.0gc6qy1.main.closed"
+        "surface.builtin.export.node.timers.cleartimeout.0gc6qy1.main.non-capability"
       ]
     },
     {
@@ -164218,9 +164218,11 @@
         "src/engine/hermes_runtime_timers.cc#__exactTimerRef",
         "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerRef"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exacttimerref.0o8ksen.default.closed"
+        "surface.native.op.exacttimerref.0o8ksen.default.cannot-widen-authority",
+        "surface.native.op.exacttimerref.0o8ksen.default.non-capability",
+        "surface.native.op.exacttimerref.0o8ksen.default.post-lockdown-invariant"
       ]
     },
     {
@@ -164252,9 +164254,11 @@
         "src/engine/hermes_runtime_timers.cc#__exactTimerUnref",
         "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerUnref"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exacttimerunref.0x3mi6y.default.closed"
+        "surface.native.op.exacttimerunref.0x3mi6y.default.cannot-widen-authority",
+        "surface.native.op.exacttimerunref.0x3mi6y.default.non-capability",
+        "surface.native.op.exacttimerunref.0x3mi6y.default.post-lockdown-invariant"
       ]
     },
     {
@@ -177800,9 +177804,9 @@
         "src/engine/bootstrap/module-loader.js#clearInterval",
         "src/engine/hermes_runtime_timers.cc#jsi-global:clearInterval"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.global.clearinterval.11pm3v5.default.closed"
+        "surface.native.op.global.clearinterval.11pm3v5.default.non-capability"
       ]
     },
     {
@@ -177840,9 +177844,9 @@
         "src/engine/bootstrap/module-loader.js#clearTimeout",
         "src/engine/hermes_runtime_timers.cc#jsi-global:clearTimeout"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.global.cleartimeout.0xeg86z.default.closed"
+        "surface.native.op.global.cleartimeout.0xeg86z.default.non-capability"
       ]
     },
     {
@@ -263454,8 +263458,6 @@
         "surface.builtin.export.node.stream.web.default.0stlus5",
         "surface.builtin.export.node.stream.writable.dynamic.table.inherited.2c961e573353.propert.05po12y",
         "surface.builtin.export.node.timers.clearimmediate.10mojbb",
-        "surface.builtin.export.node.timers.clearinterval.13z1kmz",
-        "surface.builtin.export.node.timers.cleartimeout.0gc6qy1",
         "surface.builtin.export.node.tls.default.1aoobk3",
         "surface.builtin.export.node.tls.server.dynamic.table.inherited.8fceba302352.properties.09ac9h4",
         "surface.builtin.export.node.tls.setdefaultcacertificates.0hy3qyj",
@@ -263613,8 +263615,6 @@
         "surface.native.op.exactrequire.1drfx1s",
         "surface.native.op.exactsignalnamesmap.14b2x87",
         "surface.native.op.exactsignalnumbersmap.07bwgwd",
-        "surface.native.op.exacttimerref.0o8ksen",
-        "surface.native.op.exacttimerunref.0x3mi6y",
         "surface.native.op.exactuncaughtexceptionhandler.14eg6fx",
         "surface.native.op.exactunhandledrejectionhandler.1ydicmt",
         "surface.native.op.global.buffer.dynamic.table.inherited.uint8.array.6128693053.properties.1s02ea6",
@@ -263625,8 +263625,6 @@
         "surface.native.op.global.bun.unsafe.038dg58",
         "surface.native.op.global.bun.unsafe.gcaggressionlevel.1n42dw2",
         "surface.native.op.global.clearimmediate.0tcktxp",
-        "surface.native.op.global.clearinterval.11pm3v5",
-        "surface.native.op.global.cleartimeout.0xeg86z",
         "surface.native.op.global.dynamic.table.native.global.name.0p79adi",
         "surface.native.op.global.exact.cryptohasher.dynamic.table.call.result.3eca66b45491.propert.1qr95xs",
         "surface.native.op.global.exact.env.dynamic.table.call.result.83f13e6eeaf2.properties.015del3",
@@ -263733,7 +263731,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 459 observed surface edges."
+      "rationale": "Closed by 453 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -264720,12 +264718,12 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Pdr_d-KB06tDJP2gZCcZ6ZLqp3N3cjZTSgLSox86hlk"
+      "rawContentDigest": "sha256-3HT5EXO3DGJzaOaJ-IhQUW9phMBesPjelkvtxPKskQ0"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-SbUAXsL5ylBbY3A2devitkf4GNSDZeUyz1KC9CcQaWs"
+      "rawContentDigest": "sha256-x7s-8U1yWDRLja0ES12o4RDIVxiBbn4gOS8-okqfQkI"
     },
     {
       "kind": "typescript",

@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
+**Revised:** 2026-07-17 (ENG-24933 authenticates timer cancellation and ref-state mutation to the retained timer owner, replacing four closed native/global rows with eight executable non-capability and invariant recipes)
+**Revised:** 2026-07-17 (ENG-24933 credits 29 exact module-runner executions: four loader/source-acquisition surfaces, 24 native ABI lifecycle surfaces, and one armed namespace-inspection closure)
 **Revised:** 2026-07-16 (ENG-24933 removes thirteen closed memory-debug implementation surfaces by capturing diagnostic state behind its deliberate API)
 **Revised:** 2026-07-16 (ENG-24933 removes ten closed internal locale/accessibility state surfaces by retaining mutable state in module singletons)
 **Revised:** 2026-07-16 (ENG-24933 completes malformed, missing-attribution, and wrong-principal scenarios for bounded loopback TCP connect)
@@ -598,9 +601,12 @@ checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed catalog has 23,122 required
-fixtures, 4,773 fully executable recipes, and 18,349 unresolved
-fixtures. The latest source-bound tranche adds five cached system-information
+advertisements remain incomplete. The refreshed catalog has 23,126 required
+fixtures, 4,824 fully executable recipes, and 18,302 unresolved
+fixtures. The latest source-bound tranches add four loader/source-acquisition
+recipes, 24 native module-runner ABI lifecycle recipes, one armed
+namespace-inspection closure, 14 asymmetric/EVP crypto recipes, eight
+owner-authenticated timer-control recipes, five cached system-information
 authorization scenarios and twelve asynchronous path-operation scenarios for
 the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
 scenarios, five retained-target direct `statfs` scenarios, twelve complete

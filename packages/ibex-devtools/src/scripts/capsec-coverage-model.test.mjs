@@ -598,7 +598,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "module-runner-prepared-carrier-access",
       "module-runner-trusted-source-acquisition",
     ]) {
-      expect(classifyObservedSurface(surface("loader", name), context).edge).toMatchObject({
+      expect(
+        classifyObservedSurface(surface("loader", name), context).edge,
+      ).toMatchObject({
         classification: "non-capability",
         rationaleId: "trusted-loader-source-acquisition",
       });
@@ -1659,8 +1661,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["node_module", "Module", "runtime:inspect"],
       ["node_module", "createRequire", "runtime:inspect"],
       ["node_timers", "clearImmediate", "runtime:inspect"],
-      ["node_timers", "clearInterval", "runtime:inspect"],
-      ["node_timers", "clearTimeout", "runtime:inspect"],
     ]) {
       const classified = classifyObservedSurface(
         builtinExport(sourceKey, exportName),
@@ -1674,11 +1674,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ]);
     }
 
-    for (const name of [
-      "__exactTimerRef",
-      "__exactTimerUnref",
-      "__exactUncaughtExceptionHandler",
-    ]) {
+    for (const name of ["__exactUncaughtExceptionHandler"]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
         context,
@@ -1699,6 +1695,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["__exactZlibParams", "internal-data-transform"],
       ["__exactZlibClose", "authority-release"],
       ["__exactZlibCheckOwner", "authority-control-plane"],
+      ["__exactTimerRef", "authority-control-plane"],
+      ["__exactTimerUnref", "authority-control-plane"],
     ]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
@@ -1725,17 +1723,47 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       rationaleId: "authority-control-plane",
     });
 
-    for (const globalName of [
-      "clearImmediate",
-      "clearTimeout",
-      "clearInterval",
-    ]) {
+    for (const globalName of ["clearImmediate"]) {
       const classified = classifyObservedSurface(
         globalApi(globalName),
         context,
       );
       expect(classified.edge.classification, globalName).toBe("closed");
       expect(edgeActions(classified), globalName).toEqual(["runtime:inspect"]);
+    }
+
+    for (const globalName of ["clearTimeout", "clearInterval"]) {
+      const global = classifyObservedSurface(globalApi(globalName), context);
+      expect(global.edge.classification, globalName).toBe("non-capability");
+      expect(global.edge.rationaleId, globalName).toBe("authority-release");
+
+      const builtin = classifyObservedSurface(
+        builtinExport("node_timers", globalName),
+        context,
+      );
+      expect(builtin.edge.classification, globalName).toBe("non-capability");
+      expect(builtin.edge.rationaleId, globalName).toBe("authority-release");
+    }
+  });
+
+  test("owner-authenticated timer controls are authority-reducing", () => {
+    const timerRuntime = fs.readFileSync(
+      path.join(repoRoot, "src/engine/hermes_runtime_timers.cc"),
+      "utf8",
+    );
+    expect(
+      timerRuntime.match(/it->second\.principal == currentPrincipalId\(\)/gu),
+    ).toHaveLength(4);
+
+    for (const name of ["__exactTimerRef", "__exactTimerUnref"]) {
+      const classified = classifyObservedSurface(
+        surface("native-op", name),
+        context,
+      );
+      expect(classified.edge).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "authority-control-plane",
+      });
     }
   });
 
@@ -1956,12 +1984,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toEqual(["fs:list", "fs:write"]);
 
-    for (const category of [
-      "cache",
-      "load",
-      "resolution",
-      "transform",
-    ]) {
+    for (const category of ["cache", "load", "resolution", "transform"]) {
       const name = `operation:${category}:env-var`;
       expect(
         edgeActions(classifyObservedSurface(surface("loader", name), context)),
@@ -2674,10 +2697,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
 
     const auditFileParser = classifyObservedSurface(
-      surface(
-        "cli",
-        "argument-parser:ibex%20capsec%20audit:file:utf8-string",
-      ),
+      surface("cli", "argument-parser:ibex%20capsec%20audit:file:utf8-string"),
       context,
     );
     expect(auditFileParser.edge.classification).toBe("non-capability");
@@ -3222,7 +3242,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ).implementationRows[0];
     expect(sync.branchId).not.toBe(asynchronous.branchId);
     expect(sync.enforcementBranchId).not.toBe(asynchronous.enforcementBranchId);
-    expect(sync.fixtureObligations).not.toEqual(asynchronous.fixtureObligations);
+    expect(sync.fixtureObligations).not.toEqual(
+      asynchronous.fixtureObligations,
+    );
 
     const distinctSource = classifyObservedSurface(
       surface("native-op", "__exactTcpConnectStart", undefined, [
@@ -3230,16 +3252,15 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ]),
       context,
     ).implementationRows[0];
-    expect(distinctSource.enforcementBranchId).not.toBe(sync.enforcementBranchId);
+    expect(distinctSource.enforcementBranchId).not.toBe(
+      sync.enforcementBranchId,
+    );
   });
 
   test("static builtin call routes join the exact native terminal and fail on mutation", () => {
-    const terminal = surface(
-      "native-op",
-      "__exactClipboardRead",
-      undefined,
-      ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
-    );
+    const terminal = surface("native-op", "__exactClipboardRead", undefined, [
+      "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
+    ]);
     const facade = (terminalName) =>
       surface(
         "builtin",
@@ -3251,9 +3272,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           enforcementRouteEvidence: {
             ambiguousCallees: [],
             kind: "static-builtin-call-graph",
-            paths: [
-              `export:readText -> readText -> ${terminalName}`,
-            ],
+            paths: [`export:readText -> readText -> ${terminalName}`],
             terminals: [terminalName],
           },
         },
@@ -3269,18 +3288,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     const terminalRow = model.implementationRows.find(
       (row) => row.observedKey === "native-op:__exactClipboardRead",
     );
-    expect(facadeRow.enforcementBranchId).toBe(
-      terminalRow.enforcementBranchId,
-    );
+    expect(facadeRow.enforcementBranchId).toBe(terminalRow.enforcementBranchId);
     expect(facadeRow.enforcementRoute).toEqual({
       kind: "static-builtin-call-graph",
-      proofPaths: [
-        "export:readText -> readText -> __exactClipboardRead",
-      ],
+      proofPaths: ["export:readText -> readText -> __exactClipboardRead"],
       proofSourceRefs: ["src/builtins/clipboard.js#exports:readText"],
-      sourceRefs: [
-        "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
-      ],
+      sourceRefs: ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
       terminalObservedKey: "native-op:__exactClipboardRead",
     });
 
@@ -3779,9 +3792,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       rationaleId: "module-reachability-only",
     });
     expect(
-      edgeByObservedKey.get(
-        "host-abi:ex_hermes_module_load_carrier_factory",
-      ),
+      edgeByObservedKey.get("host-abi:ex_hermes_module_load_carrier_factory"),
     ).toMatchObject({
       classification: "non-capability",
       rationaleId: "module-reachability-only",
@@ -4085,12 +4096,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         effects: [{ cap: "fs:list" }, { cap: "fs:write" }],
       });
     }
-    for (const category of [
-      "cache",
-      "load",
-      "resolution",
-      "transform",
-    ]) {
+    for (const category of ["cache", "load", "resolution", "transform"]) {
       const observedKey = `loader:operation:${category}:env-var`;
       expect(edgeByObservedKey.get(observedKey), observedKey).toMatchObject({
         classification: "effects",
