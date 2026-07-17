@@ -30,6 +30,8 @@ bun run generate:capsec-contract
 bun run generate:identity
 bun run generate:modules
 bun run generate:webgpu-test-wrapper
+bun run generate:webgpu-production-plan
+bun run generate:webgpu-production-codec-corpus
 # Postcondition: the module generator writes both the JS runtime manifest and
 # the Rust builtin manifest. Check immediately so a future package-script edit
 # cannot silently stop refreshing one side.
@@ -38,4 +40,4 @@ bun run build:builtins
 bun run build:runtime
 bun run generate:vendored-fingerprint
 
-echo "Regenerated vendored artifacts. Review with: git status capsec/ vendored-generated/ src/builtins/helpers/runtime-module-manifest.cjs src/identity_generated.rs packages/ibex-runtime-js/src" >&2
+echo "Regenerated vendored artifacts. Review with: git status capsec/ vendored-generated/ tests/fixtures/ src/builtins/helpers/runtime-module-manifest.cjs src/identity_generated.rs packages/ibex-runtime-js/src" >&2

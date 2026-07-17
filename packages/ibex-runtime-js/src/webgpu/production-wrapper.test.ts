@@ -134,6 +134,19 @@ function createFakeCodecs(
     encodings,
     convertPublicArguments(operationId, args) {
       log.push(`convert:${operationId}`);
+      if (operationId === 'GPU.requestAdapter') {
+        const source = (args[0] ?? {}) as Record<string, unknown>;
+        return Object.freeze({
+          forceFallbackAdapter: Boolean(source.forceFallbackAdapter),
+          featureLevel: source.featureLevel === undefined
+            ? 'core'
+            : String(source.featureLevel),
+          xrCompatible: Boolean(source.xrCompatible),
+          ...(source.powerPreference === undefined
+            ? {}
+            : { powerPreference: String(source.powerPreference) }),
+        });
+      }
       if (operationId === 'GPUQueue.submit') {
         return Array.from(args[0] as Iterable<unknown>);
       }
@@ -270,6 +283,53 @@ describe('production-private WebGPU wrapper gate', () => {
 });
 
 describe('production-private WebGPU wrapper factory', () => {
+  test('settles an unknown post-WebIDL feature level to null without provider work', async () => {
+    const log: string[] = [];
+    const bridge = createFakeBridge();
+    const globalObject = isolatedGlobal();
+    const installation = installProductionWebGpu(
+      globalObject,
+      bridge,
+      createFakeCodecs(log),
+    );
+    expect(installation.status).toBe('installed');
+    const result = await (globalObject.navigator.gpu as {
+      requestAdapter(options?: unknown): Promise<unknown>;
+    }).requestAdapter({ featureLevel: 'future-profile' });
+    expect(result).toBeNull();
+    expect(log).toContain('convert:GPU.requestAdapter');
+    expect(log).not.toContain('encode:GPU.requestAdapter');
+    expect(bridge.submissions).toHaveLength(0);
+    installation.status === 'installed' && installation.revoke();
+  });
+
+  test('runs Promise-operation conversion effects during the call and rejects conversion errors', async () => {
+    const bridge = createFakeBridge();
+    const globalObject = isolatedGlobal();
+    const installation = installProductionWebGpu(
+      globalObject,
+      bridge,
+      createFakeCodecs(),
+    );
+    expect(installation.status).toBe('installed');
+    let getterObserved = false;
+    const options = Object.defineProperty({}, 'forceFallbackAdapter', {
+      enumerable: true,
+      get() {
+        getterObserved = true;
+        throw new TypeError('conversion exploded');
+      },
+    });
+    const pending = (globalObject.navigator.gpu as {
+      requestAdapter(options?: unknown): Promise<unknown>;
+    }).requestAdapter(options);
+    expect(getterObserved).toBe(true);
+    expect(pending).toBeInstanceOf(Promise);
+    await expect(pending).rejects.toThrow('conversion exploded');
+    expect(bridge.submissions).toHaveLength(0);
+    installation.status === 'installed' && installation.revoke();
+  });
+
   test('keeps the audited TypeGPU delta descriptive and absent from prototypes', () => {
     const staging = describeProductionWebGpuWorkloadStaging();
     expect(staging.supportClaim).toBe('none');
@@ -351,11 +411,13 @@ describe('production-private WebGPU wrapper factory', () => {
     expect('createBuffer' in gpu).toBe(false);
 
     const pendingAdapter = gpu.requestAdapter({ powerPreference: 'high-performance' });
-    expect(log).not.toContain('convert:GPU.requestAdapter');
+    expect(log).toContain('convert:GPU.requestAdapter');
     const adapter = (await pendingAdapter) as {
       requestDevice(descriptor?: unknown): Promise<unknown>;
     };
-    const device = (await adapter.requestDevice({})) as {
+    const pendingDevice = adapter.requestDevice({});
+    expect(log).toContain('convert:GPUAdapter.requestDevice');
+    const device = (await pendingDevice) as {
       readonly queue: { submit(buffers: Iterable<unknown>): void };
       readonly features: { has(value: string): boolean };
       readonly limits: Readonly<Record<string, number>>;
@@ -373,7 +435,6 @@ describe('production-private WebGPU wrapper factory', () => {
         finish(descriptor?: unknown): object;
       };
     };
-    expect(log).toContain('convert:GPU.requestAdapter');
     expect(device.features.has('timestamp-query')).toBe(true);
     expect(device.limits.maxBindGroups).toBe(4);
     expect(device.queue).toBe(device.queue);

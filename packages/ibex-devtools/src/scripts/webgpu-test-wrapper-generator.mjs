@@ -17,11 +17,11 @@ import crypto from "node:crypto";
 import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  projection: "4a40017094653ac7a3bbd889c1b9beaee391cb97813e51bc210d8f3f790ffe63",
+  projection: "0c9087d350f3ee683e0cc6ff62438faf9f0fd158baa43e48ebcb01ec0c866249",
   operationSet: "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
   semanticProgramSet: "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
   runtimeRouting: "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-  webgpuCVocabulary: "bdf9d9aac41c6d6538971f9ae79c32d205e044415ea3d89b1d5b3c4d94abbff7",
+  webgpuCVocabulary: "99e66bfda21c162810c2da99f7b9bc91d1780c976020e1d2b0772c36c6c4d654",
 });
 
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
@@ -124,6 +124,46 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(
     payload.installInventory?.actualInstalledOperationCount === 0,
     "fixture claims installed operations",
+  );
+  assert(
+    payload.wireEnvelope?.scalarRules?.dictionary ===
+      "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first",
+    "wire dictionary rule differs from the executable generic-value codec",
+  );
+  assert(
+    canonicalJson(payload.wireEnvelope?.codecLayout) ===
+      canonicalJson({
+        requestMagic: "IBGQ",
+        resultMagic: "IBGR",
+        lossMagic: "IBGL",
+        version: 1,
+        header:
+          "ascii4-magic-plus-u16-le-version-plus-u16-le-codec-tag-plus-u32-le-operation-wire-id",
+        reference: "u8-object-kind-plus-five-u64-le-identity-fields",
+        target: "u8-zero-or-one-presence-plus-optional-reference",
+        requestTail:
+          "four-u64-le-ordinals-plus-generic-sealed-local-timeline-plus-generic-converted-arguments",
+        nullableNullResult:
+          "authenticated-result-kind-null-plus-zero-payload-bytes",
+        catalogWireTagRule: "one-based-index-in-authority-catalog-order",
+        objectKindTagRule:
+          "ExactGpuObjectKindV2-numeric-values-from-include-exact_runtime.h",
+        valueTags: {
+          null: 0,
+          false: 1,
+          true: 2,
+          u32: 3,
+          f64: 4,
+          string: 5,
+          sequence: 6,
+          dictionary: 7,
+        },
+        diagnosticMaxBytes: 4096,
+        sequenceMaxCount: 1024,
+        dictionaryMaxFields: 128,
+        nestingMaxDepth: 16,
+      }),
+    "authenticated executable codec layout drifted",
   );
 
   const operations = payload.operations;

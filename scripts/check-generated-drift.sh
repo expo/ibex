@@ -52,7 +52,11 @@ if ! bun run generate:webgpu-production-plan --check >/dev/null 2>&1; then
   stale+=(
     "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts"
     "packages/ibex-runtime-js/src/webgpu/production-codecs.generated.ts"
+    "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json"
   )
+fi
+if ! bun run generate:webgpu-production-codec-corpus --check >/dev/null 2>&1; then
+  stale+=("tests/fixtures/webgpu-production-codec-corpus-v1.generated.json")
 fi
 
 # --- bundle builders (write to scratch, diff against committed) -------------

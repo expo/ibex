@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-17 (records the pinned TypeGPU workload closure as private staging metadata while keeping its 30 operations beyond the reviewed triangle unroutable and absent from prototypes); 2026-07-16 (makes ASSIGNED + NOT_ADMITTED requestDevice results self-contained detached-loss operation terminals without lifecycle tombstones); 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-17 (authenticates the injection-only IBGQ/IBGR/IBGL codec layout in the C-vocabulary projection, generates a language-neutral manifest/corpus from the executable converter, and preserves unknown post-WebIDL adapter feature levels for the local-null semantic branch); 2026-07-17 (records the pinned TypeGPU workload closure as private staging metadata while keeping its 30 operations beyond the reviewed triangle unroutable and absent from prototypes); 2026-07-16 (makes ASSIGNED + NOT_ADMITTED requestDevice results self-contained detached-loss operation terminals without lifecycle tombstones); 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
@@ -430,16 +430,32 @@ The private factory implements only the reviewed 25-operation wrapper shape
 and consumes a generated route plan. Installation is a separate fail-closed
 step requiring all of: the authenticated V2 bridge, the app realm, an
 unoccupied public surface, and an exact executable codec bundle whose four
-authority digests and operation IDs match that plan. The checked-in plan
-contains routing and identity projections but explicitly marks its codec tags
-as descriptive; it cannot satisfy the executable-codec gate. Ibex currently
-embeds no executable codec bundle, so native construction still installs no
-`navigator.gpu`, interface globals, constants, or `createImageBitmap`.
-Tests may inject a digest-matched fake codec bundle into the private factory to
-verify routing, conversion timing, local command recording, receiver
-projection, identity, revocation, and loss settlement. Such injection is
-structural wrapper evidence only, not evidence of a production binary codec or
-native WebGPU support.
+authority digests and operation IDs match that plan. The generated
+injection-only codec bundle, language-neutral manifest, and byte corpus derive
+from the same reviewed authority. The authenticated C-vocabulary projection
+owns the IBGQ/IBGR/IBGL magic, version, header/reference/tail shapes, catalog
+tag rule, generic value tags, dictionary canonicalization, and bounds; the
+manifest derives object-kind numbers from `ExactGpuObjectKindV2` in the pinned
+C header. Dictionary keys are well-formed UTF-8 and sort by their unsigned
+encoded bytes, with a shorter prefix first; the corpus carries a non-BMP vector
+that distinguishes this rule from ECMAScript UTF-16 code-unit ordering.
+Completion decoders join duplicated provider and logical-device provenance to
+the authenticated service event before exposing a wrapper. The corpus executes
+WebIDL conversion and the real encoder/decoder, and records the event fields
+needed to check that join, so its
+defaulted fields cannot drift behind a hand-authored hex example. Unknown
+post-WebIDL `featureLevel` strings remain strings and resolve to `null` locally
+without provider work, as required by the semantic program. The bundled graph
+contains the generated injection codec for conformance and wrapper tests, but
+no executable codec is bound to `EMBEDDED_EXECUTABLE_WEBGPU_CODECS` or otherwise
+installable by production construction. No matching native decoder is
+installed, so native construction installs no `navigator.gpu`, interface
+globals, constants, or `createImageBitmap`. Tests may explicitly inject a
+digest-matched codec
+bundle into the private factory to verify routing, conversion timing, local
+command recording, receiver projection, identity, revocation, and loss
+settlement. Such injection and the generated corpus are conformance evidence
+for the private boundary only, not native WebGPU support.
 
 The pinned TypeGPU Genetic Racing and Jelly Slider source audit is projected
 into the generated private plan as a second, explicitly **staged** inventory.

@@ -16,6 +16,7 @@ import {
   validateExecutableWebGpuCodecs,
 } from './production-codecs';
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
+import { WEBGPU_OBJECT_KIND_TAGS } from './production-codecs.generated';
 
 type ProductionRoute = (typeof WEBGPU_PRODUCTION_PLAN.routes)[number];
 
@@ -27,20 +28,7 @@ const ROUTES_BY_WIRE = new Map<number, ProductionRoute>(
 );
 
 const OBJECT_KINDS: Readonly<Record<ProductionGpuWrapperKind, number>> =
-  Object.freeze({
-    GPU: 1,
-    GPUAdapter: 2,
-    GPUDevice: 3,
-    GPUQueue: 4,
-    GPUTexture: 6,
-    GPUTextureView: 7,
-    GPUShaderModule: 12,
-    GPURenderPipeline: 14,
-    GPUCommandEncoder: 15,
-    GPURenderPassEncoder: 17,
-    GPUCommandBuffer: 20,
-    GPUCanvasContext: 22,
-  });
+  WEBGPU_OBJECT_KIND_TAGS;
 
 interface LostController {
   readonly promise: Promise<unknown>;
@@ -867,10 +855,23 @@ export function createProductionWebGpuPrivateBinding(
     options?: unknown,
   ) {
     const state = requireState(this, 'GPU');
-    // Promise-bearing WebGPU methods perform conversion in the queued
-    // algorithm; synchronous wrapper methods convert before returning.
+    let converted: unknown;
+    try {
+      // Web IDL conversion effects happen during the call. A conversion
+      // exception becomes the returned Promise's rejection; only the WebGPU
+      // semantic/provider algorithm is queued.
+      converted = convert('GPU.requestAdapter', [options]);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return Promise.resolve().then(() => {
-      const converted = convert('GPU.requestAdapter', [options]);
+      const featureLevel = asRecord(
+        converted,
+        'converted GPURequestAdapterOptions',
+      ).featureLevel;
+      if (featureLevel !== 'core' && featureLevel !== 'compatibility') {
+        return null;
+      }
       const receipt = submitService(
         'GPU.requestAdapter',
         state,
@@ -887,8 +888,13 @@ export function createProductionWebGpuPrivateBinding(
     descriptor?: unknown,
   ) {
     const state = requireState(this, 'GPUAdapter');
+    let converted: unknown;
+    try {
+      converted = convert('GPUAdapter.requestDevice', [descriptor]);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     return Promise.resolve().then(() => {
-      const converted = convert('GPUAdapter.requestDevice', [descriptor]);
       const receipt = submitService(
         'GPUAdapter.requestDevice',
         state,

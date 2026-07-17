@@ -46,11 +46,33 @@ export interface ExecutableWebGpuCodecManifest {
     resultMagic: string;
     lossMagic: string;
     version: number;
+    header: string;
+    reference: string;
+    target: string;
+    requestTail: string;
+    nullableNullResult: string;
+    catalogWireTagRule: string;
+    objectKindTagRule: string;
+    valueTags: Readonly<{
+      null: number;
+      false: number;
+      true: number;
+      u32: number;
+      f64: number;
+      string: number;
+      sequence: number;
+      dictionary: number;
+    }>;
     diagnosticMaxBytes: number;
     sequenceMaxCount: number;
     dictionaryMaxFields: number;
     nestingMaxDepth: number;
   }>;
+  readonly objectKindAuthority: Readonly<{
+    path: string;
+    sha256: string;
+  }>;
+  readonly objectKindTags: Readonly<Record<string, number>>;
   readonly publicArguments: readonly CodecCatalogRow[];
   readonly serviceArguments: readonly ServiceCodecCatalogRow[];
   readonly serviceCompletions: readonly CodecCatalogRow[];
@@ -66,37 +88,20 @@ type DetachedOperationResultEvent = OperationResultEvent & Readonly<{
   backendClass?: unknown;
 }>;
 
-const VALUE_NULL = 0;
-const VALUE_FALSE = 1;
-const VALUE_TRUE = 2;
-const VALUE_U32 = 3;
-const VALUE_F64 = 4;
-const VALUE_STRING = 5;
-const VALUE_SEQUENCE = 6;
-const VALUE_DICTIONARY = 7;
-
-const GPU_OBJECT_KIND: Readonly<Record<ProductionGpuWrapperKind, number>> =
-  Object.freeze({
-    GPU: 1,
-    GPUAdapter: 2,
-    GPUDevice: 3,
-    GPUQueue: 4,
-    GPUTexture: 6,
-    GPUTextureView: 7,
-    GPUShaderModule: 12,
-    GPURenderPipeline: 14,
-    GPUCommandEncoder: 15,
-    GPURenderPassEncoder: 17,
-    GPUCommandBuffer: 20,
-    GPUCanvasContext: 22,
-  });
-
-const GPU_OBJECT_KIND_BY_TAG = new Map<number, ProductionGpuWrapperKind>(
-  Object.entries(GPU_OBJECT_KIND).map(([kind, tag]) => [
-    tag,
-    kind as ProductionGpuWrapperKind,
-  ]),
-);
+const PRODUCTION_WRAPPER_KINDS = Object.freeze([
+  'GPU',
+  'GPUAdapter',
+  'GPUDevice',
+  'GPUQueue',
+  'GPUTexture',
+  'GPUTextureView',
+  'GPUShaderModule',
+  'GPURenderPipeline',
+  'GPUCommandEncoder',
+  'GPURenderPassEncoder',
+  'GPUCommandBuffer',
+  'GPUCanvasContext',
+] as const satisfies readonly ProductionGpuWrapperKind[]);
 
 const TEXTURE_FORMATS = Object.freeze([
   'r8unorm',
@@ -194,8 +199,8 @@ function isObjectLike(value: unknown): value is Record<PropertyKey, unknown> {
 }
 
 function dictionary(value: unknown, label: string): Record<PropertyKey, unknown> {
-  if (value === undefined) return {};
-  if (!isObjectLike(value) || value === null) {
+  if (value === undefined || value === null) return Object.create(null);
+  if (!isObjectLike(value)) {
     throw new TypeError(`${label} must be a dictionary`);
   }
   return value;
@@ -302,23 +307,30 @@ function convertConstants(
 
 function convertRequestAdapterOptions(value: unknown): unknown {
   const source = dictionary(value, 'GPURequestAdapterOptions');
-  const result: Record<string, unknown> = {
-    forceFallbackAdapter: Boolean(source.forceFallbackAdapter),
-    featureLevel: source.featureLevel === undefined
-      ? 'core'
-      : enumValue(
-        source.featureLevel,
-        ['core', 'compatibility'],
-        'GPURequestAdapterOptions.featureLevel',
-      ),
-    xrCompatible: Boolean(source.xrCompatible),
-  };
-  if (source.powerPreference !== undefined) {
-    result.powerPreference = enumValue(
-      source.powerPreference,
+  const featureLevelSource = source.featureLevel;
+  const featureLevel = featureLevelSource === undefined
+    ? 'core'
+    : webIdlString(
+      featureLevelSource,
+      'GPURequestAdapterOptions.featureLevel',
+    );
+  const forceFallbackAdapter = Boolean(source.forceFallbackAdapter);
+  const powerPreferenceSource = source.powerPreference;
+  const powerPreference = powerPreferenceSource === undefined
+    ? undefined
+    : enumValue(
+      powerPreferenceSource,
       ['low-power', 'high-performance'],
       'GPURequestAdapterOptions.powerPreference',
     );
+  const xrCompatible = Boolean(source.xrCompatible);
+  const result: Record<string, unknown> = {
+    forceFallbackAdapter,
+    featureLevel,
+    xrCompatible,
+  };
+  if (powerPreference !== undefined) {
+    result.powerPreference = powerPreference;
   }
   return frozenRecord(result);
 }
@@ -762,6 +774,18 @@ function encodeUtf8(value: string): Uint8Array {
   return Uint8Array.from(bytes);
 }
 
+function compareCanonicalUtf8(left: string, right: string): number {
+  const leftBytes = encodeUtf8(left);
+  const rightBytes = encodeUtf8(right);
+  const sharedLength = Math.min(leftBytes.byteLength, rightBytes.byteLength);
+  for (let index = 0; index < sharedLength; index += 1) {
+    if (leftBytes[index] !== rightBytes[index]) {
+      return leftBytes[index] - rightBytes[index];
+    }
+  }
+  return leftBytes.byteLength - rightBytes.byteLength;
+}
+
 function decodeUtf8(bytes: Uint8Array): string {
   const codeUnits: number[] = [];
   for (let index = 0; index < bytes.length;) {
@@ -937,30 +961,30 @@ class Writer {
       throw new TypeError('WebGPU value exceeds the reviewed nesting bound');
     }
     if (value === null) {
-      this.u8(VALUE_NULL);
+      this.u8(limits.valueTags.null);
       return;
     }
     if (value === false) {
-      this.u8(VALUE_FALSE);
+      this.u8(limits.valueTags.false);
       return;
     }
     if (value === true) {
-      this.u8(VALUE_TRUE);
+      this.u8(limits.valueTags.true);
       return;
     }
     if (typeof value === 'number') {
       if (!Number.isFinite(value)) throw new TypeError('WebGPU numbers must be finite');
       if (Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff) {
-        this.u8(VALUE_U32);
+        this.u8(limits.valueTags.u32);
         this.u32(value);
       } else {
-        this.u8(VALUE_F64);
+        this.u8(limits.valueTags.f64);
         this.f64(value);
       }
       return;
     }
     if (typeof value === 'string') {
-      this.u8(VALUE_STRING);
+      this.u8(limits.valueTags.string);
       this.string(value);
       return;
     }
@@ -973,17 +997,17 @@ class Writer {
       if (value.length > limits.sequenceMaxCount) {
         throw new TypeError('WebGPU sequence exceeds the reviewed count bound');
       }
-      this.u8(VALUE_SEQUENCE);
+      this.u8(limits.valueTags.sequence);
       this.u32(value.length);
       for (const item of value) this.value(item, limits, depth + 1, seen);
     } else {
       const keys = Object.keys(value)
         .filter((key) => (value as Record<string, unknown>)[key] !== undefined)
-        .sort();
+        .sort(compareCanonicalUtf8);
       if (keys.length > limits.dictionaryMaxFields) {
         throw new TypeError('WebGPU dictionary exceeds the reviewed field bound');
       }
-      this.u8(VALUE_DICTIONARY);
+      this.u8(limits.valueTags.dictionary);
       this.u32(keys.length);
       for (const key of keys) {
         this.string(key);
@@ -1078,13 +1102,13 @@ class Reader {
       throw new TypeError('WebGPU value exceeds the reviewed nesting bound');
     }
     const tag = this.u8();
-    if (tag === VALUE_NULL) return null;
-    if (tag === VALUE_FALSE) return false;
-    if (tag === VALUE_TRUE) return true;
-    if (tag === VALUE_U32) return this.u32();
-    if (tag === VALUE_F64) return this.f64();
-    if (tag === VALUE_STRING) return this.string(this.bytes.byteLength);
-    if (tag === VALUE_SEQUENCE) {
+    if (tag === limits.valueTags.null) return null;
+    if (tag === limits.valueTags.false) return false;
+    if (tag === limits.valueTags.true) return true;
+    if (tag === limits.valueTags.u32) return this.u32();
+    if (tag === limits.valueTags.f64) return this.f64();
+    if (tag === limits.valueTags.string) return this.string(this.bytes.byteLength);
+    if (tag === limits.valueTags.sequence) {
       const count = this.u32();
       if (count > limits.sequenceMaxCount) {
         throw new TypeError('WebGPU sequence exceeds the reviewed count bound');
@@ -1095,7 +1119,7 @@ class Reader {
       }
       return result;
     }
-    if (tag === VALUE_DICTIONARY) {
+    if (tag === limits.valueTags.dictionary) {
       const count = this.u32();
       if (count > limits.dictionaryMaxFields) {
         throw new TypeError('WebGPU dictionary exceeds the reviewed field bound');
@@ -1105,7 +1129,7 @@ class Reader {
       for (let index = 0; index < count; index += 1) {
         const key = this.string(this.bytes.byteLength);
         if (
-          (index > 0 && key <= previous) ||
+          (index > 0 && compareCanonicalUtf8(key, previous) <= 0) ||
           Object.prototype.hasOwnProperty.call(result, key)
         ) {
           throw new TypeError('WebGPU dictionary keys are not canonical');
@@ -1128,8 +1152,9 @@ class Reader {
 function writeReference(
   writer: Writer,
   reference: ProductionGpuServiceEncodingInput['receiver'],
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
 ): void {
-  const kind = GPU_OBJECT_KIND[reference.kind];
+  const kind = objectKinds[reference.kind];
   if (!kind) throw new TypeError(`Unknown WebGPU object kind: ${reference.kind}`);
   writer.u8(kind);
   writer.u64(reference.objectId);
@@ -1139,9 +1164,12 @@ function writeReference(
   writer.u64(reference.providerGeneration);
 }
 
-function readReference(reader: Reader): Readonly<Record<string, string | number>> {
+function readReference(
+  reader: Reader,
+  objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
+): Readonly<Record<string, string | number>> {
   const kindTag = reader.u8();
-  const kind = GPU_OBJECT_KIND_BY_TAG.get(kindTag);
+  const kind = objectKindsByTag.get(kindTag);
   if (!kind) throw new TypeError(`Unknown WebGPU object kind tag: ${kindTag}`);
   return Object.freeze({
     kind,
@@ -1244,6 +1272,7 @@ export type WebGpuCodecTestServiceResult =
 
 export function createExecutableWebGpuCodecs(
   manifest: ExecutableWebGpuCodecManifest,
+  expectedObjectKindTags: Readonly<Record<string, number>>,
 ): Readonly<{
   bundle: ExecutableWebGpuCodecBundle;
   testSupport: Readonly<{
@@ -1253,6 +1282,7 @@ export function createExecutableWebGpuCodecs(
       result: WebGpuCodecTestServiceResult,
     ) => Uint8Array;
     encodeDeviceLoss: (message: string) => Uint8Array;
+    encodeCanonicalValue: (value: unknown) => Uint8Array;
   }>;
 }> {
   if (
@@ -1261,10 +1291,81 @@ export function createExecutableWebGpuCodecs(
       'reviewed-generated-injection-only-native-decoder-absent-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
-    manifest.completeLimitNames.length !== 36
+    manifest.completeLimitNames.length !== 36 ||
+    manifest.layout.requestMagic !== 'IBGQ' ||
+    manifest.layout.resultMagic !== 'IBGR' ||
+    manifest.layout.lossMagic !== 'IBGL' ||
+    manifest.layout.version !== 1 ||
+    manifest.layout.catalogWireTagRule !==
+      'one-based-index-in-authority-catalog-order' ||
+    manifest.layout.objectKindTagRule !==
+      'ExactGpuObjectKindV2-numeric-values-from-include-exact_runtime.h' ||
+    manifest.layout.header !==
+      'ascii4-magic-plus-u16-le-version-plus-u16-le-codec-tag-plus-u32-le-operation-wire-id' ||
+    manifest.layout.reference !==
+      'u8-object-kind-plus-five-u64-le-identity-fields' ||
+    manifest.layout.target !==
+      'u8-zero-or-one-presence-plus-optional-reference' ||
+    manifest.layout.requestTail !==
+      'four-u64-le-ordinals-plus-generic-sealed-local-timeline-plus-generic-converted-arguments' ||
+    manifest.layout.nullableNullResult !==
+      'authenticated-result-kind-null-plus-zero-payload-bytes' ||
+    manifest.maxPayloadBytes !== 16_777_216 ||
+    manifest.layout.diagnosticMaxBytes !== 4_096 ||
+    manifest.layout.sequenceMaxCount !== 1_024 ||
+    manifest.layout.dictionaryMaxFields !== 128 ||
+    manifest.layout.nestingMaxDepth !== 16 ||
+    JSON.stringify(manifest.layout.valueTags) !==
+      JSON.stringify({
+        null: 0,
+        false: 1,
+        true: 2,
+        u32: 3,
+        f64: 4,
+        string: 5,
+        sequence: 6,
+        dictionary: 7,
+      }) ||
+    manifest.objectKindAuthority.path !== 'include/exact_runtime.h' ||
+    !/^[0-9a-f]{64}$/u.test(manifest.objectKindAuthority.sha256) ||
+    manifest.publicArguments.some((row, index) => row.wireTag !== index + 1) ||
+    manifest.serviceArguments.some((row, index) => row.wireTag !== index + 1) ||
+    manifest.serviceCompletions.some((row, index) => row.wireTag !== index + 1)
   ) {
     throw new Error('Invalid generated WebGPU executable codec manifest');
   }
+  const objectKindEntries = Object.entries(manifest.objectKindTags);
+  const expectedObjectKindEntries = Object.entries(expectedObjectKindTags);
+  if (
+    objectKindEntries.length !== 23 ||
+    expectedObjectKindEntries.length !== 23 ||
+    manifest.objectKindTags.None !== 0 ||
+    expectedObjectKindEntries.some(
+      ([name, tag]) => manifest.objectKindTags[name] !== tag,
+    ) ||
+    objectKindEntries.some(
+      ([name, tag]) => expectedObjectKindTags[name] !== tag,
+    )
+  ) {
+    throw new Error('Invalid generated WebGPU object-kind table');
+  }
+  const objectKinds = Object.fromEntries(
+    PRODUCTION_WRAPPER_KINDS.map((kind) => [kind, manifest.objectKindTags[kind]]),
+  ) as Record<ProductionGpuWrapperKind, number>;
+  if (
+    Object.values(objectKinds).some(
+      (tag) => !Number.isInteger(tag) || tag <= 0 || tag > 0xff,
+    ) ||
+    new Set(Object.values(objectKinds)).size !== PRODUCTION_WRAPPER_KINDS.length
+  ) {
+    throw new Error('Generated WebGPU wrapper object kinds are incomplete');
+  }
+  const objectKindsByTag = new Map<number, ProductionGpuWrapperKind>(
+    Object.entries(objectKinds).map(([kind, tag]) => [
+      tag,
+      kind as ProductionGpuWrapperKind,
+    ]),
+  );
   const routes = new Map<string, ProductionRoute>(
     WEBGPU_PRODUCTION_PLAN.routes.map((route) => [route.operationId, route]),
   );
@@ -1383,9 +1484,9 @@ export function createExecutableWebGpuCodecs(
       codec.wireTag,
       route.wireId,
     );
-    writeReference(writer, input.receiver);
+    writeReference(writer, input.receiver, objectKinds);
     writer.u8(input.target ? 1 : 0);
-    if (input.target) writeReference(writer, input.target);
+    if (input.target) writeReference(writer, input.target, objectKinds);
     writer.u64(input.capturedScopeId);
     writer.u64(input.adapterOrdinal);
     writer.u64(input.deviceIngressOrdinal);
@@ -1405,6 +1506,27 @@ export function createExecutableWebGpuCodecs(
     }
     const codec = completionCodecs.get(route.serviceCompletionCodec);
     if (!codec) throw new TypeError('Unknown WebGPU service completion codec');
+    const adapterCompletion = route.serviceCompletionCodec ===
+      'nullable-gpu-adapter-service-completion-v1';
+    if (
+      adapterCompletion &&
+      (event.deviceTransition !== 0 ||
+        event.logicalDeviceId !== '0' ||
+        event.logicalDeviceGeneration !== '0' ||
+        event.providerGeneration !== '0')
+    ) {
+      throw new TypeError('GPUAdapter result carries invalid device provenance');
+    }
+    const nullableCompletion =
+      adapterCompletion ||
+      route.serviceCompletionCodec ===
+        'nullable-gpu-error-service-completion-v1';
+    if (nullableCompletion && event.resultKind === 2) {
+      if (event.payload.byteLength !== 0) {
+        throw new TypeError('WebGPU null result must carry zero payload bytes');
+      }
+      return Object.freeze({ kind: 'null' });
+    }
     const reader = new Reader(event.payload, manifest.maxPayloadBytes);
     readHeader(
       reader,
@@ -1415,11 +1537,6 @@ export function createExecutableWebGpuCodecs(
     );
     if (route.serviceCompletionCodec === 'nullable-gpu-adapter-service-completion-v1') {
       const present = reader.u8();
-      if (present === 0) {
-        if (event.resultKind !== 2) throw new TypeError('Nullable adapter result kind mismatch');
-        reader.done();
-        return Object.freeze({ kind: 'null' });
-      }
       if (present !== 1 || event.resultKind !== 3) {
         throw new TypeError('Invalid nullable adapter result');
       }
@@ -1432,6 +1549,9 @@ export function createExecutableWebGpuCodecs(
         reader.u64(),
         'GPUAdapter.providerGeneration',
       );
+      if (providerGeneration !== event.operationProviderGeneration) {
+        throw new TypeError('GPUAdapter result provider provenance mismatch');
+      }
       reader.done();
       return Object.freeze({
         kind: 'object',
@@ -1462,6 +1582,13 @@ export function createExecutableWebGpuCodecs(
         reader.u64(),
         'GPUDevice.providerGeneration',
       );
+      if (
+        logicalDeviceId !== event.logicalDeviceId ||
+        logicalDeviceGeneration !== event.logicalDeviceGeneration ||
+        providerGeneration !== event.providerGeneration
+      ) {
+        throw new TypeError('GPUDevice result provenance mismatch');
+      }
       const queueObjectId = positiveIdentity(reader.u64(), 'GPUQueue.objectId');
       const queueObjectGeneration = positiveIdentity(
         reader.u64(),
@@ -1528,11 +1655,6 @@ export function createExecutableWebGpuCodecs(
     }
     if (route.serviceCompletionCodec === 'nullable-gpu-error-service-completion-v1') {
       const present = reader.u8();
-      if (present === 0) {
-        if (event.resultKind !== 2) throw new TypeError('Nullable GPUError result kind mismatch');
-        reader.done();
-        return Object.freeze({ kind: 'null' });
-      }
       if (present !== 1 || event.resultKind !== 4) {
         throw new TypeError('Invalid nullable GPUError result');
       }
@@ -1589,12 +1711,14 @@ export function createExecutableWebGpuCodecs(
     if (!route || route.serviceArgumentCodec !== codec.tag) {
       throw new TypeError('WebGPU request operation/codec mismatch');
     }
-    const receiver = readReference(reader);
+    const receiver = readReference(reader, objectKindsByTag);
     const targetPresence = reader.u8();
     if (targetPresence !== 0 && targetPresence !== 1) {
       throw new TypeError('Invalid WebGPU target presence tag');
     }
-    const target = targetPresence === 1 ? readReference(reader) : null;
+    const target = targetPresence === 1
+      ? readReference(reader, objectKindsByTag)
+      : null;
     const result = frozenRecord({
       operationId: route.operationId,
       codec: codec.tag,
@@ -1618,6 +1742,15 @@ export function createExecutableWebGpuCodecs(
     const route = selectedRoute(operationId);
     const codec = completionCodecs.get(route.serviceCompletionCodec);
     if (!codec) throw new TypeError('Unknown WebGPU service completion codec');
+    if (
+      result.kind === 'null' &&
+      (route.serviceCompletionCodec ===
+        'nullable-gpu-adapter-service-completion-v1' ||
+        route.serviceCompletionCodec ===
+          'nullable-gpu-error-service-completion-v1')
+    ) {
+      return new Uint8Array(0);
+    }
     const writer = new Writer(manifest.maxPayloadBytes);
     writeHeader(
       writer,
@@ -1627,9 +1760,7 @@ export function createExecutableWebGpuCodecs(
       route.wireId,
     );
     if (route.serviceCompletionCodec === 'nullable-gpu-adapter-service-completion-v1') {
-      if (result.kind === 'null') {
-        writer.u8(0);
-      } else if (result.kind === 'adapter') {
+      if (result.kind === 'adapter') {
         writer.u8(1);
         writer.u64(result.objectId);
         writer.u64(result.objectGeneration);
@@ -1672,9 +1803,7 @@ export function createExecutableWebGpuCodecs(
       return writer.finish();
     }
     if (route.serviceCompletionCodec === 'nullable-gpu-error-service-completion-v1') {
-      if (result.kind === 'null') {
-        writer.u8(0);
-      } else if (result.kind === 'error') {
+      if (result.kind === 'error') {
         writer.u8(1);
         writer.u8(result.errorKind);
         writer.string(result.message, manifest.layout.diagnosticMaxBytes);
@@ -1692,6 +1821,12 @@ export function createExecutableWebGpuCodecs(
     writer.u16(manifest.layout.version);
     writer.u16(0);
     writer.string(message, manifest.layout.diagnosticMaxBytes);
+    return writer.finish();
+  };
+
+  const encodeCanonicalValue = (value: unknown): Uint8Array => {
+    const writer = new Writer(manifest.maxPayloadBytes);
+    writer.value(value, manifest.layout);
     return writer.finish();
   };
 
@@ -1714,6 +1849,7 @@ export function createExecutableWebGpuCodecs(
       inspectServiceRequest,
       encodeServiceResult,
       encodeDeviceLoss,
+      encodeCanonicalValue,
     }),
   });
 }

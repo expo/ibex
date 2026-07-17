@@ -1,0 +1,111 @@
+{
+  "schema": "ibex/webgpu-production-codec-corpus/1",
+  "disposition": "generated-language-neutral-request-adapter-conformance-no-native-install-claim",
+  "supportClaim": "none",
+  "source": {
+    "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
+    "manifestSha256": "7d7cf9535d97e9196ea65da45d1e29522fe78a91e6e66cba96d0d3cf1330d65e"
+  },
+  "profileId": "exact-webgpu-v1-draft",
+  "scopeId": "native-triangle-phase-1a-v1",
+  "digests": {
+    "operationSet": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
+    "semanticProgramSet": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
+    "runtimeRouting": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
+    "webgpuCVocabulary": "99e66bfda21c162810c2da99f7b9bc91d1780c976020e1d2b0772c36c6c4d654",
+    "projection": "0c9087d350f3ee683e0cc6ff62438faf9f0fd158baa43e48ebcb01ec0c866249"
+  },
+  "operation": {
+    "operationId": "GPU.requestAdapter",
+    "wireId": 1660448199,
+    "requestCodec": "gpu-request-adapter-service-request-v1",
+    "requestCodecTag": 2,
+    "completionCodec": "nullable-gpu-adapter-service-completion-v1",
+    "completionCodecTag": 3
+  },
+  "vectors": [
+    {
+      "id": "request-adapter-high-performance",
+      "kind": "request",
+      "bytesHex": "4942475101000200c76df8620117000000000000000400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000007040000000c000000666561747572654c6576656c0504000000636f726514000000666f72636546616c6c6261636b41646170746572010f000000706f776572507265666572656e63650510000000686967682d706572666f726d616e63650c0000007872436f6d70617469626c6501",
+      "expected": {
+        "receiver": {
+          "kind": "GPU",
+          "objectId": "23",
+          "objectGeneration": "4",
+          "logicalDeviceId": "0",
+          "logicalDeviceGeneration": "0",
+          "providerGeneration": "0"
+        },
+        "target": null,
+        "capturedScopeId": "0",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "0",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "forceFallbackAdapter": false,
+          "featureLevel": "core",
+          "xrCompatible": false,
+          "powerPreference": "high-performance"
+        }
+      }
+    },
+    {
+      "id": "request-adapter-object-result",
+      "kind": "result",
+      "event": {
+        "operationId": 1660448199,
+        "resultKind": 3,
+        "providerAdmission": 1,
+        "physicalSequence": "5",
+        "deviceTransition": 0,
+        "logicalDeviceId": "0",
+        "logicalDeviceGeneration": "0",
+        "providerGeneration": "0",
+        "operationProviderGeneration": "9"
+      },
+      "bytesHex": "4942475201000300c76df86201290000000000000002000000000000000900000000000000",
+      "expected": {
+        "kind": "object",
+        "object": {
+          "kind": "GPUAdapter",
+          "objectId": "41",
+          "objectGeneration": "2",
+          "providerGeneration": "9"
+        }
+      }
+    },
+    {
+      "id": "request-adapter-null-result",
+      "kind": "result",
+      "event": {
+        "operationId": 1660448199,
+        "resultKind": 2,
+        "providerAdmission": 1,
+        "physicalSequence": "5",
+        "deviceTransition": 0,
+        "logicalDeviceId": "0",
+        "logicalDeviceGeneration": "0",
+        "providerGeneration": "0",
+        "operationProviderGeneration": "9"
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "null"
+      }
+    },
+    {
+      "id": "canonical-dictionary-utf8-byte-order",
+      "kind": "canonical-value",
+      "bytesHex": "070200000003000000ee8080030200000004000000f09080800301000000",
+      "expected": {
+        "orderedKeys": [
+          "",
+          "𐀀"
+        ],
+        "rule": "unsigned-utf8-bytes-shorter-prefix-first"
+      }
+    }
+  ]
+}
