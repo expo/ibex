@@ -30,7 +30,15 @@ describe('construction-private GPU bridge capture', () => {
       retire: () => 0,
     };
 
-    installNativeGpuBridgeCapture(constructionGlobal);
+    let installedSurface = false;
+    let installedSurfaceRevoked = false;
+    installNativeGpuBridgeCapture(constructionGlobal, (candidate) => {
+      expect(candidate).toBe(bridge);
+      installedSurface = true;
+      return () => {
+        installedSurfaceRevoked = true;
+      };
+    });
     const capture = Object.getOwnPropertyDescriptor(
       constructionGlobal,
       '__ibexCaptureGpuNativeBridge',
@@ -40,8 +48,10 @@ describe('construction-private GPU bridge capture', () => {
 
     expect(Reflect.ownKeys(constructionGlobal)).toEqual([]);
     expect(nativeGpuBridgeForGeneratedWrapper()).toBe(bridge);
+    expect(installedSurface).toBe(true);
     revoke();
     expect(nativeGpuBridgeForGeneratedWrapper()).toBeUndefined();
+    expect(installedSurfaceRevoked).toBe(true);
   });
 
   test('V2 capture validation requires the typed raw-event sink', () => {

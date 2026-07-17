@@ -6816,14 +6816,15 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(
             engine
                 .eval_immediate(
-                    "[typeof navigator.gpu, typeof globalThis.__ibexCaptureGpuNativeBridge, \
+                    "[typeof navigator.gpu, typeof GPUDevice, typeof GPUBufferUsage, \
+                     typeof createImageBitmap, typeof globalThis.__ibexCaptureGpuNativeBridge, \
                      typeof globalThis.__ibexGpuNativeBridge, \
                      Reflect.ownKeys(globalThis).some(k => String(k).includes('GpuNativeBridge'))].join('/')",
                 )
                 .await
                 .unwrap()
                 .as_deref(),
-            Some("undefined/undefined/undefined/false")
+            Some("undefined/undefined/undefined/undefined/undefined/undefined/false")
         );
         let state = fake_gpu_v2_state().lock().unwrap();
         assert_eq!(state.retain_service_calls, 1);

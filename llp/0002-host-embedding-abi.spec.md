@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
@@ -421,9 +421,25 @@ all prove that the construction property is absent. A throwing, non-callable,
 or non-configurable hostile replacement marks capability construction failed
 and leaves `user_execution_started` false. The captured value lives only in the
 bootstrap module graph. `@ibex/runtime-js` exports no accessor, and Ibex's app
-module loader rejects package-deep and filesystem paths into `src/webgpu/`. A
-future generated wrapper must import the same bundled internal module rather
-than acquire a second slot.
+module loader rejects package-deep and filesystem paths into `src/webgpu/`.
+The production-private WebGPU factory imports this same bundled slot and binds
+the wrapper revoker to the native bridge revoker rather than acquiring a
+second bridge or extending bridge lifetime.
+
+The private factory implements only the reviewed 25-operation wrapper shape
+and consumes a generated route plan. Installation is a separate fail-closed
+step requiring all of: the authenticated V2 bridge, the app realm, an
+unoccupied public surface, and an exact executable codec bundle whose four
+authority digests and operation IDs match that plan. The checked-in plan
+contains routing and identity projections but explicitly marks its codec tags
+as descriptive; it cannot satisfy the executable-codec gate. Ibex currently
+embeds no executable codec bundle, so native construction still installs no
+`navigator.gpu`, interface globals, constants, or `createImageBitmap`.
+Tests may inject a digest-matched fake codec bundle into the private factory to
+verify routing, conversion timing, local command recording, receiver
+projection, identity, revocation, and loss settlement. Such injection is
+structural wrapper evidence only, not evidence of a production binary codec or
+native WebGPU support.
 
 The bridge accepts only an authenticated operation ID, canonical decimal
 uint64 strings for device/queue/account identities, and an ArrayBuffer or view

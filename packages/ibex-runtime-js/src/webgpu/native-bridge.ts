@@ -22,7 +22,7 @@ export interface NativeGpuBridgeV1 {
   readonly retire: (logicalHandles: readonly string[]) => number;
 }
 
-/** Full generation-bearing metadata consumed only by the future generated
+/** Full generation-bearing metadata consumed only by the production-private
  * wrapper. Synchronous wrapper-local recording operations never call submit;
  * the queue submit operation carries its already-sealed bounded program here.
  */
@@ -237,7 +237,10 @@ export function isNativeGpuBridge(value: unknown): value is NativeGpuBridge {
 }
 
 /** Install the one-shot construction handoff before any untrusted code runs. */
-export function installNativeGpuBridgeCapture(globalObject: typeof globalThis): void {
+export function installNativeGpuBridgeCapture(
+  globalObject: typeof globalThis,
+  onCapture?: (bridge: NativeGpuBridge) => (() => void) | undefined,
+): void {
   if (captureClosed) return;
   if (Object.prototype.hasOwnProperty.call(globalObject, CAPTURE_NAME)) {
     throw new TypeError('Native GPU bridge capture name is already occupied');
@@ -263,7 +266,17 @@ export function installNativeGpuBridgeCapture(globalObject: typeof globalThis): 
       revoke();
       throw new TypeError('Native GPU bridge capture could not delete its handoff');
     }
-    return revoke;
+    let revokeInstalledSurface: (() => void) | undefined;
+    try {
+      revokeInstalledSurface = onCapture?.(candidate);
+    } catch (error) {
+      revoke();
+      throw error;
+    }
+    return () => {
+      revokeInstalledSurface?.();
+      revoke();
+    };
   };
   Object.defineProperty(globalObject, CAPTURE_NAME, {
     value: capture,
@@ -279,7 +292,7 @@ export function closeNativeGpuBridgeCapture(globalObject: typeof globalThis): vo
   Reflect.deleteProperty(globalObject, CAPTURE_NAME);
 }
 
-/** Internal-only accessor for a later generated runtime-js WebGPU wrapper. */
+/** Internal-only accessor shared with the production-private WebGPU wrapper. */
 export function getNativeGpuBridge(): NativeGpuBridge | undefined {
   return capturedBridge;
 }

@@ -1,0 +1,157 @@
+// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+// Executable codecs are a separate generated authority. The checked-in route
+// plan alone is intentionally insufficient to publish navigator.gpu.
+
+import type { NativeGpuEventV2 } from './native-bridge';
+import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
+
+export type ProductionGpuWrapperKind =
+  | 'GPU'
+  | 'GPUAdapter'
+  | 'GPUCanvasContext'
+  | 'GPUCommandBuffer'
+  | 'GPUCommandEncoder'
+  | 'GPUDevice'
+  | 'GPUQueue'
+  | 'GPURenderPassEncoder'
+  | 'GPURenderPipeline'
+  | 'GPUShaderModule'
+  | 'GPUTexture'
+  | 'GPUTextureView';
+
+export interface ProductionGpuObjectIdentity {
+  readonly kind: ProductionGpuWrapperKind;
+  readonly objectId: string;
+  readonly objectGeneration: string;
+  readonly logicalDeviceId?: string;
+  readonly logicalDeviceGeneration?: string;
+  readonly providerGeneration?: string;
+  readonly features?: readonly string[];
+  readonly limits?: Readonly<Record<string, number>>;
+  readonly queue?: Readonly<{
+    objectId: string;
+    objectGeneration: string;
+  }>;
+  readonly alreadyLost?: Readonly<{
+    reason: 'destroyed' | 'unknown';
+    message: string;
+  }>;
+}
+
+export type ProductionGpuDecodedResult =
+  | Readonly<{ kind: 'null' }>
+  | Readonly<{ kind: 'value'; value: unknown }>
+  | Readonly<{ kind: 'object'; object: ProductionGpuObjectIdentity }>;
+
+export interface ProductionGpuCodecWrapperAccess {
+  readonly reference: (
+    value: unknown,
+    expectedKind?: ProductionGpuWrapperKind,
+  ) => Readonly<{
+    kind: ProductionGpuWrapperKind;
+    objectId: string;
+    objectGeneration: string;
+    logicalDeviceId: string;
+    logicalDeviceGeneration: string;
+    providerGeneration: string;
+  }>;
+}
+
+export interface ProductionGpuServiceEncodingInput {
+  readonly operationId: string;
+  readonly wireId: number;
+  readonly convertedArguments: unknown;
+  readonly receiver: ReturnType<ProductionGpuCodecWrapperAccess['reference']>;
+  readonly target?: ReturnType<ProductionGpuCodecWrapperAccess['reference']>;
+  readonly capturedScopeId: string;
+  readonly adapterOrdinal: string;
+  readonly deviceIngressOrdinal: string;
+  readonly queueIngressOrdinal: string;
+  readonly sealedLocalTimeline: readonly unknown[];
+}
+
+/**
+ * A future generator supplies this exact closed bundle. Conversion runs at the
+ * public operation's declared timing, while encoding is allowed only after
+ * wrapper-local validation and identity projection have completed.
+ */
+export interface ExecutableWebGpuCodecBundle {
+  readonly schema: 'ibex/webgpu-executable-codecs/1';
+  readonly operationSetDigest: string;
+  readonly semanticProgramDigest: string;
+  readonly runtimeRoutingDigest: string;
+  readonly webgpuCVocabularyDigest: string;
+  readonly operationIds: readonly string[];
+  readonly convertPublicArguments: (
+    operationId: string,
+    args: readonly unknown[],
+    wrappers: ProductionGpuCodecWrapperAccess,
+  ) => unknown;
+  readonly encodeServiceRequest: (
+    input: ProductionGpuServiceEncodingInput,
+  ) => ArrayBuffer | ArrayBufferView;
+  readonly decodeServiceResult: (
+    operationId: string,
+    event: Extract<NativeGpuEventV2, { kind: 1 }>,
+  ) => ProductionGpuDecodedResult;
+  readonly decodeDeviceLoss: (
+    event: Extract<NativeGpuEventV2, { kind: 3 | 4 | 5 | 6 }>,
+  ) => Readonly<{
+    reason: 'destroyed' | 'unknown';
+    message: string;
+  }>;
+}
+
+/**
+ * This remains undefined until the operation-selected binary layouts and
+ * Web-IDL converters are generated and reviewed. A route table or V2 carrier
+ * cannot substitute for it.
+ */
+export const EMBEDDED_EXECUTABLE_WEBGPU_CODECS:
+  | ExecutableWebGpuCodecBundle
+  | undefined = undefined;
+
+const EXPECTED_OPERATION_IDS = Object.freeze(
+  WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId).sort(),
+);
+
+function isHexDigest(value: string): boolean {
+  return /^[0-9a-f]{64}$/u.test(value);
+}
+
+export function validateExecutableWebGpuCodecs(
+  value: ExecutableWebGpuCodecBundle | undefined,
+): value is ExecutableWebGpuCodecBundle {
+  if (!value || value.schema !== 'ibex/webgpu-executable-codecs/1') return false;
+  if (
+    !isHexDigest(value.operationSetDigest) ||
+    !isHexDigest(value.semanticProgramDigest) ||
+    !isHexDigest(value.runtimeRoutingDigest) ||
+    !isHexDigest(value.webgpuCVocabularyDigest)
+  ) {
+    return false;
+  }
+  if (
+    value.operationSetDigest !== WEBGPU_PRODUCTION_PLAN.digests.operationSet ||
+    value.semanticProgramDigest !==
+      WEBGPU_PRODUCTION_PLAN.digests.semanticProgramSet ||
+    value.runtimeRoutingDigest !== WEBGPU_PRODUCTION_PLAN.digests.runtimeRouting ||
+    value.webgpuCVocabularyDigest !==
+      WEBGPU_PRODUCTION_PLAN.digests.webgpuCVocabulary
+  ) {
+    return false;
+  }
+  if (!Array.isArray(value.operationIds) || value.operationIds.length !== 25) {
+    return false;
+  }
+  const actual = value.operationIds.slice().sort();
+  if (actual.some((operationId, index) => operationId !== EXPECTED_OPERATION_IDS[index])) {
+    return false;
+  }
+  return (
+    typeof value.convertPublicArguments === 'function' &&
+    typeof value.encodeServiceRequest === 'function' &&
+    typeof value.decodeServiceResult === 'function' &&
+    typeof value.decodeDeviceLoss === 'function'
+  );
+}

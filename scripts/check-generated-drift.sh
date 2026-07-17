@@ -48,6 +48,9 @@ fi
 if ! bun run generate:webgpu-test-wrapper --check >/dev/null 2>&1; then
   stale+=("tests/fixtures/webgpu-test-wrapper.generated.js")
 fi
+if ! bun run generate:webgpu-production-plan --check >/dev/null 2>&1; then
+  stale+=("packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts")
+fi
 
 # --- bundle builders (write to scratch, diff against committed) -------------
 bun run build:builtins --out-dir "$scratch/builtins" >/dev/null 2>&1
