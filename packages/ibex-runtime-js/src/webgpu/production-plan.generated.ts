@@ -6,13 +6,13 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "generated-injection-and-request-adapter-payload-codegen-input-native-codec-not-installed",
+  "codecReadiness": "generated-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed",
   "digests": {
-    "operationSet": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
-    "semanticProgramSet": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-    "runtimeRouting": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
-    "webgpuCVocabulary": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
-    "projection": "8650c9faa794ac34c4b881804a8dd210f34abe3b1833deb7f3f09876cc408651"
+    "operationSet": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
+    "semanticProgramSet": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
+    "runtimeRouting": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
+    "webgpuCVocabulary": "ec2c7d628ea6c1a6c668b4ee7590ab85b9d17f55b9bf3222fd53a2695f26b6dc",
+    "projection": "898c83cc892eee5857c994e78f675fc17fd842e0140e018a02a6f3e0996dbe00"
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",
@@ -315,7 +315,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUAdapter.requestDevice",
-      "wireId": 579563582,
+      "wireId": 194635792,
       "interfaceName": "GPUAdapter",
       "memberName": "requestDevice",
       "memberKind": "method",
@@ -627,7 +627,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUDevice.limits",
-      "wireId": 363717510,
+      "wireId": 1914447212,
       "interfaceName": "GPUDevice",
       "memberName": "limits",
       "memberKind": "property",

@@ -132,19 +132,27 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     var featuresTwo = device.features;
     assert(featuresOne === featuresTwo, "features identity is stable");
     assert(Object.isFrozen(featuresOne), "features is frozen");
-    assert(featuresOne.size === 1, "feature size");
+    assert(featuresOne.size === 2, "core feature defaults are included");
+    assert(featuresOne.has("core-features-and-limits"), "core default feature membership");
     assert(featuresOne.has("timestamp-query"), "feature membership");
     assert(!("add" in featuresOne) && !("delete" in featuresOne), "feature set has no mutators");
-    assert(featuresOne.keys().next().value === "timestamp-query", "feature keys");
-    assert(featuresOne.values().next().value === "timestamp-query", "feature values");
+    assert(featuresOne.keys().next().value === "core-features-and-limits", "feature keys");
+    assert(featuresOne.values().next().value === "core-features-and-limits", "feature values");
     var entry = featuresOne.entries().next().value;
-    same(entry, ["timestamp-query", "timestamp-query"], "feature entries");
-    assert(featuresOne[Symbol.iterator]().next().value === "timestamp-query", "feature iterator");
+    same(entry, ["core-features-and-limits", "core-features-and-limits"], "feature entries");
+    assert(featuresOne[Symbol.iterator]().next().value === "core-features-and-limits", "feature iterator");
     var visited = [];
     featuresOne.forEach(function (value, key, receiver) {
       visited.push([value, key, receiver === featuresOne]);
     });
-    same(visited, [["timestamp-query", "timestamp-query", true]], "feature forEach");
+    same(
+      visited,
+      [
+        ["core-features-and-limits", "core-features-and-limits", true],
+        ["timestamp-query", "timestamp-query", true],
+      ],
+      "feature forEach",
+    );
 
     var limitsOne = device.limits;
     var limitsTwo = device.limits;
@@ -216,7 +224,11 @@ export async function webGpuTestWrapperCorpus(createHarness) {
       ["logicalFeatures", "logicalLimits", "serviceInternalRequirements"],
       "requestDevice provider payload has only normalized logical capabilities and internal requirements",
     );
-    same(providerPayload.logicalFeatures, ["timestamp-query"], "provider features are sorted and deduplicated");
+    same(
+      providerPayload.logicalFeatures,
+      ["core-features-and-limits", "timestamp-query"],
+      "provider features include level defaults and are sorted and deduplicated",
+    );
     assert(Object.keys(providerPayload.logicalLimits).length === 36, "provider carries complete normalized logical limits");
     assert(providerPayload.logicalLimits.maxTextureDimension1D === 8192, "undefined required limit keeps the core profile default");
     assert(providerPayload.logicalLimits.minUniformBufferOffsetAlignment === 256, "explicit alignment is normalized to a number");
@@ -987,6 +999,143 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     };
   }
 
+  async function exerciseFeatureLevelProjection() {
+    var coreHarness = createHarness();
+    var coreAdapter = await coreHarness.gpu.requestAdapter();
+    assert(
+      coreHarness.describe(coreAdapter).featureLevel === "core",
+      "omitted requestAdapter featureLevel defaults and persists as core",
+    );
+    var coreDevice = await coreAdapter.requestDevice({
+      requiredFeatures: [
+        "texture-compression-bc",
+        "texture-formats-tier2",
+      ],
+    });
+    same(
+      Array.from(coreDevice.features),
+      [
+        "core-features-and-limits",
+        "rg11b10ufloat-renderable",
+        "texture-compression-bc",
+        "texture-formats-tier1",
+        "texture-formats-tier2",
+      ],
+      "core device applies defaults, adapter implications, and ordered new-device implications",
+    );
+    assert(coreDevice.limits.maxTextureDimension1D === 8192, "core texture default");
+    assert(coreDevice.limits.maxColorAttachments === 8, "core color default");
+    assert(
+      coreDevice.limits.maxComputeInvocationsPerWorkgroup === 256,
+      "core compute default",
+    );
+    var coreAdapterReceipt = operationReceipt(
+      coreHarness.inspect(),
+      "GPU.requestAdapter",
+    );
+    assert(
+      coreAdapterReceipt.untrustedWrapperPayload.argumentBody.featureLevel ===
+        "core",
+      "defaulted core featureLevel reaches the converted provider request",
+    );
+
+    var compatibilityHarness = createHarness();
+    var compatibilityAdapter = await compatibilityHarness.gpu.requestAdapter({
+      featureLevel: "compatibility",
+    });
+    assert(
+      compatibilityHarness.describe(compatibilityAdapter).featureLevel ===
+        "compatibility",
+      "compatibility featureLevel persists on the logical adapter",
+    );
+    var compatibilityDevice = await compatibilityAdapter.requestDevice();
+    same(
+      Array.from(compatibilityDevice.features),
+      [],
+      "compatibility device starts without the core default feature",
+    );
+    assert(
+      compatibilityDevice.limits.maxTextureDimension1D === 4096,
+      "compatibility texture default",
+    );
+    assert(
+      compatibilityDevice.limits.maxUniformBufferBindingSize === 16384,
+      "compatibility uniform-buffer default",
+    );
+    assert(
+      compatibilityDevice.limits.maxColorAttachments === 4,
+      "compatibility color default",
+    );
+    assert(
+      compatibilityDevice.limits.maxComputeInvocationsPerWorkgroup === 128,
+      "compatibility compute default",
+    );
+    assert(
+      compatibilityDevice.limits.maxStorageBuffersInVertexStage === 0,
+      "compatibility storage-buffer vertex default",
+    );
+    assert(
+      compatibilityDevice.limits.maxStorageTexturesInVertexStage === 0,
+      "compatibility storage-texture vertex default",
+    );
+    var compatibilityAdapterReceipt = operationReceipt(
+      compatibilityHarness.inspect(),
+      "GPU.requestAdapter",
+    );
+    assert(
+      compatibilityAdapterReceipt.untrustedWrapperPayload.argumentBody
+        .featureLevel === "compatibility",
+      "converted compatibility featureLevel reaches the provider request",
+    );
+
+    var upgradedHarness = createHarness();
+    var upgradedAdapter = await upgradedHarness.gpu.requestAdapter({
+      featureLevel: "compatibility",
+    });
+    var upgradedDevice = await upgradedAdapter.requestDevice({
+      requiredLimits: {
+        maxTextureDimension1D: 8192,
+        maxUniformBufferBindingSize: 65536,
+        maxColorAttachments: 8,
+        maxComputeInvocationsPerWorkgroup: 256,
+        maxStorageBuffersInVertexStage: 8,
+        maxStorageTexturesInVertexStage: 4,
+      },
+    });
+    assert(
+      upgradedDevice.limits.maxTextureDimension1D === 8192 &&
+        upgradedDevice.limits.maxUniformBufferBindingSize === 65536 &&
+        upgradedDevice.limits.maxColorAttachments === 8 &&
+        upgradedDevice.limits.maxComputeInvocationsPerWorkgroup === 256,
+      "compatibility requests may improve defaults through their adapter/profile/grant ceilings",
+    );
+    assert(
+      upgradedDevice.limits.maxStorageBuffersInVertexStage === 8 &&
+        upgradedDevice.limits.maxStorageTexturesInVertexStage === 4,
+      "compatibility storage requests apply before storage normalization",
+    );
+
+    var invalidHarness = createHarness();
+    var invalidAdapter = await invalidHarness.gpu.requestAdapter({
+      featureLevel: "future-level",
+    });
+    assert(invalidAdapter === null, "unknown converted featureLevel resolves null");
+    assert(
+      invalidHarness.inspect().serviceReceipts.length === 0,
+      "unknown converted featureLevel performs no provider work",
+    );
+
+    return {
+      coreFeatures: Array.from(coreDevice.features),
+      coreTextureDefault: coreDevice.limits.maxTextureDimension1D,
+      compatibilityFeatures: Array.from(compatibilityDevice.features),
+      compatibilityTextureDefault:
+        compatibilityDevice.limits.maxTextureDimension1D,
+      compatibilityUpgradedTexture:
+        upgradedDevice.limits.maxTextureDimension1D,
+    };
+  }
+
   var allOperations = await exerciseAllOperations();
   var catalog = createHarness().inspect();
   assert(catalog.fixtureDisposition === "test-only-no-runtime-install-no-support-claim", "fixture remains explicitly test-only with no support claim");
@@ -1052,6 +1201,7 @@ export async function webGpuTestWrapperCorpus(createHarness) {
   var conditionalProviderBranches = await exerciseConditionalProviderBranches();
   var crossRealm = await exerciseCrossRealmNoninterference();
   var nullableAdapter = await exerciseNullableAdapter();
+  var featureLevels = await exerciseFeatureLevelProjection();
 
   return {
     schema: "ibex/webgpu-test-wrapper-corpus-result/1",
@@ -1065,5 +1215,6 @@ export async function webGpuTestWrapperCorpus(createHarness) {
     conditionalProviderBranches: conditionalProviderBranches,
     crossRealm: crossRealm,
     nullableAdapter: nullableAdapter,
+    featureLevels: featureLevels,
   };
 }

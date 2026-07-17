@@ -226,7 +226,7 @@ function renderPlan(authority, workloadStaging) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     activeRouteSubset: {
       scopeId: payload.scopeId,
@@ -303,6 +303,12 @@ function exactGpuHeaderVocabulary() {
   const requiredCarrierConstantNames = [
     "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
     "EXACT_GPU_DEVICE_UNCHANGED_V2",
+    "EXACT_GPU_DEVICE_ASSIGNED_V2",
+    "EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2",
+    "EXACT_GPU_PROVIDER_NOT_ADMITTED_V2",
+    "EXACT_GPU_PROVIDER_ADMITTED_V2",
+    "EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2",
+    "EXACT_GPU_BACKEND_NONE_V2",
     "EXACT_GPU_RESULT_NULL_V2",
     "EXACT_GPU_RESULT_OBJECT_V2",
   ];
@@ -331,14 +337,21 @@ function buildCodecManifest(authority, semantics) {
   const semantic = validateWebGpuWrapperSemantics(semantics);
   const headerVocabulary = exactGpuHeaderVocabulary();
   const nativeCodecPrograms = payload.wireEnvelope.nativeCodecPrograms;
-  const requestAdapterProgram = nativeCodecPrograms.routes[0];
-  const objectCompletion = requestAdapterProgram.completion.variants.find(
+  const requestAdapterProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPU.requestAdapter",
+  );
+  const requestDeviceProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUAdapter.requestDevice",
+  );
+  const objectCompletion = requestAdapterProgram?.completion.variants.find(
     (variant) => variant.name === "object",
   );
-  const nullCompletion = requestAdapterProgram.completion.variants.find(
+  const nullCompletion = requestAdapterProgram?.completion.variants.find(
     (variant) => variant.name === "null",
   );
   if (
+    !requestAdapterProgram ||
+    !requestDeviceProgram ||
     headerVocabulary.tags.GPU !== 1 ||
     headerVocabulary.tags.GPUAdapter !== 2 ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 !==
@@ -348,14 +361,22 @@ function buildCodecManifest(authority, semantics) {
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NULL_V2 !==
       nullCompletion?.resultKind ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_OBJECT_V2 !==
-      objectCompletion?.resultKind
+      objectCompletion?.resultKind ||
+    headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_V2 !== 1 ||
+    headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 !== 2 ||
+    headerVocabulary.carrierConstants.EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 !== 0 ||
+    headerVocabulary.carrierConstants.EXACT_GPU_PROVIDER_ADMITTED_V2 !== 1 ||
+    headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2 !== 1 ||
+    headerVocabulary.carrierConstants.EXACT_GPU_BACKEND_NONE_V2 !== 0 ||
+    requestDeviceProgram.request.executablePrerequisites.join(",") !==
+      "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity"
   ) {
     throw new Error("native WebGPU codec program C vocabulary drifted");
   }
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
@@ -374,8 +395,14 @@ function buildCodecManifest(authority, semantics) {
       payload.codecCatalog.serviceArguments,
       (codec) => {
         const blockers = serviceCodecBlockers(codec);
+        const nativeProgramPrerequisitesRepresented =
+          codec.tag !== "gpu-request-device-service-request-v1" ||
+          requestDeviceProgram.request.executablePrerequisites.join(",") ===
+            "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity";
         return {
-          executableFromCurrentAuthenticatedInputs: blockers.length === 0,
+          nativeProgramPrerequisitesRepresented,
+          executableFromCurrentAuthenticatedInputs:
+            nativeProgramPrerequisitesRepresented && blockers.length === 0,
           unavailableSemanticFields: blockers,
         };
       },

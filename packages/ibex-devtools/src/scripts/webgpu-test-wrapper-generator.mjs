@@ -17,18 +17,18 @@ import crypto from "node:crypto";
 import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  projection: "8650c9faa794ac34c4b881804a8dd210f34abe3b1833deb7f3f09876cc408651",
-  operationSet: "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
-  semanticProgramSet: "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-  runtimeRouting: "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
-  webgpuCVocabulary: "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
+  projection: "898c83cc892eee5857c994e78f675fc17fd842e0140e018a02a6f3e0996dbe00",
+  operationSet: "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
+  semanticProgramSet: "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
+  runtimeRouting: "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
+  webgpuCVocabulary: "ec2c7d628ea6c1a6c668b4ee7590ab85b9d17f55b9bf3222fd53a2695f26b6dc",
 });
 
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   semanticProjection:
-    "374dc0348ec585fbfe3829df3602a52e054aed2fa36b635c12357e5bd28f0746",
+    "eb9aa61ec2cd9f3362c7abcf4af43646bc19bd7025475ee787e7f74202695482",
   fakeClientData:
-    "16952a4a4b487fb567d7e68b5f893d6ca51e3b994677aea05c02c8469094ff0d",
+    "51834c11d72ce342e20f093ad30736be0e681025563aa9a3f9c0a092f212c41f",
 });
 
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
@@ -101,7 +101,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -197,10 +197,14 @@ function validateNativeCodecPrograms(payload) {
     Object.keys(types || {}).sort(),
     [
       "canonicalValueV1",
+      "completeDeviceLimitsV1",
+      "gpuDeviceCompletionBodyV1",
       "headerV1",
       "objectReferenceV1",
       "optionalReferenceV1",
       "requestAdapterOptionsV1",
+      "requestDeviceDescriptorV1",
+      "sortedUniqueFeatureSequenceV1",
     ],
     "native codec type inventory",
   );
@@ -329,10 +333,115 @@ function validateNativeCodecPrograms(payload) {
     },
     "native requestAdapter option type",
   );
+  assertCanonical(
+    types.requestDeviceDescriptorV1,
+    {
+      kind: "closed-dictionary",
+      encodingType: "canonicalValueV1",
+      trust: "untrusted-webidl-converted-semantic-service-ingress-only",
+      providerBoundary: "forbidden-raw-descriptor-must-not-reach-provider",
+      unknownFields: "reject",
+      fields: [
+        {
+          name: "label",
+          required: true,
+          value: { kind: "string" },
+        },
+        {
+          name: "requiredFeatures",
+          required: true,
+          value: {
+            kind: "sequence",
+            element: "string",
+            maxCountFrom: "codecLayout.sequenceMaxCount",
+          },
+        },
+        {
+          name: "requiredLimits",
+          required: true,
+          value: {
+            kind: "dictionary",
+            key: "string",
+            value: "nonnegative-js-safe-integer",
+            maxCountFrom: "codecLayout.dictionaryMaxFields",
+          },
+        },
+        {
+          name: "defaultQueue",
+          required: true,
+          value: {
+            kind: "closed-dictionary",
+            unknownFields: "reject",
+            fields: [{
+              name: "label",
+              required: true,
+              value: { kind: "string" },
+            }],
+          },
+        },
+      ],
+    },
+    "native requestDevice untrusted descriptor ingress type",
+  );
+  assertCanonical(
+    types.sortedUniqueFeatureSequenceV1,
+    {
+      kind: "sequence",
+      countType: "u32le",
+      elementType: "utf8",
+      maxCountFrom: "codecLayout.sequenceMaxCount",
+      constraints: ["strictly-increasing-utf8-strings"],
+    },
+    "native requestDevice feature result type",
+  );
+  assertCanonical(
+    types.completeDeviceLimitsV1,
+    {
+      kind: "ordered-record",
+      fieldNamesFrom: "semanticProjection.limitPolicy.limits",
+      requiredFieldCount: 36,
+      valueType: "u64le",
+      constraints: ["js-safe-integer"],
+    },
+    "native requestDevice complete limits result type",
+  );
+  assertCanonical(
+    types.gpuDeviceCompletionBodyV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "objectId", type: "u64le", constraint: "positive" },
+        { name: "objectGeneration", type: "u64le", constraint: "positive" },
+        { name: "logicalDeviceId", type: "u64le", constraint: "positive" },
+        {
+          name: "logicalDeviceGeneration",
+          type: "u64le",
+          constraint: "positive",
+        },
+        { name: "providerGeneration", type: "u64le", constraint: "positive" },
+        { name: "queueObjectId", type: "u64le", constraint: "positive" },
+        {
+          name: "queueObjectGeneration",
+          type: "u64le",
+          constraint: "positive",
+        },
+        { name: "features", type: "sortedUniqueFeatureSequenceV1" },
+        { name: "limits", type: "completeDeviceLimitsV1" },
+        {
+          name: "diagnosticMessage",
+          type: "utf8",
+          maxBytesFrom: "codecLayout.diagnosticMaxBytes",
+        },
+      ],
+    },
+    "native requestDevice completion body type",
+  );
 
-  assert(Array.isArray(program.routes) && program.routes.length === 1,
-    "native codec program must contain exactly one route");
-  const route = program.routes[0];
+  assert(Array.isArray(program.routes) && program.routes.length === 2,
+    "native codec program must contain exactly requestAdapter and requestDevice routes");
+  const route = program.routes.find(
+    (candidate) => candidate.operationId === "GPU.requestAdapter",
+  );
   const operation = payload.operations.find(
     (candidate) => candidate.operationId === "GPU.requestAdapter",
   );
@@ -556,6 +665,439 @@ function validateNativeCodecPrograms(payload) {
     ],
     "native requestAdapter completion variants",
   );
+
+  const requestDeviceRoute = program.routes.find(
+    (candidate) => candidate.operationId === "GPUAdapter.requestDevice",
+  );
+  const requestDeviceOperation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPUAdapter.requestDevice",
+  );
+  assert(
+    requestDeviceRoute && requestDeviceOperation &&
+      requestDeviceRoute.wireId === requestDeviceOperation.wireId,
+    "native requestDevice operation identity drifted",
+  );
+  const requestDeviceRequestCatalogIndex =
+    payload.codecCatalog.serviceArguments.findIndex(
+      (codec) => codec.tag === requestDeviceOperation.serviceArgumentCodec,
+    );
+  const requestDeviceCompletionCatalogIndex =
+    payload.codecCatalog.serviceCompletions.findIndex(
+      (codec) => codec.tag === requestDeviceOperation.serviceCompletionCodec,
+    );
+  assertCanonical(
+    requestDeviceRoute.request.catalog,
+    {
+      name: "serviceArguments",
+      tag: "gpu-request-device-service-request-v1",
+      wireTag: requestDeviceRequestCatalogIndex + 1,
+    },
+    "native requestDevice request catalog selection",
+  );
+  assertCanonical(
+    requestDeviceRoute.request.payload,
+    {
+      kind: "struct",
+      fields: [
+        {
+          name: "header",
+          type: "headerV1",
+          constants: {
+            magic: envelope.codecLayout.requestMagic,
+            version: envelope.codecLayout.version,
+            codecTag: requestDeviceRequestCatalogIndex + 1,
+            operationWireId: requestDeviceOperation.wireId,
+          },
+        },
+        { name: "receiver", type: "objectReferenceV1" },
+        { name: "target", type: "optionalReferenceV1" },
+        { name: "capturedScopeId", type: "u64le" },
+        { name: "adapterOrdinal", type: "u64le" },
+        { name: "deviceIngressOrdinal", type: "u64le" },
+        { name: "queueIngressOrdinal", type: "u64le" },
+        { name: "sealedLocalTimeline", type: "canonicalValueV1" },
+        {
+          name: "convertedArguments",
+          type: "canonicalValueV1",
+          constraintType: "requestDeviceDescriptorV1",
+        },
+      ],
+    },
+    "native requestDevice request layout",
+  );
+  assertCanonical(
+    requestDeviceRoute.request.carrierJoins,
+    [
+      ["header.operationWireId", "operation_id", "equal"],
+      ["receiver.kind", "receiver.kind", "equal"],
+      ["receiver.objectId", "receiver.object_id", "equal"],
+      ["receiver.objectGeneration", "receiver.object_generation", "equal"],
+      ["receiver.logicalDeviceId", "ingress_device.logical_device_id", "equal"],
+      ["receiver.logicalDeviceGeneration", "ingress_device.logical_device_generation", "equal"],
+      ["receiver.providerGeneration", "provider_generation", "equal"],
+      ["target", "target", "absent-iff-all-zero-reference"],
+      ["capturedScopeId", "captured_scope_id", "equal"],
+      ["adapterOrdinal", "adapter_ordinal", "equal"],
+      ["deviceIngressOrdinal", "device_ingress_ordinal", "equal"],
+      ["queueIngressOrdinal", "queue_ingress_ordinal", "equal"],
+    ].map(([payloadPath, carrierPath, operator]) => ({
+      payloadPath,
+      carrierPath,
+      operator,
+    })),
+    "native requestDevice carrier joins",
+  );
+  assertCanonical(
+    requestDeviceRoute.request.carrierConstraints,
+    [
+      {
+        carrierPath: "operation_id",
+        operator: "equal",
+        value: requestDeviceOperation.wireId,
+      },
+      { carrierPath: "flags", operator: "equal", value: 0 },
+      {
+        carrierPath: "topology_id",
+        operator: "equal",
+        valueFrom: "constants.providerTopologyId",
+      },
+      { carrierPath: "ingress_device", operator: "all-zero" },
+      { carrierPath: "provider_generation", operator: "positive" },
+      { carrierPath: "operation_instance_id", operator: "positive" },
+      { carrierPath: "promise_id", operator: "positive" },
+      {
+        carrierPath: "receiver.kind",
+        operator: "equal",
+        valueFrom: "objectKindTags.GPUAdapter",
+      },
+      { carrierPath: "receiver.flags", operator: "equal", value: 0 },
+      { carrierPath: "receiver.object_id", operator: "positive" },
+      { carrierPath: "receiver.object_generation", operator: "positive" },
+      { carrierPath: "target", operator: "all-zero" },
+      { carrierPath: "captured_scope_id", operator: "equal", value: "0" },
+      { carrierPath: "adapter_ordinal", operator: "positive" },
+      { carrierPath: "device_ingress_ordinal", operator: "equal", value: "0" },
+      { carrierPath: "queue_ingress_ordinal", operator: "equal", value: "0" },
+    ],
+    "native requestDevice carrier constraints",
+  );
+  assertCanonical(
+    requestDeviceRoute.request.valueConstraints,
+    [
+      { payloadPath: "sealedLocalTimeline", operator: "exact-empty-sequence" },
+      {
+        payloadPath: "convertedArguments",
+        operator: "conforms-to-type",
+        type: "requestDeviceDescriptorV1",
+      },
+      {
+        payloadPath: "convertedArguments",
+        operator: "untrusted-semantic-service-ingress-only-never-provider-input",
+      },
+    ],
+    "native requestDevice value constraints",
+  );
+  assertCanonical(
+    requestDeviceRoute.request.semanticServiceDerivations,
+    [
+      {
+        name: "generatedLogicalProviderDescriptor",
+        ownership: "native-semantic-service-derived-never-payload-or-wrapper-supplied",
+        inputs: [
+          "untrusted-convertedArguments",
+          "authenticated-adapter-state",
+          "authenticated-feature-level-profile",
+          "authenticated-capability-grant",
+          "versioned-service-internal-requirements",
+        ],
+        output:
+          "exact-logical-features-limits-plus-versioned-service-internal-requirements-only",
+        forbiddenProviderInputs: ["convertedArguments", "raw-GPUDeviceDescriptor"],
+        requiredBefore: ["provider-admission"],
+        authenticatedCrossLinks: [
+          {
+            derivedPath: "providerGeneration",
+            carrierPath: "provider_generation",
+            operator: "equal",
+          },
+          {
+            derivedPath: "adapterIdentity",
+            carrierPath: "receiver",
+            operator: "derived-from-authenticated-reference",
+          },
+        ],
+      },
+      {
+        name: "authenticatedResultSelectionIdentity",
+        ownership: "native-semantic-service-allocated-never-payload-or-wrapper-supplied",
+        inputs: [
+          "authenticated-retained-call",
+          "live-device-reservation",
+          "authenticated-adapter-publication-credit",
+          "authenticated-account-capacity-state",
+        ],
+        output: "fresh-device-object-logical-device-and-queue-identities",
+        requiredBefore: ["provider-admission", "completion-encoding"],
+        authenticatedCrossLinks: [
+          {
+            derivedPath: "logicalDeviceId",
+            carrierPath:
+              "record.operation_result.operation.result_device.logical_device_id",
+            operator: "equal",
+          },
+          {
+            derivedPath: "logicalDeviceGeneration",
+            carrierPath:
+              "record.operation_result.operation.result_device.logical_device_generation",
+            operator: "equal",
+          },
+          {
+            derivedPath: "providerGeneration",
+            carrierPath:
+              "record.operation_result.operation.result_device.provider_generation",
+            operator: "equal",
+          },
+          {
+            derivedPath: "retainedOperationIdentity",
+            carrierPath: "record.operation_result.operation.operation_instance_id",
+            operator: "bound-to-authenticated-retained-call",
+          },
+          {
+            derivedPath: "retainedPromiseIdentity",
+            carrierPath: "record.operation_result.operation.promise_id",
+            operator: "bound-to-authenticated-retained-call",
+          },
+        ],
+      },
+    ],
+    "native requestDevice semantic-service derivations",
+  );
+  assertCanonical(
+    requestDeviceRoute.request.executablePrerequisites,
+    ["generatedLogicalProviderDescriptor", "authenticatedResultSelectionIdentity"],
+    "native requestDevice executable prerequisites",
+  );
+  assert(requestDeviceRoute.request.noTrailingBytes === true,
+    "native requestDevice request must reject trailing bytes");
+
+  assertCanonical(
+    requestDeviceRoute.completion.catalog,
+    {
+      name: "serviceCompletions",
+      tag: "gpu-device-service-completion-v1",
+      wireTag: requestDeviceCompletionCatalogIndex + 1,
+    },
+    "native requestDevice completion catalog selection",
+  );
+  assertCanonical(
+    requestDeviceRoute.completion.payload,
+    {
+      kind: "struct",
+      fields: [
+        {
+          name: "header",
+          type: "headerV1",
+          constants: {
+            magic: envelope.codecLayout.resultMagic,
+            version: envelope.codecLayout.version,
+            codecTag: requestDeviceCompletionCatalogIndex + 1,
+            operationWireId: requestDeviceOperation.wireId,
+          },
+        },
+        { name: "body", type: "gpuDeviceCompletionBodyV1" },
+      ],
+    },
+    "native requestDevice completion layout",
+  );
+  assertCanonical(
+    requestDeviceRoute.completion.commonCarrierConstraints,
+    [
+      {
+        carrierPath: "kind",
+        operator: "equal",
+        value: 1,
+        symbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+      },
+      { carrierPath: "record.operation_result.status", operator: "equal", value: 0 },
+      {
+        carrierPath: "record.operation_result.operation.operation_id",
+        operator: "equal",
+        value: requestDeviceOperation.wireId,
+      },
+      {
+        carrierPath: "record.operation_result.operation.ingress_device",
+        operator: "all-zero",
+      },
+      {
+        carrierPath: "record.operation_result.operation.result_device",
+        operator: "positive",
+      },
+      {
+        carrierPath: "record.operation_result.operation.provider_generation",
+        operator: "positive",
+      },
+      {
+        carrierPath: "record.operation_result.operation.receiver.kind",
+        operator: "equal",
+        valueFrom: "objectKindTags.GPUAdapter",
+      },
+      {
+        carrierPath: "record.operation_result.operation.target",
+        operator: "all-zero",
+      },
+      {
+        carrierPath: "record.operation_result.operation.adapter_ordinal",
+        operator: "positive",
+      },
+      {
+        carrierPath: "record.operation_result.operation.device_ingress_ordinal",
+        operator: "equal",
+        value: "0",
+      },
+      {
+        carrierPath: "record.operation_result.operation.queue_ingress_ordinal",
+        operator: "equal",
+        value: "0",
+      },
+      {
+        carrierPath: "record.operation_result.result_kind",
+        operator: "equal",
+        value: 3,
+        symbol: "EXACT_GPU_RESULT_OBJECT_V2",
+      },
+    ],
+    "native requestDevice completion carrier constraints",
+  );
+  assertCanonical(
+    requestDeviceRoute.completion.carrierJoins,
+    [
+      ["body.logicalDeviceId", "record.operation_result.operation.result_device.logical_device_id"],
+      ["body.logicalDeviceGeneration", "record.operation_result.operation.result_device.logical_device_generation"],
+      ["body.providerGeneration", "record.operation_result.operation.result_device.provider_generation"],
+      ["body.providerGeneration", "record.operation_result.operation.provider_generation"],
+    ].map(([payloadPath, carrierPath]) => ({ payloadPath, carrierPath, operator: "equal" })),
+    "native requestDevice completion carrier joins",
+  );
+  assertCanonical(
+    requestDeviceRoute.completion.serviceResultJoins,
+    [
+      ["body.objectId", "authenticatedResultSelectionIdentity.deviceObjectId"],
+      ["body.objectGeneration", "authenticatedResultSelectionIdentity.deviceObjectGeneration"],
+      ["body.queueObjectId", "authenticatedResultSelectionIdentity.queueObjectId"],
+      ["body.queueObjectGeneration", "authenticatedResultSelectionIdentity.queueObjectGeneration"],
+      ["body.features", "generatedLogicalProviderDescriptor.logicalFeatures"],
+      ["body.limits", "generatedLogicalProviderDescriptor.logicalLimits"],
+      [
+        "body.diagnosticMessage",
+        "nativeSemanticServiceResult.diagnosticMessage",
+        "equal-never-caller-selected",
+      ],
+    ].map(([payloadPath, serviceResultPath, operator = "equal"]) => ({
+      payloadPath, serviceResultPath, operator,
+    })),
+    "native requestDevice completion semantic-result joins",
+  );
+  const [liveVariant, detachedNotAdmittedVariant, detachedAdmittedVariant] =
+    requestDeviceRoute.completion.variants;
+  assertCanonical(
+    requestDeviceRoute.completion.variants.map((variant) => variant.name),
+    ["live-object", "detached-not-admitted-object", "detached-admitted-object"],
+    "native requestDevice completion variant inventory",
+  );
+  assertCanonical(
+    liveVariant.carrierConstraints,
+    [
+      {
+        carrierPath: "record.operation_result.operation.device_transition",
+        operator: "equal",
+        value: 1,
+        symbol: "EXACT_GPU_DEVICE_ASSIGNED_V2",
+      },
+      {
+        carrierPath: "record.operation_result.operation.provider_admission",
+        operator: "equal",
+        value: 1,
+        symbol: "EXACT_GPU_PROVIDER_ADMITTED_V2",
+      },
+      {
+        carrierPath: "record.operation_result.operation.physical_sequence",
+        operator: "positive",
+      },
+      { carrierPath: "detachedAlreadyLost", operator: "equal", value: false },
+      { carrierPath: "lossReason-and-backendClass", operator: "absent" },
+    ],
+    "native requestDevice live completion variant",
+  );
+  assertCanonical(
+    liveVariant.payloadConstraints,
+    [{
+      payloadPath: "body.diagnosticMessage",
+      operator: "exact-empty-string",
+    }],
+    "native requestDevice live completion diagnostic",
+  );
+  const expectedDetachedTail = [
+    { carrierPath: "detachedAlreadyLost", operator: "equal", value: true },
+    {
+      carrierPath: "lossReason",
+      operator: "equal",
+      value: 1,
+      symbol: "EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2",
+    },
+    {
+      carrierPath: "backendClass",
+      operator: "equal",
+      value: 0,
+      symbol: "EXACT_GPU_BACKEND_NONE_V2",
+    },
+  ];
+  for (const [variant, admitted] of [
+    [detachedNotAdmittedVariant, false],
+    [detachedAdmittedVariant, true],
+  ]) {
+    assertCanonical(
+      variant.carrierConstraints,
+      [
+        {
+          carrierPath: "record.operation_result.operation.device_transition",
+          operator: "equal",
+          value: 2,
+          symbol: "EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2",
+        },
+        {
+          carrierPath: "record.operation_result.operation.provider_admission",
+          operator: "equal",
+          value: admitted ? 1 : 0,
+          symbol: admitted
+            ? "EXACT_GPU_PROVIDER_ADMITTED_V2"
+            : "EXACT_GPU_PROVIDER_NOT_ADMITTED_V2",
+        },
+        admitted
+          ? {
+            carrierPath: "record.operation_result.operation.physical_sequence",
+            operator: "positive",
+          }
+          : {
+            carrierPath: "record.operation_result.operation.physical_sequence",
+            operator: "equal",
+            value: "0",
+          },
+        ...expectedDetachedTail,
+      ],
+      `native requestDevice detached ${admitted ? "admitted" : "not-admitted"} variant`,
+    );
+    assertCanonical(
+      variant.payloadConstraints,
+      [{
+        payloadPath: "body.diagnosticMessage",
+        operator:
+          "native-semantic-service-owned-stable-utf8-within-reviewed-bound",
+      }],
+      `native requestDevice detached ${admitted ? "admitted" : "not-admitted"} diagnostic`,
+    );
+  }
+  assert(requestDeviceRoute.completion.noTrailingBytes === true,
+    "native requestDevice completion must reject trailing bytes");
 }
 
 export function validateWebGpuWrapperAuthority(authority) {
@@ -590,7 +1132,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(
@@ -808,10 +1350,96 @@ export function validateWebGpuWrapperSemantics(semantics) {
   );
 
   const limitPolicy = semanticProjection.limitPolicy;
+  const featurePolicy = semanticProjection.featurePolicy;
+  assert(
+    Object.keys(featurePolicy ?? {}).sort().join("|") ===
+      "adapterFeatureImplications|adapterRequiredFeatureAlternatives|defaultFeatures|deviceProjection|features|newDeviceFeatureImplications|requiredFeatureValidation",
+    "wrapper feature-policy projection drifted",
+  );
+  assert(
+    featurePolicy.requiredFeatureValidation ===
+      "webidl-known-then-subset-of-adapter-profile-and-capability-grant" &&
+      featurePolicy.deviceProjection ===
+        "requested-plus-pinned-default-and-implied-features",
+    "wrapper feature-policy algorithms drifted",
+  );
+  assert(
+    Array.isArray(featurePolicy.features) &&
+      featurePolicy.features.length > 0 &&
+      new Set(featurePolicy.features.map((row) => row.name)).size ===
+        featurePolicy.features.length,
+    "feature policy vocabulary is malformed",
+  );
+  const admittedFeatureNames = new Set();
+  for (const row of featurePolicy.features) {
+    assert(
+      typeof row.name === "string" &&
+        ((row.classification === "standard" &&
+          row.profileAdmission === "admitted") ||
+          (row.classification === "disabled-extension" &&
+            row.profileAdmission === "denied")),
+      "feature policy row is malformed: " + row.name,
+    );
+    if (row.profileAdmission === "admitted") admittedFeatureNames.add(row.name);
+  }
+  assert(
+    Object.keys(featurePolicy.defaultFeatures ?? {}).sort().join("|") ===
+      "compatibility|core",
+    "feature-level default inventory drifted",
+  );
+  for (const featureLevel of ["core", "compatibility"]) {
+    const defaults = featurePolicy.defaultFeatures[featureLevel];
+    assert(
+      Array.isArray(defaults) &&
+        new Set(defaults).size === defaults.length &&
+        defaults.every((name) => admittedFeatureNames.has(name)),
+      featureLevel + " default features are malformed",
+    );
+  }
+  function validateFeatureImplications(rows, label) {
+    assert(Array.isArray(rows), label + " are missing");
+    const pairs = new Set();
+    for (const row of rows) {
+      const pair = row?.feature + "\0" + row?.implies;
+      assert(
+        admittedFeatureNames.has(row?.feature) &&
+          admittedFeatureNames.has(row?.implies) &&
+          row.feature !== row.implies &&
+          !pairs.has(pair),
+        label + " contain an invalid row",
+      );
+      pairs.add(pair);
+    }
+  }
+  validateFeatureImplications(
+    featurePolicy.adapterFeatureImplications,
+    "adapter feature implications",
+  );
+  validateFeatureImplications(
+    featurePolicy.newDeviceFeatureImplications,
+    "new-device feature implications",
+  );
+  assert(
+    Array.isArray(featurePolicy.adapterRequiredFeatureAlternatives) &&
+      featurePolicy.adapterRequiredFeatureAlternatives.length > 0 &&
+      featurePolicy.adapterRequiredFeatureAlternatives.every(
+        (alternative) =>
+          Array.isArray(alternative) &&
+          alternative.length > 0 &&
+          new Set(alternative).size === alternative.length &&
+          alternative.every((name) => admittedFeatureNames.has(name)),
+      ),
+    "adapter required-feature alternatives are malformed",
+  );
   assert(
     limitPolicy.requestValidation.undefinedValue ===
       "skip-key-validation-and-projection",
     "undefined limit rule drifted",
+  );
+  assert(
+    limitPolicy.requestValidation.unknownNonUndefined ===
+      "operation-error-promise-rejection",
+    "unknown non-undefined limit rule drifted",
   );
   assert(Array.isArray(limitPolicy.limits) && limitPolicy.limits.length === 36, "limit program must have 36 rows");
   assert(
@@ -826,8 +1454,37 @@ export function validateWebGpuWrapperSemantics(semantics) {
       row.name + " direction disagrees with its class",
     );
     assert(
-      Number.isSafeInteger(row.profileBucket.core) && row.profileBucket.core >= 0,
-      row.name + " core profile bucket is invalid",
+      Number.isSafeInteger(row.coreDefault) &&
+        row.coreDefault >= 0 &&
+        Number.isSafeInteger(row.compatibilityDefault) &&
+        row.compatibilityDefault >= 0,
+      row.name + " feature-level defaults are invalid",
+    );
+    for (const featureLevel of ["core", "compatibility"]) {
+      assert(
+        Number.isSafeInteger(row.profileBucket?.[featureLevel]) &&
+          row.profileBucket[featureLevel] >= 0 &&
+          Number.isSafeInteger(row.capabilityGrantBoundary?.[featureLevel]) &&
+          row.capabilityGrantBoundary[featureLevel] >= 0,
+        row.name + " " + featureLevel + " request boundary is invalid",
+      );
+    }
+    assert(
+      row.class !== "alignment" ||
+        ([
+          row.coreDefault,
+          row.compatibilityDefault,
+          row.profileBucket.core,
+          row.profileBucket.compatibility,
+          row.capabilityGrantBoundary.core,
+          row.capabilityGrantBoundary.compatibility,
+        ].every(
+          (value) =>
+            value > 0 &&
+            value < 2 ** 32 &&
+            Number.isInteger(Math.log2(value)),
+        )),
+      row.name + " alignment metadata is invalid",
     );
   }
   const providerDescriptor = semanticProjection.requestDeviceProviderDescriptor;
@@ -849,7 +1506,7 @@ export function validateWebGpuWrapperSemantics(semantics) {
       "adapter.request-device.capability-projection" &&
       capabilityProjectionPredicate.predicateType === "profile-feature-limit" &&
       capabilityProjectionPredicate.predicateIndex === 2 &&
-      capabilityProjectionPredicate.predicateWireId === 436961075 &&
+      capabilityProjectionPredicate.predicateWireId === 1496584302 &&
       capabilityProjectionPredicate.failureClass === "none" &&
       capabilityProjectionPredicate.failureTiming === "none" &&
       capabilityProjectionPredicate.inputs.join("|") ===
@@ -1148,9 +1805,66 @@ export function validateWebGpuWrapperSemantics(semantics) {
   );
   assert(
     Array.isArray(fakeClientData.adapterFeatures) &&
-      new Set(fakeClientData.adapterFeatures).size === fakeClientData.adapterFeatures.length,
+      new Set(fakeClientData.adapterFeatures).size ===
+        fakeClientData.adapterFeatures.length &&
+      fakeClientData.adapterFeatures.every((name) =>
+        admittedFeatureNames.has(name),
+      ),
     "fake adapter features are malformed",
   );
+  const projectedFakeFeatures = new Set(fakeClientData.adapterFeatures);
+  for (const implication of featurePolicy.adapterFeatureImplications) {
+    if (projectedFakeFeatures.has(implication.feature)) {
+      assert(
+        projectedFakeFeatures.has(implication.implies),
+        "fake adapter omits an adapter-implied feature",
+      );
+    }
+  }
+  for (const implication of featurePolicy.newDeviceFeatureImplications) {
+    if (projectedFakeFeatures.has(implication.feature)) {
+      assert(
+        projectedFakeFeatures.has(implication.implies),
+        "fake adapter cannot support an ordered new-device feature addition",
+      );
+    }
+  }
+  assert(
+    ["core", "compatibility"].every((featureLevel) =>
+      featurePolicy.defaultFeatures[featureLevel].every((name) =>
+        projectedFakeFeatures.has(name),
+      ),
+    ),
+    "fake adapter does not support every feature-level default",
+  );
+  assert(
+    featurePolicy.adapterRequiredFeatureAlternatives.some((alternative) =>
+      alternative.every((name) => projectedFakeFeatures.has(name)),
+    ),
+    "fake adapter satisfies no required feature alternative",
+  );
+  const fakeAdapterLimitNames = Object.keys(
+    fakeClientData.adapterLimits ?? {},
+  ).sort();
+  const limitNames = limitPolicy.limits.map((row) => row.name).sort();
+  assert(
+    canonicalJson(fakeAdapterLimitNames) === canonicalJson(limitNames),
+    "fake adapter limits are not the complete limit policy",
+  );
+  for (const row of limitPolicy.limits) {
+    const value = fakeClientData.adapterLimits[row.name];
+    assert(
+      Number.isSafeInteger(value) &&
+        value >= 0 &&
+        (row.class === "maximum"
+          ? value >= Math.max(row.coreDefault, row.compatibilityDefault)
+          : value <= Math.min(row.coreDefault, row.compatibilityDefault) &&
+            value > 0 &&
+            value < 2 ** 32 &&
+            Number.isInteger(Math.log2(value))),
+      "fake adapter limit is inconsistent with device defaults: " + row.name,
+    );
+  }
   assert(
     Array.isArray(fakeClientData.providerEntryOperationIds) &&
       new Set(fakeClientData.providerEntryOperationIds).size ===
@@ -1187,6 +1901,7 @@ export function buildWebGpuWrapperPlan(authority, semantics) {
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     semantic: {
       digest: semantic.computed.semanticProjection,
+      featurePolicy: semantic.semanticProjection.featurePolicy,
       limitPolicy: semantic.semanticProjection.limitPolicy,
       requestDeviceFailureProgram:
         semantic.semanticProjection.requestDeviceFailureProgram,

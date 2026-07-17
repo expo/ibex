@@ -32,9 +32,12 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "../../../..");
 const manifestPath =
   "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json";
+const semanticsPath =
+  "tests/fixtures/webgpu-test-wrapper-semantics-v1.json";
 const outputPath =
   "tests/fixtures/webgpu-production-codec-corpus-v1.generated.json";
 const operationId = "GPU.requestAdapter";
+const requestDeviceOperationId = "GPUAdapter.requestDevice";
 
 function fail(message) {
   throw new Error(message);
@@ -375,6 +378,369 @@ function buildCorpus() {
   ) {
     fail("requestAdapter generated result does not join event provenance");
   }
+
+  const requestDeviceRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === requestDeviceOperationId,
+  );
+  if (!requestDeviceRoute) {
+    fail(`${requestDeviceOperationId} is absent from the generated production plan`);
+  }
+  const requestDeviceRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) => candidate.tag === requestDeviceRoute.serviceArgumentCodec,
+    );
+  const requestDeviceCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) => candidate.tag === requestDeviceRoute.serviceCompletionCodec,
+    );
+  const requestDeviceNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === requestDeviceOperationId,
+    );
+  if (
+    !requestDeviceRequestCodec ||
+    requestDeviceRequestCodec.executableFromCurrentAuthenticatedInputs ||
+    !requestDeviceRequestCodec.nativeProgramPrerequisitesRepresented ||
+    canonicalJson(requestDeviceRequestCodec.unavailableSemanticFields) !==
+      canonicalJson([
+        "generatedLogicalProviderDescriptor",
+        "authenticatedResultSelectionIdentity",
+      ]) ||
+    !requestDeviceCompletionCodec ||
+    !requestDeviceNativeRoute ||
+    requestDeviceNativeRoute.request.catalog.wireTag !==
+      requestDeviceRequestCodec.wireTag ||
+    requestDeviceNativeRoute.completion.catalog.wireTag !==
+      requestDeviceCompletionCodec.wireTag
+  ) {
+    fail(
+      "requestDevice native codegen program must be represented while production admission remains blocked",
+    );
+  }
+
+  const requestDeviceReceiver = Object.freeze({
+    kind: "GPUAdapter",
+    objectId: "70",
+    objectGeneration: "1",
+    logicalDeviceId: "0",
+    logicalDeviceGeneration: "0",
+    providerGeneration: "9",
+  });
+  const requestDeviceRequestCarrier = Object.freeze({
+    operation_id: requestDeviceRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: zeroDevice,
+    provider_generation: "9",
+    operation_instance_id: "12",
+    promise_id: "8",
+    captured_scope_id: "0",
+    adapter_ordinal: "1",
+    device_ingress_ordinal: "0",
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUAdapter,
+      flags: 0,
+      object_id: "70",
+      object_generation: "1",
+    }),
+    target: requestCarrier.target,
+  });
+  const requestDeviceDescriptor = Object.freeze({
+    label: "corpus-device",
+    requiredFeatures: Object.freeze(["shader-f16", "timestamp-query"]),
+    requiredLimits: Object.freeze({
+      maxBindGroups: 8,
+      maxStorageBuffersPerShaderStage: 12,
+    }),
+    defaultQueue: Object.freeze({ label: "corpus-queue" }),
+  });
+  const convertedRequestDeviceDescriptor =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      requestDeviceOperationId,
+      [requestDeviceDescriptor],
+      wrapperAccess,
+    );
+  if (
+    canonicalJson(convertedRequestDeviceDescriptor) !==
+      canonicalJson(requestDeviceDescriptor)
+  ) {
+    fail("requestDevice WebIDL descriptor projection drifted");
+  }
+  const requestDeviceBytes =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      Object.freeze({
+        operationId: requestDeviceOperationId,
+        wireId: requestDeviceRoute.wireId,
+        convertedArguments: convertedRequestDeviceDescriptor,
+        receiver: requestDeviceReceiver,
+        capturedScopeId: "0",
+        adapterOrdinal: "1",
+        deviceIngressOrdinal: "0",
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline: Object.freeze([]),
+      }),
+    );
+  const inspectedRequestDevice =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      requestDeviceBytes,
+    );
+  if (
+    canonicalJson(inspectedRequestDevice) !== canonicalJson({
+      operationId: requestDeviceOperationId,
+      codec: requestDeviceRequestCodec.tag,
+      receiver: requestDeviceReceiver,
+      target: null,
+      capturedScopeId: "0",
+      adapterOrdinal: "1",
+      deviceIngressOrdinal: "0",
+      queueIngressOrdinal: "0",
+      sealedLocalTimeline: [],
+      convertedArguments: requestDeviceDescriptor,
+    })
+  ) {
+    fail("requestDevice generated request does not round-trip through inspection");
+  }
+
+  const semanticAuthority = JSON.parse(fs.readFileSync(
+    path.join(repositoryRoot, semanticsPath),
+    "utf8",
+  ));
+  const unknownLimitDisposition = semanticAuthority.semanticProjection
+    ?.limitPolicy?.requestValidation?.unknownNonUndefined;
+  if (unknownLimitDisposition !== "operation-error-promise-rejection") {
+    fail("unknown requestDevice limit disposition drifted");
+  }
+  const hostileRequiredLimits = Object.defineProperty({}, "__proto__", {
+    value: 4,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+  const convertedUnknownLimitDescriptor =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      requestDeviceOperationId,
+      [{ requiredLimits: hostileRequiredLimits }],
+      wrapperAccess,
+    );
+  const convertedUnknownLimits =
+    convertedUnknownLimitDescriptor.requiredLimits;
+  if (
+    Object.getPrototypeOf(convertedUnknownLimits) !== null ||
+    !Object.prototype.hasOwnProperty.call(convertedUnknownLimits, "__proto__") ||
+    convertedUnknownLimits.__proto__ !== 4
+  ) {
+    fail("unknown requestDevice limit witness was not preserved by conversion");
+  }
+  const unknownLimitRequestBytes =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      Object.freeze({
+        operationId: requestDeviceOperationId,
+        wireId: requestDeviceRoute.wireId,
+        convertedArguments: convertedUnknownLimitDescriptor,
+        receiver: requestDeviceReceiver,
+        capturedScopeId: "0",
+        adapterOrdinal: "1",
+        deviceIngressOrdinal: "0",
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline: Object.freeze([]),
+      }),
+    );
+  const inspectedUnknownLimitRequest =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      unknownLimitRequestBytes,
+    );
+  const inspectedUnknownLimits = inspectedUnknownLimitRequest
+    .convertedArguments.requiredLimits;
+  if (
+    Object.getPrototypeOf(inspectedUnknownLimits) !== null ||
+    !Object.prototype.hasOwnProperty.call(inspectedUnknownLimits, "__proto__") ||
+    inspectedUnknownLimits.__proto__ !== 4 ||
+    canonicalJson(inspectedUnknownLimitRequest) !== canonicalJson({
+      operationId: requestDeviceOperationId,
+      codec: requestDeviceRequestCodec.tag,
+      receiver: requestDeviceReceiver,
+      target: null,
+      capturedScopeId: "0",
+      adapterOrdinal: "1",
+      deviceIngressOrdinal: "0",
+      queueIngressOrdinal: "0",
+      sealedLocalTimeline: [],
+      convertedArguments: convertedUnknownLimitDescriptor,
+    })
+  ) {
+    fail("unknown requestDevice limit witness did not round-trip to native ingress");
+  }
+
+  const deviceLimits = Object.freeze(Object.fromEntries(
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.completeLimitNames.map(
+      (name, index) => [name, index + 1],
+    ),
+  ));
+  const deviceResultBase = Object.freeze({
+    kind: "device",
+    objectId: "81",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+    queueObjectId: "82",
+    queueObjectGeneration: "3",
+    features: Object.freeze(["shader-f16", "timestamp-query"]),
+    limits: deviceLimits,
+  });
+  const liveDeviceResult =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      requestDeviceOperationId,
+      { ...deviceResultBase, diagnosticMessage: "" },
+    );
+  const detachedDeviceResult =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      requestDeviceOperationId,
+      {
+        ...deviceResultBase,
+        diagnosticMessage: "native semantic service selected an already-lost device",
+      },
+    );
+  const requestDeviceEventBase = Object.freeze({
+    kind: 1,
+    operationId: requestDeviceRoute.wireId,
+    resultKind: 3,
+    status: 0,
+    ingressLogicalDeviceId: "0",
+    ingressLogicalDeviceGeneration: "0",
+    ingressProviderGeneration: "0",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+    operationProviderGeneration: "9",
+    capturedScopeId: "0",
+    adapterOrdinal: "1",
+    deviceIngressOrdinal: "0",
+    queueIngressOrdinal: "0",
+    receiverKind: 2,
+    receiverFlags: 0,
+    receiverId: "70",
+    receiverGeneration: "1",
+    targetKind: 0,
+    targetFlags: 0,
+    targetId: "0",
+    targetGeneration: "0",
+  });
+  const liveDeviceEvent = Object.freeze({
+    ...requestDeviceEventBase,
+    providerAdmission: 1,
+    physicalSequence: "6",
+    deviceTransition: 1,
+    detachedAlreadyLost: false,
+    payload: liveDeviceResult,
+  });
+  const detachedNotAdmittedEvent = Object.freeze({
+    ...requestDeviceEventBase,
+    providerAdmission: 0,
+    physicalSequence: "0",
+    deviceTransition: 2,
+    detachedAlreadyLost: true,
+    lossReason: 1,
+    backendClass: 0,
+    payload: detachedDeviceResult,
+  });
+  const detachedAdmittedEvent = Object.freeze({
+    ...detachedNotAdmittedEvent,
+    providerAdmission: 1,
+    physicalSequence: "7",
+  });
+  const decodedLiveDevice =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      requestDeviceOperationId,
+      liveDeviceEvent,
+    );
+  const decodedDetachedNotAdmitted =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      requestDeviceOperationId,
+      detachedNotAdmittedEvent,
+    );
+  const decodedDetachedAdmitted =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      requestDeviceOperationId,
+      detachedAdmittedEvent,
+    );
+  const expectedLiveDevice = {
+    kind: "object",
+    object: {
+      kind: "GPUDevice",
+      objectId: "81",
+      objectGeneration: "2",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+      features: ["shader-f16", "timestamp-query"],
+      limits: deviceLimits,
+      queue: { objectId: "82", objectGeneration: "3" },
+      alreadyLost: undefined,
+    },
+  };
+  const expectedDetachedDevice = {
+    kind: "object",
+    object: {
+      ...expectedLiveDevice.object,
+      alreadyLost: {
+        reason: "unknown",
+        message: "native semantic service selected an already-lost device",
+      },
+    },
+  };
+  if (
+    canonicalJson(decodedLiveDevice) !== canonicalJson(expectedLiveDevice) ||
+    canonicalJson(decodedDetachedNotAdmitted) !==
+      canonicalJson(expectedDetachedDevice) ||
+    canonicalJson(decodedDetachedAdmitted) !==
+      canonicalJson(expectedDetachedDevice)
+  ) {
+    fail("requestDevice generated results do not preserve transition provenance");
+  }
+
+  const requestDeviceCarrierProjection = (
+    providerAdmission,
+    physicalSequence,
+    deviceTransition,
+  ) => ({
+    kind: 1,
+    record: {
+      operation_result: {
+        result_kind: 3,
+        status: 0,
+        operation: {
+          operation_id: requestDeviceRoute.wireId,
+          operation_instance_id: "12",
+          promise_id: "8",
+          provider_admission: providerAdmission,
+          physical_sequence: physicalSequence,
+          captured_scope_id: "0",
+          adapter_ordinal: "1",
+          device_ingress_ordinal: "0",
+          queue_ingress_ordinal: "0",
+          device_transition: deviceTransition,
+          ingress_device: zeroDevice,
+          result_device: {
+            logical_device_id: "55",
+            logical_device_generation: "1",
+            provider_generation: "9",
+          },
+          provider_generation: "9",
+          receiver: {
+            kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUAdapter,
+            flags: 0,
+            object_id: "70",
+            object_generation: "1",
+          },
+          target: requestCarrier.target,
+        },
+      },
+    },
+  });
   const canonicalUtf8Dictionary =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
       Object.freeze({
@@ -393,7 +759,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -414,10 +780,113 @@ function buildCorpus() {
       completionCodec: completionCodec.tag,
       completionCodecTag: completionCodec.wireTag,
     },
+    operations: [
+      {
+        operationId,
+        wireId: route.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: requestCodec.tag,
+        requestCodecTag: requestCodec.wireTag,
+        completionCodec: completionCodec.tag,
+        completionCodecTag: completionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+      },
+      {
+        operationId: requestDeviceOperationId,
+        wireId: requestDeviceRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: requestDeviceRequestCodec.tag,
+        requestCodecTag: requestDeviceRequestCodec.wireTag,
+        completionCodec: requestDeviceCompletionCodec.tag,
+        completionCodecTag: requestDeviceCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: false,
+        unavailableSemanticFields:
+          requestDeviceRequestCodec.unavailableSemanticFields,
+        testOnlyPayloadCodegenEvidence: true,
+      },
+    ],
     vectors: [
       defaultRequest,
       highPerformanceRequest,
       compatibilityRequest,
+      {
+        id: "request-device-converted-descriptor-ingress",
+        kind: "request",
+        carrierProjection: requestDeviceRequestCarrier,
+        trust:
+          "untrusted-webidl-converted-semantic-service-ingress-only-never-provider-input",
+        nativeSemanticServiceDerivations: [
+          "generatedLogicalProviderDescriptor",
+          "authenticatedResultSelectionIdentity",
+        ],
+        bytesHex: toHex(requestDeviceBytes),
+        expected: {
+          receiver: requestDeviceReceiver,
+          target: null,
+          capturedScopeId: "0",
+          adapterOrdinal: "1",
+          deviceIngressOrdinal: "0",
+          queueIngressOrdinal: "0",
+          sealedLocalTimeline: [],
+          convertedArguments: requestDeviceDescriptor,
+        },
+      },
+      {
+        id: "request-device-unknown-limit-semantic-witness",
+        kind: "request",
+        carrierProjection: requestDeviceRequestCarrier,
+        trust:
+          "untrusted-webidl-converted-semantic-service-ingress-only-never-provider-input",
+        unknownNonUndefinedLimitDisposition: unknownLimitDisposition,
+        semanticOwner: "native-semantic-service-before-provider-admission",
+        rawDescriptorProviderInput: "forbidden",
+        bytesHex: toHex(unknownLimitRequestBytes),
+        expected: {
+          receiver: requestDeviceReceiver,
+          target: null,
+          capturedScopeId: "0",
+          adapterOrdinal: "1",
+          deviceIngressOrdinal: "0",
+          queueIngressOrdinal: "0",
+          sealedLocalTimeline: [],
+          convertedArguments: convertedUnknownLimitDescriptor,
+        },
+      },
+      {
+        id: "request-device-live-object-result",
+        kind: "result",
+        carrierProjection: requestDeviceCarrierProjection(1, "6", 1),
+        event: {
+          ...liveDeviceEvent,
+          payload: undefined,
+        },
+        bytesHex: toHex(liveDeviceResult),
+        expected: expectedLiveDevice,
+      },
+      {
+        id: "request-device-detached-not-admitted-object-result",
+        kind: "result",
+        carrierProjection: requestDeviceCarrierProjection(0, "0", 2),
+        event: {
+          ...detachedNotAdmittedEvent,
+          payload: undefined,
+        },
+        bytesHex: toHex(detachedDeviceResult),
+        expected: expectedDetachedDevice,
+      },
+      {
+        id: "request-device-detached-admitted-object-result",
+        kind: "result",
+        carrierProjection: requestDeviceCarrierProjection(1, "7", 2),
+        event: {
+          ...detachedAdmittedEvent,
+          payload: undefined,
+        },
+        bytesHex: toHex(detachedDeviceResult),
+        expected: expectedDetachedDevice,
+      },
       {
         id: "request-adapter-live-object-result",
         kind: "result",
@@ -555,7 +1024,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter request/live-object/detached-object/null and UTF-8 ordering vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter plus requestDevice unknown-limit/live/detached payload-codegen vectors are fresh",
     );
     return;
   }

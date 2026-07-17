@@ -5,7 +5,7 @@
     "sourceRepository": "ccheever/exact",
     "sourceCommit": "4012883f61d849c2158844097953cd5de2dc39e5",
     "sourceArtifactPath": "tests/gpu/webgpu-runtime-wire-v1.generated.json",
-    "sourceArtifactSha256": "ce7dad3439c6a6fd40f65b76d5c7ec94460a9901940f19e471018d274464e637",
+    "sourceArtifactSha256": "b17bcfad09fed61244e1010c3a2fefebebc2ef0bc40d5c4124ffde7482a41963",
     "sourceCommitAndArtifactSha256Disposition": "provenance-only-not-executable-acceptance",
     "normalizedProjectionDomain": "exact/webgpu-runtime-wire/projection/v1",
     "normalizedProjectionComparison": "required-across-outer-ibex-repins",
@@ -15,11 +15,11 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "operationSetSha256": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
-    "semanticProgramSetSha256": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-    "runtimeRoutingSha256": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
-    "webgpuCVocabularySha256": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
-    "projectionPayloadSha256": "8650c9faa794ac34c4b881804a8dd210f34abe3b1833deb7f3f09876cc408651"
+    "operationSetSha256": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
+    "semanticProgramSetSha256": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
+    "runtimeRoutingSha256": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
+    "webgpuCVocabularySha256": "ec2c7d628ea6c1a6c668b4ee7590ab85b9d17f55b9bf3222fd53a2695f26b6dc",
+    "projectionPayloadSha256": "898c83cc892eee5857c994e78f675fc17fd842e0140e018a02a6f3e0996dbe00"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -31,7 +31,7 @@
       "publicGlobalStatus": "not-installed",
       "nativeBindingStatus": "not-installed",
       "wrapperCodeStatus": "private-generated-not-publicly-installed",
-      "wireCodecStatus": "generated-injection-and-request-adapter-payload-codegen-input-only-native-codec-not-installed",
+      "wireCodecStatus": "generated-injection-and-request-adapter-request-device-payload-codegen-input-only-native-codec-not-installed",
       "webIdlConversionStatus": "generated-injection-only-not-installed",
       "nativeServiceDecoderStatus": "not-installed",
       "semanticServiceStatus": "not-installed",
@@ -188,8 +188,8 @@
     "wireEnvelope": {
       "serviceCall": "ExactGpuSemanticCallV2",
       "serviceEvent": "ExactGpuServiceEventV2",
-      "payloadEncoding": "generated-injection-and-request-adapter-payload-codegen-input-operation-selected-tagged-binary-v1",
-      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-and-request-adapter-payload-codegen-input-native-codec-not-installed",
+      "payloadEncoding": "generated-injection-and-request-adapter-request-device-payload-codegen-input-operation-selected-tagged-binary-v1",
+      "layoutStatus": "authenticated-abi-v2-carrier-with-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed",
       "currentAbiReadiness": "abi-v2-carrier-installed-runtime-install-still-blocked",
       "graduationTarget": "native-decoder-semantic-service-embedded-codec-arming-capsec-and-global-install-required",
       "carrierStatus": {
@@ -240,9 +240,231 @@
         "dictionaryMaxFields": 128,
         "nestingMaxDepth": 16
       },
+      "untrustedWrapperPayload": {
+        "source": "generated-private-wrapper-closure-never-an-authority-source",
+        "fields": [
+          "operationId",
+          "operationInstanceId",
+          "promiseId",
+          "receiverRef",
+          "wrapperAllocatedTargetRef",
+          "sealedLocalTimelinePrefix",
+          "argumentBody"
+        ],
+        "validation": "copy-bounds-check-and-join-only-to-service-attached-identity-before-semantic-validation"
+      },
+      "authenticatedIngressContext": {
+        "source": "runtime-binding-plus-generation-fenced-service-object-tables-never-caller-payload",
+        "fields": [
+          "runtimePointerNonce",
+          "realmToken",
+          "realmGeneration",
+          "accountToken",
+          "accountGeneration",
+          "logicalDeviceId",
+          "logicalDeviceGeneration",
+          "providerGeneration",
+          "authorityContextDigest",
+          "topology",
+          "operationId",
+          "operationInstanceId",
+          "promiseId",
+          "adapterOperationOrdinal",
+          "deviceIngressOrdinal",
+          "queueIngressOrdinal",
+          "receiverRef",
+          "wrapperAllocatedTargetRef",
+          "capturedScopeId"
+        ],
+        "attachmentRule": "service-reconstructs-and-validates-every-field-from-the-authenticated-client-session-and-typed-object-table;-wrapper-values-are-comparison-inputs-only",
+        "localTimelineRule": "trusted-wrapper-recording-operations-carry-contiguous-service-validated-device-ingress-and-captured-scope-provenance;-every-service-call-flushes-the-required-prefix-and-popErrorScope-flushes-through-its-barrier"
+      },
+      "physicalOperationKey": {
+        "authority": "LLP-0367-section-3.6",
+        "fields": [
+          "realmGeneration",
+          "topology",
+          "providerGeneration",
+          "logicalDeviceId",
+          "deviceIngressOrdinal",
+          "queueIngressOrdinal",
+          "physicalSequence",
+          "capturedScopeId",
+          "accountId",
+          "authorityContextDigest",
+          "operationId"
+        ],
+        "sequenceRule": "physicalSequence-is-nonzero-and-assigned-only-after-authority-semantic-generation-and-account-admission-succeed-while-holding-the-realm-sequencer",
+        "provenanceRule": "provider-receives-one-immutable-key-built-from-authenticated-ingress-and-service-state;-no-thread-call-global-label-or-ambient-account-inference"
+      },
+      "commonRequestFields": [
+        {
+          "name": "operationId",
+          "requirement": "authenticated logical wire ID selected by the generated wrapper and checked against the installed operation set"
+        },
+        {
+          "name": "operationInstanceId",
+          "requirement": "nonzero monotonic per realm for every service call; never reused after rejection cancellation or completion"
+        },
+        {
+          "name": "promiseId",
+          "requirement": "distinct nonzero identity only for Promise-bearing work; zero for non-Promise service work"
+        },
+        {
+          "name": "receiverRef",
+          "requirement": "carrier-level typed full-generation service receiver for every service call; object methods preserve the wrapper receiver, while realm-level GPU calls derive a nonzero GPU singleton reference from authenticated realm identity even though the public wrapper has no receiver handle"
+        },
+        {
+          "name": "wrapperAllocatedTargetRef",
+          "requirement": "typed full-generation reference for synchronous service-enqueue creators and null otherwise"
+        },
+        {
+          "name": "sealedLocalTimelinePrefix",
+          "requirement": "bounded canonical zero-or-more pending wrapper-local operation records with operation instance device-ingress and captured-scope provenance"
+        },
+        {
+          "name": "argumentBody",
+          "requirement": "selected only by authenticated operation ID; includes scope/barrier or sealed command records where required"
+        }
+      ],
+      "commonCompletionFields": [
+        {
+          "name": "realmToken",
+          "requirement": "exact open realm token"
+        },
+        {
+          "name": "realmGeneration",
+          "requirement": "current nonzero realm generation"
+        },
+        {
+          "name": "accountToken",
+          "requirement": "structurally carried account token"
+        },
+        {
+          "name": "accountGeneration",
+          "requirement": "current nonzero account generation"
+        },
+        {
+          "name": "topology",
+          "requirement": "exact authenticated provider topology for the admitted operation"
+        },
+        {
+          "name": "logicalDeviceId",
+          "requirement": "owning logical device or zero only for adapter discovery"
+        },
+        {
+          "name": "logicalDeviceGeneration",
+          "requirement": "current logical device generation or zero only for adapter discovery"
+        },
+        {
+          "name": "providerGeneration",
+          "requirement": "owning provider generation or zero before provider allocation"
+        },
+        {
+          "name": "authorityContextDigest",
+          "requirement": "exact admitted authority-context digest"
+        },
+        {
+          "name": "operationId",
+          "requirement": "must match one pending authenticated operation"
+        },
+        {
+          "name": "operationInstanceId",
+          "requirement": "must match one admitted monotonic operation instance"
+        },
+        {
+          "name": "promiseId",
+          "requirement": "must match the pending Promise or be zero for non-Promise work"
+        },
+        {
+          "name": "adapterOperationOrdinal",
+          "requirement": "exact adapter-operation ordinal or zero when not applicable"
+        },
+        {
+          "name": "deviceIngressOrdinal",
+          "requirement": "exact device ingress ordinal or zero when not applicable"
+        },
+        {
+          "name": "queueIngressOrdinal",
+          "requirement": "exact queue ingress ordinal or zero when not applicable"
+        },
+        {
+          "name": "physicalSequence",
+          "requirement": "exact admitted provider sequence or zero before provider admission"
+        },
+        {
+          "name": "receiverRef",
+          "requirement": "same nonzero typed full-generation service receiver reference as the admitted request, including the realm-derived GPU singleton"
+        },
+        {
+          "name": "wrapperAllocatedTargetRef",
+          "requirement": "same typed full-generation target reference as the admitted request or null"
+        },
+        {
+          "name": "capturedScopeId",
+          "requirement": "captured error scope identity or zero when not applicable"
+        },
+        {
+          "name": "status",
+          "requirement": "closed typed status mapped by semantic authority"
+        },
+        {
+          "name": "completionBody",
+          "requirement": "selected by authenticated pending operation; never a caller-provided result tag"
+        }
+      ],
+      "eventDeliveryOrder": "native-callback-copy-only-then-generation-fenced-service-arbiter-then-owning-runtime-thread-after-current-host-task-microtask-checkpoint-in-device-ingress-and-queue-ingress-order-exactly-once",
+      "lifecycleRequests": {
+        "retire": {
+          "fields": [
+            "realmToken",
+            "realmGeneration",
+            "accountToken",
+            "accountGeneration",
+            "retireOrdinal",
+            "typedReferences"
+          ],
+          "rule": "deduplicated-full-typed-generation-references-only-never-raw-u64-handles"
+        },
+        "cancel": {
+          "fields": [
+            "realmToken",
+            "realmGeneration",
+            "operationId",
+            "operationInstanceId",
+            "promiseId",
+            "receiverRef",
+            "wrapperAllocatedTargetRef",
+            "cancelOrdinal"
+          ],
+          "rule": "matches-one-pending-operation-or-is-an-idempotent-terminal-noop"
+        },
+        "accountClose": {
+          "fields": [
+            "realmToken",
+            "realmGeneration",
+            "accountToken",
+            "accountGeneration",
+            "closeOrdinal",
+            "closeCause"
+          ],
+          "rule": "authority-reducing-account-arbiter-transition-and-bounded-sweep"
+        },
+        "realmClose": {
+          "fields": [
+            "realmToken",
+            "realmGeneration",
+            "closeOrdinal",
+            "closeCause"
+          ],
+          "rule": "distinct-from-device-loss-and-settles-or-retires-every-pending-operation"
+        }
+      },
+      "trustRule": "callers-never-supply-authoritative-identity-codec-tags-semantic-hashes-result-tags-error-tags-or-provider-sequences",
+      "unknownRule": "unknown-operation-codec-tag-enum-or-trailing-byte-fails-closed-before-provider-call",
       "nativeCodecPrograms": {
         "schema": "ibex/webgpu-native-codec-programs/2",
-        "disposition": "request-adapter-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "disposition": "request-adapter-request-device-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
         "dispatch": {
           "carrierPath": "ExactGpuSemanticCallV2.operation_id",
           "payloadOperationWireIdRole": "constant-and-equality-check-only-never-dispatch",
@@ -498,6 +720,129 @@
               {
                 "condition": "featureLevel-not-core-or-compatibility",
                 "disposition": "wrapper-local-null-no-service-call"
+              }
+            ]
+          },
+          "requestDeviceDescriptorV1": {
+            "kind": "closed-dictionary",
+            "encodingType": "canonicalValueV1",
+            "trust": "untrusted-webidl-converted-semantic-service-ingress-only",
+            "providerBoundary": "forbidden-raw-descriptor-must-not-reach-provider",
+            "unknownFields": "reject",
+            "fields": [
+              {
+                "name": "label",
+                "required": true,
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "name": "requiredFeatures",
+                "required": true,
+                "value": {
+                  "kind": "sequence",
+                  "element": "string",
+                  "maxCountFrom": "codecLayout.sequenceMaxCount"
+                }
+              },
+              {
+                "name": "requiredLimits",
+                "required": true,
+                "value": {
+                  "kind": "dictionary",
+                  "key": "string",
+                  "value": "nonnegative-js-safe-integer",
+                  "maxCountFrom": "codecLayout.dictionaryMaxFields"
+                }
+              },
+              {
+                "name": "defaultQueue",
+                "required": true,
+                "value": {
+                  "kind": "closed-dictionary",
+                  "unknownFields": "reject",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "required": true,
+                      "value": {
+                        "kind": "string"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "sortedUniqueFeatureSequenceV1": {
+            "kind": "sequence",
+            "countType": "u32le",
+            "elementType": "utf8",
+            "maxCountFrom": "codecLayout.sequenceMaxCount",
+            "constraints": [
+              "strictly-increasing-utf8-strings"
+            ]
+          },
+          "completeDeviceLimitsV1": {
+            "kind": "ordered-record",
+            "fieldNamesFrom": "semanticProjection.limitPolicy.limits",
+            "requiredFieldCount": 36,
+            "valueType": "u64le",
+            "constraints": [
+              "js-safe-integer"
+            ]
+          },
+          "gpuDeviceCompletionBodyV1": {
+            "kind": "struct",
+            "fields": [
+              {
+                "name": "objectId",
+                "type": "u64le",
+                "constraint": "positive"
+              },
+              {
+                "name": "objectGeneration",
+                "type": "u64le",
+                "constraint": "positive"
+              },
+              {
+                "name": "logicalDeviceId",
+                "type": "u64le",
+                "constraint": "positive"
+              },
+              {
+                "name": "logicalDeviceGeneration",
+                "type": "u64le",
+                "constraint": "positive"
+              },
+              {
+                "name": "providerGeneration",
+                "type": "u64le",
+                "constraint": "positive"
+              },
+              {
+                "name": "queueObjectId",
+                "type": "u64le",
+                "constraint": "positive"
+              },
+              {
+                "name": "queueObjectGeneration",
+                "type": "u64le",
+                "constraint": "positive"
+              },
+              {
+                "name": "features",
+                "type": "sortedUniqueFeatureSequenceV1"
+              },
+              {
+                "name": "limits",
+                "type": "completeDeviceLimitsV1"
+              },
+              {
+                "name": "diagnosticMessage",
+                "type": "utf8",
+                "maxBytesFrom": "codecLayout.diagnosticMaxBytes"
               }
             ]
           }
@@ -822,231 +1167,573 @@
                 }
               ]
             }
+          },
+          {
+            "operationId": "GPUAdapter.requestDevice",
+            "wireId": 194635792,
+            "request": {
+              "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
+              "catalog": {
+                "name": "serviceArguments",
+                "tag": "gpu-request-device-service-request-v1",
+                "wireTag": 3
+              },
+              "payload": {
+                "kind": "struct",
+                "fields": [
+                  {
+                    "name": "header",
+                    "type": "headerV1",
+                    "constants": {
+                      "magic": "IBGQ",
+                      "version": 1,
+                      "codecTag": 3,
+                      "operationWireId": 194635792
+                    }
+                  },
+                  {
+                    "name": "receiver",
+                    "type": "objectReferenceV1"
+                  },
+                  {
+                    "name": "target",
+                    "type": "optionalReferenceV1"
+                  },
+                  {
+                    "name": "capturedScopeId",
+                    "type": "u64le"
+                  },
+                  {
+                    "name": "adapterOrdinal",
+                    "type": "u64le"
+                  },
+                  {
+                    "name": "deviceIngressOrdinal",
+                    "type": "u64le"
+                  },
+                  {
+                    "name": "queueIngressOrdinal",
+                    "type": "u64le"
+                  },
+                  {
+                    "name": "sealedLocalTimeline",
+                    "type": "canonicalValueV1"
+                  },
+                  {
+                    "name": "convertedArguments",
+                    "type": "canonicalValueV1",
+                    "constraintType": "requestDeviceDescriptorV1"
+                  }
+                ]
+              },
+              "carrierJoins": [
+                {
+                  "payloadPath": "header.operationWireId",
+                  "carrierPath": "operation_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.kind",
+                  "carrierPath": "receiver.kind",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.objectId",
+                  "carrierPath": "receiver.object_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.objectGeneration",
+                  "carrierPath": "receiver.object_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.logicalDeviceId",
+                  "carrierPath": "ingress_device.logical_device_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.logicalDeviceGeneration",
+                  "carrierPath": "ingress_device.logical_device_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "receiver.providerGeneration",
+                  "carrierPath": "provider_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "target",
+                  "carrierPath": "target",
+                  "operator": "absent-iff-all-zero-reference"
+                },
+                {
+                  "payloadPath": "capturedScopeId",
+                  "carrierPath": "captured_scope_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "adapterOrdinal",
+                  "carrierPath": "adapter_ordinal",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "deviceIngressOrdinal",
+                  "carrierPath": "device_ingress_ordinal",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "queueIngressOrdinal",
+                  "carrierPath": "queue_ingress_ordinal",
+                  "operator": "equal"
+                }
+              ],
+              "carrierConstraints": [
+                {
+                  "carrierPath": "operation_id",
+                  "operator": "equal",
+                  "value": 194635792
+                },
+                {
+                  "carrierPath": "flags",
+                  "operator": "equal",
+                  "value": 0
+                },
+                {
+                  "carrierPath": "topology_id",
+                  "operator": "equal",
+                  "valueFrom": "constants.providerTopologyId"
+                },
+                {
+                  "carrierPath": "ingress_device",
+                  "operator": "all-zero"
+                },
+                {
+                  "carrierPath": "provider_generation",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "operation_instance_id",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "promise_id",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "receiver.kind",
+                  "operator": "equal",
+                  "valueFrom": "objectKindTags.GPUAdapter"
+                },
+                {
+                  "carrierPath": "receiver.flags",
+                  "operator": "equal",
+                  "value": 0
+                },
+                {
+                  "carrierPath": "receiver.object_id",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "receiver.object_generation",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "target",
+                  "operator": "all-zero"
+                },
+                {
+                  "carrierPath": "captured_scope_id",
+                  "operator": "equal",
+                  "value": "0"
+                },
+                {
+                  "carrierPath": "adapter_ordinal",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "device_ingress_ordinal",
+                  "operator": "equal",
+                  "value": "0"
+                },
+                {
+                  "carrierPath": "queue_ingress_ordinal",
+                  "operator": "equal",
+                  "value": "0"
+                }
+              ],
+              "valueConstraints": [
+                {
+                  "payloadPath": "sealedLocalTimeline",
+                  "operator": "exact-empty-sequence"
+                },
+                {
+                  "payloadPath": "convertedArguments",
+                  "operator": "conforms-to-type",
+                  "type": "requestDeviceDescriptorV1"
+                },
+                {
+                  "payloadPath": "convertedArguments",
+                  "operator": "untrusted-semantic-service-ingress-only-never-provider-input"
+                }
+              ],
+              "semanticServiceDerivations": [
+                {
+                  "name": "generatedLogicalProviderDescriptor",
+                  "ownership": "native-semantic-service-derived-never-payload-or-wrapper-supplied",
+                  "inputs": [
+                    "untrusted-convertedArguments",
+                    "authenticated-adapter-state",
+                    "authenticated-feature-level-profile",
+                    "authenticated-capability-grant",
+                    "versioned-service-internal-requirements"
+                  ],
+                  "output": "exact-logical-features-limits-plus-versioned-service-internal-requirements-only",
+                  "forbiddenProviderInputs": [
+                    "convertedArguments",
+                    "raw-GPUDeviceDescriptor"
+                  ],
+                  "requiredBefore": [
+                    "provider-admission"
+                  ],
+                  "authenticatedCrossLinks": [
+                    {
+                      "derivedPath": "providerGeneration",
+                      "carrierPath": "provider_generation",
+                      "operator": "equal"
+                    },
+                    {
+                      "derivedPath": "adapterIdentity",
+                      "carrierPath": "receiver",
+                      "operator": "derived-from-authenticated-reference"
+                    }
+                  ]
+                },
+                {
+                  "name": "authenticatedResultSelectionIdentity",
+                  "ownership": "native-semantic-service-allocated-never-payload-or-wrapper-supplied",
+                  "inputs": [
+                    "authenticated-retained-call",
+                    "live-device-reservation",
+                    "authenticated-adapter-publication-credit",
+                    "authenticated-account-capacity-state"
+                  ],
+                  "output": "fresh-device-object-logical-device-and-queue-identities",
+                  "requiredBefore": [
+                    "provider-admission",
+                    "completion-encoding"
+                  ],
+                  "authenticatedCrossLinks": [
+                    {
+                      "derivedPath": "logicalDeviceId",
+                      "carrierPath": "record.operation_result.operation.result_device.logical_device_id",
+                      "operator": "equal"
+                    },
+                    {
+                      "derivedPath": "logicalDeviceGeneration",
+                      "carrierPath": "record.operation_result.operation.result_device.logical_device_generation",
+                      "operator": "equal"
+                    },
+                    {
+                      "derivedPath": "providerGeneration",
+                      "carrierPath": "record.operation_result.operation.result_device.provider_generation",
+                      "operator": "equal"
+                    },
+                    {
+                      "derivedPath": "retainedOperationIdentity",
+                      "carrierPath": "record.operation_result.operation.operation_instance_id",
+                      "operator": "bound-to-authenticated-retained-call"
+                    },
+                    {
+                      "derivedPath": "retainedPromiseIdentity",
+                      "carrierPath": "record.operation_result.operation.promise_id",
+                      "operator": "bound-to-authenticated-retained-call"
+                    }
+                  ]
+                }
+              ],
+              "executablePrerequisites": [
+                "generatedLogicalProviderDescriptor",
+                "authenticatedResultSelectionIdentity"
+              ],
+              "noTrailingBytes": true
+            },
+            "completion": {
+              "payloadRole": "service-completion-payload-codec-plus-operation-specific-event-joins",
+              "catalog": {
+                "name": "serviceCompletions",
+                "tag": "gpu-device-service-completion-v1",
+                "wireTag": 4
+              },
+              "commonCarrierConstraints": [
+                {
+                  "carrierPath": "kind",
+                  "operator": "equal",
+                  "value": 1,
+                  "symbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2"
+                },
+                {
+                  "carrierPath": "record.operation_result.status",
+                  "operator": "equal",
+                  "value": 0
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.operation_id",
+                  "operator": "equal",
+                  "value": 194635792
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.ingress_device",
+                  "operator": "all-zero"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.result_device",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.provider_generation",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.receiver.kind",
+                  "operator": "equal",
+                  "valueFrom": "objectKindTags.GPUAdapter"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.target",
+                  "operator": "all-zero"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.adapter_ordinal",
+                  "operator": "positive"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.device_ingress_ordinal",
+                  "operator": "equal",
+                  "value": "0"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.queue_ingress_ordinal",
+                  "operator": "equal",
+                  "value": "0"
+                },
+                {
+                  "carrierPath": "record.operation_result.result_kind",
+                  "operator": "equal",
+                  "value": 3,
+                  "symbol": "EXACT_GPU_RESULT_OBJECT_V2"
+                }
+              ],
+              "payload": {
+                "kind": "struct",
+                "fields": [
+                  {
+                    "name": "header",
+                    "type": "headerV1",
+                    "constants": {
+                      "magic": "IBGR",
+                      "version": 1,
+                      "codecTag": 4,
+                      "operationWireId": 194635792
+                    }
+                  },
+                  {
+                    "name": "body",
+                    "type": "gpuDeviceCompletionBodyV1"
+                  }
+                ]
+              },
+              "carrierJoins": [
+                {
+                  "payloadPath": "body.logicalDeviceId",
+                  "carrierPath": "record.operation_result.operation.result_device.logical_device_id",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.logicalDeviceGeneration",
+                  "carrierPath": "record.operation_result.operation.result_device.logical_device_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.providerGeneration",
+                  "carrierPath": "record.operation_result.operation.result_device.provider_generation",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.providerGeneration",
+                  "carrierPath": "record.operation_result.operation.provider_generation",
+                  "operator": "equal"
+                }
+              ],
+              "serviceResultJoins": [
+                {
+                  "payloadPath": "body.objectId",
+                  "serviceResultPath": "authenticatedResultSelectionIdentity.deviceObjectId",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.objectGeneration",
+                  "serviceResultPath": "authenticatedResultSelectionIdentity.deviceObjectGeneration",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.queueObjectId",
+                  "serviceResultPath": "authenticatedResultSelectionIdentity.queueObjectId",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.queueObjectGeneration",
+                  "serviceResultPath": "authenticatedResultSelectionIdentity.queueObjectGeneration",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.features",
+                  "serviceResultPath": "generatedLogicalProviderDescriptor.logicalFeatures",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.limits",
+                  "serviceResultPath": "generatedLogicalProviderDescriptor.logicalLimits",
+                  "operator": "equal"
+                },
+                {
+                  "payloadPath": "body.diagnosticMessage",
+                  "serviceResultPath": "nativeSemanticServiceResult.diagnosticMessage",
+                  "operator": "equal-never-caller-selected"
+                }
+              ],
+              "variants": [
+                {
+                  "name": "live-object",
+                  "carrierConstraints": [
+                    {
+                      "carrierPath": "record.operation_result.operation.device_transition",
+                      "operator": "equal",
+                      "value": 1,
+                      "symbol": "EXACT_GPU_DEVICE_ASSIGNED_V2"
+                    },
+                    {
+                      "carrierPath": "record.operation_result.operation.provider_admission",
+                      "operator": "equal",
+                      "value": 1,
+                      "symbol": "EXACT_GPU_PROVIDER_ADMITTED_V2"
+                    },
+                    {
+                      "carrierPath": "record.operation_result.operation.physical_sequence",
+                      "operator": "positive"
+                    },
+                    {
+                      "carrierPath": "detachedAlreadyLost",
+                      "operator": "equal",
+                      "value": false
+                    },
+                    {
+                      "carrierPath": "lossReason-and-backendClass",
+                      "operator": "absent"
+                    }
+                  ],
+                  "payloadConstraints": [
+                    {
+                      "payloadPath": "body.diagnosticMessage",
+                      "operator": "exact-empty-string"
+                    }
+                  ]
+                },
+                {
+                  "name": "detached-not-admitted-object",
+                  "carrierConstraints": [
+                    {
+                      "carrierPath": "record.operation_result.operation.device_transition",
+                      "operator": "equal",
+                      "value": 2,
+                      "symbol": "EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2"
+                    },
+                    {
+                      "carrierPath": "record.operation_result.operation.provider_admission",
+                      "operator": "equal",
+                      "value": 0,
+                      "symbol": "EXACT_GPU_PROVIDER_NOT_ADMITTED_V2"
+                    },
+                    {
+                      "carrierPath": "record.operation_result.operation.physical_sequence",
+                      "operator": "equal",
+                      "value": "0"
+                    },
+                    {
+                      "carrierPath": "detachedAlreadyLost",
+                      "operator": "equal",
+                      "value": true
+                    },
+                    {
+                      "carrierPath": "lossReason",
+                      "operator": "equal",
+                      "value": 1,
+                      "symbol": "EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2"
+                    },
+                    {
+                      "carrierPath": "backendClass",
+                      "operator": "equal",
+                      "value": 0,
+                      "symbol": "EXACT_GPU_BACKEND_NONE_V2"
+                    }
+                  ],
+                  "payloadConstraints": [
+                    {
+                      "payloadPath": "body.diagnosticMessage",
+                      "operator": "native-semantic-service-owned-stable-utf8-within-reviewed-bound"
+                    }
+                  ]
+                },
+                {
+                  "name": "detached-admitted-object",
+                  "carrierConstraints": [
+                    {
+                      "carrierPath": "record.operation_result.operation.device_transition",
+                      "operator": "equal",
+                      "value": 2,
+                      "symbol": "EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2"
+                    },
+                    {
+                      "carrierPath": "record.operation_result.operation.provider_admission",
+                      "operator": "equal",
+                      "value": 1,
+                      "symbol": "EXACT_GPU_PROVIDER_ADMITTED_V2"
+                    },
+                    {
+                      "carrierPath": "record.operation_result.operation.physical_sequence",
+                      "operator": "positive"
+                    },
+                    {
+                      "carrierPath": "detachedAlreadyLost",
+                      "operator": "equal",
+                      "value": true
+                    },
+                    {
+                      "carrierPath": "lossReason",
+                      "operator": "equal",
+                      "value": 1,
+                      "symbol": "EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2"
+                    },
+                    {
+                      "carrierPath": "backendClass",
+                      "operator": "equal",
+                      "value": 0,
+                      "symbol": "EXACT_GPU_BACKEND_NONE_V2"
+                    }
+                  ],
+                  "payloadConstraints": [
+                    {
+                      "payloadPath": "body.diagnosticMessage",
+                      "operator": "native-semantic-service-owned-stable-utf8-within-reviewed-bound"
+                    }
+                  ]
+                }
+              ],
+              "noTrailingBytes": true
+            }
           }
         ]
-      },
-      "untrustedWrapperPayload": {
-        "source": "generated-private-wrapper-closure-never-an-authority-source",
-        "fields": [
-          "operationId",
-          "operationInstanceId",
-          "promiseId",
-          "receiverRef",
-          "wrapperAllocatedTargetRef",
-          "sealedLocalTimelinePrefix",
-          "argumentBody"
-        ],
-        "validation": "copy-bounds-check-and-join-only-to-service-attached-identity-before-semantic-validation"
-      },
-      "authenticatedIngressContext": {
-        "source": "runtime-binding-plus-generation-fenced-service-object-tables-never-caller-payload",
-        "fields": [
-          "runtimePointerNonce",
-          "realmToken",
-          "realmGeneration",
-          "accountToken",
-          "accountGeneration",
-          "logicalDeviceId",
-          "logicalDeviceGeneration",
-          "providerGeneration",
-          "authorityContextDigest",
-          "topology",
-          "operationId",
-          "operationInstanceId",
-          "promiseId",
-          "adapterOperationOrdinal",
-          "deviceIngressOrdinal",
-          "queueIngressOrdinal",
-          "receiverRef",
-          "wrapperAllocatedTargetRef",
-          "capturedScopeId"
-        ],
-        "attachmentRule": "service-reconstructs-and-validates-every-field-from-the-authenticated-client-session-and-typed-object-table;-wrapper-values-are-comparison-inputs-only",
-        "localTimelineRule": "trusted-wrapper-recording-operations-carry-contiguous-service-validated-device-ingress-and-captured-scope-provenance;-every-service-call-flushes-the-required-prefix-and-popErrorScope-flushes-through-its-barrier"
-      },
-      "physicalOperationKey": {
-        "authority": "LLP-0367-section-3.6",
-        "fields": [
-          "realmGeneration",
-          "topology",
-          "providerGeneration",
-          "logicalDeviceId",
-          "deviceIngressOrdinal",
-          "queueIngressOrdinal",
-          "physicalSequence",
-          "capturedScopeId",
-          "accountId",
-          "authorityContextDigest",
-          "operationId"
-        ],
-        "sequenceRule": "physicalSequence-is-nonzero-and-assigned-only-after-authority-semantic-generation-and-account-admission-succeed-while-holding-the-realm-sequencer",
-        "provenanceRule": "provider-receives-one-immutable-key-built-from-authenticated-ingress-and-service-state;-no-thread-call-global-label-or-ambient-account-inference"
-      },
-      "commonRequestFields": [
-        {
-          "name": "operationId",
-          "requirement": "authenticated logical wire ID selected by the generated wrapper and checked against the installed operation set"
-        },
-        {
-          "name": "operationInstanceId",
-          "requirement": "nonzero monotonic per realm for every service call; never reused after rejection cancellation or completion"
-        },
-        {
-          "name": "promiseId",
-          "requirement": "distinct nonzero identity only for Promise-bearing work; zero for non-Promise service work"
-        },
-        {
-          "name": "receiverRef",
-          "requirement": "carrier-level typed full-generation service receiver for every service call; object methods preserve the wrapper receiver, while realm-level GPU calls derive a nonzero GPU singleton reference from authenticated realm identity even though the public wrapper has no receiver handle"
-        },
-        {
-          "name": "wrapperAllocatedTargetRef",
-          "requirement": "typed full-generation reference for synchronous service-enqueue creators and null otherwise"
-        },
-        {
-          "name": "sealedLocalTimelinePrefix",
-          "requirement": "bounded canonical zero-or-more pending wrapper-local operation records with operation instance device-ingress and captured-scope provenance"
-        },
-        {
-          "name": "argumentBody",
-          "requirement": "selected only by authenticated operation ID; includes scope/barrier or sealed command records where required"
-        }
-      ],
-      "commonCompletionFields": [
-        {
-          "name": "realmToken",
-          "requirement": "exact open realm token"
-        },
-        {
-          "name": "realmGeneration",
-          "requirement": "current nonzero realm generation"
-        },
-        {
-          "name": "accountToken",
-          "requirement": "structurally carried account token"
-        },
-        {
-          "name": "accountGeneration",
-          "requirement": "current nonzero account generation"
-        },
-        {
-          "name": "topology",
-          "requirement": "exact authenticated provider topology for the admitted operation"
-        },
-        {
-          "name": "logicalDeviceId",
-          "requirement": "owning logical device or zero only for adapter discovery"
-        },
-        {
-          "name": "logicalDeviceGeneration",
-          "requirement": "current logical device generation or zero only for adapter discovery"
-        },
-        {
-          "name": "providerGeneration",
-          "requirement": "owning provider generation or zero before provider allocation"
-        },
-        {
-          "name": "authorityContextDigest",
-          "requirement": "exact admitted authority-context digest"
-        },
-        {
-          "name": "operationId",
-          "requirement": "must match one pending authenticated operation"
-        },
-        {
-          "name": "operationInstanceId",
-          "requirement": "must match one admitted monotonic operation instance"
-        },
-        {
-          "name": "promiseId",
-          "requirement": "must match the pending Promise or be zero for non-Promise work"
-        },
-        {
-          "name": "adapterOperationOrdinal",
-          "requirement": "exact adapter-operation ordinal or zero when not applicable"
-        },
-        {
-          "name": "deviceIngressOrdinal",
-          "requirement": "exact device ingress ordinal or zero when not applicable"
-        },
-        {
-          "name": "queueIngressOrdinal",
-          "requirement": "exact queue ingress ordinal or zero when not applicable"
-        },
-        {
-          "name": "physicalSequence",
-          "requirement": "exact admitted provider sequence or zero before provider admission"
-        },
-        {
-          "name": "receiverRef",
-          "requirement": "same nonzero typed full-generation service receiver reference as the admitted request, including the realm-derived GPU singleton"
-        },
-        {
-          "name": "wrapperAllocatedTargetRef",
-          "requirement": "same typed full-generation target reference as the admitted request or null"
-        },
-        {
-          "name": "capturedScopeId",
-          "requirement": "captured error scope identity or zero when not applicable"
-        },
-        {
-          "name": "status",
-          "requirement": "closed typed status mapped by semantic authority"
-        },
-        {
-          "name": "completionBody",
-          "requirement": "selected by authenticated pending operation; never a caller-provided result tag"
-        }
-      ],
-      "eventDeliveryOrder": "native-callback-copy-only-then-generation-fenced-service-arbiter-then-owning-runtime-thread-after-current-host-task-microtask-checkpoint-in-device-ingress-and-queue-ingress-order-exactly-once",
-      "lifecycleRequests": {
-        "retire": {
-          "fields": [
-            "realmToken",
-            "realmGeneration",
-            "accountToken",
-            "accountGeneration",
-            "retireOrdinal",
-            "typedReferences"
-          ],
-          "rule": "deduplicated-full-typed-generation-references-only-never-raw-u64-handles"
-        },
-        "cancel": {
-          "fields": [
-            "realmToken",
-            "realmGeneration",
-            "operationId",
-            "operationInstanceId",
-            "promiseId",
-            "receiverRef",
-            "wrapperAllocatedTargetRef",
-            "cancelOrdinal"
-          ],
-          "rule": "matches-one-pending-operation-or-is-an-idempotent-terminal-noop"
-        },
-        "accountClose": {
-          "fields": [
-            "realmToken",
-            "realmGeneration",
-            "accountToken",
-            "accountGeneration",
-            "closeOrdinal",
-            "closeCause"
-          ],
-          "rule": "authority-reducing-account-arbiter-transition-and-bounded-sweep"
-        },
-        "realmClose": {
-          "fields": [
-            "realmToken",
-            "realmGeneration",
-            "closeOrdinal",
-            "closeCause"
-          ],
-          "rule": "distinct-from-device-loss-and-settles-or-retires-every-pending-operation"
-        }
-      },
-      "trustRule": "callers-never-supply-authoritative-identity-codec-tags-semantic-hashes-result-tags-error-tags-or-provider-sequences",
-      "unknownRule": "unknown-operation-codec-tag-enum-or-trailing-byte-fails-closed-before-provider-call"
+      }
     },
     "codecCatalog": {
       "publicArguments": [
@@ -1729,8 +2416,8 @@
       },
       {
         "operationId": "GPUAdapter.requestDevice",
-        "wireId": 579563582,
-        "semanticSha256": "50dbbb5997cea51e14624ed051f917e212b2f23ad34084e0808e5a5b32a0fd9f",
+        "wireId": 194635792,
+        "semanticSha256": "0404a2d0cb6d490e4492fa3c9cdc4ae9a3a89af0756882861e457688649f1c0d",
         "memberKind": "method",
         "dispatchClass": "provider-promise",
         "logicalExecutionKind": "provider-async",
@@ -2106,8 +2793,8 @@
       },
       {
         "operationId": "GPUDevice.limits",
-        "wireId": 363717510,
-        "semanticSha256": "b1543f1d0c718ba2468bb7c1c29c92679a6d56d3172e8a544f20955ae839c5ed",
+        "wireId": 1914447212,
+        "semanticSha256": "b83516a88049f122bf9df0ef51f173c6b5780f3077875442514c718a8cfbf26e",
         "memberKind": "property",
         "dispatchClass": "wrapper-property-read",
         "logicalExecutionKind": "wrapper-local",
@@ -2439,23 +3126,22 @@
       "requiredGraduationServiceAbiVersion": 131072,
       "topologyId": 1,
       "profileId": "exact-webgpu-v1-draft",
-      "profileDigest": "95bf47e03db4b50b4db7420abd5bf20630763ad5d7bde54cd61c1a1f987277e6",
+      "profileDigest": "5a0b5b779289038c8437fced040ecea9e8a479ca862f929fe2f3555f1a3133db",
       "serviceShutdownPolicy": {
         "deadlineMs": 10000,
         "clock": "monotonic",
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
-      "operationSetDigest": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
-      "semanticProgramDigest": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-      "runtimeRoutingDigest": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
+      "webgpuCVocabularyDigest": "ec2c7d628ea6c1a6c668b4ee7590ab85b9d17f55b9bf3222fd53a2695f26b6dc",
+      "operationSetDigest": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
+      "semanticProgramDigest": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
+      "runtimeRoutingDigest": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
       "sortedOperationIds": [
+        194635792,
         206890944,
         308839175,
-        363717510,
         551383281,
-        579563582,
         599085487,
         892795326,
         935342475,
@@ -2465,6 +3151,7 @@
         1724778411,
         1846872529,
         1908549907,
+        1914447212,
         1949537636,
         2407151159,
         2481184390,

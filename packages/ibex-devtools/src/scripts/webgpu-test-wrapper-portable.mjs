@@ -16,6 +16,211 @@ export function portableWebGpuTestWrapperFactory(plan) {
   var providerRoutingPrograms = Object.create(null);
   var nextRealmToken = 1;
 
+  function planInvariant(condition, message) {
+    if (!condition) {
+      throw new Error("webgpu test-wrapper capability plan: " + message);
+    }
+  }
+
+  function isPowerOfTwoBelowU32(value) {
+    if (!Number.isSafeInteger(value) || value <= 0 || value >= 4294967296) {
+      return false;
+    }
+    var remaining = value;
+    while (remaining % 2 === 0) remaining /= 2;
+    return remaining === 1;
+  }
+
+  function addFeature(values, feature) {
+    if (values.indexOf(feature) === -1) values.push(feature);
+  }
+
+  function applyFeatureImplications(values, implications) {
+    for (var index = 0; index < implications.length; index += 1) {
+      var implication = implications[index];
+      if (values.indexOf(implication.feature) !== -1) {
+        addFeature(values, implication.implies);
+      }
+    }
+  }
+
+  function projectedFakeAdapterFeatures() {
+    return plan.fakeClientData.adapterFeatures.slice();
+  }
+
+  function validateCapabilityPlan() {
+    var featurePolicy = plan.semantic && plan.semantic.featurePolicy;
+    var limitPolicy = plan.semantic && plan.semantic.limitPolicy;
+    planInvariant(featurePolicy && limitPolicy, "policy is missing");
+    planInvariant(
+      featurePolicy.requiredFeatureValidation ===
+        "webidl-known-then-subset-of-adapter-profile-and-capability-grant" &&
+        featurePolicy.deviceProjection ===
+          "requested-plus-pinned-default-and-implied-features",
+      "feature algorithms drifted",
+    );
+    planInvariant(
+      Array.isArray(featurePolicy.features) &&
+        Array.isArray(featurePolicy.adapterFeatureImplications) &&
+        Array.isArray(featurePolicy.newDeviceFeatureImplications) &&
+        Array.isArray(featurePolicy.adapterRequiredFeatureAlternatives),
+      "feature rules are malformed",
+    );
+    var admittedFeatures = Object.create(null);
+    for (var featureIndex = 0; featureIndex < featurePolicy.features.length; featureIndex += 1) {
+      var featureRow = featurePolicy.features[featureIndex];
+      planInvariant(
+        typeof featureRow.name === "string" &&
+          admittedFeatures[featureRow.name] === undefined,
+        "feature vocabulary is malformed",
+      );
+      admittedFeatures[featureRow.name] =
+        featureRow.profileAdmission === "admitted";
+    }
+    var implicationTables = [
+      featurePolicy.adapterFeatureImplications,
+      featurePolicy.newDeviceFeatureImplications,
+    ];
+    for (var tableIndex = 0; tableIndex < implicationTables.length; tableIndex += 1) {
+      var implicationTable = implicationTables[tableIndex];
+      for (var implicationIndex = 0; implicationIndex < implicationTable.length; implicationIndex += 1) {
+        var implication = implicationTable[implicationIndex];
+        planInvariant(
+          admittedFeatures[implication.feature] === true &&
+            admittedFeatures[implication.implies] === true &&
+            implication.feature !== implication.implies,
+          "feature implication is outside the admitted vocabulary",
+        );
+      }
+    }
+    planInvariant(
+      plan.fakeClientData &&
+        Array.isArray(plan.fakeClientData.adapterFeatures) &&
+        plan.fakeClientData.adapterLimits &&
+        typeof plan.fakeClientData.adapterLimits === "object",
+      "fake adapter data is missing",
+    );
+    var fakeFeatureNames = Object.create(null);
+    for (featureIndex = 0; featureIndex < plan.fakeClientData.adapterFeatures.length; featureIndex += 1) {
+      var fakeFeature = plan.fakeClientData.adapterFeatures[featureIndex];
+      planInvariant(
+        admittedFeatures[fakeFeature] === true &&
+          fakeFeatureNames[fakeFeature] === undefined,
+        "fake adapter feature data is inconsistent",
+      );
+      fakeFeatureNames[fakeFeature] = true;
+    }
+    var projectedFeatures = projectedFakeAdapterFeatures();
+    for (
+      implicationIndex = 0;
+      implicationIndex < featurePolicy.adapterFeatureImplications.length;
+      implicationIndex += 1
+    ) {
+      implication = featurePolicy.adapterFeatureImplications[implicationIndex];
+      planInvariant(
+        projectedFeatures.indexOf(implication.feature) === -1 ||
+          projectedFeatures.indexOf(implication.implies) !== -1,
+        "fake adapter omits an adapter-implied feature",
+      );
+    }
+    for (
+      implicationIndex = 0;
+      implicationIndex < featurePolicy.newDeviceFeatureImplications.length;
+      implicationIndex += 1
+    ) {
+      implication = featurePolicy.newDeviceFeatureImplications[implicationIndex];
+      planInvariant(
+        projectedFeatures.indexOf(implication.feature) === -1 ||
+          projectedFeatures.indexOf(implication.implies) !== -1,
+        "fake adapter cannot support an ordered new-device feature addition",
+      );
+    }
+    for (var levelIndex = 0; levelIndex < 2; levelIndex += 1) {
+      var level = levelIndex === 0 ? "core" : "compatibility";
+      var defaults = featurePolicy.defaultFeatures[level];
+      planInvariant(Array.isArray(defaults), level + " defaults are missing");
+      for (featureIndex = 0; featureIndex < defaults.length; featureIndex += 1) {
+        planInvariant(
+          projectedFeatures.indexOf(defaults[featureIndex]) !== -1,
+          "fake adapter does not support the " + level + " feature defaults",
+        );
+      }
+    }
+    var alternativeSatisfied = false;
+    for (
+      var alternativeIndex = 0;
+      alternativeIndex < featurePolicy.adapterRequiredFeatureAlternatives.length;
+      alternativeIndex += 1
+    ) {
+      var alternative = featurePolicy.adapterRequiredFeatureAlternatives[alternativeIndex];
+      var satisfiesAlternative = Array.isArray(alternative) && alternative.length > 0;
+      for (featureIndex = 0; satisfiesAlternative && featureIndex < alternative.length; featureIndex += 1) {
+        satisfiesAlternative = projectedFeatures.indexOf(alternative[featureIndex]) !== -1;
+      }
+      if (satisfiesAlternative) alternativeSatisfied = true;
+    }
+    planInvariant(
+      alternativeSatisfied,
+      "fake adapter satisfies no required feature alternative",
+    );
+    planInvariant(
+      Array.isArray(limitPolicy.limits) && limitPolicy.limits.length === 36,
+      "limit inventory is malformed",
+    );
+    var limitNames = Object.create(null);
+    for (var limitIndex = 0; limitIndex < limitPolicy.limits.length; limitIndex += 1) {
+      var row = limitPolicy.limits[limitIndex];
+      planInvariant(
+        typeof row.name === "string" && limitNames[row.name] === undefined,
+        "limit vocabulary is malformed",
+      );
+      limitNames[row.name] = true;
+      var fakeLimit = plan.fakeClientData.adapterLimits[row.name];
+      planInvariant(
+        Number.isSafeInteger(row.coreDefault) &&
+          row.coreDefault >= 0 &&
+          Number.isSafeInteger(row.compatibilityDefault) &&
+          row.compatibilityDefault >= 0 &&
+          Number.isSafeInteger(row.profileBucket.core) &&
+          row.profileBucket.core >= 0 &&
+          Number.isSafeInteger(row.profileBucket.compatibility) &&
+          row.profileBucket.compatibility >= 0 &&
+          Number.isSafeInteger(row.capabilityGrantBoundary.core) &&
+          row.capabilityGrantBoundary.core >= 0 &&
+          Number.isSafeInteger(row.capabilityGrantBoundary.compatibility) &&
+          row.capabilityGrantBoundary.compatibility >= 0 &&
+          Number.isSafeInteger(fakeLimit) &&
+          fakeLimit >= 0,
+        "limit metadata is inconsistent for " + row.name,
+      );
+      if (row.class === "maximum") {
+        planInvariant(
+          fakeLimit >= row.coreDefault && fakeLimit >= row.compatibilityDefault,
+          "fake adapter maximum is worse than a device default for " + row.name,
+        );
+      } else {
+        planInvariant(
+          row.class === "alignment" &&
+            isPowerOfTwoBelowU32(fakeLimit) &&
+            fakeLimit <= row.coreDefault &&
+            fakeLimit <= row.compatibilityDefault,
+          "fake adapter alignment is worse than a device default for " + row.name,
+        );
+      }
+    }
+    var fakeLimitNames = Object.keys(plan.fakeClientData.adapterLimits);
+    planInvariant(
+      fakeLimitNames.length === limitPolicy.limits.length,
+      "fake adapter limit data is not a complete closed record",
+    );
+    for (limitIndex = 0; limitIndex < fakeLimitNames.length; limitIndex += 1) {
+      planInvariant(
+        limitNames[fakeLimitNames[limitIndex]] === true,
+        "fake adapter limit data contains an unknown member",
+      );
+    }
+  }
+
   function freezeTree(value) {
     if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
     var keys = Object.keys(value);
@@ -23,6 +228,7 @@ export function portableWebGpuTestWrapperFactory(plan) {
     return Object.freeze(value);
   }
 
+  validateCapabilityPlan();
   freezeTree(plan);
   for (var routeIndex = 0; routeIndex < plan.routes.length; routeIndex += 1) {
     routes[plan.routes[routeIndex].operationId] = plan.routes[routeIndex];
@@ -1200,14 +1406,7 @@ export function portableWebGpuTestWrapperFactory(plan) {
     return requestDeviceError(predicate.failureClass, message);
   }
 
-  function isPowerOfTwo(value) {
-    if (value <= 0 || value >= 4294967296) return false;
-    var remaining = value;
-    while (remaining % 2 === 0) remaining /= 2;
-    return remaining === 1;
-  }
-
-  function validateDeviceDescriptor(copy) {
+  function validateDeviceDescriptor(adapter, copy) {
     var requiredFeatures = copy.requiredFeatures;
     if (requiredFeatures === undefined) requiredFeatures = [];
     if (!Array.isArray(requiredFeatures)) {
@@ -1220,7 +1419,7 @@ export function portableWebGpuTestWrapperFactory(plan) {
     for (var featureIndex = 0; featureIndex < requiredFeatures.length; featureIndex += 1) {
       if (
         typeof requiredFeatures[featureIndex] !== "string" ||
-        plan.fakeClientData.adapterFeatures.indexOf(requiredFeatures[featureIndex]) === -1
+        adapter.features.indexOf(requiredFeatures[featureIndex]) === -1
       ) {
         return {
           fact: "requiredFeaturesSupported",
@@ -1274,10 +1473,16 @@ export function portableWebGpuTestWrapperFactory(plan) {
           message: "required limit is not a nonnegative integer",
         };
       }
-      var profileBoundary = row.profileBucket.core;
-      var grantBoundary = row.capabilityGrantBoundary.core;
+      var adapterBoundary = adapter.limits[name];
+      var profileBoundary = row.profileBucket[adapter.featureLevel];
+      var grantBoundary =
+        row.capabilityGrantBoundary[adapter.featureLevel];
       if (row.class === "maximum") {
-        var maximumBoundary = Math.min(profileBoundary, grantBoundary);
+        var maximumBoundary = Math.min(
+          adapterBoundary,
+          profileBoundary,
+          grantBoundary,
+        );
         if (number > maximumBoundary) {
           return {
             fact: "adapterRequestValid",
@@ -1286,8 +1491,12 @@ export function portableWebGpuTestWrapperFactory(plan) {
           };
         }
       } else {
-        var alignmentBoundary = Math.max(profileBoundary, grantBoundary);
-        if (!isPowerOfTwo(number) || number < alignmentBoundary) {
+        var alignmentBoundary = Math.max(
+          adapterBoundary,
+          profileBoundary,
+          grantBoundary,
+        );
+        if (!isPowerOfTwoBelowU32(number) || number < alignmentBoundary) {
           return {
             fact: "adapterRequestValid",
             predicateId: "adapter.request-device.limits",
@@ -1299,18 +1508,27 @@ export function portableWebGpuTestWrapperFactory(plan) {
     return null;
   }
 
-  function buildRequestDeviceProviderDescriptor(copy) {
+  function buildRequestDeviceProviderDescriptor(adapter, copy) {
     var logicalFeatures = [];
     var requestedFeatures = copy.requiredFeatures;
     if (requestedFeatures === undefined) requestedFeatures = [];
     for (var featureIndex = 0; featureIndex < requestedFeatures.length; featureIndex += 1) {
       var feature = requestedFeatures[featureIndex];
       if (
-        plan.fakeClientData.adapterFeatures.indexOf(feature) !== -1 &&
+        adapter.features.indexOf(feature) !== -1 &&
         logicalFeatures.indexOf(feature) === -1
       ) {
         logicalFeatures.push(feature);
       }
+    }
+    applyFeatureImplications(
+      logicalFeatures,
+      plan.semantic.featurePolicy.newDeviceFeatureImplications,
+    );
+    var defaultFeatures =
+      plan.semantic.featurePolicy.defaultFeatures[adapter.featureLevel];
+    for (featureIndex = 0; featureIndex < defaultFeatures.length; featureIndex += 1) {
+      addFeature(logicalFeatures, defaultFeatures[featureIndex]);
     }
     logicalFeatures.sort();
 
@@ -1320,7 +1538,10 @@ export function portableWebGpuTestWrapperFactory(plan) {
     var rows = plan.semantic.limitPolicy.limits;
     for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
       var row = rows[rowIndex];
-      var logicalValue = row.profileBucket.core;
+      var logicalValue =
+        adapter.featureLevel === "core"
+          ? row.coreDefault
+          : row.compatibilityDefault;
       var requested = requiredLimits[row.name];
       if (requested !== undefined) {
         var converted = Number(requested);
@@ -1505,6 +1726,14 @@ export function portableWebGpuTestWrapperFactory(plan) {
     call.promiseId = allocatePromiseId(call);
     return promiseOperation(call, function () {
       var copy = snapshotDictionary(options, "GPURequestAdapterOptions");
+      copy.featureLevel =
+        copy.featureLevel === undefined ? "core" : String(copy.featureLevel);
+      if (
+        copy.featureLevel !== "core" &&
+        copy.featureLevel !== "compatibility"
+      ) {
+        return null;
+      }
       assertRealmAdmission(state.realm);
       call.operationProviderGeneration = state.realm.nextProviderGeneration++;
       serviceCall(state.realm.client, call, copy, true, null);
@@ -1512,6 +1741,9 @@ export function portableWebGpuTestWrapperFactory(plan) {
       var adapter = allocateWrapper(state.realm, "GPUAdapter", null, {
         expired: false,
         providerGeneration: call.operationProviderGeneration,
+        featureLevel: copy.featureLevel,
+        features: projectedFakeAdapterFeatures(),
+        limits: Object.assign({}, plan.fakeClientData.adapterLimits),
         nextRequestDeviceOrdinal: 1,
         publicationCredit: null,
       });
@@ -1552,10 +1784,10 @@ export function portableWebGpuTestWrapperFactory(plan) {
           error.message || "GPUDeviceDescriptor conversion failed",
         );
       }
-      descriptorFailure = validateDeviceDescriptor(copy);
+      descriptorFailure = validateDeviceDescriptor(adapter, copy);
       var logicalProviderDescriptor = descriptorFailure
         ? null
-        : buildRequestDeviceProviderDescriptor(copy);
+        : buildRequestDeviceProviderDescriptor(adapter, copy);
       var descriptorFacts = {};
       if (descriptorFailure) descriptorFacts[descriptorFailure.fact] = false;
       selection = selectRequestDeviceTerminal(adapter, descriptorFacts);
@@ -2575,6 +2807,7 @@ export function portableWebGpuTestWrapperFactory(plan) {
         providerGeneration: state.device
           ? state.device.providerGeneration
           : state.providerGeneration || 0,
+        featureLevel: state.kind === "GPUAdapter" ? state.featureLevel : null,
         serviceDetached: Boolean(state.device && state.device.serviceDetached),
         lostSettled: Boolean(state.device && state.device.lostSettled),
         destroyed: Boolean(state.destroyed || (state.device && state.device.destroyed)),

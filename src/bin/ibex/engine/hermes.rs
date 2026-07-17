@@ -6100,7 +6100,7 @@ cp \"$input\" \"$out\"\n";
         detached_device.adapter_ordinal = 11;
         detached_device.provider_generation = 9;
         detached_device.result_device = device;
-        detached_device.device_transition = 1;
+        detached_device.device_transition = 2;
         detached_device.receiver = ExactGpuObjectRefV2 {
             kind: 2,
             flags: 0,
@@ -6114,8 +6114,59 @@ cp \"$input\" \"$out\"\n";
         let detached_result = gpu_v2_typed_result_event(detached_device, 3, &device_payload);
         unsafe { assert_eq!(ibex_test_gpu_v2_validate_event(&detached_result), 1) };
 
-        let assigned_bytes = gpu_v2_typed_result_event(detached_device, 4, &unexpected_payload);
-        unsafe { assert_eq!(ibex_test_gpu_v2_validate_event(&assigned_bytes), 0) };
+        let mut admitted_detached_device = detached_device;
+        admitted_detached_device.provider_admission = 1;
+        admitted_detached_device.physical_sequence = 2;
+        let admitted_detached_result =
+            gpu_v2_typed_result_event(admitted_detached_device, 3, &device_payload);
+        unsafe {
+            assert_eq!(
+                ibex_test_gpu_v2_validate_event(&admitted_detached_result),
+                1
+            )
+        };
+
+        let detached_bytes = gpu_v2_typed_result_event(detached_device, 4, &unexpected_payload);
+        unsafe { assert_eq!(ibex_test_gpu_v2_validate_event(&detached_bytes), 0) };
+        let mut live_not_admitted = detached_device;
+        live_not_admitted.device_transition = 1;
+        let live_not_admitted_result =
+            gpu_v2_typed_result_event(live_not_admitted, 3, &device_payload);
+        unsafe {
+            assert_eq!(
+                ibex_test_gpu_v2_validate_event(&live_not_admitted_result),
+                0
+            )
+        };
+        let mut live_admitted = admitted_detached_device;
+        live_admitted.device_transition = 1;
+        let live_admitted_result = gpu_v2_typed_result_event(live_admitted, 3, &device_payload);
+        unsafe { assert_eq!(ibex_test_gpu_v2_validate_event(&live_admitted_result), 1) };
+        let mut detached_wrong_receiver = detached_device;
+        detached_wrong_receiver.receiver.kind = 3;
+        let detached_wrong_receiver_result =
+            gpu_v2_typed_result_event(detached_wrong_receiver, 3, &device_payload);
+        unsafe {
+            assert_eq!(
+                ibex_test_gpu_v2_validate_event(&detached_wrong_receiver_result),
+                0
+            )
+        };
+        let mut detached_with_target = detached_device;
+        detached_with_target.target = ExactGpuObjectRefV2 {
+            kind: 3,
+            flags: 0,
+            object_id: 55,
+            object_generation: 1,
+        };
+        let detached_with_target_result =
+            gpu_v2_typed_result_event(detached_with_target, 3, &device_payload);
+        unsafe {
+            assert_eq!(
+                ibex_test_gpu_v2_validate_event(&detached_with_target_result),
+                0
+            )
+        };
         let mut assigned_without_promise = detached_result;
         unsafe {
             assigned_without_promise
@@ -6134,6 +6185,21 @@ cp \"$input\" \"$out\"\n";
         let detached_lifecycle =
             gpu_v2_logical_loss_event(realm, account, device, 1, 1, Some(detached_device), &[]);
         unsafe { assert_eq!(ibex_test_gpu_v2_validate_event(&detached_lifecycle), 0) };
+        let admitted_detached_lifecycle = gpu_v2_logical_loss_event(
+            realm,
+            account,
+            device,
+            1,
+            2,
+            Some(admitted_detached_device),
+            &[],
+        );
+        unsafe {
+            assert_eq!(
+                ibex_test_gpu_v2_validate_event(&admitted_detached_lifecycle),
+                0
+            )
+        };
 
         let mut attached_loss_operation = detached_device;
         attached_loss_operation.operation_id = 13;
@@ -7140,13 +7206,16 @@ cp \"$input\" \"$out\"\n";
                     (0, 3, 3)
                 );
                 let device_call = fake_gpu_v2_state().lock().unwrap().submit_calls[2].call;
-                let mut assigned = gpu_v2_provenance(&device_call, false, 0);
+                // The detached transition is independent of admission: this
+                // admitted terminal must retain its nonzero physical sequence
+                // while projecting the same already-lost wrapper behavior.
+                let mut assigned = gpu_v2_provenance(&device_call, true, 7);
                 assigned.result_device = ExactGpuDeviceIdentityV2 {
                     logical_device_id: 55,
                     logical_device_generation: 1,
                     provider_generation: 9,
                 };
-                assigned.device_transition = 1;
+                assigned.device_transition = 2;
                 let mut result_payload = Vec::new();
                 result_payload.extend_from_slice(&3_u32.to_le_bytes());
                 result_payload.extend_from_slice(&55_u64.to_le_bytes());
@@ -7222,7 +7291,7 @@ cp \"$input\" \"$out\"\n";
                     logical_device_generation: 1,
                     provider_generation: 9,
                 };
-                assigned.device_transition = 1;
+                assigned.device_transition = 2;
                 let mut payload = Vec::new();
                 payload.extend_from_slice(&3_u32.to_le_bytes());
                 payload.extend_from_slice(&55_u64.to_le_bytes());
@@ -7296,7 +7365,7 @@ cp \"$input\" \"$out\"\n";
                         logical_device_generation: 1,
                         provider_generation: 9,
                     };
-                    assigned.device_transition = 1;
+                    assigned.device_transition = 2;
                     let mut payload = Vec::new();
                     payload.extend_from_slice(&3_u32.to_le_bytes());
                     payload.extend_from_slice(&logical_device_id.to_le_bytes());

@@ -17,6 +17,7 @@ import {
   validateWebGpuWrapperAuthority,
   validateWebGpuWrapperSemantics,
 } from "./webgpu-test-wrapper-generator.mjs";
+import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDirectory, "../../../..");
@@ -56,6 +57,7 @@ describe("test-only WebGPU wrapper generator", () => {
     );
     expect(nativePrograms.routes.map((route) => route.operationId)).toEqual([
       "GPU.requestAdapter",
+      "GPUAdapter.requestDevice",
     ]);
     expect(nativePrograms.routes[0].request.catalog.wireTag).toBe(2);
     expect(nativePrograms.routes[0].completion.catalog.wireTag).toBe(6);
@@ -69,6 +71,34 @@ describe("test-only WebGPU wrapper generator", () => {
       name: "serviceDetachedExpired",
       type: "u8",
       constraint: "boolean-zero-or-one",
+    });
+    const requestDevice = nativePrograms.routes[1];
+    expect(requestDevice.request.catalog.wireTag).toBe(3);
+    expect(requestDevice.completion.catalog.wireTag).toBe(4);
+    expect(requestDevice.request.executablePrerequisites).toEqual([
+      "generatedLogicalProviderDescriptor",
+      "authenticatedResultSelectionIdentity",
+    ]);
+    expect(
+      nativePrograms.types.requestDeviceDescriptorV1.fields.find(
+        (field) => field.name === "requiredLimits",
+      ).value.key,
+    ).toBe("string");
+    expect(
+      requestDevice.request.semanticServiceDerivations.map((row) => row.ownership),
+    ).toEqual([
+      "native-semantic-service-derived-never-payload-or-wrapper-supplied",
+      "native-semantic-service-allocated-never-payload-or-wrapper-supplied",
+    ]);
+    expect(requestDevice.completion.variants.map((variant) => variant.name)).toEqual([
+      "live-object",
+      "detached-not-admitted-object",
+      "detached-admitted-object",
+    ]);
+    expect(requestDevice.completion.serviceResultJoins.at(-1)).toEqual({
+      payloadPath: "body.diagnosticMessage",
+      serviceResultPath: "nativeSemanticServiceResult.diagnosticMessage",
+      operator: "equal-never-caller-selected",
     });
   });
 
@@ -97,6 +127,16 @@ describe("test-only WebGPU wrapper generator", () => {
       "deterministic-test-data-not-exact-profile-authority",
     );
     expect(plan.semantic.limitPolicy.limits).toHaveLength(36);
+    expect(plan.semantic.featurePolicy.defaultFeatures).toEqual({
+      core: ["core-features-and-limits"],
+      compatibility: [],
+    });
+    expect(plan.semantic.limitPolicy.limits[0]).toMatchObject({
+      coreDefault: 8192,
+      compatibilityDefault: 4096,
+      profileBucket: { core: 8192, compatibility: 8192 },
+      capabilityGrantBoundary: { core: 8192, compatibility: 8192 },
+    });
     expect(plan.semantic.providerRoutingPrograms.map((program) => program.operationId)).toEqual([
       "GPU.requestAdapter",
       "GPUAdapter.requestDevice",
@@ -128,6 +168,21 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(validated.semanticProjection.requestDeviceRouting.terminals).toHaveLength(17);
     expect(validated.semanticProjection.requestDeviceFailureProgram.branches).toHaveLength(10);
     expect(validated.semanticProjection.providerRoutingPrograms).toHaveLength(12);
+    expect(
+      validated.semanticProjection.limitPolicy.requestValidation
+        .unknownNonUndefined,
+    ).toBe("operation-error-promise-rejection");
+    expect(validated.semanticProjection.featurePolicy.newDeviceFeatureImplications)
+      .toEqual([
+        {
+          feature: "texture-formats-tier2",
+          implies: "texture-formats-tier1",
+        },
+        {
+          feature: "texture-formats-tier1",
+          implies: "rg11b10ufloat-renderable",
+        },
+      ]);
   });
 
   test("renders deterministically as a portable expression with no install surface", () => {
@@ -291,6 +346,21 @@ describe("test-only WebGPU wrapper generator", () => {
       .completion.variants[1].payload.fields.at(-1).constraint = "positive";
     mutations.push(nativeDetachedState);
 
+    const nativeRequestDeviceDerivation = clone(authority);
+    nativeRequestDeviceDerivation.payload.wireEnvelope.nativeCodecPrograms.routes[1]
+      .request.semanticServiceDerivations[0].ownership = "wrapper-supplied";
+    mutations.push(nativeRequestDeviceDerivation);
+
+    const nativeRequestDeviceDiagnostic = clone(authority);
+    nativeRequestDeviceDiagnostic.payload.wireEnvelope.nativeCodecPrograms.routes[1]
+      .completion.serviceResultJoins.pop();
+    mutations.push(nativeRequestDeviceDiagnostic);
+
+    const nativeRequestDeviceTransition = clone(authority);
+    nativeRequestDeviceTransition.payload.wireEnvelope.nativeCodecPrograms.routes[1]
+      .completion.variants[2].carrierConstraints[0].value = 1;
+    mutations.push(nativeRequestDeviceTransition);
+
     for (const mutation of mutations) {
       expect(() => validateWebGpuWrapperAuthority(mutation)).toThrow();
     }
@@ -302,6 +372,30 @@ describe("test-only WebGPU wrapper generator", () => {
     const direction = clone(semantics);
     direction.semanticProjection.limitPolicy.limits[0].betterDirection = "lower";
     mutations.push(direction);
+
+    const compatibilityDefault = clone(semantics);
+    compatibilityDefault.semanticProjection.limitPolicy.limits[0]
+      .compatibilityDefault += 1;
+    mutations.push(compatibilityDefault);
+
+    const compatibilityGrant = clone(semantics);
+    compatibilityGrant.semanticProjection.limitPolicy.limits[0]
+      .capabilityGrantBoundary.compatibility += 1;
+    mutations.push(compatibilityGrant);
+
+    const defaultFeatures = clone(semantics);
+    defaultFeatures.semanticProjection.featurePolicy.defaultFeatures.core = [];
+    mutations.push(defaultFeatures);
+
+    const adapterImplication = clone(semantics);
+    adapterImplication.semanticProjection.featurePolicy
+      .adapterFeatureImplications[0].implies = "timestamp-query";
+    mutations.push(adapterImplication);
+
+    const newDeviceImplication = clone(semantics);
+    newDeviceImplication.semanticProjection.featurePolicy
+      .newDeviceFeatureImplications.reverse();
+    mutations.push(newDeviceImplication);
 
     const terminal = clone(semantics);
     terminal.semanticProjection.requestDeviceRouting.terminals[0].resultDisposition =
@@ -339,6 +433,53 @@ describe("test-only WebGPU wrapper generator", () => {
 
     for (const mutation of mutations) {
       expect(() => validateWebGpuWrapperSemantics(mutation)).toThrow();
+    }
+  });
+
+  test("portable factory fails closed on inconsistent fake adapter capabilities", () => {
+    const mutations = [];
+
+    const missingDefault = clone(buildWebGpuWrapperPlan(authority, semantics));
+    missingDefault.fakeClientData.adapterFeatures = ["timestamp-query"];
+    mutations.push(missingDefault);
+
+    const unknownFeature = clone(buildWebGpuWrapperPlan(authority, semantics));
+    unknownFeature.fakeClientData.adapterFeatures.push("not-a-profile-feature");
+    mutations.push(unknownFeature);
+
+    const missingAdapterImplication = clone(
+      buildWebGpuWrapperPlan(authority, semantics),
+    );
+    missingAdapterImplication.fakeClientData.adapterFeatures =
+      missingAdapterImplication.fakeClientData.adapterFeatures.filter(
+        (name) => name !== "texture-compression-bc",
+      );
+    mutations.push(missingAdapterImplication);
+
+    const missingNewDeviceAddition = clone(
+      buildWebGpuWrapperPlan(authority, semantics),
+    );
+    missingNewDeviceAddition.fakeClientData.adapterFeatures =
+      missingNewDeviceAddition.fakeClientData.adapterFeatures.filter(
+        (name) => name !== "rg11b10ufloat-renderable",
+      );
+    mutations.push(missingNewDeviceAddition);
+
+    const incompleteLimits = clone(buildWebGpuWrapperPlan(authority, semantics));
+    delete incompleteLimits.fakeClientData.adapterLimits.maxTextureDimension1D;
+    mutations.push(incompleteLimits);
+
+    const worseThanCoreDefault = clone(
+      buildWebGpuWrapperPlan(authority, semantics),
+    );
+    worseThanCoreDefault.fakeClientData.adapterLimits.maxTextureDimension1D =
+      4096;
+    mutations.push(worseThanCoreDefault);
+
+    for (const mutation of mutations) {
+      expect(() => portableWebGpuTestWrapperFactory(mutation)).toThrow(
+        /capability plan/,
+      );
     }
   });
 });

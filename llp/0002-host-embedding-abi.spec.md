@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-17 (adds the authenticated requestAdapter payload-codegen program and carrier-projected positive interoperability vectors without installing a native payload codec); 2026-07-17 (authenticates the injection-only IBGQ/IBGR/IBGL codec layout in the C-vocabulary projection, generates a language-neutral manifest/corpus from the executable converter, and preserves unknown post-WebIDL adapter feature levels for the local-null semantic branch); 2026-07-17 (records the pinned TypeGPU workload closure as private staging metadata while keeping its 30 operations beyond the reviewed triangle unroutable and absent from prototypes); 2026-07-16 (makes ASSIGNED + NOT_ADMITTED requestDevice results self-contained detached-loss operation terminals without lifecycle tombstones); 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-17 (adds the requestDevice payload-codegen prerequisite, native-owned descriptor/result derivations, and ASSIGNED_DETACHED without installing a native codec or provider); 2026-07-17 (adds the authenticated requestAdapter payload-codegen program and carrier-projected positive interoperability vectors without installing a native payload codec); 2026-07-17 (authenticates the injection-only IBGQ/IBGR/IBGL codec layout in the C-vocabulary projection, generates a language-neutral manifest/corpus from the executable converter, and preserves unknown post-WebIDL adapter feature levels for the local-null semantic branch); 2026-07-17 (records the pinned TypeGPU workload closure as private staging metadata while keeping its 30 operations beyond the reviewed triangle unroutable and absent from prototypes); 2026-07-16 (makes ASSIGNED + NOT_ADMITTED requestDevice results self-contained detached-loss operation terminals without lifecycle tombstones); 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
@@ -432,12 +432,21 @@ step requiring all of: the authenticated V2 bridge, the app realm, an
 unoccupied public surface, and an exact executable codec bundle whose four
 authority digests and operation IDs match that plan. The generated
 injection-only codec bundle, language-neutral manifest, and byte corpus derive
-from the same reviewed authority. Manifest schema 2 also carries one
-authenticated, machine-readable payload-codegen program for
-`GPU.requestAdapter`: ordered primitive and recursive layouts, the closed
+from the same reviewed authority. Manifest schema 2 also carries authenticated,
+machine-readable payload-codegen programs for `GPU.requestAdapter` and
+`GPUAdapter.requestDevice`: ordered primitive and recursive layouts, the closed
 post-WebIDL option dictionary, route-selected catalog tags, every duplicated
 `ExactGpuSemanticCallV2` join, and the distinct empty-NULL and IBGR-object
-completion-payload programs. Its scope is deliberately narrower than the V2
+completion-payload programs. The requestDevice request carries only the
+untrusted WebIDL-converted descriptor as semantic-service ingress. The native
+payload codec preserves unknown non-undefined `requiredLimits` names as own
+dictionary entries (including names such as `__proto__`); the semantic service,
+not conversion or payload decoding, rejects them with the specified Promise
+`OperationError` before provider admission. The native
+semantic service must derive the exact logical provider descriptor and allocate
+the result-selection identity, cross-link those native-owned results to the
+authenticated carrier and completion payload, and keep the raw descriptor out
+of the provider boundary. The program's scope is deliberately narrower than the V2
 carrier: it owns the selected request/completion payload layouts and their
 operation-specific joins only. It does not construct or validate a complete
 `ExactGpuSemanticCallV2` or `ExactGpuServiceEventV2`. The existing authenticated
@@ -465,6 +474,9 @@ WebIDL conversion and the real encoder/decoder. It records default,
 high-performance, and compatibility/low-power request bytes plus the exact
 operation-specific carrier fields plus global V2 carrier examples; object and
 null vectors likewise record operation-result fields and admission examples.
+RequestDevice vectors cover the converted request, a live admitted device, and
+self-contained detached devices with both NOT_ADMITTED/zero and
+ADMITTED/nonzero physical-sequence provenance.
 These positive interoperability vectors are not a complete synthetic ABI
 record or a negative conformance corpus. Hostile/malformed coverage remains in
 the executable generator/runtime tests. The vectors make the program joins and
@@ -475,8 +487,7 @@ without provider work, as required by the semantic program. The bundled graph
 contains the generated injection codec for conformance and wrapper tests, but
 no executable codec is bound to `EMBEDDED_EXECUTABLE_WEBGPU_CODECS` or otherwise
 installable by production construction. No native request-payload decoder or
-completion-payload encoder has yet been generated from the request-adapter
-program, and no
+completion-payload encoder has yet been generated from either program, and no
 matching semantic provider method is installed, so native construction
 installs no `navigator.gpu`, interface
 globals, constants, or `createImageBitmap`. Tests may explicitly inject a
@@ -573,10 +584,12 @@ operation result, device error, provider loss, logical-device loss, account
 close, and realm close. Operation terminals carry the full immutable
 provenance key, provider-admission verdict, physical sequence, and device
 transition. Result payload canonicality is selected by `result_kind`; device
-errors cannot assign devices. `ASSIGNED + NOT_ADMITTED + OBJECT` is the
-self-contained service-detached already-lost requestDevice terminal. Its full
-retained call key authenticates the fresh result identity, it has physical
-sequence zero, and it consumes no realm-lifetime lifecycle tombstone. The
+errors cannot assign devices. `ASSIGNED` means only a live attached device on
+an ADMITTED terminal. `ASSIGNED_DETACHED + OBJECT` is the self-contained
+service-detached already-lost requestDevice terminal. Its full retained call
+key authenticates the fresh result identity and preserves either NOT_ADMITTED
+with physical sequence zero or ADMITTED with a nonzero physical sequence,
+without diagnostic inference. It consumes no realm-lifetime lifecycle tombstone. The
 owner delivers that terminal to the private wrapper sink before resolving its
 receipt; the wrapper keeps the object out of its strong live-device registry
 and settles the stable `device.lost` Promise, enqueueing that reaction before

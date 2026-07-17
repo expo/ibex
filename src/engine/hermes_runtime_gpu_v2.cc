@@ -627,6 +627,20 @@ bool emptyOperationProvenanceV2(
 
 bool validOperationProvenanceV2(
     const ExactGpuOperationProvenanceV2& operation) {
+  const bool requestDeviceClassAssignment =
+      operation.promise_id != 0 &&
+      deviceAbsentV2(operation.ingress_device) &&
+      !deviceAbsentV2(operation.result_device) &&
+      operation.provider_generation != 0 &&
+      operation.result_device.provider_generation ==
+          operation.provider_generation &&
+      operation.captured_scope_id == 0 && operation.adapter_ordinal != 0 &&
+      operation.device_ingress_ordinal == 0 &&
+      operation.queue_ingress_ordinal == 0 &&
+      operation.receiver.kind == EXACT_GPU_OBJECT_ADAPTER_V2 &&
+      operation.receiver.flags == 0 && operation.receiver.object_id != 0 &&
+      operation.receiver.object_generation != 0 &&
+      objectAbsentV2(operation.target);
   return validRealmV2(operation.realm) && validAccountV2(operation.account) &&
       validDeviceV2(operation.ingress_device) &&
       validDeviceV2(operation.result_device) &&
@@ -637,12 +651,11 @@ bool validOperationProvenanceV2(
       ((operation.device_transition == EXACT_GPU_DEVICE_UNCHANGED_V2 &&
         equalDeviceV2(operation.ingress_device, operation.result_device)) ||
        (operation.device_transition == EXACT_GPU_DEVICE_ASSIGNED_V2 &&
-        operation.promise_id != 0 &&
-        deviceAbsentV2(operation.ingress_device) &&
-        !deviceAbsentV2(operation.result_device) &&
-        operation.provider_generation != 0 &&
-        operation.result_device.provider_generation ==
-            operation.provider_generation)) &&
+        requestDeviceClassAssignment &&
+        operation.provider_admission == EXACT_GPU_PROVIDER_ADMITTED_V2) ||
+       (operation.device_transition ==
+            EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 &&
+        requestDeviceClassAssignment)) &&
       ((operation.provider_admission == EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 &&
         operation.physical_sequence == 0) ||
        (operation.provider_admission == EXACT_GPU_PROVIDER_ADMITTED_V2 &&
@@ -868,8 +881,8 @@ GpuLifecycleReplayV2 rememberLifecycleEventV2(
 
 bool isServiceDetachedAssignedV2(
     const ExactGpuOperationProvenanceV2& operation) {
-  return operation.device_transition == EXACT_GPU_DEVICE_ASSIGNED_V2 &&
-      operation.provider_admission == EXACT_GPU_PROVIDER_NOT_ADMITTED_V2;
+  return operation.device_transition ==
+      EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2;
 }
 
 const ExactGpuRealmIdentityV2* eventRealmV2(
@@ -1140,7 +1153,10 @@ bool validEventPrefixV2(const ExactGpuServiceEventV2* event) {
           record.result_kind >= EXACT_GPU_RESULT_NONE_V2 &&
           record.result_kind <= EXACT_GPU_RESULT_BYTES_V2 &&
           payloadShapeValid &&
-          (record.operation.device_transition != EXACT_GPU_DEVICE_ASSIGNED_V2 ||
+          ((record.operation.device_transition !=
+                EXACT_GPU_DEVICE_ASSIGNED_V2 &&
+            record.operation.device_transition !=
+                EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2) ||
            record.result_kind == EXACT_GPU_RESULT_OBJECT_V2) &&
           record.status == 0;
     }
@@ -1217,10 +1233,7 @@ bool validEventPrefixV2(const ExactGpuServiceEventV2* event) {
         return emptyOperationProvenanceV2(record.initiating_operation);
       }
       const bool serviceDetachedAssigned =
-          record.initiating_operation.device_transition ==
-              EXACT_GPU_DEVICE_ASSIGNED_V2 &&
-          record.initiating_operation.provider_admission ==
-              EXACT_GPU_PROVIDER_NOT_ADMITTED_V2;
+          isServiceDetachedAssignedV2(record.initiating_operation);
       return validOperationProvenanceV2(record.initiating_operation) &&
           !serviceDetachedAssigned &&
           equalRealmV2(record.initiating_operation.realm, record.realm) &&
@@ -1402,10 +1415,11 @@ int32_t receiveGpuEventV2Impl(
     }
     if (!malformed) {
       if (const auto* operation = eventOperationV2(*event)) {
-        // ASSIGNED + NOT_ADMITTED is a self-contained operation terminal for
-        // a fresh service-detached already-lost device. It intentionally does
-        // not consume realm-lifetime lifecycle replay authority. Attached
-        // device loss still arrives through the typed lifecycle path below.
+        // ASSIGNED_DETACHED is a self-contained operation terminal for a fresh
+        // service-detached already-lost device, preserving either admission
+        // relation. It intentionally does not consume realm-lifetime lifecycle
+        // replay authority. Attached device loss still arrives through the
+        // typed lifecycle path below.
         malformed = physicalSequenceConflictsV2(*mailbox, *operation);
       } else if (event->kind == EXACT_GPU_SERVICE_EVENT_PROVIDER_LOSS_V2) {
         malformed = providerLossContradictsObservedV2(

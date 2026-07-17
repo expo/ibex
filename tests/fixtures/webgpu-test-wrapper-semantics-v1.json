@@ -4,17 +4,173 @@
   "provenance": {
     "sourceExactCommit": "4012883f61d849c2158844097953cd5de2dc39e5",
     "profilePath": "tests/gpu/webgpu-profile-v1.generated.json",
-    "profileSha256": "95bf47e03db4b50b4db7420abd5bf20630763ad5d7bde54cd61c1a1f987277e6",
+    "profileSha256": "206fb144c2daef0d58db4e3481f8eebc08d197c7f420404c28f9f84f477b5d98",
     "logicalPath": "tests/gpu/logical-validation-v1.generated.json",
-    "logicalSha256": "9deb1114ac480bc948afa866b8b97af1d7f99ca84a9c757ea178fa73c5009a59",
+    "logicalSha256": "25564ccb8e2499a3a5ec39bc79c92abba2367c72a4eb0765a69b6d86e2a13651",
     "normalizedSemanticComparison": "required-across-outer-ibex-repins"
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "semanticProjectionSha256": "374dc0348ec585fbfe3829df3602a52e054aed2fa36b635c12357e5bd28f0746",
-    "fakeClientDataSha256": "16952a4a4b487fb567d7e68b5f893d6ca51e3b994677aea05c02c8469094ff0d"
+    "semanticProjectionSha256": "eb9aa61ec2cd9f3362c7abcf4af43646bc19bd7025475ee787e7f74202695482",
+    "fakeClientDataSha256": "51834c11d72ce342e20f093ad30736be0e681025563aa9a3f9c0a092f212c41f"
   },
   "semanticProjection": {
+    "featurePolicy": {
+      "requiredFeatureValidation": "webidl-known-then-subset-of-adapter-profile-and-capability-grant",
+      "deviceProjection": "requested-plus-pinned-default-and-implied-features",
+      "defaultFeatures": {
+        "core": [
+          "core-features-and-limits"
+        ],
+        "compatibility": []
+      },
+      "adapterFeatureImplications": [
+        {
+          "feature": "texture-compression-bc-sliced-3d",
+          "implies": "texture-compression-bc"
+        },
+        {
+          "feature": "texture-compression-astc-sliced-3d",
+          "implies": "texture-compression-astc"
+        }
+      ],
+      "newDeviceFeatureImplications": [
+        {
+          "feature": "texture-formats-tier2",
+          "implies": "texture-formats-tier1"
+        },
+        {
+          "feature": "texture-formats-tier1",
+          "implies": "rg11b10ufloat-renderable"
+        }
+      ],
+      "adapterRequiredFeatureAlternatives": [
+        [
+          "texture-compression-bc"
+        ],
+        [
+          "texture-compression-etc2",
+          "texture-compression-astc"
+        ]
+      ],
+      "features": [
+        {
+          "name": "core-features-and-limits",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "depth-clip-control",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "depth32float-stencil8",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "texture-compression-bc",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "texture-compression-bc-sliced-3d",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "texture-compression-etc2",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "texture-compression-astc",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "texture-compression-astc-sliced-3d",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "timestamp-query",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "indirect-first-instance",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "shader-f16",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "rg11b10ufloat-renderable",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "bgra8unorm-storage",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "float32-filterable",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "float32-blendable",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "clip-distances",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "dual-source-blending",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "subgroups",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "texture-formats-tier1",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "texture-formats-tier2",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "primitive-index",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "texture-component-swizzle",
+          "classification": "standard",
+          "profileAdmission": "admitted"
+        },
+        {
+          "name": "subgroup-size-control",
+          "classification": "disabled-extension",
+          "profileAdmission": "denied"
+        }
+      ]
+    },
     "limitPolicy": {
       "requestValidation": {
         "undefinedValue": "skip-key-validation-and-projection",
@@ -22,20 +178,22 @@
         "maximum": "nonnegative-integer-no-better-than-adapter-profile-bucket-and-capability-grant",
         "alignment": "power-of-two-less-than-2^32-and-no-better-than-adapter-profile-bucket-and-capability-grant"
       },
-      "projectionRule": "start-from-feature-level-profile-buckets-apply-only-better-nonundefined-requests-then-run-pinned-storage-limit-normalization",
+      "projectionRule": "start-from-feature-level-defaults-apply-only-better-nonundefined-requests-then-run-pinned-storage-limit-normalization",
       "limits": [
         {
           "name": "maxTextureDimension1D",
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 8192,
+          "compatibilityDefault": 4096,
           "profileBucket": {
             "core": 8192,
-            "compatibility": 4096
+            "compatibility": 8192
           },
           "capabilityGrantBoundary": {
             "core": 8192,
-            "compatibility": 4096
+            "compatibility": 8192
           }
         },
         {
@@ -43,13 +201,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 8192,
+          "compatibilityDefault": 4096,
           "profileBucket": {
             "core": 8192,
-            "compatibility": 4096
+            "compatibility": 8192
           },
           "capabilityGrantBoundary": {
             "core": 8192,
-            "compatibility": 4096
+            "compatibility": 8192
           }
         },
         {
@@ -57,6 +217,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 2048,
+          "compatibilityDefault": 2048,
           "profileBucket": {
             "core": 2048,
             "compatibility": 2048
@@ -71,6 +233,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 256,
+          "compatibilityDefault": 256,
           "profileBucket": {
             "core": 256,
             "compatibility": 256
@@ -85,6 +249,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 4,
+          "compatibilityDefault": 4,
           "profileBucket": {
             "core": 4,
             "compatibility": 4
@@ -99,6 +265,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 24,
+          "compatibilityDefault": 24,
           "profileBucket": {
             "core": 24,
             "compatibility": 24
@@ -113,6 +281,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 1000,
+          "compatibilityDefault": 1000,
           "profileBucket": {
             "core": 1000,
             "compatibility": 1000
@@ -127,6 +297,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 8,
+          "compatibilityDefault": 8,
           "profileBucket": {
             "core": 8,
             "compatibility": 8
@@ -141,6 +313,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 4,
+          "compatibilityDefault": 4,
           "profileBucket": {
             "core": 4,
             "compatibility": 4
@@ -155,6 +329,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 16,
+          "compatibilityDefault": 16,
           "profileBucket": {
             "core": 16,
             "compatibility": 16
@@ -169,6 +345,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 16,
+          "compatibilityDefault": 16,
           "profileBucket": {
             "core": 16,
             "compatibility": 16
@@ -183,6 +361,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 8,
+          "compatibilityDefault": 8,
           "profileBucket": {
             "core": 8,
             "compatibility": 8
@@ -197,13 +377,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 8,
+          "compatibilityDefault": 0,
           "profileBucket": {
             "core": 8,
-            "compatibility": 0
+            "compatibility": 8
           },
           "capabilityGrantBoundary": {
             "core": 8,
-            "compatibility": 0
+            "compatibility": 8
           }
         },
         {
@@ -211,13 +393,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 8,
+          "compatibilityDefault": 4,
           "profileBucket": {
             "core": 8,
-            "compatibility": 4
+            "compatibility": 8
           },
           "capabilityGrantBoundary": {
             "core": 8,
-            "compatibility": 4
+            "compatibility": 8
           }
         },
         {
@@ -225,6 +409,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 4,
+          "compatibilityDefault": 4,
           "profileBucket": {
             "core": 4,
             "compatibility": 4
@@ -239,13 +425,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 4,
+          "compatibilityDefault": 0,
           "profileBucket": {
             "core": 4,
-            "compatibility": 0
+            "compatibility": 4
           },
           "capabilityGrantBoundary": {
             "core": 4,
-            "compatibility": 0
+            "compatibility": 4
           }
         },
         {
@@ -253,6 +441,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 4,
+          "compatibilityDefault": 4,
           "profileBucket": {
             "core": 4,
             "compatibility": 4
@@ -267,6 +457,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 12,
+          "compatibilityDefault": 12,
           "profileBucket": {
             "core": 12,
             "compatibility": 12
@@ -281,13 +473,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 65536,
+          "compatibilityDefault": 16384,
           "profileBucket": {
             "core": 65536,
-            "compatibility": 16384
+            "compatibility": 65536
           },
           "capabilityGrantBoundary": {
             "core": 65536,
-            "compatibility": 16384
+            "compatibility": 65536
           }
         },
         {
@@ -295,6 +489,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 134217728,
+          "compatibilityDefault": 134217728,
           "profileBucket": {
             "core": 134217728,
             "compatibility": 134217728
@@ -309,6 +505,8 @@
           "requestable": true,
           "class": "alignment",
           "betterDirection": "lower",
+          "coreDefault": 256,
+          "compatibilityDefault": 256,
           "profileBucket": {
             "core": 256,
             "compatibility": 256
@@ -323,6 +521,8 @@
           "requestable": true,
           "class": "alignment",
           "betterDirection": "lower",
+          "coreDefault": 256,
+          "compatibilityDefault": 256,
           "profileBucket": {
             "core": 256,
             "compatibility": 256
@@ -337,6 +537,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 8,
+          "compatibilityDefault": 8,
           "profileBucket": {
             "core": 8,
             "compatibility": 8
@@ -351,6 +553,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 268435456,
+          "compatibilityDefault": 268435456,
           "profileBucket": {
             "core": 268435456,
             "compatibility": 268435456
@@ -365,6 +569,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 16,
+          "compatibilityDefault": 16,
           "profileBucket": {
             "core": 16,
             "compatibility": 16
@@ -379,6 +585,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 2048,
+          "compatibilityDefault": 2048,
           "profileBucket": {
             "core": 2048,
             "compatibility": 2048
@@ -393,13 +601,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 16,
+          "compatibilityDefault": 15,
           "profileBucket": {
             "core": 16,
-            "compatibility": 15
+            "compatibility": 16
           },
           "capabilityGrantBoundary": {
             "core": 16,
-            "compatibility": 15
+            "compatibility": 16
           }
         },
         {
@@ -407,13 +617,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 8,
+          "compatibilityDefault": 4,
           "profileBucket": {
             "core": 8,
-            "compatibility": 4
+            "compatibility": 8
           },
           "capabilityGrantBoundary": {
             "core": 8,
-            "compatibility": 4
+            "compatibility": 8
           }
         },
         {
@@ -421,6 +633,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 32,
+          "compatibilityDefault": 32,
           "profileBucket": {
             "core": 32,
             "compatibility": 32
@@ -435,6 +649,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 16384,
+          "compatibilityDefault": 16384,
           "profileBucket": {
             "core": 16384,
             "compatibility": 16384
@@ -449,13 +665,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 256,
+          "compatibilityDefault": 128,
           "profileBucket": {
             "core": 256,
-            "compatibility": 128
+            "compatibility": 256
           },
           "capabilityGrantBoundary": {
             "core": 256,
-            "compatibility": 128
+            "compatibility": 256
           }
         },
         {
@@ -463,13 +681,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 256,
+          "compatibilityDefault": 128,
           "profileBucket": {
             "core": 256,
-            "compatibility": 128
+            "compatibility": 256
           },
           "capabilityGrantBoundary": {
             "core": 256,
-            "compatibility": 128
+            "compatibility": 256
           }
         },
         {
@@ -477,13 +697,15 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 256,
+          "compatibilityDefault": 128,
           "profileBucket": {
             "core": 256,
-            "compatibility": 128
+            "compatibility": 256
           },
           "capabilityGrantBoundary": {
             "core": 256,
-            "compatibility": 128
+            "compatibility": 256
           }
         },
         {
@@ -491,6 +713,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 64,
+          "compatibilityDefault": 64,
           "profileBucket": {
             "core": 64,
             "compatibility": 64
@@ -505,6 +729,8 @@
           "requestable": true,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 65535,
+          "compatibilityDefault": 65535,
           "profileBucket": {
             "core": 65535,
             "compatibility": 65535
@@ -519,6 +745,8 @@
           "requestable": false,
           "class": "maximum",
           "betterDirection": "higher",
+          "coreDefault": 0,
+          "compatibilityDefault": 0,
           "profileBucket": {
             "core": 0,
             "compatibility": 0
@@ -530,44 +758,9 @@
         }
       ]
     },
-    "requestDeviceProviderDescriptor": {
-      "policy": "generated-logical-limits-plus-versioned-service-internal-requirements-only",
-      "projectionRule": "start-from-feature-level-profile-buckets-apply-only-better-nonundefined-requests-then-run-pinned-storage-limit-normalization",
-      "capabilityProjectionPredicate": {
-        "predicateId": "adapter.request-device.capability-projection",
-        "predicateType": "profile-feature-limit",
-        "inputs": [
-          "requiredFeatures",
-          "requiredLimits",
-          "featureLevel",
-          "profileFeaturePolicy",
-          "profileLimitTable",
-          "capabilityGrant",
-          "serviceInternalRequirements"
-        ],
-        "relation": "infallibly derive the exact logical feature set and limit projection with the pinned new-device algorithm, including default/implied features, feature-level profile buckets, better-only non-undefined limit updates, and storage-limit normalization; emit a generated logical provider descriptor containing only that logical set plus versioned service-internal requirements",
-        "failureClass": "none",
-        "failureTiming": "none",
-        "predicateIndex": 2,
-        "predicateWireId": 436961075
-      },
-      "providerReadyPredicate": {
-        "predicateId": "adapter.request-device.provider-ready",
-        "predicateType": "provider-request-readiness",
-        "inputs": [
-          "liveDeviceReservationId",
-          "generatedLogicalProviderDescriptor"
-        ],
-        "relation": "all local terminal predicates have passed and the generated logical descriptor contains only the exact logical feature/limit projection plus versioned service-internal requirements; the raw request descriptor is unavailable at this boundary; mint one provider token and physical sequence immediately after this predicate",
-        "failureClass": "none",
-        "failureTiming": "none",
-        "predicateIndex": 1,
-        "predicateWireId": 1494113071
-      }
-    },
     "requestDeviceFailureProgram": {
       "operationId": "GPUAdapter.requestDevice",
-      "operationWireId": 579563582,
+      "operationWireId": 194635792,
       "branches": [
         {
           "branchId": "webidl",
@@ -604,7 +797,7 @@
         },
         {
           "branchId": "adapter-validation",
-          "branchWireId": 25314219,
+          "branchWireId": 1526693743,
           "orderedPredicates": [
             {
               "predicateId": "adapter.request-device.limits",
@@ -616,7 +809,7 @@
             {
               "predicateId": "adapter.request-device.capability-projection",
               "predicateIndex": 2,
-              "predicateWireId": 436961075,
+              "predicateWireId": 1496584302,
               "failureClass": "none",
               "failureTiming": "none"
             }
@@ -3498,12 +3691,53 @@
           }
         ]
       }
-    ]
+    ],
+    "requestDeviceProviderDescriptor": {
+      "policy": "generated-logical-limits-plus-versioned-service-internal-requirements-only",
+      "projectionRule": "start-from-feature-level-defaults-apply-only-better-nonundefined-requests-then-run-pinned-storage-limit-normalization",
+      "capabilityProjectionPredicate": {
+        "predicateId": "adapter.request-device.capability-projection",
+        "predicateType": "profile-feature-limit",
+        "inputs": [
+          "requiredFeatures",
+          "requiredLimits",
+          "featureLevel",
+          "profileFeaturePolicy",
+          "profileLimitTable",
+          "capabilityGrant",
+          "serviceInternalRequirements"
+        ],
+        "relation": "infallibly derive the exact logical feature set and limit projection with the pinned new-device algorithm, including default/implied features, feature-level device defaults, better-only non-undefined limit updates, and storage-limit normalization; emit a generated logical provider descriptor containing only that logical set plus versioned service-internal requirements",
+        "failureClass": "none",
+        "failureTiming": "none",
+        "predicateIndex": 2,
+        "predicateWireId": 1496584302
+      },
+      "providerReadyPredicate": {
+        "predicateId": "adapter.request-device.provider-ready",
+        "predicateType": "provider-request-readiness",
+        "inputs": [
+          "liveDeviceReservationId",
+          "generatedLogicalProviderDescriptor"
+        ],
+        "relation": "all local terminal predicates have passed and the generated logical descriptor contains only the exact logical feature/limit projection plus versioned service-internal requirements; the raw request descriptor is unavailable at this boundary; mint one provider token and physical sequence immediately after this predicate",
+        "failureClass": "none",
+        "failureTiming": "none",
+        "predicateIndex": 1,
+        "predicateWireId": 1494113071
+      }
+    }
   },
   "fakeClientData": {
     "disposition": "deterministic-test-data-not-exact-profile-authority",
     "adapterFeatures": [
-      "timestamp-query"
+      "core-features-and-limits",
+      "texture-compression-bc",
+      "texture-compression-bc-sliced-3d",
+      "timestamp-query",
+      "rg11b10ufloat-renderable",
+      "texture-formats-tier1",
+      "texture-formats-tier2"
     ],
     "providerEntryOperationIds": [
       "GPU.requestAdapter",
@@ -3514,6 +3748,44 @@
       "GPUDevice.createShaderModule",
       "GPUQueue.submit",
       "GPUTexture.createView"
-    ]
+    ],
+    "adapterLimits": {
+      "maxTextureDimension1D": 8192,
+      "maxTextureDimension2D": 8192,
+      "maxTextureDimension3D": 2048,
+      "maxTextureArrayLayers": 256,
+      "maxBindGroups": 4,
+      "maxBindGroupsPlusVertexBuffers": 24,
+      "maxBindingsPerBindGroup": 1000,
+      "maxDynamicUniformBuffersPerPipelineLayout": 8,
+      "maxDynamicStorageBuffersPerPipelineLayout": 4,
+      "maxSampledTexturesPerShaderStage": 16,
+      "maxSamplersPerShaderStage": 16,
+      "maxStorageBuffersPerShaderStage": 8,
+      "maxStorageBuffersInVertexStage": 8,
+      "maxStorageBuffersInFragmentStage": 8,
+      "maxStorageTexturesPerShaderStage": 4,
+      "maxStorageTexturesInVertexStage": 4,
+      "maxStorageTexturesInFragmentStage": 4,
+      "maxUniformBuffersPerShaderStage": 12,
+      "maxUniformBufferBindingSize": 65536,
+      "maxStorageBufferBindingSize": 134217728,
+      "minUniformBufferOffsetAlignment": 256,
+      "minStorageBufferOffsetAlignment": 256,
+      "maxVertexBuffers": 8,
+      "maxBufferSize": 268435456,
+      "maxVertexAttributes": 16,
+      "maxVertexBufferArrayStride": 2048,
+      "maxInterStageShaderVariables": 16,
+      "maxColorAttachments": 8,
+      "maxColorAttachmentBytesPerSample": 32,
+      "maxComputeWorkgroupStorageSize": 16384,
+      "maxComputeInvocationsPerWorkgroup": 256,
+      "maxComputeWorkgroupSizeX": 256,
+      "maxComputeWorkgroupSizeY": 256,
+      "maxComputeWorkgroupSizeZ": 64,
+      "maxComputeWorkgroupsPerDimension": 65535,
+      "maxImmediateSize": 0
+    }
   }
 }

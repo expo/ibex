@@ -83,7 +83,7 @@ interface NativeGpuOperationProvenanceV2 {
   readonly ingressLogicalDeviceId: string;
   readonly ingressLogicalDeviceGeneration: string;
   readonly ingressProviderGeneration: string;
-  readonly deviceTransition: 0 | 1;
+  readonly deviceTransition: 0 | 1 | 2;
   readonly operationProviderGeneration: string;
   readonly authorityContextDigest: ArrayBufferView;
   readonly adapterOrdinal: string;
@@ -105,9 +105,11 @@ export type NativeGpuEventV2 =
       readonly resultKind: number;
       readonly status: 0;
       /**
-       * True only for ASSIGNED + NOT_ADMITTED requestDevice results. The
-       * generated wrapper must keep this fresh device out of its strong realm
-       * registry and settle its stable lost promise before the outer receipt.
+       * True only for ASSIGNED_DETACHED requestDevice results, preserving
+       * either NOT_ADMITTED + sequence zero or ADMITTED + a nonzero sequence.
+       * The generated wrapper must keep this fresh device out of its strong
+       * realm registry and settle its stable lost promise before the outer
+       * receipt.
        */
       readonly detachedAlreadyLost: boolean;
       /** Present exactly when detachedAlreadyLost is true. */

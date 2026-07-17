@@ -122,6 +122,13 @@ function serviceInput(
       forceFallbackAdapter: false,
       xrCompatible: false,
     })
+    : operationId === 'GPUAdapter.requestDevice'
+    ? Object.freeze({
+      label: 'device',
+      requiredFeatures: Object.freeze(['timestamp-query']),
+      requiredLimits: Object.freeze({ maxBindGroups: 4 }),
+      defaultQueue: Object.freeze({ label: 'queue' }),
+    })
     : Object.freeze({ sample: true }),
 ): ProductionGpuServiceEncodingInput {
   const route = WEBGPU_PRODUCTION_PLAN.routes.find(
@@ -133,6 +140,7 @@ function serviceInput(
     | ProductionGpuWrapperKind
     | null;
   const requestAdapter = operationId === 'GPU.requestAdapter';
+  const requestDevice = operationId === 'GPUAdapter.requestDevice';
   return Object.freeze({
     operationId,
     wireId: route.wireId,
@@ -145,7 +153,7 @@ function serviceInput(
       ? '0'
       : '3',
     queueIngressOrdinal: operationId === 'GPUQueue.submit' ? '2' : '0',
-    sealedLocalTimeline: requestAdapter
+    sealedLocalTimeline: requestAdapter || requestDevice
       ? Object.freeze([])
       : Object.freeze([
         Object.freeze({ operationId: 'local', deviceIngressOrdinal: 2 }),
@@ -168,6 +176,7 @@ function resultEvent(
   detachedAlreadyLost = false,
   lossReason?: number,
   backendClass?: number,
+  detachedProviderAdmission: 0 | 1 = 0,
 ): ResultEvent {
   const requestAdapter = operationId === 'GPU.requestAdapter';
   const requestDevice = operationId === 'GPUAdapter.requestDevice';
@@ -188,8 +197,9 @@ function resultEvent(
     operationId: routeWireId(operationId),
     operationInstanceId: '3',
     promiseId: '4',
-    providerAdmission: serviceDetached ? 0 : 1,
-    physicalSequence: serviceDetached ? '0' : '5',
+    providerAdmission: serviceDetached ? detachedProviderAdmission : 1,
+    physicalSequence:
+      serviceDetached && detachedProviderAdmission === 0 ? '0' : '5',
     capturedScopeId: '0',
     realmId: '6',
     realmGeneration: '1',
@@ -202,13 +212,13 @@ function resultEvent(
     ingressLogicalDeviceId: ingressHasDevice ? '17' : '0',
     ingressLogicalDeviceGeneration: ingressHasDevice ? '1' : '0',
     ingressProviderGeneration: ingressHasDevice ? '8' : '0',
-    deviceTransition: requestDevice ? 1 : 0,
+    deviceTransition: requestDevice ? (serviceDetached ? 2 : 1) : 0,
     operationProviderGeneration: '8',
     authorityContextDigest,
-    adapterOrdinal: '1',
+    adapterOrdinal: requestAdapter ? '0' : '1',
     deviceIngressOrdinal: '0',
     queueIngressOrdinal: '0',
-    receiverKind: 1,
+    receiverKind: requestDevice ? 2 : 1,
     receiverFlags: 0,
     receiverId: '6',
     receiverGeneration: '1',
@@ -265,7 +275,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -279,11 +289,20 @@ describe('generated injection-only WebGPU executable codecs', () => {
           'selected-payload-layout-plus-operation-specific-carrier-joins-and-constraints-only',
       },
       constants: { providerTopologyId: 1 },
-      routes: [{ operationId: 'GPU.requestAdapter', wireId: 1660448199 }],
+      routes: [
+        { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
+        { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
+      ],
     });
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.carrierConstants).toEqual({
       EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: 1,
       EXACT_GPU_DEVICE_UNCHANGED_V2: 0,
+      EXACT_GPU_DEVICE_ASSIGNED_V2: 1,
+      EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2: 2,
+      EXACT_GPU_PROVIDER_NOT_ADMITTED_V2: 0,
+      EXACT_GPU_PROVIDER_ADMITTED_V2: 1,
+      EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2: 1,
+      EXACT_GPU_BACKEND_NONE_V2: 0,
       EXACT_GPU_RESULT_NULL_V2: 2,
       EXACT_GPU_RESULT_OBJECT_V2: 3,
     });
@@ -399,6 +418,46 @@ describe('generated injection-only WebGPU executable codecs', () => {
       changedResultKind,
       WEBGPU_OBJECT_KIND_TAGS,
     )).toThrow('native codec program');
+
+    const requestDeviceCodecIndex =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.findIndex(
+        (codec) => codec.tag === 'gpu-request-device-service-request-v1',
+      );
+    expect(requestDeviceCodecIndex).toBeGreaterThanOrEqual(0);
+    const omittedRequestDevicePrerequisites = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      serviceArguments: WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.map(
+        (codec, index) => index === requestDeviceCodecIndex
+          ? { ...codec, nativeProgramPrerequisitesRepresented: false }
+          : codec,
+      ),
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      omittedRequestDevicePrerequisites,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('cross-link');
+
+    const renamedCompleteLimit = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      completeLimitNames: WEBGPU_EXECUTABLE_CODEC_MANIFEST.completeLimitNames.map(
+        (name, index) => index === 0 ? `${name}Renamed` : name,
+      ),
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      renamedCompleteLimit,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('Invalid generated WebGPU executable codec manifest');
+
+    const duplicatedCompleteLimit = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      completeLimitNames: WEBGPU_EXECUTABLE_CODEC_MANIFEST.completeLimitNames.map(
+        (name, index, names) => index === names.length - 1 ? names[0] : name,
+      ),
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      duplicatedCompleteLimit,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('Invalid generated WebGPU executable codec manifest');
   });
 
   test('executes the selected public conversion for every reviewed operation', () => {
@@ -423,6 +482,54 @@ describe('generated injection-only WebGPU executable codecs', () => {
       requiredLimits: { maxBindGroups: 4 },
       defaultQueue: { label: 'queue' },
     });
+
+    const hostileRequiredLimits = Object.defineProperty({}, '__proto__', {
+      value: 4,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+    const convertedHostileDescriptor =
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        'GPUAdapter.requestDevice',
+        [{ requiredLimits: hostileRequiredLimits }],
+        wrappers,
+      ) as Readonly<{ requiredLimits: Readonly<Record<string, number>> }>;
+    expect(Object.getPrototypeOf(convertedHostileDescriptor.requiredLimits)).toBeNull();
+    expect(Object.keys(convertedHostileDescriptor.requiredLimits)).toContain('__proto__');
+    expect(Object.prototype.hasOwnProperty.call(
+      convertedHostileDescriptor.requiredLimits,
+      '__proto__',
+    )).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(
+      convertedHostileDescriptor.requiredLimits,
+      '__proto__',
+    )).toMatchObject({ value: 4, enumerable: true });
+    const hostileRequestInput = {
+      ...serviceInput('GPUAdapter.requestDevice'),
+      convertedArguments: convertedHostileDescriptor,
+    };
+    const hostilePayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(hostileRequestInput);
+    const inspectedHostileRequest = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .inspectServiceRequest(hostilePayload) as Readonly<{
+        convertedArguments: Readonly<{
+          requiredLimits: Readonly<Record<string, number>>;
+        }>;
+      }>;
+    expect(Object.getPrototypeOf(
+      inspectedHostileRequest.convertedArguments.requiredLimits,
+    )).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(
+      inspectedHostileRequest.convertedArguments.requiredLimits,
+      '__proto__',
+    )).toBe(true);
+    expect(inspectedHostileRequest.convertedArguments.requiredLimits.__proto__)
+      .toBe(4);
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
+      hostileRequestInput,
+    )).toThrow('missing authenticated semantic fields');
+
     expect(
       WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
         'GPURenderPassEncoder.draw',
@@ -870,6 +977,65 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toThrow('must be zero');
   });
 
+  test('executes requestDevice payload codegen only through test support while production stays blocked', () => {
+    const input = serviceInput('GPUAdapter.requestDevice');
+    const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) => candidate.tag === 'gpu-request-device-service-request-v1',
+    )!;
+    expect(codec.nativeProgramPrerequisitesRepresented).toBe(true);
+    expect(codec.executableFromCurrentAuthenticatedInputs).toBe(false);
+    expect(codec.unavailableSemanticFields).toEqual([
+      'generatedLogicalProviderDescriptor',
+      'authenticatedResultSelectionIdentity',
+    ]);
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
+      input,
+    )).toThrow('missing authenticated semantic fields');
+
+    const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(input);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      payload,
+    )).toMatchObject({
+      operationId: 'GPUAdapter.requestDevice',
+      codec: 'gpu-request-device-service-request-v1',
+      receiver: {
+        kind: 'GPUAdapter',
+        logicalDeviceId: '0',
+        logicalDeviceGeneration: '0',
+        providerGeneration: '7',
+      },
+      target: null,
+      capturedScopeId: '0',
+      adapterOrdinal: '1',
+      deviceIngressOrdinal: '0',
+      queueIngressOrdinal: '0',
+      sealedLocalTimeline: [],
+      convertedArguments: {
+        label: 'device',
+        requiredFeatures: ['timestamp-query'],
+        requiredLimits: { maxBindGroups: 4 },
+        defaultQueue: { label: 'queue' },
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        receiver: { ...input.receiver, providerGeneration: '0' },
+      })).toThrow('positive identity');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        convertedArguments: {
+          ...(input.convertedArguments as Record<string, unknown>),
+          generatedLogicalProviderDescriptor: {},
+        },
+      })).toThrow('reviewed descriptor shape');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput('GPUDevice.createCommandEncoder'))
+    ).toThrow('no reviewed native codegen request program');
+  });
+
   test('decodes nullable adapter results with authenticated operation/result tags', () => {
     const nullPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
       'GPU.requestAdapter',
@@ -1014,6 +1180,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
   });
 
   test('derives detached device loss only from authenticated carrier fields', () => {
+    const detachedTransitionTypeAssertion: ResultEvent['deviceTransition'] = 2;
+    expect(detachedTransitionTypeAssertion).toBe(2);
     const base = {
       kind: 'device' as const,
       objectId: '51',
@@ -1075,14 +1243,37 @@ describe('generated injection-only WebGPU executable codecs', () => {
         alreadyLost: { reason: 'unknown', message: 'adapter expired' },
       },
     });
+    const admittedDetached = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .decodeServiceResult(
+        'GPUAdapter.requestDevice',
+        resultEvent(
+          'GPUAdapter.requestDevice',
+          3,
+          detachedPayload,
+          true,
+          1,
+          0,
+          1,
+        ),
+      );
+    expect(admittedDetached).toMatchObject({
+      kind: 'object',
+      object: {
+        alreadyLost: { reason: 'unknown', message: 'adapter expired' },
+      },
+    });
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPUAdapter.requestDevice',
-      resultEvent('GPUAdapter.requestDevice', 3, detachedPayload, false, 0, 0),
+      resultEvent('GPUAdapter.requestDevice', 3, detachedPayload),
     )).toThrow('detached-only diagnostics');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPUAdapter.requestDevice',
+      resultEvent('GPUAdapter.requestDevice', 3, detachedPayload, false, 0, 0),
+    )).toThrow('Live GPUDevice result has invalid transition fields');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPUAdapter.requestDevice',
       resultEvent('GPUAdapter.requestDevice', 3, detachedPayload, true, 2, 0),
-    )).toThrow('invalid authenticated loss fields');
+    )).toThrow('Detached GPUDevice result has invalid transition fields');
     const missingCarrierFields = resultEvent(
       'GPUAdapter.requestDevice',
       3,
@@ -1092,7 +1283,40 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPUAdapter.requestDevice',
       missingCarrierFields,
-    )).toThrow('lacks authenticated detached state');
+    )).toThrow('Live GPUDevice result has invalid transition fields');
+
+    const detachedWrongReceiver = {
+      ...resultEvent(
+        'GPUAdapter.requestDevice',
+        3,
+        detachedPayload,
+        true,
+        1,
+        0,
+      ),
+      receiverKind: 3,
+    } as unknown as ResultEvent;
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPUAdapter.requestDevice',
+      detachedWrongReceiver,
+    )).toThrow('invalid requestDevice authenticated carrier');
+
+    const detachedAdmittedZeroSequence = {
+      ...resultEvent(
+        'GPUAdapter.requestDevice',
+        3,
+        detachedPayload,
+        true,
+        1,
+        0,
+        1,
+      ),
+      physicalSequence: '0',
+    } as unknown as ResultEvent;
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPUAdapter.requestDevice',
+      detachedAdmittedZeroSequence,
+    )).toThrow('admission/physical-sequence provenance mismatch');
   });
 
   test('decodes nullable typed GPU errors and rejects unknown completion data', () => {

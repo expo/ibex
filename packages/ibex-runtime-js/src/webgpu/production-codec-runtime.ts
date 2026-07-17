@@ -20,6 +20,7 @@ interface CodecCatalogRow {
 }
 
 interface ServiceCodecCatalogRow extends CodecCatalogRow {
+  readonly nativeProgramPrerequisitesRepresented: boolean;
   readonly executableFromCurrentAuthenticatedInputs: boolean;
   readonly unavailableSemanticFields: readonly string[];
 }
@@ -48,17 +49,23 @@ interface NativeCodecField {
     'headerV1' |
     'objectReferenceV1' |
     'optionalReferenceV1' |
-    'canonicalValueV1';
+    'canonicalValueV1' |
+    'sortedUniqueFeatureSequenceV1' |
+    'completeDeviceLimitsV1' |
+    'gpuDeviceCompletionBodyV1';
   readonly catalog?: 'objectKindTags';
-  readonly constraintType?: 'requestAdapterOptionsV1';
+  readonly constraintType?:
+    | 'requestAdapterOptionsV1'
+    | 'requestDeviceDescriptorV1';
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 6;
-    operationWireId: 1660448199;
+    codecTag: 2 | 3 | 4 | 6;
+    operationWireId: 1660448199 | 194635792;
   }>;
   readonly constant?: 1;
   readonly constraint?: 'positive' | 'boolean-zero-or-one';
+  readonly maxBytesFrom?: 'codecLayout.diagnosticMaxBytes';
 }
 
 interface NativeCodecCanonicalVariant {
@@ -116,22 +123,32 @@ interface NativeCodecJoin {
 
 interface NativeCodecCarrierConstraint {
   readonly carrierPath: string;
-  readonly operator: 'equal' | 'all-zero' | 'positive';
-  readonly value?: number | '0';
+  readonly operator: 'equal' | 'all-zero' | 'positive' | 'absent';
+  readonly value?: number | boolean | '0';
   readonly valueFrom?:
     | 'objectKindTags.GPU'
+    | 'objectKindTags.GPUAdapter'
     | 'constants.providerTopologyId';
   readonly symbol?:
     | 'EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2'
-    | 'EXACT_GPU_DEVICE_UNCHANGED_V2';
+    | 'EXACT_GPU_DEVICE_UNCHANGED_V2'
+    | 'EXACT_GPU_DEVICE_ASSIGNED_V2'
+    | 'EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2'
+    | 'EXACT_GPU_PROVIDER_NOT_ADMITTED_V2'
+    | 'EXACT_GPU_PROVIDER_ADMITTED_V2'
+    | 'EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2'
+    | 'EXACT_GPU_BACKEND_NONE_V2'
+    | 'EXACT_GPU_RESULT_OBJECT_V2';
 }
 
 interface NativeCodecCatalogReference {
   readonly name: 'serviceArguments' | 'serviceCompletions';
   readonly tag:
     | 'gpu-request-adapter-service-request-v1'
-    | 'nullable-gpu-adapter-service-completion-v2';
-  readonly wireTag: 2 | 6;
+    | 'nullable-gpu-adapter-service-completion-v2'
+    | 'gpu-request-device-service-request-v1'
+    | 'gpu-device-service-completion-v1';
+  readonly wireTag: 2 | 3 | 4 | 6;
 }
 
 interface NativeCodecCompletionVariant {
@@ -179,10 +196,54 @@ interface NativeCodecRequestAdapterRoute {
   }>;
 }
 
+interface NativeCodecRequestDeviceRoute {
+  readonly operationId: 'GPUAdapter.requestDevice';
+  readonly wireId: 194635792;
+  readonly request: Readonly<{
+    payloadRole:
+      'service-request-payload-decoder-plus-operation-specific-call-joins';
+    catalog: NativeCodecCatalogReference;
+    payload: Readonly<{
+      kind: 'struct';
+      fields: readonly NativeCodecField[];
+    }>;
+    carrierJoins: readonly NativeCodecJoin[];
+    carrierConstraints: readonly NativeCodecCarrierConstraint[];
+    valueConstraints: readonly Readonly<Record<string, unknown>>[];
+    semanticServiceDerivations: readonly Readonly<Record<string, unknown>>[];
+    executablePrerequisites: readonly [
+      'generatedLogicalProviderDescriptor',
+      'authenticatedResultSelectionIdentity',
+    ];
+    noTrailingBytes: true;
+  }>;
+  readonly completion: Readonly<{
+    payloadRole:
+      'service-completion-payload-codec-plus-operation-specific-event-joins';
+    catalog: NativeCodecCatalogReference;
+    commonCarrierConstraints: readonly NativeCodecCarrierConstraint[];
+    payload: Readonly<{
+      kind: 'struct';
+      fields: readonly NativeCodecField[];
+    }>;
+    carrierJoins: readonly NativeCodecJoin[];
+    serviceResultJoins: readonly Readonly<Record<string, unknown>>[];
+    variants: readonly Readonly<{
+      name:
+        | 'live-object'
+        | 'detached-not-admitted-object'
+        | 'detached-admitted-object';
+      carrierConstraints: readonly NativeCodecCarrierConstraint[];
+      payloadConstraints: readonly Readonly<Record<string, unknown>>[];
+    }>[];
+    noTrailingBytes: true;
+  }>;
+}
+
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -255,13 +316,29 @@ export interface NativeCodecProgramsV2 {
         disposition: 'wrapper-local-null-no-service-call';
       }>[];
     }>;
+    requestDeviceDescriptorV1: Readonly<Record<string, unknown>>;
+    sortedUniqueFeatureSequenceV1: Readonly<Record<string, unknown>>;
+    completeDeviceLimitsV1: Readonly<Record<string, unknown>>;
+    gpuDeviceCompletionBodyV1: Readonly<{
+      kind: 'struct';
+      fields: readonly NativeCodecField[];
+    }>;
   }>;
-  readonly routes: readonly NativeCodecRequestAdapterRoute[];
+  readonly routes: readonly (
+    | NativeCodecRequestAdapterRoute
+    | NativeCodecRequestDeviceRoute
+  )[];
 }
 
 export interface WebGpuCarrierConstants {
   readonly EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: 1;
   readonly EXACT_GPU_DEVICE_UNCHANGED_V2: 0;
+  readonly EXACT_GPU_DEVICE_ASSIGNED_V2: 1;
+  readonly EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2: 2;
+  readonly EXACT_GPU_PROVIDER_NOT_ADMITTED_V2: 0;
+  readonly EXACT_GPU_PROVIDER_ADMITTED_V2: 1;
+  readonly EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2: 1;
+  readonly EXACT_GPU_BACKEND_NONE_V2: 0;
   readonly EXACT_GPU_RESULT_NULL_V2: 2;
   readonly EXACT_GPU_RESULT_OBJECT_V2: 3;
 }
@@ -353,18 +430,67 @@ const REQUEST_ADAPTER_REQUEST_CODEC =
   'gpu-request-adapter-service-request-v1';
 const REQUEST_ADAPTER_COMPLETION_CODEC =
   'nullable-gpu-adapter-service-completion-v2';
+const REQUEST_DEVICE_OPERATION_ID = 'GPUAdapter.requestDevice';
+const REQUEST_DEVICE_WIRE_ID = 194635792;
+const REQUEST_DEVICE_REQUEST_CODEC = 'gpu-request-device-service-request-v1';
+const REQUEST_DEVICE_COMPLETION_CODEC = 'gpu-device-service-completion-v1';
 
 const EXPECTED_WEBGPU_CARRIER_CONSTANTS = Object.freeze({
   EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: 1,
   EXACT_GPU_DEVICE_UNCHANGED_V2: 0,
+  EXACT_GPU_DEVICE_ASSIGNED_V2: 1,
+  EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2: 2,
+  EXACT_GPU_PROVIDER_NOT_ADMITTED_V2: 0,
+  EXACT_GPU_PROVIDER_ADMITTED_V2: 1,
+  EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2: 1,
+  EXACT_GPU_BACKEND_NONE_V2: 0,
   EXACT_GPU_RESULT_NULL_V2: 2,
   EXACT_GPU_RESULT_OBJECT_V2: 3,
 } as const satisfies WebGpuCarrierConstants);
 
+const EXPECTED_COMPLETE_LIMIT_NAMES = Object.freeze([
+  'maxTextureDimension1D',
+  'maxTextureDimension2D',
+  'maxTextureDimension3D',
+  'maxTextureArrayLayers',
+  'maxBindGroups',
+  'maxBindGroupsPlusVertexBuffers',
+  'maxBindingsPerBindGroup',
+  'maxDynamicUniformBuffersPerPipelineLayout',
+  'maxDynamicStorageBuffersPerPipelineLayout',
+  'maxSampledTexturesPerShaderStage',
+  'maxSamplersPerShaderStage',
+  'maxStorageBuffersPerShaderStage',
+  'maxStorageBuffersInVertexStage',
+  'maxStorageBuffersInFragmentStage',
+  'maxStorageTexturesPerShaderStage',
+  'maxStorageTexturesInVertexStage',
+  'maxStorageTexturesInFragmentStage',
+  'maxUniformBuffersPerShaderStage',
+  'maxUniformBufferBindingSize',
+  'maxStorageBufferBindingSize',
+  'minUniformBufferOffsetAlignment',
+  'minStorageBufferOffsetAlignment',
+  'maxVertexBuffers',
+  'maxBufferSize',
+  'maxVertexAttributes',
+  'maxVertexBufferArrayStride',
+  'maxInterStageShaderVariables',
+  'maxColorAttachments',
+  'maxColorAttachmentBytesPerSample',
+  'maxComputeWorkgroupStorageSize',
+  'maxComputeInvocationsPerWorkgroup',
+  'maxComputeWorkgroupSizeX',
+  'maxComputeWorkgroupSizeY',
+  'maxComputeWorkgroupSizeZ',
+  'maxComputeWorkgroupsPerDimension',
+  'maxImmediateSize',
+] as const);
+
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -552,6 +678,89 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
         condition: 'featureLevel-not-core-or-compatibility',
         disposition: 'wrapper-local-null-no-service-call',
       }],
+    },
+    requestDeviceDescriptorV1: {
+      kind: 'closed-dictionary',
+      encodingType: 'canonicalValueV1',
+      trust: 'untrusted-webidl-converted-semantic-service-ingress-only',
+      providerBoundary: 'forbidden-raw-descriptor-must-not-reach-provider',
+      unknownFields: 'reject',
+      fields: [
+        { name: 'label', required: true, value: { kind: 'string' } },
+        {
+          name: 'requiredFeatures',
+          required: true,
+          value: {
+            kind: 'sequence',
+            element: 'string',
+            maxCountFrom: 'codecLayout.sequenceMaxCount',
+          },
+        },
+        {
+          name: 'requiredLimits',
+          required: true,
+          value: {
+            kind: 'dictionary',
+            key: 'string',
+            value: 'nonnegative-js-safe-integer',
+            maxCountFrom: 'codecLayout.dictionaryMaxFields',
+          },
+        },
+        {
+          name: 'defaultQueue',
+          required: true,
+          value: {
+            kind: 'closed-dictionary',
+            unknownFields: 'reject',
+            fields: [{
+              name: 'label',
+              required: true,
+              value: { kind: 'string' },
+            }],
+          },
+        },
+      ],
+    },
+    sortedUniqueFeatureSequenceV1: {
+      kind: 'sequence',
+      countType: 'u32le',
+      elementType: 'utf8',
+      maxCountFrom: 'codecLayout.sequenceMaxCount',
+      constraints: ['strictly-increasing-utf8-strings'],
+    },
+    completeDeviceLimitsV1: {
+      kind: 'ordered-record',
+      fieldNamesFrom: 'semanticProjection.limitPolicy.limits',
+      requiredFieldCount: 36,
+      valueType: 'u64le',
+      constraints: ['js-safe-integer'],
+    },
+    gpuDeviceCompletionBodyV1: {
+      kind: 'struct',
+      fields: [
+        { name: 'objectId', type: 'u64le', constraint: 'positive' },
+        { name: 'objectGeneration', type: 'u64le', constraint: 'positive' },
+        { name: 'logicalDeviceId', type: 'u64le', constraint: 'positive' },
+        {
+          name: 'logicalDeviceGeneration',
+          type: 'u64le',
+          constraint: 'positive',
+        },
+        { name: 'providerGeneration', type: 'u64le', constraint: 'positive' },
+        { name: 'queueObjectId', type: 'u64le', constraint: 'positive' },
+        {
+          name: 'queueObjectGeneration',
+          type: 'u64le',
+          constraint: 'positive',
+        },
+        { name: 'features', type: 'sortedUniqueFeatureSequenceV1' },
+        { name: 'limits', type: 'completeDeviceLimitsV1' },
+        {
+          name: 'diagnosticMessage',
+          type: 'utf8',
+          maxBytesFrom: 'codecLayout.diagnosticMaxBytes',
+        },
+      ],
     },
   },
   routes: [{
@@ -821,6 +1030,531 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
         },
       ],
     },
+  }, {
+    operationId: REQUEST_DEVICE_OPERATION_ID,
+    wireId: REQUEST_DEVICE_WIRE_ID,
+    request: {
+      payloadRole:
+        'service-request-payload-decoder-plus-operation-specific-call-joins',
+      catalog: {
+        name: 'serviceArguments',
+        tag: REQUEST_DEVICE_REQUEST_CODEC,
+        wireTag: 3,
+      },
+      payload: {
+        kind: 'struct',
+        fields: [
+          {
+            name: 'header',
+            type: 'headerV1',
+            constants: {
+              magic: 'IBGQ',
+              version: 1,
+              codecTag: 3,
+              operationWireId: REQUEST_DEVICE_WIRE_ID,
+            },
+          },
+          { name: 'receiver', type: 'objectReferenceV1' },
+          { name: 'target', type: 'optionalReferenceV1' },
+          { name: 'capturedScopeId', type: 'u64le' },
+          { name: 'adapterOrdinal', type: 'u64le' },
+          { name: 'deviceIngressOrdinal', type: 'u64le' },
+          { name: 'queueIngressOrdinal', type: 'u64le' },
+          { name: 'sealedLocalTimeline', type: 'canonicalValueV1' },
+          {
+            name: 'convertedArguments',
+            type: 'canonicalValueV1',
+            constraintType: 'requestDeviceDescriptorV1',
+          },
+        ],
+      },
+      carrierJoins: [
+        {
+          payloadPath: 'header.operationWireId',
+          carrierPath: 'operation_id',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'receiver.kind',
+          carrierPath: 'receiver.kind',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'receiver.objectId',
+          carrierPath: 'receiver.object_id',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'receiver.objectGeneration',
+          carrierPath: 'receiver.object_generation',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'receiver.logicalDeviceId',
+          carrierPath: 'ingress_device.logical_device_id',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'receiver.logicalDeviceGeneration',
+          carrierPath: 'ingress_device.logical_device_generation',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'receiver.providerGeneration',
+          carrierPath: 'provider_generation',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'target',
+          carrierPath: 'target',
+          operator: 'absent-iff-all-zero-reference',
+        },
+        {
+          payloadPath: 'capturedScopeId',
+          carrierPath: 'captured_scope_id',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'adapterOrdinal',
+          carrierPath: 'adapter_ordinal',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'deviceIngressOrdinal',
+          carrierPath: 'device_ingress_ordinal',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'queueIngressOrdinal',
+          carrierPath: 'queue_ingress_ordinal',
+          operator: 'equal',
+        },
+      ],
+      carrierConstraints: [
+        {
+          carrierPath: 'operation_id',
+          operator: 'equal',
+          value: REQUEST_DEVICE_WIRE_ID,
+        },
+        { carrierPath: 'flags', operator: 'equal', value: 0 },
+        {
+          carrierPath: 'topology_id',
+          operator: 'equal',
+          valueFrom: 'constants.providerTopologyId',
+        },
+        { carrierPath: 'ingress_device', operator: 'all-zero' },
+        { carrierPath: 'provider_generation', operator: 'positive' },
+        { carrierPath: 'operation_instance_id', operator: 'positive' },
+        { carrierPath: 'promise_id', operator: 'positive' },
+        {
+          carrierPath: 'receiver.kind',
+          operator: 'equal',
+          valueFrom: 'objectKindTags.GPUAdapter',
+        },
+        { carrierPath: 'receiver.flags', operator: 'equal', value: 0 },
+        { carrierPath: 'receiver.object_id', operator: 'positive' },
+        { carrierPath: 'receiver.object_generation', operator: 'positive' },
+        { carrierPath: 'target', operator: 'all-zero' },
+        { carrierPath: 'captured_scope_id', operator: 'equal', value: '0' },
+        { carrierPath: 'adapter_ordinal', operator: 'positive' },
+        {
+          carrierPath: 'device_ingress_ordinal',
+          operator: 'equal',
+          value: '0',
+        },
+        {
+          carrierPath: 'queue_ingress_ordinal',
+          operator: 'equal',
+          value: '0',
+        },
+      ],
+      valueConstraints: [
+        {
+          payloadPath: 'sealedLocalTimeline',
+          operator: 'exact-empty-sequence',
+        },
+        {
+          payloadPath: 'convertedArguments',
+          operator: 'conforms-to-type',
+          type: 'requestDeviceDescriptorV1',
+        },
+        {
+          payloadPath: 'convertedArguments',
+          operator:
+            'untrusted-semantic-service-ingress-only-never-provider-input',
+        },
+      ],
+      semanticServiceDerivations: [
+        {
+          name: 'generatedLogicalProviderDescriptor',
+          ownership:
+            'native-semantic-service-derived-never-payload-or-wrapper-supplied',
+          inputs: [
+            'untrusted-convertedArguments',
+            'authenticated-adapter-state',
+            'authenticated-feature-level-profile',
+            'authenticated-capability-grant',
+            'versioned-service-internal-requirements',
+          ],
+          output:
+            'exact-logical-features-limits-plus-versioned-service-internal-requirements-only',
+          forbiddenProviderInputs: [
+            'convertedArguments',
+            'raw-GPUDeviceDescriptor',
+          ],
+          requiredBefore: ['provider-admission'],
+          authenticatedCrossLinks: [
+            {
+              derivedPath: 'providerGeneration',
+              carrierPath: 'provider_generation',
+              operator: 'equal',
+            },
+            {
+              derivedPath: 'adapterIdentity',
+              carrierPath: 'receiver',
+              operator: 'derived-from-authenticated-reference',
+            },
+          ],
+        },
+        {
+          name: 'authenticatedResultSelectionIdentity',
+          ownership:
+            'native-semantic-service-allocated-never-payload-or-wrapper-supplied',
+          inputs: [
+            'authenticated-retained-call',
+            'live-device-reservation',
+            'authenticated-adapter-publication-credit',
+            'authenticated-account-capacity-state',
+          ],
+          output: 'fresh-device-object-logical-device-and-queue-identities',
+          requiredBefore: ['provider-admission', 'completion-encoding'],
+          authenticatedCrossLinks: [
+            {
+              derivedPath: 'logicalDeviceId',
+              carrierPath:
+                'record.operation_result.operation.result_device.logical_device_id',
+              operator: 'equal',
+            },
+            {
+              derivedPath: 'logicalDeviceGeneration',
+              carrierPath:
+                'record.operation_result.operation.result_device.logical_device_generation',
+              operator: 'equal',
+            },
+            {
+              derivedPath: 'providerGeneration',
+              carrierPath:
+                'record.operation_result.operation.result_device.provider_generation',
+              operator: 'equal',
+            },
+            {
+              derivedPath: 'retainedOperationIdentity',
+              carrierPath:
+                'record.operation_result.operation.operation_instance_id',
+              operator: 'bound-to-authenticated-retained-call',
+            },
+            {
+              derivedPath: 'retainedPromiseIdentity',
+              carrierPath: 'record.operation_result.operation.promise_id',
+              operator: 'bound-to-authenticated-retained-call',
+            },
+          ],
+        },
+      ],
+      executablePrerequisites: [
+        'generatedLogicalProviderDescriptor',
+        'authenticatedResultSelectionIdentity',
+      ],
+      noTrailingBytes: true,
+    },
+    completion: {
+      payloadRole:
+        'service-completion-payload-codec-plus-operation-specific-event-joins',
+      catalog: {
+        name: 'serviceCompletions',
+        tag: REQUEST_DEVICE_COMPLETION_CODEC,
+        wireTag: 4,
+      },
+      commonCarrierConstraints: [
+        {
+          carrierPath: 'kind',
+          operator: 'equal',
+          value: 1,
+          symbol: 'EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2',
+        },
+        {
+          carrierPath: 'record.operation_result.status',
+          operator: 'equal',
+          value: 0,
+        },
+        {
+          carrierPath: 'record.operation_result.operation.operation_id',
+          operator: 'equal',
+          value: REQUEST_DEVICE_WIRE_ID,
+        },
+        {
+          carrierPath: 'record.operation_result.operation.ingress_device',
+          operator: 'all-zero',
+        },
+        {
+          carrierPath: 'record.operation_result.operation.result_device',
+          operator: 'positive',
+        },
+        {
+          carrierPath:
+            'record.operation_result.operation.provider_generation',
+          operator: 'positive',
+        },
+        {
+          carrierPath: 'record.operation_result.operation.receiver.kind',
+          operator: 'equal',
+          valueFrom: 'objectKindTags.GPUAdapter',
+        },
+        {
+          carrierPath: 'record.operation_result.operation.target',
+          operator: 'all-zero',
+        },
+        {
+          carrierPath: 'record.operation_result.operation.adapter_ordinal',
+          operator: 'positive',
+        },
+        {
+          carrierPath:
+            'record.operation_result.operation.device_ingress_ordinal',
+          operator: 'equal',
+          value: '0',
+        },
+        {
+          carrierPath:
+            'record.operation_result.operation.queue_ingress_ordinal',
+          operator: 'equal',
+          value: '0',
+        },
+        {
+          carrierPath: 'record.operation_result.result_kind',
+          operator: 'equal',
+          value: 3,
+          symbol: 'EXACT_GPU_RESULT_OBJECT_V2',
+        },
+      ],
+      payload: {
+        kind: 'struct',
+        fields: [
+          {
+            name: 'header',
+            type: 'headerV1',
+            constants: {
+              magic: 'IBGR',
+              version: 1,
+              codecTag: 4,
+              operationWireId: REQUEST_DEVICE_WIRE_ID,
+            },
+          },
+          { name: 'body', type: 'gpuDeviceCompletionBodyV1' },
+        ],
+      },
+      carrierJoins: [
+        {
+          payloadPath: 'body.logicalDeviceId',
+          carrierPath:
+            'record.operation_result.operation.result_device.logical_device_id',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.logicalDeviceGeneration',
+          carrierPath:
+            'record.operation_result.operation.result_device.logical_device_generation',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.providerGeneration',
+          carrierPath:
+            'record.operation_result.operation.result_device.provider_generation',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.providerGeneration',
+          carrierPath:
+            'record.operation_result.operation.provider_generation',
+          operator: 'equal',
+        },
+      ],
+      serviceResultJoins: [
+        {
+          payloadPath: 'body.objectId',
+          serviceResultPath:
+            'authenticatedResultSelectionIdentity.deviceObjectId',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.objectGeneration',
+          serviceResultPath:
+            'authenticatedResultSelectionIdentity.deviceObjectGeneration',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.queueObjectId',
+          serviceResultPath:
+            'authenticatedResultSelectionIdentity.queueObjectId',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.queueObjectGeneration',
+          serviceResultPath:
+            'authenticatedResultSelectionIdentity.queueObjectGeneration',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.features',
+          serviceResultPath:
+            'generatedLogicalProviderDescriptor.logicalFeatures',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.limits',
+          serviceResultPath: 'generatedLogicalProviderDescriptor.logicalLimits',
+          operator: 'equal',
+        },
+        {
+          payloadPath: 'body.diagnosticMessage',
+          serviceResultPath: 'nativeSemanticServiceResult.diagnosticMessage',
+          operator: 'equal-never-caller-selected',
+        },
+      ],
+      variants: [
+        {
+          name: 'live-object',
+          carrierConstraints: [
+            {
+              carrierPath:
+                'record.operation_result.operation.device_transition',
+              operator: 'equal',
+              value: 1,
+              symbol: 'EXACT_GPU_DEVICE_ASSIGNED_V2',
+            },
+            {
+              carrierPath:
+                'record.operation_result.operation.provider_admission',
+              operator: 'equal',
+              value: 1,
+              symbol: 'EXACT_GPU_PROVIDER_ADMITTED_V2',
+            },
+            {
+              carrierPath:
+                'record.operation_result.operation.physical_sequence',
+              operator: 'positive',
+            },
+            {
+              carrierPath: 'detachedAlreadyLost',
+              operator: 'equal',
+              value: false,
+            },
+            {
+              carrierPath: 'lossReason-and-backendClass',
+              operator: 'absent',
+            },
+          ],
+          payloadConstraints: [{
+            payloadPath: 'body.diagnosticMessage',
+            operator: 'exact-empty-string',
+          }],
+        },
+        {
+          name: 'detached-not-admitted-object',
+          carrierConstraints: [
+            {
+              carrierPath:
+                'record.operation_result.operation.device_transition',
+              operator: 'equal',
+              value: 2,
+              symbol: 'EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2',
+            },
+            {
+              carrierPath:
+                'record.operation_result.operation.provider_admission',
+              operator: 'equal',
+              value: 0,
+              symbol: 'EXACT_GPU_PROVIDER_NOT_ADMITTED_V2',
+            },
+            {
+              carrierPath:
+                'record.operation_result.operation.physical_sequence',
+              operator: 'equal',
+              value: '0',
+            },
+            {
+              carrierPath: 'detachedAlreadyLost',
+              operator: 'equal',
+              value: true,
+            },
+            {
+              carrierPath: 'lossReason',
+              operator: 'equal',
+              value: 1,
+              symbol: 'EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2',
+            },
+            {
+              carrierPath: 'backendClass',
+              operator: 'equal',
+              value: 0,
+              symbol: 'EXACT_GPU_BACKEND_NONE_V2',
+            },
+          ],
+          payloadConstraints: [{
+            payloadPath: 'body.diagnosticMessage',
+            operator:
+              'native-semantic-service-owned-stable-utf8-within-reviewed-bound',
+          }],
+        },
+        {
+          name: 'detached-admitted-object',
+          carrierConstraints: [
+            {
+              carrierPath:
+                'record.operation_result.operation.device_transition',
+              operator: 'equal',
+              value: 2,
+              symbol: 'EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2',
+            },
+            {
+              carrierPath:
+                'record.operation_result.operation.provider_admission',
+              operator: 'equal',
+              value: 1,
+              symbol: 'EXACT_GPU_PROVIDER_ADMITTED_V2',
+            },
+            {
+              carrierPath:
+                'record.operation_result.operation.physical_sequence',
+              operator: 'positive',
+            },
+            {
+              carrierPath: 'detachedAlreadyLost',
+              operator: 'equal',
+              value: true,
+            },
+            {
+              carrierPath: 'lossReason',
+              operator: 'equal',
+              value: 1,
+              symbol: 'EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2',
+            },
+            {
+              carrierPath: 'backendClass',
+              operator: 'equal',
+              value: 0,
+              symbol: 'EXACT_GPU_BACKEND_NONE_V2',
+            },
+          ],
+          payloadConstraints: [{
+            payloadPath: 'body.diagnosticMessage',
+            operator:
+              'native-semantic-service-owned-stable-utf8-within-reviewed-bound',
+          }],
+        },
+      ],
+      noTrailingBytes: true,
+    },
   }],
 } as const satisfies NativeCodecProgramsV2);
 
@@ -939,18 +1673,23 @@ function canonicalManifestJson(value: unknown): string {
   return encoded;
 }
 
-interface ValidatedRequestAdapterNativeProgram {
+interface ValidatedNativeCodecProgram {
   readonly route: NativeCodecRequestAdapterRoute;
+  readonly requestDeviceRoute: NativeCodecRequestDeviceRoute;
   readonly nullResultKind: 2;
   readonly objectResultKind: 3;
   readonly operationResultEventKind: 1;
   readonly unchangedDeviceTransition: 0;
+  readonly assignedDeviceTransition: 1;
+  readonly assignedDetachedDeviceTransition: 2;
+  readonly providerNotAdmitted: 0;
+  readonly providerAdmitted: 1;
 }
 
 function validateNativeCodecProgram(
   manifest: ExecutableWebGpuCodecManifest,
   expectedObjectKindTags: Readonly<Record<string, number>>,
-): ValidatedRequestAdapterNativeProgram {
+): ValidatedNativeCodecProgram {
   if (
     canonicalManifestJson(manifest.nativeCodecPrograms) !==
       canonicalManifestJson(EXPECTED_NATIVE_CODEC_PROGRAM) ||
@@ -959,7 +1698,14 @@ function validateNativeCodecProgram(
   ) {
     throw new Error('Invalid generated WebGPU native codec program');
   }
-  const route = manifest.nativeCodecPrograms.routes[0];
+  const route = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecRequestAdapterRoute =>
+      candidate.operationId === REQUEST_ADAPTER_OPERATION_ID,
+  );
+  const requestDeviceRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecRequestDeviceRoute =>
+      candidate.operationId === REQUEST_DEVICE_OPERATION_ID,
+  );
   const planRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === REQUEST_ADAPTER_OPERATION_ID,
   );
@@ -969,6 +1715,15 @@ function validateNativeCodecProgram(
   const completionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === REQUEST_ADAPTER_COMPLETION_CODEC,
   );
+  const requestDevicePlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === REQUEST_DEVICE_OPERATION_ID,
+  );
+  const requestDeviceRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === REQUEST_DEVICE_REQUEST_CODEC,
+  );
+  const requestDeviceCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === REQUEST_DEVICE_COMPLETION_CODEC,
+  );
   const nullVariant = route?.completion.variants.find(
     (variant) => variant.name === 'null',
   );
@@ -977,12 +1732,31 @@ function validateNativeCodecProgram(
   );
   if (
     !route ||
+    !requestDeviceRoute ||
     !planRoute ||
     planRoute.wireId !== REQUEST_ADAPTER_WIRE_ID ||
     planRoute.serviceArgumentCodec !== REQUEST_ADAPTER_REQUEST_CODEC ||
     planRoute.serviceCompletionCodec !== REQUEST_ADAPTER_COMPLETION_CODEC ||
     requestCodec?.wireTag !== route.request.catalog.wireTag ||
     completionCodec?.wireTag !== route.completion.catalog.wireTag ||
+    !requestDevicePlanRoute ||
+    requestDevicePlanRoute.wireId !== REQUEST_DEVICE_WIRE_ID ||
+    requestDevicePlanRoute.serviceArgumentCodec !==
+      REQUEST_DEVICE_REQUEST_CODEC ||
+    requestDevicePlanRoute.serviceCompletionCodec !==
+      REQUEST_DEVICE_COMPLETION_CODEC ||
+    requestDeviceRequestCodec?.wireTag !==
+      requestDeviceRoute.request.catalog.wireTag ||
+    requestDeviceRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    requestDeviceRequestCodec?.executableFromCurrentAuthenticatedInputs !== false ||
+    canonicalManifestJson(
+      requestDeviceRequestCodec.unavailableSemanticFields,
+    ) !== canonicalManifestJson([
+      'generatedLogicalProviderDescriptor',
+      'authenticatedResultSelectionIdentity',
+    ]) ||
+    requestDeviceCompletionCodec?.wireTag !==
+      requestDeviceRoute.completion.catalog.wireTag ||
     manifest.layout.requestMagic !== 'IBGQ' ||
     manifest.layout.resultMagic !== 'IBGR' ||
     manifest.layout.version !== 1 ||
@@ -999,12 +1773,21 @@ function validateNativeCodecProgram(
   }
   return Object.freeze({
     route,
+    requestDeviceRoute,
     nullResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NULL_V2,
     objectResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_OBJECT_V2,
     operationResultEventKind:
       manifest.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2,
     unchangedDeviceTransition:
       manifest.carrierConstants.EXACT_GPU_DEVICE_UNCHANGED_V2,
+    assignedDeviceTransition:
+      manifest.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_V2,
+    assignedDetachedDeviceTransition:
+      manifest.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2,
+    providerNotAdmitted:
+      manifest.carrierConstants.EXACT_GPU_PROVIDER_NOT_ADMITTED_V2,
+    providerAdmitted:
+      manifest.carrierConstants.EXACT_GPU_PROVIDER_ADMITTED_V2,
   });
 }
 
@@ -1156,7 +1939,7 @@ function convertDeviceDescriptor(value: unknown, maximum: number): unknown {
     source.requiredLimits,
     'GPUDeviceDescriptor.requiredLimits',
   );
-  const limits: Record<string, number> = {};
+  const limits = Object.create(null) as Record<string, number>;
   for (const key of Object.keys(requiredLimits).sort()) {
     const requested = requiredLimits[key];
     if (requested !== undefined) {
@@ -2138,6 +2921,211 @@ function validateRequestAdapterRequestFields(
   validateRequestAdapterOptionsForService(convertedArguments);
 }
 
+function validateRequestDeviceDescriptorForService(
+  value: unknown,
+  sequenceMaximum: number,
+  dictionaryMaximum: number,
+): void {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError(
+      'GPUAdapter.requestDevice converted arguments must be a closed dictionary',
+    );
+  }
+  const source = value as Readonly<Record<PropertyKey, unknown>>;
+  const allowed = new Set<PropertyKey>([
+    'label',
+    'requiredFeatures',
+    'requiredLimits',
+    'defaultQueue',
+  ]);
+  if (
+    Reflect.ownKeys(source).some((key) => !allowed.has(key)) ||
+    [...allowed].some((key) => !Object.prototype.hasOwnProperty.call(source, key)) ||
+    typeof source.label !== 'string' ||
+    !Array.isArray(source.requiredFeatures) ||
+    source.requiredFeatures.length > sequenceMaximum ||
+    source.requiredFeatures.some((feature) => typeof feature !== 'string')
+  ) {
+    throw new TypeError(
+      'GPUAdapter.requestDevice converted arguments violate the reviewed descriptor shape',
+    );
+  }
+  const limits = source.requiredLimits;
+  if (
+    typeof limits !== 'object' || limits === null || Array.isArray(limits) ||
+    Reflect.ownKeys(limits).some((key) => typeof key !== 'string') ||
+    Reflect.ownKeys(limits).length > dictionaryMaximum ||
+    Object.values(limits).some(
+      (limit) =>
+        typeof limit !== 'number' ||
+        !Number.isSafeInteger(limit) ||
+        limit < 0,
+    )
+  ) {
+    throw new TypeError(
+      'GPUAdapter.requestDevice requiredLimits violate the reviewed descriptor shape',
+    );
+  }
+  const defaultQueue = source.defaultQueue;
+  if (
+    typeof defaultQueue !== 'object' ||
+    defaultQueue === null ||
+    Array.isArray(defaultQueue) ||
+    Reflect.ownKeys(defaultQueue).length !== 1 ||
+    !Object.prototype.hasOwnProperty.call(defaultQueue, 'label') ||
+    typeof (defaultQueue as Readonly<Record<string, unknown>>).label !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUAdapter.requestDevice defaultQueue violates the reviewed descriptor shape',
+    );
+  }
+}
+
+function validateRequestDeviceRequestFields(
+  receiver: RequestAdapterReferenceLike,
+  target: unknown,
+  capturedScopeId: unknown,
+  adapterOrdinal: unknown,
+  deviceIngressOrdinal: unknown,
+  queueIngressOrdinal: unknown,
+  sealedLocalTimeline: unknown,
+  convertedArguments: unknown,
+  sequenceMaximum: number,
+  dictionaryMaximum: number,
+): void {
+  if (
+    receiver.kind !== 'GPUAdapter' ||
+    typeof receiver.objectId !== 'string' ||
+    typeof receiver.objectGeneration !== 'string' ||
+    typeof receiver.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUAdapter.requestDevice requires an authenticated GPUAdapter receiver',
+    );
+  }
+  positiveIdentity(receiver.objectId, 'GPUAdapter.requestDevice receiver.objectId');
+  positiveIdentity(
+    receiver.objectGeneration,
+    'GPUAdapter.requestDevice receiver.objectGeneration',
+  );
+  positiveIdentity(
+    receiver.providerGeneration,
+    'GPUAdapter.requestDevice receiver.providerGeneration',
+  );
+  if (
+    receiver.logicalDeviceId !== '0' ||
+    receiver.logicalDeviceGeneration !== '0'
+  ) {
+    throw new TypeError(
+      'GPUAdapter.requestDevice receiver must not carry an ingress device',
+    );
+  }
+  if (target !== undefined && target !== null) {
+    throw new TypeError('GPUAdapter.requestDevice must not carry a target');
+  }
+  positiveIdentity(String(adapterOrdinal), 'GPUAdapter.requestDevice adapterOrdinal');
+  if (
+    capturedScopeId !== '0' ||
+    deviceIngressOrdinal !== '0' ||
+    queueIngressOrdinal !== '0'
+  ) {
+    throw new TypeError(
+      'GPUAdapter.requestDevice scope and device/queue ingress ordinals must be zero',
+    );
+  }
+  if (!Array.isArray(sealedLocalTimeline) || sealedLocalTimeline.length !== 0) {
+    throw new TypeError(
+      'GPUAdapter.requestDevice sealed local timeline must be exactly empty',
+    );
+  }
+  validateRequestDeviceDescriptorForService(
+    convertedArguments,
+    sequenceMaximum,
+    dictionaryMaximum,
+  );
+}
+
+function validateRequestDeviceCompletionCarrier(
+  event: DetachedOperationResultEvent,
+  program: ValidatedNativeCodecProgram,
+): boolean {
+  if (
+    event.kind !== program.operationResultEventKind ||
+    event.status !== 0 ||
+    event.operationId !== REQUEST_DEVICE_WIRE_ID ||
+    event.resultKind !== program.objectResultKind ||
+    event.ingressLogicalDeviceId !== '0' ||
+    event.ingressLogicalDeviceGeneration !== '0' ||
+    event.ingressProviderGeneration !== '0' ||
+    event.receiverKind !== 2 ||
+    event.receiverFlags !== 0 ||
+    event.targetKind !== 0 ||
+    event.targetFlags !== 0 ||
+    event.targetId !== '0' ||
+    event.targetGeneration !== '0' ||
+    event.capturedScopeId !== '0' ||
+    event.deviceIngressOrdinal !== '0' ||
+    event.queueIngressOrdinal !== '0'
+  ) {
+    throw new TypeError(
+      'GPUDevice result carries an invalid requestDevice authenticated carrier',
+    );
+  }
+  positiveIdentity(event.receiverId, 'requestDevice carrier receiverId');
+  positiveIdentity(
+    event.receiverGeneration,
+    'requestDevice carrier receiverGeneration',
+  );
+  positiveIdentity(event.adapterOrdinal, 'requestDevice carrier adapterOrdinal');
+  positiveIdentity(
+    event.operationProviderGeneration,
+    'requestDevice carrier providerGeneration',
+  );
+  positiveIdentity(event.logicalDeviceId, 'requestDevice result logicalDeviceId');
+  positiveIdentity(
+    event.logicalDeviceGeneration,
+    'requestDevice result logicalDeviceGeneration',
+  );
+  positiveIdentity(event.providerGeneration, 'requestDevice result providerGeneration');
+  if (event.providerGeneration !== event.operationProviderGeneration) {
+    throw new TypeError('GPUDevice result provider provenance mismatch');
+  }
+
+  const admitted = event.providerAdmission === program.providerAdmitted;
+  if (
+    (admitted && !/^[1-9][0-9]*$/u.test(event.physicalSequence)) ||
+    (!admitted &&
+      (event.providerAdmission !== program.providerNotAdmitted ||
+        event.physicalSequence !== '0'))
+  ) {
+    throw new TypeError(
+      'GPUDevice result admission/physical-sequence provenance mismatch',
+    );
+  }
+  if (event.deviceTransition === program.assignedDeviceTransition) {
+    if (
+      !admitted ||
+      event.detachedAlreadyLost !== false ||
+      event.lossReason !== undefined ||
+      event.backendClass !== undefined
+    ) {
+      throw new TypeError('Live GPUDevice result has invalid transition fields');
+    }
+    return false;
+  }
+  if (event.deviceTransition === program.assignedDetachedDeviceTransition) {
+    if (
+      event.detachedAlreadyLost !== true ||
+      event.lossReason !== 1 ||
+      event.backendClass !== 0
+    ) {
+      throw new TypeError('Detached GPUDevice result has invalid transition fields');
+    }
+    return true;
+  }
+  throw new TypeError('GPUDevice result has an invalid device transition');
+}
+
 function makeGpuError(kind: number, message: string): Error {
   const names: Readonly<Record<number, string>> = Object.freeze({
     1: 'GPUValidationError',
@@ -2197,6 +3185,9 @@ export function createExecutableWebGpuCodecs(
   bundle: ExecutableWebGpuCodecBundle;
   testSupport: Readonly<{
     inspectServiceRequest: (payload: ArrayBufferView) => unknown;
+    encodeNativeCodegenRequest: (
+      input: ProductionGpuServiceEncodingInput,
+    ) => Uint8Array;
     encodeServiceResult: (
       operationId: string,
       result: WebGpuCodecTestServiceResult,
@@ -2212,7 +3203,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -2224,7 +3215,10 @@ export function createExecutableWebGpuCodecs(
     manifest.digests.webgpuCVocabulary !==
       WEBGPU_PRODUCTION_PLAN.digests.webgpuCVocabulary ||
     manifest.digests.projection !== WEBGPU_PRODUCTION_PLAN.digests.projection ||
-    manifest.completeLimitNames.length !== 36 ||
+    canonicalManifestJson(manifest.completeLimitNames) !==
+      canonicalManifestJson(EXPECTED_COMPLETE_LIMIT_NAMES) ||
+    new Set(manifest.completeLimitNames).size !==
+      EXPECTED_COMPLETE_LIMIT_NAMES.length ||
     manifest.layout.requestMagic !== 'IBGQ' ||
     manifest.layout.resultMagic !== 'IBGR' ||
     manifest.layout.lossMagic !== 'IBGL' ||
@@ -2391,7 +3385,7 @@ export function createExecutableWebGpuCodecs(
     }
   };
 
-  const encodeServiceRequest = (
+  const encodeReviewedNativeRequestPayload = (
     input: ProductionGpuServiceEncodingInput,
   ): Uint8Array => {
     const route = selectedRoute(input.operationId);
@@ -2403,12 +3397,6 @@ export function createExecutableWebGpuCodecs(
     }
     const codec = serviceCodecs.get(route.serviceArgumentCodec);
     if (!codec) throw new TypeError('Unknown WebGPU service request codec');
-    if (!codec.executableFromCurrentAuthenticatedInputs) {
-      throw new TypeError(
-        `${route.serviceArgumentCodec} is injection-incomplete; missing authenticated semantic fields: ` +
-          codec.unavailableSemanticFields.join(', '),
-      );
-    }
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
       validateRequestAdapterRequestFields(
         input.receiver,
@@ -2419,6 +3407,27 @@ export function createExecutableWebGpuCodecs(
         input.queueIngressOrdinal,
         input.sealedLocalTimeline,
         input.convertedArguments,
+      );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.requestDeviceRoute.operationId
+    ) {
+      if (!codec.nativeProgramPrerequisitesRepresented) {
+        throw new TypeError(
+          'GPUAdapter.requestDevice native derivation prerequisites are absent',
+        );
+      }
+      validateRequestDeviceRequestFields(
+        input.receiver,
+        input.target,
+        input.capturedScopeId,
+        input.adapterOrdinal,
+        input.deviceIngressOrdinal,
+        input.queueIngressOrdinal,
+        input.sealedLocalTimeline,
+        input.convertedArguments,
+        manifest.layout.sequenceMaxCount,
+        manifest.layout.dictionaryMaxFields,
       );
     }
     const writer = new Writer(manifest.maxPayloadBytes);
@@ -2439,6 +3448,42 @@ export function createExecutableWebGpuCodecs(
     writer.value(input.sealedLocalTimeline, manifest.layout);
     writer.value(input.convertedArguments, manifest.layout);
     return writer.finish();
+  };
+
+  const encodeServiceRequest = (
+    input: ProductionGpuServiceEncodingInput,
+  ): Uint8Array => {
+    const route = selectedRoute(input.operationId);
+    if (input.wireId !== route.wireId) {
+      throw new TypeError('WebGPU request wire identity mismatch');
+    }
+    if (route.providerSubmission === 'none') {
+      throw new TypeError(`${input.operationId} has no service request codec`);
+    }
+    const codec = serviceCodecs.get(route.serviceArgumentCodec);
+    if (!codec) throw new TypeError('Unknown WebGPU service request codec');
+    if (!codec.executableFromCurrentAuthenticatedInputs) {
+      throw new TypeError(
+        `${route.serviceArgumentCodec} is injection-incomplete; missing authenticated semantic fields: ` +
+          codec.unavailableSemanticFields.join(', '),
+      );
+    }
+    return encodeReviewedNativeRequestPayload(input);
+  };
+
+  const encodeNativeCodegenRequest = (
+    input: ProductionGpuServiceEncodingInput,
+  ): Uint8Array => {
+    if (
+      input.operationId !== requestAdapterNativeProgram.route.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.requestDeviceRoute.operationId
+    ) {
+      throw new TypeError(
+        `${input.operationId} has no reviewed native codegen request program`,
+      );
+    }
+    return encodeReviewedNativeRequestPayload(input);
   };
 
   const decodeServiceResult = (
@@ -2534,7 +3579,10 @@ export function createExecutableWebGpuCodecs(
       });
     }
     if (route.serviceCompletionCodec === 'gpu-device-service-completion-v1') {
-      if (event.resultKind !== 3) throw new TypeError('GPUDevice result kind mismatch');
+      const detachedAlreadyLost = validateRequestDeviceCompletionCarrier(
+        event as DetachedOperationResultEvent,
+        requestAdapterNativeProgram,
+      );
       const objectId = positiveIdentity(reader.u64(), 'GPUDevice.objectId');
       const objectGeneration = positiveIdentity(
         reader.u64(),
@@ -2587,21 +3635,10 @@ export function createExecutableWebGpuCodecs(
       }
       const message = reader.string(manifest.layout.diagnosticMaxBytes);
       reader.done();
-      const carrier = event as DetachedOperationResultEvent;
-      if (typeof carrier.detachedAlreadyLost !== 'boolean') {
-        throw new TypeError('GPUDevice result lacks authenticated detached state');
-      }
       let alreadyLost: Readonly<{ reason: 'unknown'; message: string }> | undefined;
-      if (carrier.detachedAlreadyLost) {
-        if (carrier.lossReason !== 1 || carrier.backendClass !== 0) {
-          throw new TypeError('GPUDevice detached result has invalid authenticated loss fields');
-        }
+      if (detachedAlreadyLost) {
         alreadyLost = Object.freeze({ reason: 'unknown', message });
-      } else if (
-        carrier.lossReason !== undefined ||
-        carrier.backendClass !== undefined ||
-        message !== ''
-      ) {
+      } else if (message !== '') {
         throw new TypeError('Live GPUDevice result carries detached-only diagnostics');
       }
       return Object.freeze({
@@ -2706,6 +3743,22 @@ export function createExecutableWebGpuCodecs(
         queueIngressOrdinal,
         sealedLocalTimeline,
         convertedArguments,
+      );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.requestDeviceRoute.operationId
+    ) {
+      validateRequestDeviceRequestFields(
+        receiver,
+        target,
+        capturedScopeId,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
+        manifest.layout.dictionaryMaxFields,
       );
     }
     const result = frozenRecord({
@@ -2849,6 +3902,7 @@ export function createExecutableWebGpuCodecs(
     bundle,
     testSupport: Object.freeze({
       inspectServiceRequest,
+      encodeNativeCodegenRequest,
       encodeServiceResult,
       encodeDeviceLoss,
       encodeCanonicalValue,

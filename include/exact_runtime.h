@@ -134,14 +134,20 @@ typedef enum ExactGpuDeviceTransitionV2 {
     /// The result/completion logical-device identity exactly equals the
     /// ingress identity. Adapter-discovery operations keep both absent.
     EXACT_GPU_DEVICE_UNCHANGED_V2 = 0,
-    /// The authenticated semantic service assigned a new logical device for a
-    /// requestDevice-class operation whose ingress identity was absent. This
-    /// is orthogonal to provider admission. ASSIGNED + NOT_ADMITTED with an
-    /// OBJECT result is the self-contained service-detached already-lost
-    /// requestDevice form: physical_sequence is zero, no logical-device-loss
-    /// lifecycle record precedes it, and the wrapper settles the fresh
-    /// device's stable lost promise before resolving the outer receipt.
+    /// The authenticated semantic service assigned a live, attached logical
+    /// device for an admitted requestDevice-class operation whose ingress
+    /// identity was absent. provider_admission is ADMITTED and
+    /// physical_sequence is nonzero.
     EXACT_GPU_DEVICE_ASSIGNED_V2 = 1,
+    /// The authenticated semantic service assigned a fresh logical device but
+    /// completed requestDevice with that device already lost and detached from
+    /// the realm registry. This self-contained OBJECT result preserves either
+    /// NOT_ADMITTED + physical_sequence zero or ADMITTED + a nonzero physical
+    /// sequence exactly as supplied; no diagnostic field may be used to infer
+    /// or rewrite that provenance. No logical-device-loss lifecycle record
+    /// precedes it, and the wrapper settles the fresh device's stable lost
+    /// promise with UNKNOWN/backend NONE before resolving the outer receipt.
+    EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 = 2,
 } ExactGpuDeviceTransitionV2;
 
 typedef enum ExactGpuObjectKindV2 {
@@ -530,10 +536,11 @@ typedef struct ExactGpuRetireBatchV2 {
 } ExactGpuRetireBatchV2;
 
 typedef struct ExactGpuOperationResultRecordV2 {
-    /// ASSIGNED + NOT_ADMITTED + OBJECT is authenticated by the retained call
-    /// key and carries the complete operation-selected detached-device result
-    /// bytes. It is an operation terminal rather than a realm-lifetime
-    /// lifecycle tombstone; service-attached device loss continues to use
+    /// ASSIGNED_DETACHED + OBJECT is authenticated by the retained call key,
+    /// preserves its original admission/sequence provenance, and carries the
+    /// complete operation-selected detached-device result bytes. It is an
+    /// operation terminal rather than a realm-lifetime lifecycle tombstone;
+    /// service-attached device loss continues to use
     /// EXACT_GPU_SERVICE_EVENT_LOGICAL_DEVICE_LOST_V2.
     ExactGpuOperationProvenanceV2 operation;
     uint32_t result_kind;
@@ -566,8 +573,9 @@ typedef struct ExactGpuProviderLossRecordV2 {
 /// distinct from provider loss: destroy(), account closure, already-lost
 /// requestDevice, and semantic settlement need no spontaneous provider event.
 /// The service-detached already-lost requestDevice form is canonical: its
-/// initiating operation is ASSIGNED + NOT_ADMITTED and the loss record uses
-/// UNKNOWN, backend NONE, and last_accepted_physical_sequence zero.
+/// initiating operation is ASSIGNED_DETACHED (with its original admission and
+/// physical sequence preserved). It is self-contained in the operation result
+/// and therefore has no separate logical-device-loss record.
 typedef struct ExactGpuLogicalDeviceLostRecordV2 {
     ExactGpuRealmIdentityV2 realm;
     ExactGpuAccountIdentityV2 account;
@@ -579,8 +587,9 @@ typedef struct ExactGpuLogicalDeviceLostRecordV2 {
     uint64_t logical_loss_ordinal;
     /// Diagnostic snapshot and exact-initiator bound only. Unlike the field on
     /// ProviderLoss, this is not a future-sequence fence: the semantic service
-    /// may admit release-after-loss cleanup at later physical sequences. The
-    /// canonical service-detached ASSIGNED + NOT_ADMITTED form must use zero.
+    /// may admit release-after-loss cleanup at later physical sequences. A
+    /// service-detached ASSIGNED_DETACHED terminal has no logical-loss record,
+    /// so it never supplies or rewrites this field.
     uint64_t last_accepted_physical_sequence;
     ExactGpuOperationProvenanceV2 initiating_operation;
 } ExactGpuLogicalDeviceLostRecordV2;
