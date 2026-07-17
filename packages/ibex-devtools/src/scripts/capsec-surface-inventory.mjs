@@ -2083,6 +2083,7 @@ export function scanStaticBuiltinExports(
     "ArrayExpression",
     "BigIntLiteral",
     "BooleanLiteral",
+    "NullLiteral",
     "NumericLiteral",
     "RegExpLiteral",
     "StringLiteral",
@@ -2136,6 +2137,12 @@ export function scanStaticBuiltinExports(
   const isProvenIntrinsicValue = (expression, localBindings) => {
     if (!expression) return false;
     if (isProvenIntrinsicReceiver(expression)) return true;
+    if (expression.type === "ConditionalExpression") {
+      return (
+        isProvenIntrinsicValue(expression.consequent, localBindings) &&
+        isProvenIntrinsicValue(expression.alternate, localBindings)
+      );
+    }
     if (
       expression.type === "Identifier" &&
       localBindings.has(expression.name)
@@ -2171,6 +2178,27 @@ export function scanStaticBuiltinExports(
     }
     return false;
   };
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // suppress route ambiguity only for immutable module bindings whose source
+  // initializer is recursively proven intrinsic.
+  const moduleIntrinsicBindings = new Set(staticArrays.keys());
+  let moduleIntrinsicChanged = true;
+  while (moduleIntrinsicChanged) {
+    moduleIntrinsicChanged = false;
+    walkAst(program, (node) => {
+      if (
+        node.type !== "VariableDeclarator" ||
+        node.id?.type !== "Identifier" ||
+        moduleIntrinsicBindings.has(node.id.name) ||
+        assignedIdentifiers.has(node.id.name) ||
+        !isProvenIntrinsicValue(node.init, moduleIntrinsicBindings)
+      ) {
+        return;
+      }
+      moduleIntrinsicBindings.add(node.id.name);
+      moduleIntrinsicChanged = true;
+    });
+  }
   const terminalReference = (expression) => {
     if (expression?.type === "Identifier" && isTerminalName(expression.name)) {
       return declaredIdentifiers.has(expression.name)
@@ -2311,7 +2339,7 @@ export function scanStaticBuiltinExports(
     const nextActive = new Set(active);
     nextActive.add(name);
     const owner = qualified ? name.slice(0, name.lastIndexOf(".")) : null;
-    const localIntrinsicBindings = new Set(staticArrays.keys());
+    const localIntrinsicBindings = new Set(moduleIntrinsicBindings);
     let intrinsicChanged = true;
     while (intrinsicChanged) {
       intrinsicChanged = false;

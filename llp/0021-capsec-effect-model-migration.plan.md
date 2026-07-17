@@ -10,6 +10,7 @@
 **Revised:** 2026-07-17 (ENG-24933 credits six owner-authenticated refusals for unknown retained HTTP server and spawned-process identifiers)
 **Revised:** 2026-07-17 (ENG-24933 credits synchronous and asynchronous filesystem close through harness-owned, source-bound descriptors)
 **Revised:** 2026-07-17 (ENG-24933 credits two incomplete authority-call refusals and the exact invalid spawned-process handle refusal)
+**Revised:** 2026-07-17 (ENG-24933 proves immutable module-level intrinsic receivers in builtin routes, removing 404 false ambiguous-route residuals without promoting unexecuted fixtures)
 **Revised:** 2026-07-17 (ENG-24933 authenticates timer cancellation and ref-state mutation to the retained timer owner, replacing four closed native/global rows with eight executable non-capability and invariant recipes)
 **Revised:** 2026-07-17 (ENG-24933 credits 29 exact module-runner executions: four loader/source-acquisition surfaces, 24 native ABI lifecycle surfaces, and one armed namespace-inspection closure)
 **Revised:** 2026-07-16 (ENG-24933 removes thirteen closed memory-debug implementation surfaces by capturing diagnostic state behind its deliberate API)
@@ -655,6 +656,13 @@ static data constants whose descriptors prove the exact property path. Runtime
 evidence records the owner depth for every path segment and requires a positive
 final depth; own-property substitution, inherited callables/accessors, instance
 members, and dynamic tables remain rejected.
+
+The builtin route analyzer now admits module bindings only when their source
+initializer is recursively proven intrinsic and the binding is never
+reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
+7,092 while retaining all 18,281 unresolved fixtures: an opaque reassignment
+still fails closed, and removing false route ambiguity is not itself public
+execution evidence.
 
 ### WP0 artifacts and gate
 
