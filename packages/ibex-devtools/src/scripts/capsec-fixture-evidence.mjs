@@ -106,7 +106,7 @@ export function exactFixtureEvidenceRecipes(recipeCatalog) {
       EXACT_PILOT_SURFACES.size
   ) {
     throw new Error(
-      "Exact fixture-evidence pilot requires exactly seven source-bound recipes",
+      "Exact fixture-evidence pilot requires exactly nine source-bound recipes",
     );
   }
   return recipes;
