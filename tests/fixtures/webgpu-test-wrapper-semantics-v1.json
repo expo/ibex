@@ -1,0 +1,1479 @@
+{
+  "schema": "ibex/webgpu-test-wrapper-semantics/1",
+  "status": "test-only-no-runtime-install",
+  "provenance": {
+    "sourceExactCommit": "4012883f61d849c2158844097953cd5de2dc39e5",
+    "profilePath": "tests/gpu/webgpu-profile-v1.generated.json",
+    "profileSha256": "2882b29f8fdec892b6f3db5cdfaeb87b128c9ba994c567b249743ff8851d54e5",
+    "logicalPath": "tests/gpu/logical-validation-v1.generated.json",
+    "logicalSha256": "9b67ed449ba9377db801a66926a137908182195a82d36b85bab78b6f49d7dc92",
+    "normalizedSemanticComparison": "required-across-outer-ibex-repins"
+  },
+  "authentication": {
+    "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
+    "semanticProjectionSha256": "f6395bc8093bb2411d4936380567adf7131a90a102c29cdd1c4114534dfa1485",
+    "fakeClientDataSha256": "16952a4a4b487fb567d7e68b5f893d6ca51e3b994677aea05c02c8469094ff0d"
+  },
+  "semanticProjection": {
+    "limitPolicy": {
+      "requestValidation": {
+        "undefinedValue": "skip-key-validation-and-projection",
+        "unknownNonUndefined": "operation-error-promise-rejection",
+        "maximum": "nonnegative-integer-no-better-than-adapter-profile-bucket-and-capability-grant",
+        "alignment": "power-of-two-less-than-2^32-and-no-better-than-adapter-profile-bucket-and-capability-grant"
+      },
+      "projectionRule": "start-from-feature-level-profile-buckets-apply-only-better-nonundefined-requests-then-run-pinned-storage-limit-normalization",
+      "limits": [
+        {
+          "name": "maxTextureDimension1D",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 8192,
+            "compatibility": 4096
+          },
+          "capabilityGrantBoundary": {
+            "core": 8192,
+            "compatibility": 4096
+          }
+        },
+        {
+          "name": "maxTextureDimension2D",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 8192,
+            "compatibility": 4096
+          },
+          "capabilityGrantBoundary": {
+            "core": 8192,
+            "compatibility": 4096
+          }
+        },
+        {
+          "name": "maxTextureDimension3D",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 2048,
+            "compatibility": 2048
+          },
+          "capabilityGrantBoundary": {
+            "core": 2048,
+            "compatibility": 2048
+          }
+        },
+        {
+          "name": "maxTextureArrayLayers",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 256,
+            "compatibility": 256
+          },
+          "capabilityGrantBoundary": {
+            "core": 256,
+            "compatibility": 256
+          }
+        },
+        {
+          "name": "maxBindGroups",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 4,
+            "compatibility": 4
+          },
+          "capabilityGrantBoundary": {
+            "core": 4,
+            "compatibility": 4
+          }
+        },
+        {
+          "name": "maxBindGroupsPlusVertexBuffers",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 24,
+            "compatibility": 24
+          },
+          "capabilityGrantBoundary": {
+            "core": 24,
+            "compatibility": 24
+          }
+        },
+        {
+          "name": "maxBindingsPerBindGroup",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 1000,
+            "compatibility": 1000
+          },
+          "capabilityGrantBoundary": {
+            "core": 1000,
+            "compatibility": 1000
+          }
+        },
+        {
+          "name": "maxDynamicUniformBuffersPerPipelineLayout",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 8,
+            "compatibility": 8
+          },
+          "capabilityGrantBoundary": {
+            "core": 8,
+            "compatibility": 8
+          }
+        },
+        {
+          "name": "maxDynamicStorageBuffersPerPipelineLayout",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 4,
+            "compatibility": 4
+          },
+          "capabilityGrantBoundary": {
+            "core": 4,
+            "compatibility": 4
+          }
+        },
+        {
+          "name": "maxSampledTexturesPerShaderStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 16,
+            "compatibility": 16
+          },
+          "capabilityGrantBoundary": {
+            "core": 16,
+            "compatibility": 16
+          }
+        },
+        {
+          "name": "maxSamplersPerShaderStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 16,
+            "compatibility": 16
+          },
+          "capabilityGrantBoundary": {
+            "core": 16,
+            "compatibility": 16
+          }
+        },
+        {
+          "name": "maxStorageBuffersPerShaderStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 8,
+            "compatibility": 8
+          },
+          "capabilityGrantBoundary": {
+            "core": 8,
+            "compatibility": 8
+          }
+        },
+        {
+          "name": "maxStorageBuffersInVertexStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 8,
+            "compatibility": 0
+          },
+          "capabilityGrantBoundary": {
+            "core": 8,
+            "compatibility": 0
+          }
+        },
+        {
+          "name": "maxStorageBuffersInFragmentStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 8,
+            "compatibility": 4
+          },
+          "capabilityGrantBoundary": {
+            "core": 8,
+            "compatibility": 4
+          }
+        },
+        {
+          "name": "maxStorageTexturesPerShaderStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 4,
+            "compatibility": 4
+          },
+          "capabilityGrantBoundary": {
+            "core": 4,
+            "compatibility": 4
+          }
+        },
+        {
+          "name": "maxStorageTexturesInVertexStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 4,
+            "compatibility": 0
+          },
+          "capabilityGrantBoundary": {
+            "core": 4,
+            "compatibility": 0
+          }
+        },
+        {
+          "name": "maxStorageTexturesInFragmentStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 4,
+            "compatibility": 4
+          },
+          "capabilityGrantBoundary": {
+            "core": 4,
+            "compatibility": 4
+          }
+        },
+        {
+          "name": "maxUniformBuffersPerShaderStage",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 12,
+            "compatibility": 12
+          },
+          "capabilityGrantBoundary": {
+            "core": 12,
+            "compatibility": 12
+          }
+        },
+        {
+          "name": "maxUniformBufferBindingSize",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 65536,
+            "compatibility": 16384
+          },
+          "capabilityGrantBoundary": {
+            "core": 65536,
+            "compatibility": 16384
+          }
+        },
+        {
+          "name": "maxStorageBufferBindingSize",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 134217728,
+            "compatibility": 134217728
+          },
+          "capabilityGrantBoundary": {
+            "core": 134217728,
+            "compatibility": 134217728
+          }
+        },
+        {
+          "name": "minUniformBufferOffsetAlignment",
+          "requestable": true,
+          "class": "alignment",
+          "betterDirection": "lower",
+          "profileBucket": {
+            "core": 256,
+            "compatibility": 256
+          },
+          "capabilityGrantBoundary": {
+            "core": 256,
+            "compatibility": 256
+          }
+        },
+        {
+          "name": "minStorageBufferOffsetAlignment",
+          "requestable": true,
+          "class": "alignment",
+          "betterDirection": "lower",
+          "profileBucket": {
+            "core": 256,
+            "compatibility": 256
+          },
+          "capabilityGrantBoundary": {
+            "core": 256,
+            "compatibility": 256
+          }
+        },
+        {
+          "name": "maxVertexBuffers",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 8,
+            "compatibility": 8
+          },
+          "capabilityGrantBoundary": {
+            "core": 8,
+            "compatibility": 8
+          }
+        },
+        {
+          "name": "maxBufferSize",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 268435456,
+            "compatibility": 268435456
+          },
+          "capabilityGrantBoundary": {
+            "core": 268435456,
+            "compatibility": 268435456
+          }
+        },
+        {
+          "name": "maxVertexAttributes",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 16,
+            "compatibility": 16
+          },
+          "capabilityGrantBoundary": {
+            "core": 16,
+            "compatibility": 16
+          }
+        },
+        {
+          "name": "maxVertexBufferArrayStride",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 2048,
+            "compatibility": 2048
+          },
+          "capabilityGrantBoundary": {
+            "core": 2048,
+            "compatibility": 2048
+          }
+        },
+        {
+          "name": "maxInterStageShaderVariables",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 16,
+            "compatibility": 15
+          },
+          "capabilityGrantBoundary": {
+            "core": 16,
+            "compatibility": 15
+          }
+        },
+        {
+          "name": "maxColorAttachments",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 8,
+            "compatibility": 4
+          },
+          "capabilityGrantBoundary": {
+            "core": 8,
+            "compatibility": 4
+          }
+        },
+        {
+          "name": "maxColorAttachmentBytesPerSample",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 32,
+            "compatibility": 32
+          },
+          "capabilityGrantBoundary": {
+            "core": 32,
+            "compatibility": 32
+          }
+        },
+        {
+          "name": "maxComputeWorkgroupStorageSize",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 16384,
+            "compatibility": 16384
+          },
+          "capabilityGrantBoundary": {
+            "core": 16384,
+            "compatibility": 16384
+          }
+        },
+        {
+          "name": "maxComputeInvocationsPerWorkgroup",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 256,
+            "compatibility": 128
+          },
+          "capabilityGrantBoundary": {
+            "core": 256,
+            "compatibility": 128
+          }
+        },
+        {
+          "name": "maxComputeWorkgroupSizeX",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 256,
+            "compatibility": 128
+          },
+          "capabilityGrantBoundary": {
+            "core": 256,
+            "compatibility": 128
+          }
+        },
+        {
+          "name": "maxComputeWorkgroupSizeY",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 256,
+            "compatibility": 128
+          },
+          "capabilityGrantBoundary": {
+            "core": 256,
+            "compatibility": 128
+          }
+        },
+        {
+          "name": "maxComputeWorkgroupSizeZ",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 64,
+            "compatibility": 64
+          },
+          "capabilityGrantBoundary": {
+            "core": 64,
+            "compatibility": 64
+          }
+        },
+        {
+          "name": "maxComputeWorkgroupsPerDimension",
+          "requestable": true,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 65535,
+            "compatibility": 65535
+          },
+          "capabilityGrantBoundary": {
+            "core": 65535,
+            "compatibility": 65535
+          }
+        },
+        {
+          "name": "maxImmediateSize",
+          "requestable": false,
+          "class": "maximum",
+          "betterDirection": "higher",
+          "profileBucket": {
+            "core": 0,
+            "compatibility": 0
+          },
+          "capabilityGrantBoundary": {
+            "core": 0,
+            "compatibility": 0
+          }
+        }
+      ]
+    },
+    "requestDeviceFailureProgram": {
+      "operationId": "GPUAdapter.requestDevice",
+      "operationWireId": 579563582,
+      "branches": [
+        {
+          "branchId": "webidl",
+          "branchWireId": 1147199790,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.webidl",
+              "predicateIndex": 1,
+              "predicateWireId": 3946597711,
+              "failureClass": "type-error",
+              "failureTiming": "promise-rejection"
+            }
+          ]
+        },
+        {
+          "branchId": "required-features-check",
+          "branchWireId": 3315985549,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.timeline-head",
+              "predicateIndex": 1,
+              "predicateWireId": 3461969651,
+              "failureClass": "none",
+              "failureTiming": "none"
+            },
+            {
+              "predicateId": "adapter.request-device.required-features",
+              "predicateIndex": 2,
+              "predicateWireId": 2178036204,
+              "failureClass": "type-error",
+              "failureTiming": "promise-rejection"
+            }
+          ]
+        },
+        {
+          "branchId": "adapter-validation",
+          "branchWireId": 25314219,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.limits",
+              "predicateIndex": 1,
+              "predicateWireId": 2685413736,
+              "failureClass": "operation-error",
+              "failureTiming": "promise-rejection"
+            },
+            {
+              "predicateId": "adapter.request-device.capability-projection",
+              "predicateIndex": 2,
+              "predicateWireId": 436961075,
+              "failureClass": "none",
+              "failureTiming": "none"
+            }
+          ]
+        },
+        {
+          "branchId": "live-admission",
+          "branchWireId": 448486537,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.realm",
+              "predicateIndex": 1,
+              "predicateWireId": 4256511629,
+              "failureClass": "operation-error",
+              "failureTiming": "promise-rejection"
+            },
+            {
+              "predicateId": "adapter.request-device.coverage",
+              "predicateIndex": 2,
+              "predicateWireId": 2724553625,
+              "failureClass": "security-error",
+              "failureTiming": "promise-rejection"
+            },
+            {
+              "predicateId": "adapter.request-device.account",
+              "predicateIndex": 3,
+              "predicateWireId": 1329779304,
+              "failureClass": "security-error",
+              "failureTiming": "promise-rejection"
+            },
+            {
+              "predicateId": "adapter.request-device.publication-credit",
+              "predicateIndex": 4,
+              "predicateWireId": 1488720883,
+              "failureClass": "none",
+              "failureTiming": "none"
+            }
+          ]
+        },
+        {
+          "branchId": "expiry-result-selection-commit",
+          "branchWireId": 1586510580,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.expiry-result-commit",
+              "predicateIndex": 1,
+              "predicateWireId": 2648522098,
+              "failureClass": "operation-error",
+              "failureTiming": "promise-rejection"
+            }
+          ]
+        },
+        {
+          "branchId": "live-device-capacity",
+          "branchWireId": 3360345703,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.capacity-live",
+              "predicateIndex": 1,
+              "predicateWireId": 397073956,
+              "failureClass": "none",
+              "failureTiming": "none"
+            }
+          ]
+        },
+        {
+          "branchId": "capacity-result-selection-commit",
+          "branchWireId": 1962640843,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.capacity-result-commit",
+              "predicateIndex": 1,
+              "predicateWireId": 404503266,
+              "failureClass": "operation-error",
+              "failureTiming": "promise-rejection"
+            }
+          ]
+        },
+        {
+          "branchId": "live-device-commit",
+          "branchWireId": 1982586618,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.commit-live",
+              "predicateIndex": 1,
+              "predicateWireId": 2108884785,
+              "failureClass": "operation-error",
+              "failureTiming": "promise-rejection"
+            }
+          ]
+        },
+        {
+          "branchId": "provider-request",
+          "branchWireId": 533406880,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.provider-ready",
+              "predicateIndex": 1,
+              "predicateWireId": 1494113071,
+              "failureClass": "none",
+              "failureTiming": "none"
+            }
+          ]
+        },
+        {
+          "branchId": "provider-settlement",
+          "branchWireId": 2109554215,
+          "orderedPredicates": [
+            {
+              "predicateId": "adapter.request-device.settle-committed",
+              "predicateIndex": 1,
+              "predicateWireId": 1486871225,
+              "failureClass": "none",
+              "failureTiming": "none"
+            }
+          ]
+        }
+      ]
+    },
+    "requestDeviceRouting": {
+      "operationId": "GPUAdapter.requestDevice",
+      "facts": [
+        "webidlValid",
+        "requiredFeaturesSupported",
+        "adapterRequestValid",
+        "deviceAdmissionValid",
+        "adapterExpired",
+        "deviceExpiryResultCommitLive",
+        "deviceReservationCapacityAvailable",
+        "deviceCapacityResultCommitLive",
+        "deviceReservationCommitLive",
+        "providerFulfilled",
+        "deviceAccountLiveAtProviderCompletion",
+        "deviceAccountLiveAtSettlementCommit",
+        "providerInabilityWonLossRace"
+      ],
+      "precedence": [
+        "webidlValid",
+        "requiredFeaturesSupported",
+        "adapterRequestValid",
+        "deviceAdmissionValid",
+        "adapterExpired",
+        "deviceExpiryResultCommitLive",
+        "deviceReservationCapacityAvailable",
+        "deviceCapacityResultCommitLive",
+        "deviceReservationCommitLive",
+        "providerFulfilled",
+        "deviceAccountLiveAtProviderCompletion",
+        "deviceAccountLiveAtSettlementCommit",
+        "providerInabilityWonLossRace"
+      ],
+      "exhaustive": true,
+      "disjoint": true,
+      "terminals": [
+        {
+          "terminalId": "webidl-rejection",
+          "conditions": {
+            "webidlValid": false
+          },
+          "branchPath": [
+            "webidl"
+          ],
+          "terminalOutcome": "reject the returned promise during Web IDL conversion",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "unchanged",
+          "publicationCreditDisposition": "not-acquired",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "webidl"
+          }
+        },
+        {
+          "terminalId": "unsupported-required-features",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check"
+          ],
+          "terminalOutcome": "reject the promise with TypeError for unsupported requiredFeatures",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "unchanged",
+          "publicationCreditDisposition": "not-acquired",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "required-features-check"
+          }
+        },
+        {
+          "terminalId": "invalid-adapter-request",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation"
+          ],
+          "terminalOutcome": "reject the promise with OperationError for invalid requiredLimits; expired adapters do not reject here",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "unchanged",
+          "publicationCreditDisposition": "not-acquired",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "adapter-validation"
+          }
+        },
+        {
+          "terminalId": "live-admission-rejection",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission"
+          ],
+          "terminalOutcome": "reject the promise during realm/coverage/account LIVE admission before observing expiry or publishing a result",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "unchanged",
+          "publicationCreditDisposition": "not-acquired",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "live-admission"
+          }
+        },
+        {
+          "terminalId": "expiry-lost-selection-close-rejection",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": true,
+            "deviceExpiryResultCommitLive": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit"
+          ],
+          "terminalOutcome": "reject when close wins after observing adapter expiry but before lost-result selection; publish nothing and retire the publication-credit lease exactly once without provider work",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "expiry-result-selection-commit"
+          }
+        },
+        {
+          "terminalId": "expired-adapter-lost-device",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": true,
+            "deviceExpiryResultCommitLive": true
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit"
+          ],
+          "terminalOutcome": "resolve a fresh distinct service-detached already-lost GPUDevice after its stable lost promise settles with reason unknown and the generic expired-adapter diagnostic; return the reusable publication credit and perform no provider request",
+          "errorTiming": "none",
+          "resultDisposition": "promise-resolve-lost-object",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "returned-to-adapter-reusable-after-public-settlement",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "lostSettlement": {
+            "objectIdentity": "fresh-distinct-gpu-device",
+            "lostPromiseIdentity": "stable-per-object",
+            "reason": "unknown",
+            "diagnosticSource": "generic-expired-adapter",
+            "diagnosticStability": "stable-per-object",
+            "settlementOrder": "device-lost-before-request-device-promise",
+            "serviceAttachment": "service-detached",
+            "retainedServiceCredits": "none",
+            "arbiterWinner": "expired-adapter"
+          },
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "lost-device-result"
+          }
+        },
+        {
+          "terminalId": "pre-capacity-close-rejection",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit"
+          ],
+          "terminalOutcome": "reject when close wins after the non-expired observation but before capacity observation; publish nothing and retire the publication-credit lease exactly once without provider work",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "unchanged",
+          "publicationCreditDisposition": "account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "expiry-result-selection-commit"
+          }
+        },
+        {
+          "terminalId": "capacity-lost-selection-close-rejection",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": false,
+            "deviceCapacityResultCommitLive": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit"
+          ],
+          "terminalOutcome": "reject when close wins after capacity-unavailable observation but before lost-result selection; publish nothing and retire the publication-credit lease exactly once without provider work",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "unchanged",
+          "publicationCreditDisposition": "account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "capacity-result-selection-commit"
+          }
+        },
+        {
+          "terminalId": "live-device-capacity-unavailable",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": false,
+            "deviceCapacityResultCommitLive": true
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit"
+          ],
+          "terminalOutcome": "expire the adapter and resolve a fresh distinct service-detached already-lost GPUDevice after its stable lost promise settles with reason unknown and the generic capacity-unavailable diagnostic; return the reusable publication credit without live-device ledger mutation or provider work",
+          "errorTiming": "none",
+          "resultDisposition": "promise-resolve-lost-object",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "returned-to-adapter-reusable-after-public-settlement",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "lostSettlement": {
+            "objectIdentity": "fresh-distinct-gpu-device",
+            "lostPromiseIdentity": "stable-per-object",
+            "reason": "unknown",
+            "diagnosticSource": "generic-capacity-unavailable",
+            "diagnosticStability": "stable-per-object",
+            "settlementOrder": "device-lost-before-request-device-promise",
+            "serviceAttachment": "service-detached",
+            "retainedServiceCredits": "none",
+            "arbiterWinner": "capacity-unavailable"
+          },
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "lost-device-result"
+          }
+        },
+        {
+          "terminalId": "post-capacity-close-rejection",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": true,
+            "deviceCapacityResultCommitLive": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit"
+          ],
+          "terminalOutcome": "reject when close wins after positive capacity observation but before reservation commit; publish nothing and retire the publication-credit lease exactly once without provider work",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "unchanged",
+          "publicationCreditDisposition": "account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "capacity-result-selection-commit"
+          }
+        },
+        {
+          "terminalId": "live-device-commit-close-rejection",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": true,
+            "deviceCapacityResultCommitLive": true,
+            "deviceReservationCommitLive": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit",
+            "live-device-commit"
+          ],
+          "terminalOutcome": "reject after close wins the atomic LIVE/authority reservation commit without result publication or provider work; retire the publication-credit lease exactly once",
+          "errorTiming": "promise-rejection",
+          "resultDisposition": "promise-reject",
+          "adapterStateAfterSettlement": "unchanged",
+          "publicationCreditDisposition": "account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "not-acquired",
+          "providerTokenCount": 0,
+          "physicalSequenceCount": 0,
+          "errorSource": {
+            "kind": "first-failing-predicate",
+            "branchId": "live-device-commit"
+          }
+        },
+        {
+          "terminalId": "provider-unfulfilled-provider-inability-won",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": true,
+            "deviceCapacityResultCommitLive": true,
+            "deviceReservationCommitLive": true,
+            "providerFulfilled": false,
+            "deviceAccountLiveAtProviderCompletion": true,
+            "deviceAccountLiveAtSettlementCommit": true,
+            "providerInabilityWonLossRace": true
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit",
+            "live-device-commit",
+            "provider-request",
+            "provider-settlement"
+          ],
+          "terminalOutcome": "expire the adapter and resolve a fresh distinct service-detached already-lost GPUDevice after provider inability wins the stamped terminal race; settle its stable lost promise first with reason unknown and the generic provider-inability diagnostic, return the reusable publication credit, and release both committed live-device credits exactly once",
+          "errorTiming": "none",
+          "resultDisposition": "promise-resolve-lost-object",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "returned-to-adapter-reusable-after-public-settlement",
+          "liveDeviceCreditDisposition": "released-exactly-once",
+          "lostSettlement": {
+            "objectIdentity": "fresh-distinct-gpu-device",
+            "lostPromiseIdentity": "stable-per-object",
+            "reason": "unknown",
+            "diagnosticSource": "generic-provider-inability",
+            "diagnosticStability": "stable-per-object",
+            "settlementOrder": "device-lost-before-request-device-promise",
+            "serviceAttachment": "service-detached",
+            "retainedServiceCredits": "none",
+            "arbiterWinner": "provider-inability"
+          },
+          "providerTokenCount": 1,
+          "physicalSequenceCount": 1,
+          "errorSource": {
+            "kind": "lost-device-result"
+          }
+        },
+        {
+          "terminalId": "provider-unfulfilled-provider-inability-won-before-close",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": true,
+            "deviceCapacityResultCommitLive": true,
+            "deviceReservationCommitLive": true,
+            "providerFulfilled": false,
+            "deviceAccountLiveAtProviderCompletion": true,
+            "deviceAccountLiveAtSettlementCommit": false,
+            "providerInabilityWonLossRace": true
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit",
+            "live-device-commit",
+            "provider-request",
+            "provider-settlement"
+          ],
+          "terminalOutcome": "expire the adapter and resolve a fresh distinct service-detached already-lost GPUDevice after provider inability wins before a later-stamped account close; settle its stable lost promise first with reason unknown and the generic provider-inability diagnostic, return then retire the publication credit without changing the winner, and release both committed live-device credits exactly once",
+          "errorTiming": "none",
+          "resultDisposition": "promise-resolve-lost-object",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "returned-after-public-settlement-then-account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "released-exactly-once",
+          "lostSettlement": {
+            "objectIdentity": "fresh-distinct-gpu-device",
+            "lostPromiseIdentity": "stable-per-object",
+            "reason": "unknown",
+            "diagnosticSource": "generic-provider-inability",
+            "diagnosticStability": "stable-per-object",
+            "settlementOrder": "device-lost-before-request-device-promise",
+            "serviceAttachment": "service-detached",
+            "retainedServiceCredits": "none",
+            "arbiterWinner": "provider-inability"
+          },
+          "providerTokenCount": 1,
+          "physicalSequenceCount": 1,
+          "errorSource": {
+            "kind": "lost-device-result"
+          }
+        },
+        {
+          "terminalId": "provider-unfulfilled-account-close-won",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": true,
+            "deviceCapacityResultCommitLive": true,
+            "deviceReservationCommitLive": true,
+            "providerFulfilled": false,
+            "deviceAccountLiveAtProviderCompletion": false,
+            "deviceAccountLiveAtSettlementCommit": false,
+            "providerInabilityWonLossRace": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit",
+            "live-device-commit",
+            "provider-request",
+            "provider-settlement"
+          ],
+          "terminalOutcome": "expire the adapter and resolve a fresh distinct service-detached already-lost GPUDevice after account close wins the stamped terminal race ahead of provider inability; settle its stable lost promise first with reason unknown and the stable redacted winning close-cause diagnostic, return then retire the publication credit, and release both committed live-device credits exactly once",
+          "errorTiming": "none",
+          "resultDisposition": "promise-resolve-lost-object",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "returned-after-public-settlement-then-account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "released-exactly-once",
+          "lostSettlement": {
+            "objectIdentity": "fresh-distinct-gpu-device",
+            "lostPromiseIdentity": "stable-per-object",
+            "reason": "unknown",
+            "diagnosticSource": "winning-account-close-cause-redacted",
+            "diagnosticStability": "stable-per-object",
+            "settlementOrder": "device-lost-before-request-device-promise",
+            "serviceAttachment": "service-detached",
+            "retainedServiceCredits": "none",
+            "arbiterWinner": "account-close"
+          },
+          "providerTokenCount": 1,
+          "physicalSequenceCount": 1,
+          "errorSource": {
+            "kind": "lost-device-result"
+          }
+        },
+        {
+          "terminalId": "lost-device-returned-close-before-provider-completion",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": true,
+            "deviceCapacityResultCommitLive": true,
+            "deviceReservationCommitLive": true,
+            "providerFulfilled": true,
+            "deviceAccountLiveAtProviderCompletion": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit",
+            "live-device-commit",
+            "provider-request",
+            "provider-settlement"
+          ],
+          "terminalOutcome": "expire the adapter and resolve a fresh distinct service-detached already-lost GPUDevice when account close wins after positive commit but before provider completion; retain one provider token and physical sequence, settle the stable lost promise first with reason unknown and the stable redacted winning close-cause diagnostic, return then retire the publication credit, and release both live-device credits exactly once",
+          "errorTiming": "none",
+          "resultDisposition": "promise-resolve-lost-object",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "returned-after-public-settlement-then-account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "released-exactly-once",
+          "lostSettlement": {
+            "objectIdentity": "fresh-distinct-gpu-device",
+            "lostPromiseIdentity": "stable-per-object",
+            "reason": "unknown",
+            "diagnosticSource": "winning-account-close-cause-redacted",
+            "diagnosticStability": "stable-per-object",
+            "settlementOrder": "device-lost-before-request-device-promise",
+            "serviceAttachment": "service-detached",
+            "retainedServiceCredits": "none",
+            "arbiterWinner": "account-close"
+          },
+          "providerTokenCount": 1,
+          "physicalSequenceCount": 1,
+          "errorSource": {
+            "kind": "lost-device-result"
+          }
+        },
+        {
+          "terminalId": "lost-device-returned-close-after-provider-completion",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": true,
+            "deviceCapacityResultCommitLive": true,
+            "deviceReservationCommitLive": true,
+            "providerFulfilled": true,
+            "deviceAccountLiveAtProviderCompletion": true,
+            "deviceAccountLiveAtSettlementCommit": false
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit",
+            "live-device-commit",
+            "provider-request",
+            "provider-settlement"
+          ],
+          "terminalOutcome": "expire the adapter and resolve a fresh distinct service-detached already-lost GPUDevice when account close wins after provider completion but before settlement commit; retain one provider token and physical sequence, settle the stable lost promise first with reason unknown and the stable redacted winning close-cause diagnostic, return then retire the publication credit, and release both live-device credits exactly once",
+          "errorTiming": "none",
+          "resultDisposition": "promise-resolve-lost-object",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "returned-after-public-settlement-then-account-close-retired-exactly-once",
+          "liveDeviceCreditDisposition": "released-exactly-once",
+          "lostSettlement": {
+            "objectIdentity": "fresh-distinct-gpu-device",
+            "lostPromiseIdentity": "stable-per-object",
+            "reason": "unknown",
+            "diagnosticSource": "winning-account-close-cause-redacted",
+            "diagnosticStability": "stable-per-object",
+            "settlementOrder": "device-lost-before-request-device-promise",
+            "serviceAttachment": "service-detached",
+            "retainedServiceCredits": "none",
+            "arbiterWinner": "account-close"
+          },
+          "providerTokenCount": 1,
+          "physicalSequenceCount": 1,
+          "errorSource": {
+            "kind": "lost-device-result"
+          }
+        },
+        {
+          "terminalId": "live-device-returned",
+          "conditions": {
+            "webidlValid": true,
+            "requiredFeaturesSupported": true,
+            "adapterRequestValid": true,
+            "deviceAdmissionValid": true,
+            "adapterExpired": false,
+            "deviceExpiryResultCommitLive": true,
+            "deviceReservationCapacityAvailable": true,
+            "deviceCapacityResultCommitLive": true,
+            "deviceReservationCommitLive": true,
+            "providerFulfilled": true,
+            "deviceAccountLiveAtProviderCompletion": true,
+            "deviceAccountLiveAtSettlementCommit": true
+          },
+          "branchPath": [
+            "webidl",
+            "required-features-check",
+            "adapter-validation",
+            "live-admission",
+            "expiry-result-selection-commit",
+            "live-device-capacity",
+            "capacity-result-selection-commit",
+            "live-device-commit",
+            "provider-request",
+            "provider-settlement"
+          ],
+          "terminalOutcome": "perform the first valid-to-expired adapter transition, resolve with one fresh live isolated GPUDevice retaining only its committed live-device leaf and aggregate credits, and return the reusable adapter publication credit after public settlement",
+          "errorTiming": "none",
+          "resultDisposition": "promise-resolve-object",
+          "adapterStateAfterSettlement": "expired",
+          "publicationCreditDisposition": "returned-to-adapter-reusable-after-public-settlement",
+          "liveDeviceCreditDisposition": "retained-by-live-device",
+          "providerTokenCount": 1,
+          "physicalSequenceCount": 1,
+          "errorSource": {
+            "kind": "none"
+          }
+        }
+      ],
+      "factBindings": [
+        {
+          "fact": "webidlValid",
+          "kind": "branch-predicates",
+          "branchId": "webidl",
+          "passWhen": true
+        },
+        {
+          "fact": "requiredFeaturesSupported",
+          "kind": "branch-predicates",
+          "branchId": "required-features-check",
+          "passWhen": true
+        },
+        {
+          "fact": "adapterRequestValid",
+          "kind": "branch-predicates",
+          "branchId": "adapter-validation",
+          "passWhen": true
+        },
+        {
+          "fact": "deviceAdmissionValid",
+          "kind": "branch-predicates",
+          "branchId": "live-admission",
+          "passWhen": true
+        },
+        {
+          "fact": "adapterExpired",
+          "kind": "external-outcome",
+          "source": "adapter-expiry-state",
+          "requiredBranchId": "live-admission"
+        },
+        {
+          "fact": "deviceExpiryResultCommitLive",
+          "kind": "branch-predicates",
+          "branchId": "expiry-result-selection-commit",
+          "passWhen": true
+        },
+        {
+          "fact": "deviceReservationCapacityAvailable",
+          "kind": "external-outcome",
+          "source": "live-device-capacity-result",
+          "requiredBranchId": "live-device-capacity"
+        },
+        {
+          "fact": "deviceCapacityResultCommitLive",
+          "kind": "branch-predicates",
+          "branchId": "capacity-result-selection-commit",
+          "passWhen": true
+        },
+        {
+          "fact": "deviceReservationCommitLive",
+          "kind": "branch-predicates",
+          "branchId": "live-device-commit",
+          "passWhen": true
+        },
+        {
+          "fact": "providerFulfilled",
+          "kind": "external-outcome",
+          "source": "provider-device-result",
+          "providerResult": true
+        },
+        {
+          "fact": "deviceAccountLiveAtProviderCompletion",
+          "kind": "external-outcome",
+          "source": "committed-device-account-state-at-provider-completion",
+          "requiredBranchId": "provider-settlement"
+        },
+        {
+          "fact": "deviceAccountLiveAtSettlementCommit",
+          "kind": "external-outcome",
+          "source": "committed-device-account-state-at-settlement-commit",
+          "requiredBranchId": "provider-settlement"
+        },
+        {
+          "fact": "providerInabilityWonLossRace",
+          "kind": "external-outcome",
+          "source": "terminal-arbiter-provider-inability-versus-account-close-winner-after-both-account-observations",
+          "requiredBranchId": "provider-settlement"
+        }
+      ]
+    }
+  },
+  "fakeClientData": {
+    "disposition": "deterministic-test-data-not-exact-profile-authority",
+    "adapterFeatures": [
+      "timestamp-query"
+    ],
+    "providerEntryOperationIds": [
+      "GPU.requestAdapter",
+      "GPUAdapter.requestDevice",
+      "GPUCanvasContext.configure",
+      "GPUDevice.createCommandEncoder",
+      "GPUDevice.createRenderPipeline",
+      "GPUDevice.createShaderModule",
+      "GPUQueue.submit",
+      "GPUTexture.createView"
+    ]
+  }
+}

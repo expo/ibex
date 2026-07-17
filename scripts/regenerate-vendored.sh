@@ -29,6 +29,7 @@ bun run generate:capsec-registry
 bun run generate:capsec-contract
 bun run generate:identity
 bun run generate:modules
+bun run generate:webgpu-test-wrapper
 # Postcondition: the module generator writes both the JS runtime manifest and
 # the Rust builtin manifest. Check immediately so a future package-script edit
 # cannot silently stop refreshing one side.

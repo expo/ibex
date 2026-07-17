@@ -45,6 +45,9 @@ fi
 if ! bun run generate:vendored-fingerprint --check >/dev/null 2>&1; then
   stale+=("vendored-generated/source-fingerprint.generated.txt")
 fi
+if ! bun run generate:webgpu-test-wrapper --check >/dev/null 2>&1; then
+  stale+=("tests/fixtures/webgpu-test-wrapper.generated.js")
+fi
 
 # --- bundle builders (write to scratch, diff against committed) -------------
 bun run build:builtins --out-dir "$scratch/builtins" >/dev/null 2>&1
