@@ -2579,6 +2579,42 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     ).toBe("verified");
   });
 
+  test("accepts only canonical decimal bigint evidence", () => {
+    const value = fixture();
+    const batch = executorBatch(value);
+    const result = batch.results.find(
+      (row) => row.proof.kind === "loaded-engine-return-record",
+    );
+    result.proof.rawValueShape = "bigint";
+    result.raw = {
+      kind: "return",
+      rawValueShape: "bigint",
+      value: "18446744073709551615",
+      errorCode: null,
+    };
+    expect(
+      buildOutputShapeSweepArtifactFromExecutorBatch({
+        plan: value.plan,
+        batch,
+      }).observations.find(
+        (row) => row.proof.kind === "loaded-engine-return-record",
+      ).observation,
+    ).toEqual({ outcome: "return", normalizedValue: "non-path" });
+
+    for (const malformed of ["", "+1", "01", "-0", "1.0"]) {
+      const rejected = structuredClone(batch);
+      rejected.results.find(
+        (row) => row.proof.kind === "loaded-engine-return-record",
+      ).raw.value = malformed;
+      expect(() =>
+        buildOutputShapeSweepArtifactFromExecutorBatch({
+          plan: value.plan,
+          batch: rejected,
+        }),
+      ).toThrow(/raw value contradicts its value-shape tag/);
+    }
+  });
+
   test("retains an observed path field from a thrown structured record", () => {
     const value = fixture();
     const batch = executorBatch(value);

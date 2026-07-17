@@ -3685,7 +3685,9 @@ function validateRawExecutorObservation(raw, label) {
         typeof raw.value === "number" &&
         Number.isFinite(raw.value)) ||
       (raw.rawValueShape === "string" && typeof raw.value === "string") ||
-      (raw.rawValueShape === "bigint" && typeof raw.value === "string") ||
+      (raw.rawValueShape === "bigint" &&
+        typeof raw.value === "string" &&
+        /^(?:0|-?[1-9][0-9]*)$/u.test(raw.value)) ||
       (raw.rawValueShape === "array" && Array.isArray(raw.value)) ||
       (raw.rawValueShape === "object" &&
         (raw.value === null ||

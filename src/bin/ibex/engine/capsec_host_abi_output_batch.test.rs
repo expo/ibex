@@ -1175,6 +1175,22 @@ fn returned_number(value: impl Into<Value>) -> Value {
     raw("return", "number", value.into())
 }
 
+fn returned_u64(value: u64) -> Value {
+    // I-JSON cannot represent every uint64_t exactly. Preserve the ABI's
+    // numeric shape while using the same canonical decimal-string projection
+    // as a JavaScript BigInt observation.
+    raw("return", "bigint", Value::String(value.to_string()))
+}
+
+#[test]
+fn exact_u64_observations_use_canonical_decimal_bigint() {
+    let observation = returned_u64(u64::MAX);
+    assert_eq!(observation["kind"], "return");
+    assert_eq!(observation["rawValueShape"], "bigint");
+    assert_eq!(observation["value"], u64::MAX.to_string());
+    assert!(observation["errorCode"].is_null());
+}
+
 fn returned_undefined() -> Value {
     raw("return", "undefined", Value::Null)
 }
@@ -5783,8 +5799,44 @@ struct ValidatedRow {
     operation: String,
     release_function: Option<String>,
     return_variant: String,
+    selected_output_is_u64: bool,
     selected_output_kind: String,
     selector: String,
+}
+
+fn canonical_type_is_u64(canonical: &str) -> bool {
+    matches!(
+        canonical
+            .chars()
+            .filter(|character| !character.is_ascii_whitespace() && *character != '*')
+            .collect::<String>()
+            .as_str(),
+        "u64" | "uint64_t" | "std::uint64_t"
+    )
+}
+
+fn contract_selected_output_is_u64(
+    contract: &Value,
+    selected_output: &Value,
+    selector: &str,
+) -> bool {
+    let canonical = if selector == "[[return]]" {
+        contract["return"]["type"]["canonical"].as_str()
+    } else {
+        let Some(parameter_name) = selected_output["parameter"].as_str() else {
+            return false;
+        };
+        if parameter_name.contains('.') || parameter_name.contains('/') {
+            return false;
+        }
+        contract["parameters"].as_array().and_then(|parameters| {
+            parameters
+                .iter()
+                .find(|parameter| parameter["name"] == parameter_name)
+                .and_then(|parameter| parameter["type"]["canonical"].as_str())
+        })
+    };
+    canonical.is_some_and(canonical_type_is_u64)
 }
 
 fn is_structured_vfs_output_key(
@@ -6119,6 +6171,19 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
             "{function_name}: selected output contract binding drift"
         ));
     }
+    let selected_output_is_u64 = output_contracts
+        .first()
+        .is_some_and(|contract| {
+            contract_selected_output_is_u64(contract, selected_output, selector)
+        });
+    if output_contracts.iter().any(|contract| {
+        contract_selected_output_is_u64(contract, selected_output, selector)
+            != selected_output_is_u64
+    }) {
+        return Err(format!(
+            "{function_name}: selected output integer-width drift"
+        ));
+    }
     for (definition, contract) in selected_definitions.iter().zip(output_contracts) {
         let base_drift = contract["schema"] != OUTPUT_CONTRACT_SCHEMA
             || contract["functionName"] != function_name
@@ -6206,6 +6271,7 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
         operation: operation.to_owned(),
         release_function,
         return_variant: return_variant.to_owned(),
+        selected_output_is_u64,
         selected_output_kind,
         selector: selector.to_owned(),
     })
@@ -6225,7 +6291,19 @@ fn return_record_result(row: &Value, raw: Value) -> Value {
     })
 }
 
-fn validate_bounded_observation(validated: &ValidatedRow, raw: Value) -> Result<Value, String> {
+fn validate_bounded_observation(
+    validated: &ValidatedRow,
+    mut raw: Value,
+) -> Result<Value, String> {
+    if validated.selected_output_is_u64 {
+        let value = raw["value"].as_u64().ok_or_else(|| {
+            format!(
+                "{}: exact uint64_t output was not observed as an unsigned integer",
+                validated.function_name
+            )
+        })?;
+        raw = returned_u64(value);
+    }
     if validated.operation == "rust-host-legacy-path-output" {
         let expected_error = match (
             validated.function_name.as_str(),
@@ -6337,7 +6415,14 @@ fn validate_bounded_observation(validated: &ValidatedRow, raw: Value) -> Result<
             validated.selected_output_kind.as_str(),
             validated.release_function.as_deref(),
         ) {
-            ("scalar", None) => raw["rawValueShape"] == "number",
+            ("scalar", None) => {
+                raw["rawValueShape"]
+                    == if validated.selected_output_is_u64 {
+                        "bigint"
+                    } else {
+                        "number"
+                    }
+            }
             ("pointer", Some("ex_host_free_string" | "ex_hermes_free_string")) => {
                 raw["rawValueShape"] == "string" || raw["rawValueShape"] == "null"
             }
@@ -6398,7 +6483,14 @@ fn validate_bounded_observation(validated: &ValidatedRow, raw: Value) -> Result<
             raw["rawValueShape"] == "array"
         } else {
             match validated.selected_output_kind.as_str() {
-                "scalar" => raw["rawValueShape"] == "number",
+                "scalar" => {
+                    raw["rawValueShape"]
+                        == if validated.selected_output_is_u64 {
+                            "bigint"
+                        } else {
+                            "number"
+                        }
+                }
                 "aggregate" | "buffer" => {
                     raw["rawValueShape"] == "array" || raw["rawValueShape"] == "null"
                 }
