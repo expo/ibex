@@ -117,13 +117,17 @@ verify_checksum() {
 # building). An unpatched bundle would make the 18 frame-attribution tests
 # skip vacuously, so refuse to install one that lacks the capability export.
 verify_frame_attribution_export() {
-    local binary="$1" nm_flags="$2"
+    local binary="$1" nm_flags="$2" symbols
     if ! command -v nm >/dev/null 2>&1; then
         echo "[download] nm unavailable; skipping frame-attribution export check" >&2
         return 0
     fi
+    # Capture the complete symbol table before matching. A `nm | grep -q`
+    # pipeline under pipefail can report a false negative when grep exits after
+    # its first match and nm receives SIGPIPE.
     # shellcheck disable=SC2086 -- nm_flags is intentionally word-split.
-    if ! nm $nm_flags "$binary" 2>/dev/null | grep -q ex_hermes_vm_current_package_id; then
+    symbols="$(nm $nm_flags "$binary" 2>/dev/null)" || return 1
+    if [[ "$symbols" != *ex_hermes_vm_current_package_id* ]]; then
         echo "[download] bundle binary $binary lacks ex_hermes_vm_current_package_id (unpatched engine?)" >&2
         return 1
     fi
@@ -164,9 +168,8 @@ try_download_darwin() (
     [[ -f "$tmp/unpack/include/jsi/jsi.h" ]] || { echo "[download] bundle missing include/jsi/jsi.h (empty headers?)" >&2; return 1; }
     [[ -x "$tmp/unpack/bin/hermesc" ]] || { echo "[download] bundle missing bin/hermesc" >&2; return 1; }
     verify_frame_attribution_export "$tmp/unpack/hermesvm.framework/Versions/1/hermesvm" "-gU" || return 1
-    if [[ "$profile" == "release" ]] \
-        && nm -gU "$tmp/unpack/hermesvm.framework/Versions/1/hermesvm" 2>/dev/null \
-            | grep -q AsyncDebuggerAPI; then
+    symbols="$(nm -gU "$tmp/unpack/hermesvm.framework/Versions/1/hermesvm" 2>/dev/null)" || return 1
+    if [[ "$profile" == "release" && "$symbols" == *AsyncDebuggerAPI* ]]; then
         echo "[download] Release bundle unexpectedly exports debugger symbols" >&2
         return 1
     fi

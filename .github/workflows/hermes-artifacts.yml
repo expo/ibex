@@ -139,7 +139,8 @@ jobs:
           test -x "$cache/bin/hermes"
           # The published engine must be the PATCHED one: an unpatched bundle
           # makes the 18 frame-attribution tests skip vacuously (LLP 0013/0018).
-          nm -gU "$cache/hermesvm.framework/Versions/1/hermesvm" | grep -q ex_hermes_vm_current_package_id \
+          symbols="$(nm -gU "$cache/hermesvm.framework/Versions/1/hermesvm")"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
             || { echo "::error::built framework lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
           "$cache/bin/hermesc" --help >/dev/null
           "$cache/bin/hermes" --help >/dev/null
@@ -190,9 +191,11 @@ jobs:
           lib_file="$(find "$install/lib" -maxdepth 1 -name 'libhermesvm.*' -print -quit)"
           test -n "$lib_file"
           case "$lib_file" in
-            *.so) nm -D "$lib_file" | grep -q ex_hermes_vm_current_package_id ;;
-            *)    nm "$lib_file" 2>/dev/null | grep -q ex_hermes_vm_current_package_id ;;
-          esac || { echo "::error::built lib lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
+            *.so) symbols="$(nm -D "$lib_file")" ;;
+            *)    symbols="$(nm "$lib_file" 2>/dev/null)" ;;
+          esac
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::built lib lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
           "$install/bin/hermesc" --help >/dev/null
           echo "Bundle verified: patched export present, hermesc runs."
 
@@ -238,9 +241,10 @@ jobs:
           test -f "$cache/include/jsi/jsi.h"
           test -x "$cache/bin/hermesc"
           test -x "$cache/bin/hermes"
-          nm -gU "$binary" | grep -q ex_hermes_vm_current_package_id \
+          symbols="$(nm -gU "$binary")"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
             || { echo "::error::Release framework lacks the patched attribution export"; exit 1; }
-          if nm -gU "$binary" | grep -q AsyncDebuggerAPI; then
+          if [[ "$symbols" == *AsyncDebuggerAPI* ]]; then
             echo "::error::Release framework unexpectedly exports debugger symbols"
             exit 1
           fi

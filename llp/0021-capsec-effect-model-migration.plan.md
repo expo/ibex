@@ -6,6 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
 **Revised:** 2026-07-17 (ENG-24933 versions the conformance cache by the no-debugger build profile and reattests every restored framework before execution)
+**Revised:** 2026-07-17 (ENG-24933 explicitly binds CI artifact selection and wrapper compilation to the Release profile and makes symbol attestation SIGPIPE-safe)
 **Revised:** 2026-07-17 (ENG-24933 binds 33 legacy-bootstrap global paths to physical absence from the armed shared runtime without dereferencing missing roots)
 **Revised:** 2026-07-17 (ENG-24933 binds all nine debugger ABI functions and their nine native-operation facets to physical null/zero/no-event results on the exact no-debugger Apple artifact)
 **Revised:** 2026-07-17 (ENG-24933 binds all 106 source and alias facets of the terminal `async_hooks`, inspector, VM, WASI, and worker-thread builtins to loaded-engine denial of every public alias under an authenticated overbroad snapshot)
@@ -1511,7 +1512,11 @@ profile into the same content-addressed build cache used by local source builds.
 The conformance workflow uses a separately versioned no-debugger cache key and
 rechecks the attribution export and debugger-symbol absence after every cache
 restore, so an older debugger-enabled framework cannot enter the matrix merely
-because it shares the source pin and patch digest.
+because it shares the source pin and patch digest. The job explicitly exports
+`HERMES_ENABLE_DEBUGGER=false`, binding both prebuilt artifact selection and the
+compiled Exact wrapper to that profile. Symbol checks capture the complete
+`nm` output before matching, so `grep -q` cannot terminate the producer with
+SIGPIPE and turn a present debugger symbol into a false absence result.
 Windows no longer has to rely on the historical unpatched NuGet artifact or a
 pathname-only loaded-engine identity. Its installer now fetches the exact
 commit-plus-patch-digest Release bundle and falls back to the same source build;

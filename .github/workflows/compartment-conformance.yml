@@ -23,6 +23,11 @@ jobs:
     name: Complete matrix + unadvertised evidence (macOS arm64)
     runs-on: macos-14
     timeout-minutes: 180
+    env:
+      # download-hermes.sh defaults to the developer/debug profile. This job
+      # proves the physical Release target, so bind both artifact selection and
+      # the C++ wrapper compile to the no-debugger profile explicitly.
+      HERMES_ENABLE_DEBUGGER: "false"
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
@@ -65,7 +70,7 @@ jobs:
             ios/Frameworks
             tools/hermes
             ~/.cache/exact/hermes
-          key: hermes-patched-no-debugger-v1-${{ runner.os }}-${{ hashFiles('scripts/hermes-version.sh', 'scripts/download-hermes.sh', 'scripts/build-hermes.sh', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
+          key: hermes-patched-no-debugger-v2-${{ runner.os }}-${{ hashFiles('scripts/hermes-version.sh', 'scripts/download-hermes.sh', 'scripts/build-hermes.sh', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
 
       - name: Build patched Hermes (on cache miss)
         if: steps.hermes-cache.outputs.cache-hit != 'true'
@@ -81,9 +86,10 @@ jobs:
           set -euo pipefail
           binary="ios/Frameworks/hermesvm.framework/Versions/Current/hermesvm"
           test -f "$binary"
-          nm -gU "$binary" | grep -q ex_hermes_vm_current_package_id \
+          symbols="$(nm -gU "$binary")"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
             || { echo "::error::Hermes framework lacks the patched attribution export"; exit 1; }
-          if nm -gU "$binary" | grep -q AsyncDebuggerAPI; then
+          if [[ "$symbols" == *AsyncDebuggerAPI* ]]; then
             echo "::error::Hermes framework exports debugger symbols"
             exit 1
           fi
