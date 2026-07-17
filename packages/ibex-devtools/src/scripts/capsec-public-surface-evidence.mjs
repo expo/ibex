@@ -1405,6 +1405,98 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "shared-runtime-global-absence") {
+      const reviewedSurfaces = new Set([
+        "__exactAllowNativesSyntax",
+        "__exactCompatEval",
+        "__exactDebugModuleSource",
+        "__exactDebugModuleSources",
+        "__exactDebugModuleSources.length",
+        "__exactInstallAsyncIpcListenerPatch",
+        "__exactInstallProcessIpcBootstrap",
+        "__exactNativeWrapState",
+        "__exactNativeWrapState.Pipe",
+        "__exactNativeWrapState.TCP",
+        "__exactNativeWrapState.TCPConnectWrap",
+        "__exactNativeWrapState.UV_EINVAL",
+        "__exactNativeWrapState.byFd",
+        "__exactNativeWrapState.pipeConstants",
+        "__exactNativeWrapState.tcpConstants",
+        "__exactStreamWrapState",
+        "__exactSyncTrackedIpcListenersAfterDispatch",
+        "global:Bun.gc",
+        "global:Cache",
+        "global:Cache.add",
+        "global:Cache.addAll",
+        "global:Cache.delete",
+        "global:Cache.keys",
+        "global:Cache.match",
+        "global:Cache.matchAll",
+        "global:Cache.put",
+        "global:CacheStorage",
+        "global:CacheStorage.delete",
+        "global:CacheStorage.has",
+        "global:CacheStorage.keys",
+        "global:CacheStorage.match",
+        "global:CacheStorage.open",
+        "global:Exact.gc",
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          ...(descriptor.memberName === undefined ? [] : ["memberName"]),
+          "targetTriple",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed shared-runtime global descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "globalName", "memberName", "expectedError"],
+        `${recipe.fixtureId}: closed shared-runtime global operation`,
+      );
+      const metadata = descriptor.sourceMetadata;
+      const memberName = authored.operation.memberName;
+      const exportName =
+        memberName === null
+          ? authored.operation.globalName
+          : `${authored.operation.globalName}.${memberName}`;
+      const branches = metadata?.installationBranches;
+      if (
+        !reviewedSurfaces.has(authored.surfaceName) ||
+        authored.surfaceKind !== "native-op" ||
+        descriptor.kind !== "closed-shared-runtime-global-absence" ||
+        descriptor.surfaceObservedKey !==
+          `native-op:${authored.surfaceName}` ||
+        recipe.terminalObservedKey !== descriptor.surfaceObservedKey ||
+        descriptor.globalName !== authored.operation.globalName ||
+        (descriptor.memberName ?? null) !== memberName ||
+        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.globalName !== authored.operation.globalName ||
+        metadata.memberName !== memberName ||
+        metadata.exportName !== exportName ||
+        !Array.isArray(branches) ||
+        branches.length !== 1 ||
+        branches[0].route !== "legacy-bootstrap" ||
+        branches[0].targetVariant !== "default" ||
+        canonicalJson(branches[0].sourceRefs) !==
+          canonicalJson(descriptor.sourceRefs) ||
+        authored.operation.expectedError !==
+          `armed shared runtime does not expose ${exportName}`
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: shared-runtime global closure is not bound to the reviewed legacy-only path`,
+        );
+      }
+    }
     if (authored.operation?.kind === "exact-unendowed-operation") {
       const descriptor = authored.sourceDescriptor;
       exactKeys(
@@ -2156,6 +2248,15 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: debugger ABI did not prove the no-debugger physical result`,
+      );
+    }
+    if (
+      authored.operation?.kind === "shared-runtime-global-absence" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed shared-runtime global was not physically absent`,
       );
     }
     const loaderExecutableExpectation = new Map([

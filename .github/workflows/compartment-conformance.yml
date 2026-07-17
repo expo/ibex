@@ -54,9 +54,9 @@ jobs:
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
-      # Cache the built patched framework + host hermesc, keyed on the pin and
-      # the patch content. A miss triggers the full Hermes build; a hit reuses
-      # the installed artifacts so the run is just cargo build + test.
+      # Cache the patched no-debugger framework + host tools. The explicit
+      # profile version prevents an older debugger-enabled build with the same
+      # source pin and patch digest from satisfying this cache.
       - name: Cache patched Hermes artifacts
         id: hermes-cache
         uses: actions/cache@v4
@@ -65,7 +65,7 @@ jobs:
             ios/Frameworks
             tools/hermes
             ~/.cache/exact/hermes
-          key: hermes-patched-${{ runner.os }}-${{ hashFiles('scripts/hermes-version.sh', 'patches/hermes/**') }}
+          key: hermes-patched-no-debugger-v1-${{ runner.os }}-${{ hashFiles('scripts/hermes-version.sh', 'scripts/download-hermes.sh', 'scripts/build-hermes.sh', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
 
       - name: Build patched Hermes (on cache miss)
         if: steps.hermes-cache.outputs.cache-hit != 'true'
@@ -75,6 +75,18 @@ jobs:
           # can fetch the prebuilt patched bundle from this repo's artifact-cache
           # release instead of paying the ~hour source build on a key miss.
           GH_TOKEN: ${{ github.token }}
+
+      - name: Verify cached Hermes is patched and debugger-free
+        run: |
+          set -euo pipefail
+          binary="ios/Frameworks/hermesvm.framework/Versions/Current/hermesvm"
+          test -f "$binary"
+          nm -gU "$binary" | grep -q ex_hermes_vm_current_package_id \
+            || { echo "::error::Hermes framework lacks the patched attribution export"; exit 1; }
+          if nm -gU "$binary" | grep -q AsyncDebuggerAPI; then
+            echo "::error::Hermes framework exports debugger symbols"
+            exit 1
+          fi
 
       - name: Run the complete CapSec matrix and bind evidence
         run: bun run verify:capsec-conformance -- --expect-incomplete

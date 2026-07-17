@@ -5,6 +5,8 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24933 versions the conformance cache by the no-debugger build profile and reattests every restored framework before execution)
+**Revised:** 2026-07-17 (ENG-24933 binds 33 legacy-bootstrap global paths to physical absence from the armed shared runtime without dereferencing missing roots)
 **Revised:** 2026-07-17 (ENG-24933 binds all nine debugger ABI functions and their nine native-operation facets to physical null/zero/no-event results on the exact no-debugger Apple artifact)
 **Revised:** 2026-07-17 (ENG-24933 binds all 106 source and alias facets of the terminal `async_hooks`, inspector, VM, WASI, and worker-thread builtins to loaded-engine denial of every public alias under an authenticated overbroad snapshot)
 **Revised:** 2026-07-17 (ENG-24933 completes a source-, tree-, engine-, target-, and catalog-bound physical Apple Release report with 24/24 prerequisite commands passing; the report remains fail-closed with 1 conformant cell, 7,107 incomplete cells, and no advertisement)
@@ -612,9 +614,10 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalog has 23,126 required
-fixtures, 4,969 fully executable recipes, and 18,157 unresolved
-fixtures. The latest source-bound tranches add 18 physical no-debugger ABI
-closure recipes, 106 terminal-builtin closure recipes, four
+fixtures, 5,002 fully executable recipes, and 18,124 unresolved
+fixtures. The latest source-bound tranches add 33 armed shared-runtime global
+absence recipes, 18 physical no-debugger ABI closure recipes, 106
+terminal-builtin closure recipes, four
 loader/source-acquisition recipes, 24 native module-runner ABI
 lifecycle recipes, one armed namespace-inspection closure, 14 asymmetric/EVP
 crypto recipes, eight
@@ -671,11 +674,11 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes and 18,157 unresolved fixtures. The physical
+are 7,043 ambiguous routes and 18,124 unresolved fixtures. The physical
 no-debugger tranche also executes all nine debugger ABI functions on the exact
 Apple artifact and binds their nine corresponding native-operation facets to
 the same zero, null-pointer, or no-event results. Together with the other
-closed families, the exact loaded engine passes all 287 closed fixtures with
+closed families, the exact loaded engine passes all 320 closed fixtures with
 zero typed or legacy decisions.
 
 ### WP0 artifacts and gate
@@ -1505,6 +1508,10 @@ The artifact workflow now reproduces that no-debugger Darwin Release profile
 as a separately named, checksummed bundle and rejects either a missing patch
 export or any exported debugger API. `download-hermes.sh` installs that exact
 profile into the same content-addressed build cache used by local source builds.
+The conformance workflow uses a separately versioned no-debugger cache key and
+rechecks the attribution export and debugger-symbol absence after every cache
+restore, so an older debugger-enabled framework cannot enter the matrix merely
+because it shares the source pin and patch digest.
 Windows no longer has to rely on the historical unpatched NuGet artifact or a
 pathname-only loaded-engine identity. Its installer now fetches the exact
 commit-plus-patch-digest Release bundle and falls back to the same source build;

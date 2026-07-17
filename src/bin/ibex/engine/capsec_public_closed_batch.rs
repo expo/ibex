@@ -165,6 +165,14 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    SharedRuntimeGlobalAbsence {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "memberName")]
+        member_name: Option<String>,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
 }
 
 impl ClosedOperation {
@@ -178,6 +186,7 @@ impl ClosedOperation {
             Self::ModuleRunnerNamespace { .. } => "module-runner-namespace",
             Self::TerminalBuiltinImport { .. } => "terminal-builtin-import",
             Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
+            Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
         }
     }
 
@@ -191,6 +200,7 @@ impl ClosedOperation {
             | Self::ModuleRunnerNamespace { .. }
             | Self::TerminalBuiltinImport { .. }
             | Self::DebuggerAbiDisabled { .. } => None,
+            Self::SharedRuntimeGlobalAbsence { .. } => None,
         }
     }
 }
@@ -1641,6 +1651,223 @@ async fn execute_closed_debugger_abi(
     })
 }
 
+fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
+    matches!(
+        surface_name,
+        "__exactAllowNativesSyntax"
+            | "__exactCompatEval"
+            | "__exactDebugModuleSource"
+            | "__exactDebugModuleSources"
+            | "__exactDebugModuleSources.length"
+            | "__exactInstallAsyncIpcListenerPatch"
+            | "__exactInstallProcessIpcBootstrap"
+            | "__exactNativeWrapState"
+            | "__exactNativeWrapState.Pipe"
+            | "__exactNativeWrapState.TCP"
+            | "__exactNativeWrapState.TCPConnectWrap"
+            | "__exactNativeWrapState.UV_EINVAL"
+            | "__exactNativeWrapState.byFd"
+            | "__exactNativeWrapState.pipeConstants"
+            | "__exactNativeWrapState.tcpConstants"
+            | "__exactStreamWrapState"
+            | "__exactSyncTrackedIpcListenersAfterDispatch"
+            | "global:Bun.gc"
+            | "global:Cache"
+            | "global:Cache.add"
+            | "global:Cache.addAll"
+            | "global:Cache.delete"
+            | "global:Cache.keys"
+            | "global:Cache.match"
+            | "global:Cache.matchAll"
+            | "global:Cache.put"
+            | "global:CacheStorage"
+            | "global:CacheStorage.delete"
+            | "global:CacheStorage.has"
+            | "global:CacheStorage.keys"
+            | "global:CacheStorage.match"
+            | "global:CacheStorage.open"
+            | "global:Exact.gc"
+    )
+}
+
+#[cfg(test)]
+async fn execute_closed_shared_runtime_global_absence(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::SharedRuntimeGlobalAbsence {
+        global_name,
+        member_name,
+        expected_error,
+    } = &invocation.operation
+    else {
+        panic!("shared-runtime global absence probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "native-op");
+    assert!(reviewed_shared_runtime_absent_surface(
+        &invocation.surface_name
+    ));
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-shared-runtime-global-absence");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.global_name.as_deref(), Some(global_name.as_str()));
+    assert_eq!(descriptor.member_name.as_ref(), member_name.as_ref());
+    assert_eq!(
+        descriptor.target_triple.as_deref(),
+        Some("aarch64-apple-darwin")
+    );
+    assert!(!descriptor.source_refs.is_empty());
+    let metadata = &descriptor.source_metadata;
+    assert_eq!(metadata["surfaceType"], "global-api");
+    assert_eq!(metadata["globalName"], global_name.as_str());
+    assert_eq!(metadata["memberName"], serde_json::json!(member_name));
+    let export_name = member_name
+        .as_ref()
+        .map_or_else(|| global_name.clone(), |member| format!("{global_name}.{member}"));
+    assert_eq!(metadata["exportName"], export_name);
+    let branches = metadata["installationBranches"]
+        .as_array()
+        .expect("shared-runtime global source must name installation branches");
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0]["route"], "legacy-bootstrap");
+    assert_eq!(branches[0]["targetVariant"], "default");
+    assert_eq!(
+        branches[0]["sourceRefs"],
+        serde_json::json!(descriptor.source_refs)
+    );
+    assert_eq!(
+        expected_error,
+        &format!("armed shared runtime does not expose {export_name}")
+    );
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed shared-runtime global recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let global_json = serde_json::to_string(global_name).unwrap();
+    let script = if let Some(member_name) = member_name {
+        let member_json = serde_json::to_string(member_name).unwrap();
+        format!(
+            "(function(){{var root=Object.getOwnPropertyDescriptor(globalThis,{global_json});if(!root)return 'absent';if(!Object.prototype.hasOwnProperty.call(root,'value'))return 'present';var value=root.value;if((typeof value!=='object'&&typeof value!=='function')||value===null)return 'absent';return Object.getOwnPropertyDescriptor(value,{member_json})===undefined?'absent':'present';}})()"
+        )
+    } else {
+        format!(
+            "Object.getOwnPropertyDescriptor(globalThis,{global_json})===undefined?'absent':'present'"
+        )
+    };
+    assert_eq!(
+        engine
+            .eval_immediate(&script)
+            .await
+            .expect("inspect armed shared-runtime global")
+            .as_deref(),
+        Some("absent")
+    );
+    assert_eq!(
+        engine
+            .eval_immediate("'IBEX_CAPSEC_SHARED_RUNTIME_GLOBALS_HEALTHY'")
+            .await
+            .expect("evaluate shared-runtime global postcondition marker")
+            .as_deref(),
+        Some("IBEX_CAPSEC_SHARED_RUNTIME_GLOBALS_HEALTHY")
+    );
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": expected_error,
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 fn clap_command_at_path<'a>(root: &'a clap::Command, path: &str) -> &'a clap::Command {
     let mut components = path.split(' ');
     assert_eq!(components.next(), Some(root.get_name()));
@@ -2536,6 +2763,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let shared_runtime_global_absence_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::SharedRuntimeGlobalAbsence { .. }
+            )
+        })
+        .count();
     assert_eq!(
         recipe_indexes.len(),
         startup_count
@@ -2545,7 +2784,8 @@ async fn capsec_public_closed_recipe_batch() {
             + exact_unendowed_count
             + module_runner_namespace_count
             + terminal_builtin_count
-            + debugger_abi_count,
+            + debugger_abi_count
+            + shared_runtime_global_absence_count,
         "every closed recipe must have an accounted execution family"
     );
     assert_eq!(
@@ -2578,6 +2818,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         debugger_abi_count, 18,
         "expected every debugger ABI and native-operation facet on Apple"
+    );
+    assert_eq!(
+        shared_runtime_global_absence_count, 33,
+        "expected every reviewed legacy-only global path to be absent"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
@@ -2689,6 +2933,45 @@ async fn capsec_public_closed_recipe_batch() {
             );
         }
     }
+    if shared_runtime_global_absence_count > 0 {
+        let absence_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::SharedRuntimeGlobalAbsence { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact shared-runtime global absence engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact shared-runtime global absence runtime");
+        for index in absence_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_shared_runtime_global_absence(
+                    &engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await,
+            );
+        }
+    }
     for index in recipe_indexes {
         let recipe = &catalog.recipes[index];
         let probe = closed_surface_probe(recipe).unwrap();
@@ -2696,6 +2979,7 @@ async fn capsec_public_closed_recipe_batch() {
             &probe.invocation.operation,
             ClosedOperation::TerminalBuiltinImport { .. }
                 | ClosedOperation::DebuggerAbiDisabled { .. }
+                | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
         ) {
             continue;
         }
@@ -2756,6 +3040,7 @@ async fn capsec_public_closed_recipe_batch() {
             }
             ClosedOperation::TerminalBuiltinImport { .. } => unreachable!(),
             ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),
+            ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
         });
     }
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));

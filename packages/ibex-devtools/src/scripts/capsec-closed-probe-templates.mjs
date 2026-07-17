@@ -113,6 +113,42 @@ const DEBUGGER_ABI_FUNCTIONS = new Map([
   ["set-breakpoint", ["ex_hermes_debugger_set_breakpoint", "null-pointer"]],
 ]);
 
+const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
+  "__exactAllowNativesSyntax",
+  "__exactCompatEval",
+  "__exactDebugModuleSource",
+  "__exactDebugModuleSources",
+  "__exactDebugModuleSources.length",
+  "__exactInstallAsyncIpcListenerPatch",
+  "__exactInstallProcessIpcBootstrap",
+  "__exactNativeWrapState",
+  "__exactNativeWrapState.Pipe",
+  "__exactNativeWrapState.TCP",
+  "__exactNativeWrapState.TCPConnectWrap",
+  "__exactNativeWrapState.UV_EINVAL",
+  "__exactNativeWrapState.byFd",
+  "__exactNativeWrapState.pipeConstants",
+  "__exactNativeWrapState.tcpConstants",
+  "__exactStreamWrapState",
+  "__exactSyncTrackedIpcListenersAfterDispatch",
+  "global:Bun.gc",
+  "global:Cache",
+  "global:Cache.add",
+  "global:Cache.addAll",
+  "global:Cache.delete",
+  "global:Cache.keys",
+  "global:Cache.match",
+  "global:Cache.matchAll",
+  "global:Cache.put",
+  "global:CacheStorage",
+  "global:CacheStorage.delete",
+  "global:CacheStorage.has",
+  "global:CacheStorage.keys",
+  "global:CacheStorage.match",
+  "global:CacheStorage.open",
+  "global:Exact.gc",
+]);
+
 const EXACT_OPERATION_MANIFEST_DIGEST =
   "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
 const EXACT_APP_OPERATION_IDS = Object.freeze([7, 11]);
@@ -881,6 +917,94 @@ function debuggerAbiDisabledProbe({
   };
 }
 
+function sharedRuntimeGlobalAbsenceProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    target?.triple !== "aarch64-apple-darwin" ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  if (!SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName)) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const branches = metadata?.installationBranches;
+  const expectedExportName =
+    metadata?.memberName == null
+      ? metadata?.globalName
+      : `${metadata?.globalName}.${metadata?.memberName}`;
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== surfaceName ||
+    metadata?.surfaceType !== "global-api" ||
+    typeof metadata.globalName !== "string" ||
+    !["string", "object"].includes(typeof metadata.memberName) ||
+    (metadata.memberName !== null && typeof metadata.memberName !== "string") ||
+    metadata.exportName !== expectedExportName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(branches) ||
+    branches.length !== 1 ||
+    branches[0].route !== "legacy-bootstrap" ||
+    branches[0].targetVariant !== "default" ||
+    canonicalJson(branches[0].sourceRefs) !== canonicalJson(live.sourceRefs) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-shared-runtime-global-absence",
+    surfaceObservedKey,
+    globalName: metadata.globalName,
+    ...(metadata.memberName === null
+      ? {}
+      : { memberName: metadata.memberName }),
+    targetTriple: target.triple,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  const expectedError =
+    `armed shared runtime does not expose ${metadata.exportName}`;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "shared-runtime-global-absence",
+        globalName: metadata.globalName,
+        memberName: metadata.memberName,
+        expectedError,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredClosedPublicProbe(options) {
   const { plan, scenario } = options;
   if (
@@ -900,7 +1024,8 @@ export function authoredClosedPublicProbe(options) {
     moduleRunnerNamespaceProbe(options) ??
     loaderExecutableKindProbe(options) ??
     terminalBuiltinImportProbe(options) ??
-    debuggerAbiDisabledProbe(options)
+    debuggerAbiDisabledProbe(options) ??
+    sharedRuntimeGlobalAbsenceProbe(options)
   );
 }
 

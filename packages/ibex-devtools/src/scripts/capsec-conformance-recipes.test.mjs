@@ -1537,6 +1537,73 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 
+  test("binds reviewed legacy globals to armed shared-runtime absence", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "shared-runtime-global-absence",
+    );
+    expect(rows).toHaveLength(33);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
+            "aarch64-apple-darwin" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches.every(
+            (branch) => branch.route === "legacy-bootstrap",
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:__exactAllowNativesSyntax",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            kind: "closed-shared-runtime-global-absence",
+            globalName: "__exactAllowNativesSyntax",
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "__exactAllowNativesSyntax",
+            memberName: null,
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey === "native-op:global:CacheStorage.open",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "CacheStorage",
+            memberName: "open",
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "CacheStorage",
+            memberName: "open",
+          },
+        },
+      },
+    });
+  });
+
   test("executes module-runner authority and trusted-access loader surfaces", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
