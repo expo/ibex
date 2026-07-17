@@ -674,8 +674,6 @@ fn lower_checked_source_with_module_meta(
             })
         })
         .collect::<Vec<_>>();
-    reject_closed_dynamic_code_in_program(&program)?;
-
     let globals = Globals::new();
     GLOBALS.set(&globals, || {
         HELPERS.set(&Helpers::new(false), || {
@@ -703,8 +701,14 @@ fn lower_checked_source_with_module_meta(
     })
 }
 
-fn reject_closed_dynamic_code_in_program(program: &Program) -> Result<(), SessionLoweringError> {
-    let mut visitor = DynamicCodeVisitor::default();
+fn reject_closed_dynamic_code_in_program(
+    program: &Program,
+    unresolved_ctxt: SyntaxContext,
+) -> Result<(), SessionLoweringError> {
+    let mut visitor = DynamicCodeVisitor {
+        unresolved_ctxt,
+        ..Default::default()
+    };
     program.visit_with(&mut visitor);
     if visitor.eval_reference {
         return Err(SessionLoweringError::EvalClosed);
@@ -715,14 +719,100 @@ fn reject_closed_dynamic_code_in_program(program: &Program) -> Result<(), Sessio
     Ok(())
 }
 
+fn static_computed_property_name(expression: &Expr) -> Option<&str> {
+    match expression {
+        Expr::Lit(Lit::Str(string)) => string.value.as_wtf8().as_str(),
+        Expr::Paren(paren) => static_computed_property_name(&paren.expr),
+        _ => None,
+    }
+}
+
+fn static_member_property_name(property: &MemberProp) -> Option<&str> {
+    match property {
+        MemberProp::Ident(identifier) => Some(identifier.sym.as_ref()),
+        MemberProp::Computed(computed) => static_computed_property_name(&computed.expr),
+        MemberProp::PrivateName(_) => None,
+    }
+}
+
+fn static_pattern_property_name(property: &PropName) -> Option<&str> {
+    match property {
+        PropName::Ident(identifier) => Some(identifier.sym.as_ref()),
+        PropName::Str(string) => string.value.as_wtf8().as_str(),
+        PropName::Computed(computed) => static_computed_property_name(&computed.expr),
+        PropName::Num(_) | PropName::BigInt(_) => None,
+    }
+}
+
+fn is_realm_global_name(name: &str) -> bool {
+    matches!(name, "globalThis" | "global" | "self" | "window")
+}
+
+fn is_realm_global_expression(expression: &Expr, unresolved_ctxt: SyntaxContext) -> bool {
+    match expression {
+        Expr::Ident(identifier) => {
+            identifier.ctxt == unresolved_ctxt && is_realm_global_name(identifier.sym.as_ref())
+        }
+        Expr::Paren(paren) => is_realm_global_expression(&paren.expr, unresolved_ctxt),
+        Expr::Seq(sequence) => sequence
+            .exprs
+            .last()
+            .is_some_and(|expression| is_realm_global_expression(expression, unresolved_ctxt)),
+        Expr::Member(member) => {
+            is_realm_global_expression(&member.obj, unresolved_ctxt)
+                && static_member_property_name(&member.prop).is_some_and(is_realm_global_name)
+        }
+        Expr::Cond(conditional) => {
+            is_realm_global_expression(&conditional.cons, unresolved_ctxt)
+                && is_realm_global_expression(&conditional.alt, unresolved_ctxt)
+        }
+        _ => false,
+    }
+}
+
 #[derive(Default)]
 struct DynamicCodeVisitor {
+    unresolved_ctxt: SyntaxContext,
     eval_reference: bool,
     function_constructor_reference: bool,
 }
 
+impl DynamicCodeVisitor {
+    fn record_evaluator_name(&mut self, name: &str) {
+        if name == "eval" {
+            self.eval_reference = true;
+        } else if name == "Function" {
+            self.function_constructor_reference = true;
+        }
+    }
+
+    fn inspect_global_object_pattern(&mut self, pattern: &ObjectPat) {
+        for property in &pattern.props {
+            match property {
+                ObjectPatProp::KeyValue(property) => {
+                    if let Some(name) = static_pattern_property_name(&property.key) {
+                        self.record_evaluator_name(name);
+                        if is_realm_global_name(name) {
+                            if let Pat::Object(object) = &*property.value {
+                                self.inspect_global_object_pattern(object);
+                            }
+                        }
+                    }
+                }
+                ObjectPatProp::Assign(property) => {
+                    self.record_evaluator_name(property.key.id.sym.as_ref());
+                }
+                ObjectPatProp::Rest(_) => {}
+            }
+        }
+    }
+}
+
 impl swc_ecma_visit::Visit for DynamicCodeVisitor {
     fn visit_ident(&mut self, identifier: &Ident) {
+        if identifier.ctxt != self.unresolved_ctxt {
+            return;
+        }
         if identifier.sym == *"eval" {
             self.eval_reference = true;
         } else if identifier.sym == *"Function" {
@@ -730,26 +820,35 @@ impl swc_ecma_visit::Visit for DynamicCodeVisitor {
         }
     }
 
-    fn visit_call_expr(&mut self, call: &CallExpr) {
-        if let Callee::Expr(callee) = &call.callee {
-            match &**callee {
-                Expr::Ident(identifier) if identifier.sym == *"eval" => {
-                    self.eval_reference = true;
-                }
-                Expr::Ident(identifier) if identifier.sym == *"Function" => {
-                    self.function_constructor_reference = true;
-                }
-                _ => {}
+    fn visit_member_expr(&mut self, member: &MemberExpr) {
+        if is_realm_global_expression(&member.obj, self.unresolved_ctxt) {
+            if let Some(name) = static_member_property_name(&member.prop) {
+                self.record_evaluator_name(name);
             }
         }
-        call.visit_children_with(self);
+        member.visit_children_with(self);
     }
 
-    fn visit_new_expr(&mut self, expression: &NewExpr) {
-        if matches!(&*expression.callee, Expr::Ident(identifier) if identifier.sym == *"Function") {
-            self.function_constructor_reference = true;
+    fn visit_var_declarator(&mut self, declarator: &VarDeclarator) {
+        if declarator.init.as_deref().is_some_and(|initializer| {
+            is_realm_global_expression(initializer, self.unresolved_ctxt)
+        }) {
+            if let Pat::Object(object) = &declarator.name {
+                self.inspect_global_object_pattern(object);
+            }
         }
-        expression.visit_children_with(self);
+        declarator.visit_children_with(self);
+    }
+
+    fn visit_assign_expr(&mut self, assignment: &AssignExpr) {
+        if assignment.op == AssignOp::Assign
+            && is_realm_global_expression(&assignment.right, self.unresolved_ctxt)
+        {
+            if let AssignTarget::Pat(AssignTargetPat::Object(object)) = &assignment.left {
+                self.inspect_global_object_pattern(object);
+            }
+        }
+        assignment.visit_children_with(self);
     }
 }
 
@@ -814,6 +913,13 @@ fn lower_parsed_program(
             unresolved_mark,
         ));
     }
+    // Resolver marks distinguish an evaluator reference from a harmless local
+    // binding or property spelling. Run after TypeScript/JSX lowering so names
+    // that cannot survive to runtime (type positions and intrinsic JSX tags)
+    // cannot be mistaken for JavaScript-reachable evaluator access.
+    // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+    // — only the JavaScript-reachable global evaluators remain closed.
+    reject_closed_dynamic_code_in_program(program, unresolved_ctxt)?;
     program.mutate(inject_helpers(unresolved_mark));
 
     if source_goal == SourceGoal::Module {
@@ -2418,13 +2524,32 @@ mod tests {
             "eval('1')",
             "(0, eval)('1')",
             "const alias = eval; alias('1')",
+            "function nested() { return eval; }",
+            "({ eval })",
+            "({ [eval]: 1 })",
+            "globalThis.eval('1')",
+            "globalThis['eval']('1')",
+            "const evaluator = globalThis.eval; evaluator('1')",
+            "const { eval: evaluator } = globalThis; evaluator('1')",
+            "window.eval('1')",
         ] {
             assert!(
                 matches!(lower(source).unwrap_err(), SessionLoweringError::EvalClosed),
                 "{source}"
             );
         }
-        for source in ["Function('return 1')", "new Function('return 1')"] {
+        for source in [
+            "Function('return 1')",
+            "new Function('return 1')",
+            "const Constructor = Function; new Constructor('return 1')",
+            "({ Function })",
+            "class Derived extends Function {}",
+            "globalThis.Function('return 1')",
+            "new globalThis['Function']('return 1')",
+            "const Constructor = globalThis.Function; new Constructor('return 1')",
+            "const { Function: Constructor } = globalThis; new Constructor('return 1')",
+            "self.Function('return 1')",
+        ] {
             assert!(
                 matches!(
                     lower(source).unwrap_err(),
@@ -2433,6 +2558,31 @@ mod tests {
                 "{source}"
             );
         }
+    }
+
+    #[test]
+    fn shadowed_evaluator_names_and_inert_property_spellings_are_allowed() {
+        for source in [
+            "const eval = (source: string) => source.length; eval('safe');",
+            "const eval = 1; ({ eval });",
+            "function local(eval: any, Function: any) { return [eval(), new Function()]; }",
+            "{ const eval = 1; const Function = 2; eval + Function; }",
+            "const object = { eval: 1, Function() { return 2; } }; object.eval + object.Function();",
+            "const object = { eval: 1, Function: 2 }; object['eval'] + object['Function'];",
+            "const object = {}; const { eval: localEval, Function: LocalFunction } = object; localEval + LocalFunction;",
+            "const globalThis = { eval(x: string) { return x; }, Function: class {} }; globalThis.eval('safe'); new globalThis.Function();",
+            "eval: { break eval; } Function: { break Function; }",
+            "type Function = { value: number }; const value: Function = { value: 1 }; value;",
+            "({ ['eval']: 1, ['Function']: 2 });",
+        ] {
+            assert!(lower(source).is_ok(), "{source}");
+        }
+
+        assert!(lower_with_dialect(
+            "const node = <eval Function={1} />; node;",
+            ParserDialect::TypeScriptJsx,
+        )
+        .is_ok());
     }
 
     #[test]

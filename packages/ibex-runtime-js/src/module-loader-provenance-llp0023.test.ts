@@ -171,6 +171,7 @@ function makeLoader(
     hint: number;
     specifier: string;
     targetSourceId: string | undefined;
+    resolutionKind: number | undefined;
   }> = [];
   const packageCompartment = Object.freeze({ package: packageLocator });
   const sandbox: any = {
@@ -202,8 +203,9 @@ function makeLoader(
       hint: number,
       specifier: string,
       targetSourceId: string | undefined,
+      resolutionKind: number | undefined,
     ) {
-      importChecks.push({ hint, specifier, targetSourceId });
+      importChecks.push({ hint, specifier, targetSourceId, resolutionKind });
       return specifier !== deniedSpecifier;
     },
     __exactPinProcessStreams() {},
@@ -329,8 +331,18 @@ test('structured-session dynamic import reauthorizes the exact SourceId without 
   expect(
     importChecks.filter(({ targetSourceId }) => targetSourceId !== undefined),
   ).toEqual([
-    { hint: 0, specifier: './a.js', targetSourceId: sourceA },
-    { hint: 0, specifier: './a.js', targetSourceId: sourceA },
+    {
+      hint: 0,
+      specifier: './a.js',
+      targetSourceId: sourceA,
+      resolutionKind: 2,
+    },
+    {
+      hint: 0,
+      specifier: './a.js',
+      targetSourceId: sourceA,
+      resolutionKind: 2,
+    },
   ]);
 });
 
@@ -521,7 +533,12 @@ test('package single-original execution preserves its exact principal, compartme
   expect(
     importChecks.filter(({ targetSourceId }) => targetSourceId !== undefined),
   ).toEqual([
-    { hint: 0, specifier: 'dep-entry.js', targetSourceId: packageSource },
+    {
+      hint: 0,
+      specifier: 'dep-entry.js',
+      targetSourceId: packageSource,
+      resolutionKind: 0,
+    },
   ]);
 });
 

@@ -4050,16 +4050,19 @@ impl Host {
     /// can call a leaked `require` closure whose logical referrer was created
     /// by another principal. The cached SourceId is therefore returned to the
     /// host, decoded only after canonical round-trip validation, and checked
-    /// against the exact target locator. This preserves the no-filesystem-
-    /// lookup cache-hit contract without collapsing same-name packages or
+    /// against the exact authenticated import edge. This preserves the no-
+    /// filesystem-lookup cache-hit contract without collapsing same-name
+    /// packages, accepting another request subpath or resolution kind, or
     /// allowing a package to reuse a root-owned route.
     /// @ref LLP 0013#policy
+    /// @ref LLP 0021#module-initialization-and-trusted-source-acquisition
     /// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
     pub fn check_cached_module_import(
         &self,
         module_id: &str,
         specifier: &str,
         target_source_id: &str,
+        resolution_kind: crate::module_loader::identity::ResolutionKind,
     ) -> bool {
         if self.unarmed_closed || self.decision_context.is_none() {
             return false;
@@ -4077,6 +4080,22 @@ impl Host {
         }
         let Some(policy) = self.typed_imports.get(&requester) else {
             return false;
+        };
+        let Some(snapshot) = self.armed_snapshot.as_deref() else {
+            return false;
+        };
+        let conditions = crate::module_loader::identity::ConditionSet::for_kind(resolution_kind);
+        let condition_names = conditions.names().map(str::to_owned).collect::<Vec<_>>();
+        let attributes = crate::module_loader::identity::ImportAttributes::default();
+        let authenticates_exact_edge = || {
+            snapshot.authenticates_module_edge(
+                &requester,
+                specifier,
+                &target,
+                resolution_kind.wire_name(),
+                &condition_names,
+                attributes.entries(),
+            )
         };
         if !is_module_path_specifier(specifier) {
             let requested_name = package_name_from_specifier(specifier);
@@ -4097,12 +4116,12 @@ impl Host {
             // Match full resolution's ambiguity refusal exactly: an allowed
             // bare name must select one authenticated locator, and that one
             // locator must be the defining principal of the cached SourceId.
-            return candidates.len() == 1 && candidates[0] == &target;
+            return candidates.len() == 1 && candidates[0] == &target && authenticates_exact_edge();
         }
         if requester == target {
             return true;
         }
-        match target {
+        let allowed_target = match &target {
             capsec_semantics::model::Principal::Package { locator, .. } => policy
                 .packages
                 .iter()
@@ -4111,7 +4130,8 @@ impl Host {
             // Other principal kinds cannot define an authenticated file
             // SourceId in the current VFS algebra.
             _ => false,
-        }
+        };
+        allowed_target && authenticates_exact_edge()
     }
 
     /// Render a human-readable audit report of would-deny decisions. Empty
@@ -11228,6 +11248,8 @@ mod tests {
 
     #[test]
     fn armed_module_cache_hits_reauthorize_exact_defining_principal() {
+        use crate::module_loader::identity::ResolutionKind;
+
         let host = example_armed_host();
         host.register_module_package(
             "7",
@@ -11251,11 +11273,54 @@ mod tests {
         .cache_key();
 
         assert!(host.check_import("7", "#inside"));
-        assert!(host.check_cached_module_import("0", "./images/photo.jpg", &root_source));
-        assert!(!host.check_cached_module_import("7", "../images/photo.jpg", &root_source));
-        assert!(host.check_cached_module_import("7", "./index.js", &package_source));
-        assert!(host.check_cached_module_import("7", "#inside", &package_source));
-        assert!(host.check_cached_module_import("0", "image-lib", &package_source));
+        assert!(host.check_cached_module_import(
+            "0",
+            "./images/photo.jpg",
+            &root_source,
+            ResolutionKind::CommonJsRequire,
+        ));
+        assert!(!host.check_cached_module_import(
+            "7",
+            "../images/photo.jpg",
+            &root_source,
+            ResolutionKind::CommonJsRequire,
+        ));
+        assert!(host.check_cached_module_import(
+            "7",
+            "./index.js",
+            &package_source,
+            ResolutionKind::CommonJsRequire,
+        ));
+        assert!(host.check_cached_module_import(
+            "7",
+            "#inside",
+            &package_source,
+            ResolutionKind::CommonJsRequire,
+        ));
+        assert!(host.check_cached_module_import(
+            "0",
+            "image-lib",
+            &package_source,
+            ResolutionKind::CommonJsRequire,
+        ));
+        assert!(host.check_cached_module_import(
+            "0",
+            "image-lib",
+            &package_source,
+            ResolutionKind::DynamicImport,
+        ));
+        assert!(!host.check_cached_module_import(
+            "0",
+            "image-lib/private",
+            &package_source,
+            ResolutionKind::CommonJsRequire,
+        ));
+        assert!(!host.check_cached_module_import(
+            "0",
+            "./node_modules/image-lib/index.js",
+            &package_source,
+            ResolutionKind::CommonJsRequire,
+        ));
 
         let different_locator: capsec_semantics::model::Principal =
             serde_json::from_value(serde_json::json!({
@@ -11271,7 +11336,12 @@ mod tests {
             vec![Arc::from("index.js")],
         )
         .cache_key();
-        assert!(!host.check_cached_module_import("0", "image-lib", &different_locator_source));
+        assert!(!host.check_cached_module_import(
+            "0",
+            "image-lib",
+            &different_locator_source,
+            ResolutionKind::CommonJsRequire,
+        ));
         let mut ambiguous_host = host.clone();
         let mut ambiguous_imports = (*host.typed_imports).clone();
         ambiguous_imports
@@ -11287,12 +11357,67 @@ mod tests {
             },
         );
         ambiguous_host.typed_imports = Arc::new(ambiguous_imports);
-        assert!(!ambiguous_host.check_cached_module_import("0", "image-lib", &package_source));
-        assert!(!host.check_cached_module_import("0", "./x.js", "not-a-source-id"));
+        assert!(!ambiguous_host.check_cached_module_import(
+            "0",
+            "image-lib",
+            &package_source,
+            ResolutionKind::CommonJsRequire,
+        ));
+        assert!(!host.check_cached_module_import(
+            "0",
+            "./x.js",
+            "not-a-source-id",
+            ResolutionKind::CommonJsRequire,
+        ));
         assert!(!host.check_cached_module_import(
             "0",
             "./images/photo.jpg",
-            &format!("{root_source}A")
+            &format!("{root_source}A"),
+            ResolutionKind::CommonJsRequire,
+        ));
+    }
+
+    #[test]
+    fn armed_module_cache_hits_reauthorize_exact_resolution_kind() {
+        use crate::module_loader::identity::ResolutionKind;
+
+        let host = example_armed_host_with(|value| {
+            let edge = &mut value["packageGraph"]["importEdges"][0];
+            edge["requestSpecifier"] = serde_json::json!("image-lib");
+            edge["resolutionKind"] = serde_json::json!("common-js-require");
+            edge["conditions"] = serde_json::json!(["node", "require"]);
+            edge["attributes"] = serde_json::json!({});
+        });
+        let package = host
+            .typed_imports
+            .keys()
+            .find(|principal| {
+                matches!(
+                    principal,
+                    capsec_semantics::model::Principal::Package { name, .. }
+                        if name.as_str() == "image-lib"
+                )
+            })
+            .cloned()
+            .unwrap();
+        let package_source = crate::vfs::SourceId::file_for_test(
+            package,
+            capsec_semantics::model::LogicalRoot::Package,
+            vec![Arc::from("index.js")],
+        )
+        .cache_key();
+
+        assert!(host.check_cached_module_import(
+            "0",
+            "image-lib",
+            &package_source,
+            ResolutionKind::CommonJsRequire,
+        ));
+        assert!(!host.check_cached_module_import(
+            "0",
+            "image-lib",
+            &package_source,
+            ResolutionKind::DynamicImport,
         ));
     }
 

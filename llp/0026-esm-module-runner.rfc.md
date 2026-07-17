@@ -5,10 +5,11 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-17 (ENG-25062 was reopened after merge-prep review distinguished the implemented exact Host authentication and link-time graph receipts from the still-unwired receipt-revalidated source/cache/prepared-carrier access closures; this RFC no longer claims the stronger access boundary is complete)
 **Revised:** 2026-07-16 (an adversarial ingress review found that the native runner eagerly resolved and preauthorized authored literal `require()` and dynamic-import edges; those shapes now select the bounded 0.1 compatibility loader before the deferred target can be resolved, the authenticated native linker independently refuses them, manifest-builtin private fan-out is restricted to synchronous initialization, and ENG-25206 owns the permanent in-drive call-time activation coordinator); 2026-07-16 (the self-authenticating writable prepared cache was replaced by exact rendering from the current Host-authenticated source graph and is classified as a source-mode acceleration, not parse-free production startup); 2026-07-16 (native `import.meta.resolve` now fails with one stable explicit refusal until its typed resolution-only capability is connected); 2026-07-15 (ENG-25060 made frame-attribution feature detection inspect the exact linked macOS framework or Linux library, keeping every advertised engine build fail-closed); 2026-07-15 (ENG-25060 added non-root frame-attribution fixtures for cold and repeated source factories plus prepared source and HBC carriers); 2026-07-15 (ENG-25066 set measured checked-cell and cold `require(ESM)` envelopes and added exact-host micro-performance evidence); 2026-07-15 (ENG-25061 added a fail-loud, no-execution graph/effect-trace shadow between checked authenticated producer artifacts and the exact legacy scanner, including all three historical scanner-repair families); 2026-07-15 (ENG-25066 made the native target advertisement exact and non-empty for macOS arm64 and Linux x64, with Windows explicitly compatibility-only pending a patched Hermes artifact); 2026-07-15 (ENG-25066 narrowed legacy admission to typed unsupported producer shapes and retained fatal behavior for authorization, syntax, integrity, and linkage failures); 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
 handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
 sticky rejection, event-loop keepalive, and mixed re-entry refusal); 2026-07-15
-(ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
+(ENG-25062 introduced immutable-snapshot graph authorization receipts and the autonomous initialization context; receipt-revalidated trusted-loader access remains incomplete as recorded by the 2026-07-17 revision); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
 **Related:** LLP 0002 (host embedding ABI); LLP 0003 (Hermes engine bridge); LLP 0004 (module loading); LLP 0005 (hermetic build); LLP 0006 (native-first diagnostics); LLP 0007 (transform convergence); LLP 0009 (runtime transform scope); LLP 0012 (runtime identity / Node compatibility target); LLP 0013 (package compartments); LLP 0014 (import policy); LLP 0018 (fail-loud agent tooling); LLP 0019 (Hermes-compat transform authority); LLP 0021 (CapSec effect model); LLP 0022 (REPL behavior); LLP 0023 (source identity); LLP 0024 (structured evaluation); LLP 0025 (terminal session ownership); LLP 0027 (artifact wire and ESM/CommonJS interop contract)
 
 ## Summary
@@ -643,14 +644,17 @@ minimal-authority importer triggers initialization of an effectful
 privileged module, alongside the sticky-error poisoning scenario the
 amendment forecloses.
 
-ENG-25062 realizes the synchronous half of this contract in
+ENG-25062 realizes the graph-link portion of this contract in
 `module_loader::security`: every reachable static import, re-export, and JSON
 edge must produce a typed graph decision and immutable-snapshot receipt before
 the native graph compiles a factory. The same closed operation algebra reserves
 dynamic import, literal/computed `require`, cache, prepared-carrier, and factory
-operations for their owning phases. Receipt checks bind the exact target,
-coverage edge, snapshot digest, authority generations, and graph generation;
-chunk co-residence and cache presence therefore confer no authorization. The
+operations for their owning phases. Link-time receipt checks bind the exact
+target, coverage edge, snapshot digest, authority generations, and graph
+generation, so chunk co-residence does not authorize a linker edge. Production
+source and prepared-cache acquisition still precede these receipts and rely on
+the exact Host-authenticated edge and exact prepared-byte comparison; consuming
+the access-operation receipts at those reads remains open in ENG-25062. The
 unauthenticated linker remains test-only, and target cells stay unsupported
 until their executed fixture evidence exists.
 

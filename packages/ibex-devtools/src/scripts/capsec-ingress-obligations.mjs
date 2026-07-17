@@ -102,7 +102,7 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
       freezeEvidence("src/engine/session_lowering.rs", [
         "pub fn lower_program(",
         "analyze_source(syntax_request, source)?",
-        "reject_closed_dynamic_code_in_program(&program)?;",
+        "reject_closed_dynamic_code_in_program(program, unresolved_ctxt)?;",
         "ReferenceLowering",
       ]),
       freezeEvidence("src/engine/hermes_runtime.cc", [
@@ -662,7 +662,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "structured-session-contract",
       "/// Bind one opaque authenticated-session token to an armed runtime.",
       "enum {\n  EX_HERMES_CANCEL_UNAVAILABLE",
-      "sha256-hjFhCaWLDfwc9C1qsacCh6MP-9stmAVEEYsNLB3nmZ0",
+      "sha256-DBE0rIgjhVZ9TraiOQp-NGzSflFn-Pv3ODuZfJxWAj8",
     ),
   ]),
   "src/bin/ibex/main.rs": Object.freeze([
@@ -776,7 +776,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "structured-session-ingress",
       'extern "C" uint32_t ex_hermes_structured_session_bind(',
       'extern "C" int ex_hermes_resume_structured_session(',
-      "sha256-wRrb1mirZHf1qYj-lYDo6Ba15ojz7AJPLEQGhI34IWU",
+      "sha256-tlmkKTPZ5v2sADoOGp-IQ4vbw62Q2a5ZsyZ2f-spoCE",
     ),
     freezeReviewedRange(
       "sealed-bare-evaluator",
@@ -804,7 +804,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "checked-program-lowering",
       "pub fn lower_program(",
       "struct ReferenceLowering {",
-      "sha256-6iZFmIdEn8tEiIyY2-iBDdr2s_29dvzPP3zCrOVw9JM",
+      "sha256-MzikPPKaTqBZ3SgvMbSfukTC7OBnEaPxn-9H3mz7EUc",
     ),
   ]),
   "src/host/mod.rs": Object.freeze([

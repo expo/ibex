@@ -1890,12 +1890,16 @@ async fn execute_post_lockdown(recipe: &Recipe) -> ScenarioExecution {
   var prototypeMutationBlocked = false;
   try {{ Object.defineProperty(Object.prototype, '__capsecLockdownMutation', {{value: true}}); }} catch (_) {{}}
   prototypeMutationBlocked = Object.prototype.__capsecLockdownMutation !== true;
-  var functionTamed = globalThis['Function'].__ibexTamed === true;
-  var evalTamed = globalThis['eval'].__ibexTamed === true;
+  // The ingress scanner closes direct global evaluator spellings. Retain this
+  // runtime lockdown assertion through a dataflow alias, which structural
+  // taming must contain independently of the syntax gate.
+  var realm = globalThis;
+  var functionTamed = realm['Function'].__ibexTamed === true;
+  var evalTamed = realm['eval'].__ibexTamed === true;
   return {{
     context: observer(),
     structuralLockdown: globalThis.__ibexLockedDown === true && descriptor && descriptor.writable === false && descriptor.configurable === false,
-    intrinsicsFrozen: Object.isFrozen(Object.prototype) && Object.isFrozen(globalThis['Function'].prototype),
+    intrinsicsFrozen: Object.isFrozen(Object.prototype) && Object.isFrozen(realm['Function'].prototype),
     evaluatorsTamed: functionTamed && evalTamed,
     hatchesAbsent: hatchesAbsent,
     compartmentWithholdsAuthority: compartmentWithholdsAuthority,

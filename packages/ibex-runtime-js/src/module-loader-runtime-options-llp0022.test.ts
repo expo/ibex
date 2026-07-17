@@ -168,6 +168,26 @@ function makeLoader(options: { deniedSpecifier?: string } = {}) {
         ].join('\n'),
       ));
     }
+    if (specifier === 'non-string-require-probe.js') {
+      return JSON.stringify(authenticatedRecord(
+        '/project/non-string-require-probe.js',
+        [
+          "var coercions = 0;",
+          "var objectSpecifier = { toString: function() { coercions++; return 'data.json'; } };",
+          "var requireError;",
+          "var resolveError;",
+          "try { require(objectSpecifier); } catch (error) { requireError = error; }",
+          "try { require.resolve(objectSpecifier); } catch (error) { resolveError = error; }",
+          "module.exports = {",
+          "  coercions: coercions,",
+          "  requireName: requireError && requireError.name,",
+          "  requireMessage: requireError && requireError.message,",
+          "  resolveName: resolveError && resolveError.name,",
+          "  resolveMessage: resolveError && resolveError.message",
+          "};",
+        ].join('\n'),
+      ));
+    }
     if (specifier === 'private-package.js') {
       return JSON.stringify({
         schema: 'ibex/module-resolution/1',
@@ -284,6 +304,87 @@ test('aliased require and require.resolve reject a second argument without readi
   expect(() => resolveAlias('never-resolve', options)).toThrow('needs');
   expect(resolutions.length).toBe(beforeResolve);
   expect(reads).toBe(0);
+});
+
+test('every CommonJS require facade rejects non-string specifiers before coercion or resolution', () => {
+  const { sandbox, resolutions, importGateCalls } = makeLoader();
+  const createRequire = sandbox.require('node:module').createRequire;
+  const scoped = createRequire('/project/tools/config.js');
+  const callFacades = [sandbox.require, sandbox.__exactRequire, scoped];
+  const resolveFacades = [
+    sandbox.require.resolve,
+    sandbox.__exactRequire.resolve,
+    scoped.resolve,
+  ];
+
+  for (const facade of [...callFacades, ...resolveFacades]) {
+    for (const makeSpecifier of [
+      () => ({
+        toString() {
+          throw new Error('must not coerce object specifier');
+        },
+      }),
+      () => new String('data.json'),
+      () => Symbol('data.json'),
+    ]) {
+      const beforeResolutions = resolutions.length;
+      const beforeGateCalls = importGateCalls.length;
+      let error: any;
+      try {
+        facade(makeSpecifier());
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error?.name).toBe('TypeError');
+      expect(error?.message).toBe('Module specifier must be a string');
+      expect(resolutions).toHaveLength(beforeResolutions);
+      expect(importGateCalls).toHaveLength(beforeGateCalls);
+    }
+  }
+
+  const local = sandbox.require('non-string-require-probe.js');
+  expect(local).toEqual({
+    coercions: 0,
+    requireName: 'TypeError',
+    requireMessage: 'Module specifier must be a string',
+    resolveName: 'TypeError',
+    resolveMessage: 'Module specifier must be a string',
+  });
+});
+
+test('dynamic import performs ToString once before gating and rejects Symbol asynchronously', async () => {
+  const denied = makeLoader({ deniedSpecifier: 'data.json' });
+  let coercions = 0;
+  const beforeDeniedResolution = denied.resolutions.length;
+  const deniedPromise = denied.sandbox.importModule({
+    toString() {
+      coercions++;
+      return 'data.json';
+    },
+  });
+  expect(coercions).toBe(1);
+  await expect(deniedPromise).rejects.toMatchObject({
+    code: 'ERR_IBEX_IMPORT_DENIED',
+  });
+  expect(coercions).toBe(1);
+  expect(denied.resolutions).toHaveLength(beforeDeniedResolution);
+  expect(denied.importGateCalls.at(-1)?.specifier).toBe('data.json');
+
+  const allowed = makeLoader();
+  let allowedCoercions = 0;
+  await allowed.sandbox.importModule({
+    toString() {
+      allowedCoercions++;
+      return 'data.json';
+    },
+  });
+  expect(allowedCoercions).toBe(1);
+  expect(allowed.resolutions).toContain('data.json');
+
+  const beforeSymbolResolution = allowed.resolutions.length;
+  const symbolPromise = allowed.sandbox.importModule(Symbol('data.json'));
+  await expect(symbolPromise).rejects.toMatchObject({ name: 'TypeError' });
+  expect(allowed.resolutions).toHaveLength(beforeSymbolResolution);
 });
 
 test('public dynamic-import aliases close second arguments before resolution', () => {

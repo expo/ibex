@@ -153,7 +153,7 @@
           "tokens": [
             "pub fn lower_program(",
             "analyze_source(syntax_request, source)?",
-            "reject_closed_dynamic_code_in_program(&program)?;",
+            "reject_closed_dynamic_code_in_program(program, unresolved_ctxt)?;",
             "ReferenceLowering"
           ]
         },

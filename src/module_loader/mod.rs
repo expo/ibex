@@ -6843,8 +6843,8 @@ globalThis.__exactCaptureSessionStaticImport = function(fn) {
   };
 };
 globalThis.__exactGetCwd = function() { return currentCwd; };
-globalThis.__exactCheckImport = function(hint, specifier, targetSourceId) {
-  importChecks.push([hint, specifier, targetSourceId]);
+globalThis.__exactCheckImport = function(hint, specifier, targetSourceId, resolutionKind) {
+  importChecks.push([hint, specifier, targetSourceId, resolutionKind]);
   return true;
 };
 function logical(path) {
@@ -6905,8 +6905,8 @@ if (dependencyResolves !== 3 || globalThis.__depRuns !== 1 ||
     String(globalThis.__memoResult) !== 'true,1,1,file:///project/dep%20space.js' ||
     topOne !== topTwo || topOne !== afterCwdChange ||
     JSON.stringify(cacheHitChecks) !== JSON.stringify([
-      [0, './dep space.js', 'ibex-source-id-v1:dep'],
-      [0, './dep space.js', 'ibex-source-id-v1:dep']
+      [0, './dep space.js', 'ibex-source-id-v1:dep', 0],
+      [0, './dep space.js', 'ibex-source-id-v1:dep', 0]
     ]) ||
     labelStack.indexOf('file:///project/dep%20space.js') === -1) {
   throw new Error(JSON.stringify({

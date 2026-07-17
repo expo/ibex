@@ -554,6 +554,8 @@ extern "C" {
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_enable_work_unit_publication(runtime: *mut HermesRuntimeOpaque) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_fail_next_work_begin_after_cancellation(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_begin_module_graph_transition_probe(
         runtime: *mut HermesRuntimeOpaque,
         work_target_id: u64,
@@ -2178,18 +2180,17 @@ impl HermesEngine {
                         break;
                     }
 
-                    let host_pending = unsafe {
-                        ex_host_http_has_referenced() != 0
-                            || ex_host_http_has_pending_requests() != 0
-                            || native_ws_has_active() != 0
-                    };
+                    // This guarded runtime query already includes Host I/O.
+                    // Calling the raw Host helpers here would run after the
+                    // native drive scope has been restored, where nonce 0 is a
+                    // process-wide query and another runtime could keep this
+                    // graph alive indefinitely.
+                    // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
                     let runtime_pending = unsafe { ex_hermes_has_pending_tasks(raw) } != 0;
                     if trace_graph {
-                        eprintln!(
-                            "[module-graph] pending host={host_pending} runtime={runtime_pending}"
-                        );
+                        eprintln!("[module-graph] pending runtime={runtime_pending}");
                     }
-                    if !host_pending && !runtime_pending {
+                    if !runtime_pending {
                         forced_terminal =
                             Some(ModuleGraphExecutionOutcome::UnresolvedTopLevelAwait);
                         return Ok(());
@@ -4776,6 +4777,12 @@ mod tests {
                 ),
                 (
                     AuthenticatedWorkUnitKind::Evaluation,
+                    AuthenticatedWorkUnitPhase::Begin,
+                    GRAPH_TARGET,
+                    GRAPH_SCHEDULE,
+                ),
+                (
+                    AuthenticatedWorkUnitKind::Evaluation,
                     AuthenticatedWorkUnitPhase::End,
                     GRAPH_TARGET,
                     GRAPH_SCHEDULE,
@@ -4796,6 +4803,67 @@ mod tests {
             engine.eval_immediate("6 * 7").await.unwrap().as_deref(),
             Some("42"),
             "graph cancellation left the runtime unusable"
+        );
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn module_graph_resume_publication_failure_rolls_back_racing_cancellation() {
+        const GRAPH_TARGET: u64 = 0x7101;
+        const GRAPH_SCHEDULE: u64 = 51;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(ibex_test_enable_work_unit_publication(raw), 1);
+                assert_eq!(
+                    ibex_test_begin_module_graph_transition_probe(
+                        raw,
+                        GRAPH_TARGET,
+                        GRAPH_SCHEDULE,
+                    ),
+                    1
+                );
+                assert_eq!(
+                    ex_hermes_structured_module_graph_suspend(raw, GRAPH_TARGET),
+                    0
+                );
+                assert_eq!(ibex_test_fail_next_work_begin_after_cancellation(raw), 1);
+                assert_eq!(
+                    ex_hermes_structured_module_graph_resume(raw, GRAPH_TARGET),
+                    2,
+                    "the injected publication failure was not reported"
+                );
+            })
+            .unwrap();
+
+        assert_eq!(
+            engine.active_authenticated_target(),
+            None,
+            "failed resume left the graph published as an active target"
+        );
+        assert_eq!(
+            engine.cancel_authenticated_target(GRAPH_TARGET),
+            AuthenticatedCancellationStatus::Unavailable,
+            "failed resume left its cancellation request active"
+        );
+        assert_eq!(
+            runtime
+                .with_runtime(|raw| unsafe {
+                    ibex_test_end_module_graph_transition_probe(raw, GRAPH_TARGET, 0)
+                })
+                .unwrap(),
+            1,
+            "failed resume left the cancellation state unusable"
+        );
+        assert_eq!(
+            engine.eval_immediate("6 * 7").await.unwrap().as_deref(),
+            Some("42"),
+            "failed resume left an armed timeout for the successor"
         );
     }
 

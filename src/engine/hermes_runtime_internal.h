@@ -427,6 +427,9 @@ struct ExactHermesRuntime {
   std::mutex structured_test_work_mutex;
   std::condition_variable structured_test_work_cv;
   bool structured_test_work_released{false};
+  // Deterministically inject the controller-cancel -> Begin-publication-fail
+  // interleaving so rollback proves it consumes the armed Hermes break.
+  bool structured_test_fail_next_begin_after_cancellation{false};
 #endif
   // Persistent checked-cell session record. JSI roots are native-only and are
   // destroyed on the owner thread before `runtime` (declared above) is torn
@@ -971,7 +974,8 @@ extern "C" int32_t ex_host_authorize_typed_listen_stack(
 extern "C" int32_t ex_host_has_deputy_classes(void);
 extern "C" int32_t ex_host_check_import(uint64_t module_id,
                                         const char* specifier,
-                                        const char* target_source_id);
+                                        const char* target_source_id,
+                                        uint32_t resolution_kind);
 // @ref LLP 0013#delegation-and-authority-flow — authority-bearing capability handles.
 extern "C" uint64_t ex_host_handle_create(const char* capability);
 extern "C" uint64_t ex_host_handle_scoped(uint64_t parent, const char* narrower);

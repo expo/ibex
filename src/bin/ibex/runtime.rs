@@ -13665,6 +13665,13 @@ pub(crate) mod tests {
         .unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        bind_snapshot_fixture_project_root(
+            &mut value,
+            &canonical_root,
+            &canonical_root,
+            "package-manifest",
+            Some(&canonical_root.join("package.json")),
+        );
         let package_principal = value["packageGraph"]["nodes"][0]["principal"].clone();
         let root_principal = value["rootIdentity"].clone();
         let package_object = value["rootBindings"][0]["object"].clone();
@@ -13730,13 +13737,6 @@ pub(crate) mod tests {
             .as_str(),
             "mode": "program",
         });
-        bind_snapshot_fixture_project_root(
-            &mut value,
-            &canonical_root,
-            &canonical_root,
-            "package-manifest",
-            Some(&canonical_root.join("package.json")),
-        );
         let protected_engine = value["protectedObjects"]
             .as_array_mut()
             .unwrap()

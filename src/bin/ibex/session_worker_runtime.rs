@@ -4430,6 +4430,23 @@ mod work_unit_tests {
                 target_id: 41,
                 scheduling_id: 0,
                 kind: WorkUnitKind::Evaluation,
+                phase: WorkUnitPhase::Begin,
+            }))
+            .unwrap();
+        assert_eq!(
+            cancellation.interrupt_work_snapshot(),
+            RemoteInterruptWorkSnapshot {
+                executing: Some((41, WorkUnitKind::Evaluation)),
+                suspended_ids: Vec::new(),
+                due_schedules: Vec::new(),
+            },
+            "resuming a suspended graph must restore its exact cancellation target"
+        );
+        session
+            .apply_event(worker_event(ControlMessage::WorkUnit {
+                target_id: 41,
+                scheduling_id: 0,
+                kind: WorkUnitKind::Evaluation,
                 phase: WorkUnitPhase::End,
             }))
             .unwrap();

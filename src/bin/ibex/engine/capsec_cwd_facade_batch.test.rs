@@ -398,6 +398,22 @@ module.exports = { marker: 'v2', executions: globalThis.__memoV2Executions };"#,
                 {"importer": root_principal, "imported": attacker},
                 {"importer": root_principal, "imported": allowed_locator},
                 {"importer": root_principal, "imported": denied_locator},
+                {
+                    "importer": root_principal,
+                    "imported": denied_locator,
+                    "requestSpecifier": "./node_modules/shared/index.js",
+                    "resolutionKind": "common-js-require",
+                    "conditions": ["node", "require"],
+                    "attributes": {}
+                },
+                {
+                    "importer": root_principal,
+                    "imported": allowed_locator,
+                    "requestSpecifier": "./vendor-v1/node_modules/shared/index.js",
+                    "resolutionKind": "common-js-require",
+                    "conditions": ["node", "require"],
+                    "attributes": {}
+                },
                 {"importer": attacker, "imported": allowed_locator},
             ]);
             snapshot["rootBindings"][0] = attacker_binding;
@@ -438,6 +454,7 @@ module.exports = { marker: 'v2', executions: globalThis.__memoV2Executions };"#,
             &engine,
             r#"var rootWarm;
                 var locatorWarm;
+                var allowedLocatorWarm;
                 var attacker;
                 var warmErrors = [];
                 try { rootWarm = globalThis.require('./root-only.js'); }
@@ -447,6 +464,8 @@ module.exports = { marker: 'v2', executions: globalThis.__memoV2Executions };"#,
                 catch (error) { warmErrors.push('dynamic-root:' + String(error && error.code || '') + ':' + String(error && error.message || error)); }
                 try { locatorWarm = globalThis.require('./node_modules/shared/index.js'); }
                 catch (error) { warmErrors.push('locator:' + String(error && error.code || '') + ':' + String(error && error.message || error)); }
+                try { allowedLocatorWarm = globalThis.require('./vendor-v1/node_modules/shared/index.js'); }
+                catch (error) { warmErrors.push('allowed-locator:' + String(error && error.code || '') + ':' + String(error && error.message || error)); }
                 try { attacker = require('image-lib'); }
                 catch (error) { warmErrors.push('attacker:' + String(error && error.code || '') + ':' + String(error && error.message || error)); }
                 var dynamicAttacker;
@@ -469,11 +488,13 @@ module.exports = { marker: 'v2', executions: globalThis.__memoV2Executions };"#,
                 JSON.stringify({
                   root: attempt('./root-only.js'),
                   locator: attempt('./node_modules/shared/index.js'),
+                  allowedLocator: attempt('./vendor-v1/node_modules/shared/index.js'),
                   warmErrors: warmErrors,
                   rootExecutions: rootWarm && rootWarm.executions,
                   dynamicRootExecutions: dynamicRoot && dynamicRoot.default && dynamicRoot.default.executions,
                   dynamicAttackerType: typeof (dynamicAttacker && dynamicAttacker.default),
-                  locatorExecutions: locatorWarm && locatorWarm.executions
+                  locatorExecutions: locatorWarm && locatorWarm.executions,
+                  allowedLocatorMarker: allowedLocatorWarm && allowedLocatorWarm.marker
                 })"#,
         )
         .await;
@@ -484,8 +505,14 @@ module.exports = { marker: 'v2', executions: globalThis.__memoV2Executions };"#,
         result["locator"]["code"], "ERR_IBEX_IMPORT_DENIED",
         "{result}"
     );
+    assert_eq!(
+        result["allowedLocator"]["code"],
+        "ERR_IBEX_IMPORT_DENIED",
+        "{result}"
+    );
     assert_eq!(result["rootExecutions"], 1, "{result}");
     assert_eq!(result["dynamicRootExecutions"], 1, "{result}");
     assert_eq!(result["dynamicAttackerType"], "function", "{result}");
     assert_eq!(result["locatorExecutions"], 1, "{result}");
+    assert_eq!(result["allowedLocatorMarker"], "allowed-decoy", "{result}");
 }

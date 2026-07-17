@@ -880,7 +880,8 @@ uint32_t ex_hermes_structured_module_graph_suspend(
     uint64_t work_target_id);
 
 /// Re-enter the same suspended foreground target immediately before advancing
-/// native graph state. This does not publish a second Begin event.
+/// native graph state. Publishes Begin for the same target/scheduling identity
+/// so an external work ledger observes the suspended -> executing transition.
 uint32_t ex_hermes_structured_module_graph_resume(
     ExactHermesRuntime* runtime,
     uint64_t work_target_id);

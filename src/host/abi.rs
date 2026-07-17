@@ -5470,16 +5470,19 @@ pub extern "C" fn ex_host_register_module_package(
 
 /// Import-graph gate: may `module_id` load `specifier`? On an authenticated
 /// route-cache hit, `target_source_id` names the already-resolved file identity
-/// whose exact defining principal must be re-authorized without another
-/// filesystem lookup. Returns 1 if the load may proceed, else 0.
+/// and `resolution_kind` completes the exact edge tuple that must be
+/// re-authorized without another filesystem lookup. Returns 1 if the load may
+/// proceed, else 0.
 ///
 /// @ref LLP 0013#policy — builtins are reachable by `require`, so import policy
 /// is the primary containment gate for them.
+/// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
 #[no_mangle]
 pub extern "C" fn ex_host_check_import(
     module_id: u64,
     specifier: *const c_char,
     target_source_id: *const c_char,
+    resolution_kind: u32,
 ) -> i32 {
     let module = PrincipalIdBuf::new(module_id);
     let allowed = if target_source_id.is_null() {
@@ -5499,8 +5502,20 @@ pub extern "C" fn ex_host_check_import(
         let Ok(specifier) = unsafe { CStr::from_ptr(specifier) }.to_str() else {
             return 0;
         };
+        let Ok(resolution_kind) =
+            crate::module_loader::identity::ResolutionKind::from_abi_code(resolution_kind)
+        else {
+            return 0;
+        };
         with_host(
-            |host| host.check_cached_module_import(module.as_str(), specifier, target_source_id),
+            |host| {
+                host.check_cached_module_import(
+                    module.as_str(),
+                    specifier,
+                    target_source_id,
+                    resolution_kind,
+                )
+            },
             false,
         )
     };

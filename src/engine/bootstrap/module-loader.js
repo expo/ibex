@@ -5681,9 +5681,27 @@
   // (principal, specifier) decisions keyed by the frame-derived principal, so
   // the steady state is one native call + a hash hit, while denials always run
   // the full path and keep their audit entries. (ENG-22644)
-  function checkImportGate(specifier, requesterHint, authenticatedTargetSourceId) {
-    if (typeof specifier !== 'string') return;
+  function checkImportGate(
+    specifier,
+    requesterHint,
+    authenticatedTargetSourceId,
+    resolutionKind
+  ) {
+    // CommonJS require() accepts only primitive strings. Do this before the
+    // native gate and before loadInternal()/load() can coerce an object into a
+    // builtin or internal name, otherwise an object-shaped specifier skips the
+    // package-facing policy check and is stringified only by the loader's
+    // trusted internal fan-out. Dynamic import performs its distinct ToString
+    // operation in importImpl before reaching this boundary.
+    if (typeof specifier !== 'string') {
+      throw new TypeError('Module specifier must be a string');
+    }
     var cacheHit = typeof authenticatedTargetSourceId === 'string';
+    if (cacheHit &&
+        resolutionKind !== 0 && resolutionKind !== 1 &&
+        resolutionKind !== 2 && resolutionKind !== 3) {
+      throw new TypeError('Authenticated module cache-hit resolution kind is invalid');
+    }
     if (!__privCheckImport) {
       if (cacheHit) {
         throw new Error('Authenticated module cache-hit gate is unavailable');
@@ -5703,7 +5721,8 @@
     if (!__privCheckImport(
       hint,
       specifier,
-      cacheHit ? authenticatedTargetSourceId : undefined
+      cacheHit ? authenticatedTargetSourceId : undefined,
+      cacheHit ? resolutionKind : undefined
     )) {
       var error = new Error(
         "Import denied: '" + specifier + "' is not permitted for this package (LLP 0013 import policy)");
@@ -6015,7 +6034,6 @@
           : 'module');
     var __cacheAuthorizationRecordMatches = authenticatedRecord === undefined ||
       (authenticatedCacheAuthorization &&
-       structuredSessionRoot === true &&
        authenticatedRecord !== null &&
        typeof authenticatedRecord === 'object' &&
        authenticatedRecord.schema === 'ibex/module-resolution/1' &&
@@ -6029,13 +6047,12 @@
       authenticatedCacheAuthorization.referrer === (referrer || '') &&
       typeof authenticatedCacheAuthorization.routeKey === 'string' &&
       typeof authenticatedCacheAuthorization.nativeReferrer === 'string';
-    // A structured session-root dynamic import resolves while its caller frame
-    // is live, then supplies that authenticated record to the detached Promise
-    // turn. Retain its route identity even with a supplied record so the first
-    // load seeds the SourceId memo and later imports can reauthorize without a
-    // second source probe.
+    // An authenticated dynamic import resolves while its caller frame is live,
+    // then supplies that record to the detached Promise turn. Retain its route
+    // identity even with a supplied record so the first load seeds the SourceId
+    // memo and later imports can reauthorize without a second source probe.
     var authenticatedResolution =
-      authenticatedRecord === undefined || structuredSessionRoot === true
+      authenticatedRecord === undefined || __usesCacheAuthorization
       ? (__usesCacheAuthorization
           ? {
               routeKey: authenticatedCacheAuthorization.routeKey,
@@ -6056,12 +6073,14 @@
       var memoizedModule = memoizedRoute && cache[memoizedRoute.cacheKey];
       if (memoizedModule) {
         // The route identity is reusable, but its authority is not. Re-check
-        // the current frame against the cached SourceId's exact defining
-        // principal on every hit. Native ignores the JS hint on armed engines,
-        // validates the opaque SourceId canonically, and compares package
-        // locators exactly; this therefore closes leaked-require, package-to-
-        // root, and same-name/different-locator reuse without a filesystem
-        // lookup. @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+        // the current frame against the cached SourceId's exact typed edge on
+        // every hit. Native ignores the JS hint on armed engines, validates the
+        // opaque SourceId canonically, and compares the requester, request,
+        // defining principal/locator, resolution kind, conditions, and
+        // attributes; this therefore closes leaked-require, package-to-root,
+        // same-locator/wrong-subpath, and same-name/different-locator reuse
+        // without a filesystem lookup.
+        // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
         if (__usesCacheAuthorization &&
             authenticatedCacheAuthorization.cacheKey !== memoizedRoute.cacheKey) {
           throw new Error('Authenticated module cache authorization changed identity');
@@ -6074,7 +6093,8 @@
           checkImportGate(
             resolvedSpecifier,
             __memoRequester,
-            memoizedRoute.cacheKey
+            memoizedRoute.cacheKey,
+            typedResolutionKind
           );
         }
         return memoizedModule.exports;
@@ -7183,7 +7203,8 @@
           checkImportGate(
             dynamicResolvedSpecifier,
             undefined,
-            dynamicRoute.cacheKey
+            dynamicRoute.cacheKey,
+            2
           );
           dynamicCacheAuthorization = {
             resolverMode: 'session-root',
@@ -7247,7 +7268,8 @@
             checkImportGate(
               dynamicResolvedSpecifier,
               undefined,
-              dynamicRecord.sourceId
+              dynamicRecord.sourceId,
+              2
             );
             dynamicCacheAuthorization = {
               resolverMode: 'session-root',
@@ -7684,12 +7706,18 @@
     // on the stack. Surface a denial as a rejected promise per import()
     // semantics rather than a synchronous throw. (ENG-22629)
     var gateError = null;
+    var authenticatedImportRecord;
     var authenticatedCacheAuthorization = null;
     try {
+      // ImportCall performs ToString before host resolution. Capture the
+      // intrinsic once, invoke user coercion exactly once, and preserve the
+      // Symbol rejection that String(Symbol()) would otherwise mask.
+      if (typeof specifier === 'symbol') {
+        throw new TypeError('Cannot convert a Symbol value to a string');
+      }
+      specifier = __privString(specifier);
       checkImportGate(specifier);
-      var __normalizedImportSpecifier = typeof specifier === 'string'
-        ? stripViteImportQuery(specifier)
-        : specifier;
+      var __normalizedImportSpecifier = stripViteImportQuery(specifier);
       // Route-memo authority is synchronous for every authenticated file
       // route, including bare packages. The later Promise callback has no
       // requesting frame and may consume only this exact route/key grant.
@@ -7709,7 +7737,8 @@
         checkImportGate(
           __normalizedImportSpecifier,
           parent && parent.__exactPackageId,
-          __importRoute.cacheKey
+          __importRoute.cacheKey,
+          2
         );
         authenticatedCacheAuthorization = {
           resolverMode: 'module',
@@ -7723,6 +7752,68 @@
       } else if (__importRoute && __importRouteKey !== null) {
         delete __authenticatedResolutionMemo[__importRouteKey];
       }
+      // Cold authenticated imports must resolve while the requesting frame is
+      // still live. The Promise turn below may consume only this exact record
+      // and SourceId authorization; it must not repeat native resolution under
+      // detached attribution. This is the ordinary-module counterpart of the
+      // private structured-session dynamic-import hook.
+      if (__importResolution !== null && !authenticatedCacheAuthorization) {
+        if (typeof __privModuleResolve !== 'function') {
+          throw new Error('Module resolver is unavailable');
+        }
+        var __importJson = __privModuleResolve(
+          __normalizedImportSpecifier,
+          __importResolution.nativeReferrer,
+          2
+        );
+        if (!__importJson) {
+          throw new Error('Module not found: ' + specifier);
+        }
+        authenticatedImportRecord = __privJsonParse(__importJson);
+        if (!authenticatedImportRecord ||
+            typeof authenticatedImportRecord !== 'object' ||
+            __privArrayIsArray(authenticatedImportRecord)) {
+          throw new TypeError('Invalid authenticated dynamic-import record');
+        }
+        if (authenticatedImportRecord.error) {
+          throw moduleResolutionError(authenticatedImportRecord);
+        }
+        if (isPathSpecifier(__normalizedImportSpecifier)) {
+          var __authenticatedImportTarget =
+            packageNameForRecord(authenticatedImportRecord, parent);
+          var __authenticatedImportRequester = parent && parent.__exactPackageName
+            ? parent.__exactPackageName
+            : packageNameFromPath(referrer);
+          if (__authenticatedImportTarget &&
+              __authenticatedImportTarget !== __authenticatedImportRequester) {
+            checkImportGate(
+              __authenticatedImportTarget,
+              parent && parent.__exactPackageId
+            );
+          }
+        }
+        if (authenticatedImportRecord.schema === 'ibex/module-resolution/1' &&
+            authenticatedImportRecord.kind !== 'builtin' &&
+            typeof authenticatedImportRecord.sourceId === 'string' &&
+            authenticatedImportRecord.sourceId.indexOf('ibex-source-id-v1:') === 0) {
+          checkImportGate(
+            __normalizedImportSpecifier,
+            parent && parent.__exactPackageId,
+            authenticatedImportRecord.sourceId,
+            2
+          );
+          authenticatedCacheAuthorization = {
+            resolverMode: 'module',
+            resolutionKind: 2,
+            specifier: __normalizedImportSpecifier,
+            referrer: referrer,
+            routeKey: __importRouteKey,
+            nativeReferrer: __importResolution.nativeReferrer,
+            cacheKey: authenticatedImportRecord.sourceId,
+            cacheExpected: false
+          };
+        }
+      }
       // A relative/absolute dynamic import can resolve to a DIFFERENT package
       // (`import('../sibling')`), which the raw-specifier gate above can't see.
       // The resolved-target gate in load() runs inside the microtask below where
@@ -7730,7 +7821,9 @@
       // unregistered sentinel and allow), so resolve + gate the target package's
       // name SYNCHRONOUSLY here while the requester frame is still on the stack.
       // (ENG-22637 review pass2)
-      if (isPathSpecifier(specifier) && !authenticatedCacheAuthorization) {
+      if (isPathSpecifier(specifier) &&
+          !authenticatedCacheAuthorization &&
+          authenticatedImportRecord === undefined) {
         var __itp = null;
         // Keep cwd attribution synchronous with the importing frame. In
         // particular, do not fold a typed cwd denial into the ordinary
@@ -7770,7 +7863,7 @@
         referrer,
         parent,
         undefined,
-        undefined,
+        authenticatedImportRecord,
         undefined,
         undefined,
         authenticatedCacheAuthorization,

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-25062 was reopened after merge-prep review confirmed that graph-link receipts are produced and retained, but production source/cache/prepared-carrier reads do not yet enter the receipt-revalidated access closures; the existing Host edge authentication and exact prepared-byte comparison remain in force without claiming the stronger closure-gated boundary)
 **Revised:** 2026-07-16 (the module-runner safety review classifies exact generated manifest-builtin fan-out as closed private runtime linkage that may be eagerly materialized without a package/filesystem probe, but activation is confined to the exact builtin record's synchronous evaluation and cannot escape or re-enter through a retained `require` closure)
 **Revised:** 2026-07-16 (ENG-24933 binds asynchronous `chmod` and `utime` to retained files, repeats authorization on the worker, and closes twelve exact public scenarios with owned cleanup)
 **Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the Exact-bound artifact preparer while preserving empty advertisements)
@@ -279,15 +280,18 @@ must use this classification before the ModuleRunner security integration can
 claim conformance; denial, no-probe, cache-hit, prepared-carrier, and
 wrong-principal fixtures are mandatory.
 
-ENG-25062 implements that boundary as a typed `GraphDecisionSet` over the
+ENG-25062 defines that boundary as a typed `GraphDecisionSet` over the
 exact requesting and target `SourceId`, resolution kind, conditions,
 attributes, actor, effect owner, schedule-time identity, canonical constrained
 set, stage, atomicity group, graph generation, and coverage edge. Successful
 authorization returns an opaque receipt bound to the armed snapshot digest and
-all four authority generations. Source, cache, and prepared-carrier access is
-possible only through a closure entered after the receipt is revalidated for
-the exact target and generation. Module factories remain reachability-only at
-the graph boundary; host effects they perform still enter ordinary typed
+all four authority generations. The graph linker produces and retains those
+receipts. The receipt-revalidated closures for source, cache, and
+prepared-carrier access exist and are unit-tested, but production acquisition
+still occurs through the exact Host-authenticated edge path (or exact prepared
+byte comparison) before link authorization; wiring those reads through the
+closures remains open in ENG-25062. Module factories remain reachability-only
+at the graph boundary; host effects they perform still enter ordinary typed
 semantic-core `DecisionSet`s at their native effect gates. Generated target
 cells remain unsupported until executed conformance evidence promotes them.
 

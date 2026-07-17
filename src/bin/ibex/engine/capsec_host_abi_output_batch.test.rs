@@ -2898,6 +2898,7 @@ fn execute_basic(function_name: &str) -> Result<Value, String> {
             0,
             specifier.as_ptr(),
             std::ptr::null(),
+            0,
         )),
         "ex_host_claim_armed_context" => returned_number(unsafe {
             crate::host::abi::ex_host_claim_armed_context(integrity.as_ptr())

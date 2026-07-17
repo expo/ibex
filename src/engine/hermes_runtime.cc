@@ -1497,17 +1497,42 @@ bool beginStructuredWorkUnit(
     runtime->structured_cancel_requested_work_target_id = 0;
     runtime->structured_vm_work_active = true;
   }
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  if (runtime->structured_test_fail_next_begin_after_cancellation) {
+    runtime->structured_test_fail_next_begin_after_cancellation = false;
+    {
+      std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+      if (runtime->structured_active_work_target_id == targetId &&
+          runtime->structured_vm_work_active &&
+          runtime->structured_cancel_requested_work_target_id == 0) {
+        runtime->structured_cancel_requested_work_target_id = targetId;
+        runtime->runtime->asyncTriggerTimeout();
+      }
+    }
+    failStructuredWorkPublication(runtime);
+  }
+#endif
   if (!publishStructuredWorkEvent(
           runtime,
           kind,
           EX_HERMES_WORK_UNIT_BEGIN,
           targetId,
           schedulingId)) {
-    std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
-    if (runtime->structured_active_work_target_id == targetId) {
-      runtime->structured_active_work_target_id = 0;
-      runtime->structured_vm_work_active = false;
+    {
+      std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
+      if (runtime->structured_active_work_target_id == targetId) {
+        runtime->structured_active_work_target_id = 0;
+        runtime->structured_vm_work_active = false;
+      }
     }
+    // An any-thread cancellation can win after activation but before the
+    // publication attempt fails. Consume and classify that exact request now;
+    // otherwise the caller would observe an inactive unit while a stale
+    // timeout remained armed for its successor. Publication is already
+    // fail-loud, so no terminal cancellation event can be added to this queue.
+    const auto settlement = retireStructuredWorkTarget(
+        runtime, targetId, StructuredCancellationStopCause::None);
+    (void)validateStructuredCancellationSettlement(runtime, settlement);
     return false;
   }
   return true;
@@ -4247,7 +4272,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // unrestricted `require('node:fs')` is not contained: import policy is the
   // primary gate for them. Returns whether the requesting principal may load the
   // specifier under the active mode (audit logs but allows). Inert unless policy
-  // restricts a package's `builtins`/`packages`. Captured by the loader, sealed.
+  // restricts a package's `builtins`/`packages`. A cache-hit call additionally
+  // supplies the authenticated SourceId and resolution-kind code so Rust can
+  // revalidate the exact typed edge without probing source. Captured by the
+  // loader, sealed.
   auto checkImportFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactCheckImport"),
@@ -4280,14 +4308,25 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto specifier = args[1].asString(runtime).utf8(runtime);
         std::string targetSourceId;
         bool hasTargetSourceId = count > 2 && args[2].isString();
+        uint32_t resolutionKind = 0;
         if (hasTargetSourceId) {
           targetSourceId = args[2].asString(runtime).utf8(runtime);
+          if (count <= 3 || !args[3].isNumber()) {
+            return facebook::jsi::Value(false);
+          }
+          double rawResolutionKind = args[3].asNumber();
+          if (rawResolutionKind != 0 && rawResolutionKind != 1 &&
+              rawResolutionKind != 2 && rawResolutionKind != 3) {
+            return facebook::jsi::Value(false);
+          }
+          resolutionKind = static_cast<uint32_t>(rawResolutionKind);
         }
         return facebook::jsi::Value(
             ex_host_check_import(
                 principal,
                 specifier.c_str(),
-                hasTargetSourceId ? targetSourceId.c_str() : nullptr) != 0);
+                hasTargetSourceId ? targetSourceId.c_str() : nullptr,
+                resolutionKind) != 0);
       });
   rt.global().setProperty(rt, "__exactCheckImport", std::move(checkImportFn));
 
@@ -10281,8 +10320,19 @@ extern "C" uint32_t ex_hermes_structured_module_graph_resume(
         runtime->structured_cancel_requested_work_target_id != 0) {
       return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
     }
-    runtime->structured_active_work_target_id = work_target_id;
-    runtime->structured_vm_work_active = true;
+  }
+  // Resumption is a new executing interval for the same exact target. Publish
+  // Begin through the ordinary helper so the supervisor can move the target
+  // out of its suspended set before offering exact cancellation. The helper
+  // rolls the native active-target state back if publication is unavailable;
+  // leave the graph suspended and its job association cleared on that path.
+  // @ref LLP 0025#6-interruption-and-cancellation
+  if (!beginStructuredWorkUnit(
+          runtime,
+          EX_HERMES_WORK_UNIT_EVALUATION,
+          runtime->structured_evaluation_scheduling_id,
+          work_target_id)) {
+    return EX_HERMES_MODULE_GRAPH_TRANSITION_FAILED;
   }
   runtime->structured_module_graph_suspended = false;
   runtime->structured_vm_job_associated_evaluation =
@@ -10531,6 +10581,19 @@ extern "C" int32_t ibex_test_enable_work_unit_publication(
   // callback, microtask, queue, and any-thread cancellation paths without
   // manufacturing a production armed-session credential.
   runtime->structured_session_bound = true;
+  return 1;
+}
+
+extern "C" int32_t
+ibex_test_fail_next_work_begin_after_cancellation(
+    ExactHermesRuntime* runtime) {
+  if (runtime == nullptr || runtime->armed ||
+      runtime->runtime_thread != std::this_thread::get_id() ||
+      !runtime->structured_session_bound ||
+      runtime->structured_test_fail_next_begin_after_cancellation) {
+    return -1;
+  }
+  runtime->structured_test_fail_next_begin_after_cancellation = true;
   return 1;
 }
 
