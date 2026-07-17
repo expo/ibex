@@ -5,7 +5,8 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-17 (ENG-24933 implements Windows mapped-DLL object identity and a pinned patched no-debugger Release artifact pipeline while retaining the target's unsupported status pending remote evidence)
+**Revised:** 2026-07-17 (ENG-24933 completes a source-, tree-, engine-, target-, and catalog-bound physical Apple Release report with 24/24 prerequisite commands passing; the report remains fail-closed with 1 conformant cell, 7,107 incomplete cells, and no advertisement)
+**Revised:** 2026-07-17 (ENG-24933 implements Windows mapped-DLL object identity and a pinned patched no-debugger Release artifact pipeline while retaining the target's unsupported status pending runtime evidence)
 **Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
 **Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
 **Revised:** 2026-07-17 (ENG-24933 credits nine bounded authority-control refusals and the post-capture absence of the loader-private manifest resolver)
@@ -1477,6 +1478,18 @@ fixture that exposed the omission. The regenerated catalog retains 23,126
 required, 4,845 executable, and 18,281 unresolved fixtures. This corrects the
 evidence producer contract but does not promote the candidate or turn the
 remaining residuals into passes.
+The complete physical Apple Release run now succeeds at source revision
+`9329a9123a10e379d6253afb6a90a33de5de928e` with all 24 exact prerequisite
+commands passing. The execution artifact is bound to source-tree digest
+`sha256-37oyAHa_E6_FdVqKjL51CEVsmjQrmfp4QZSLePRTP6s`, the loaded arm64 engine
+digest `sha256-TI61ftuk_AoTSSNEjQOOuOEopGFCsAH38C7Qu9yxYuw`, and recipe-catalog
+digest `sha256-ocEiwJu5McEiGcypMkUBhB0q47sT8-47nTm4PYxJO_8`. The resulting
+report is intentionally `incomplete`: one of 7,108 target cells is conformant,
+7,107 remain incomplete, nine of 23,126 required fixtures pass, 23,117 are
+missing, and none fail. Its conformance digest is
+`sha256-pX31WIshSle8F2DnydGKCn_AeMw8npRyIhDtX2SG1LM`. This supplies the missing
+physical Release report without weakening the promotion rule: the target stays
+unadvertised until every required fixture and target cell conforms.
 The artifact workflow now reproduces that no-debugger Darwin Release profile
 as a separately named, checksummed bundle and rejects either a missing patch
 export or any exported debugger API. `download-hermes.sh` installs that exact
@@ -1488,9 +1501,12 @@ the artifact manifest binds commit, patch digest, architecture, configuration,
 debugger state, and DLL digest. At runtime, a pinned Rust file handle derives
 the Windows volume serial/file index while the C++ bridge independently locates
 the DLL containing `makeHermesRuntime` and derives the mapped module's identity
-for comparison. The release workflow must still build and inspect that DLL on a
-Windows runner, and WP10 must still execute a complete Windows exact-target
-report before any target cell or advertisement can change.
+for comparison. The release workflow has now built and inspected that DLL on a
+Windows runner and published the exact checksummed Release bundle; its DLL
+digest is
+`6f5190b9f8bf943b073e62dc5dbc2e297b77b7becbac3ca0c209b12d92828b6a`.
+WP10 must still execute a complete Windows exact-target runtime report before
+any Windows target cell or advertisement can change.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
