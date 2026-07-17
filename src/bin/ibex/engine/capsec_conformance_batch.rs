@@ -1513,6 +1513,32 @@ fn validate_native_runtime_observation(
                 "bodyEntered": true,
             })
         }
+        "invalid-handle" => {
+            // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+            // an owner-authenticated retained-object control may prove its
+            // exact unknown-id refusal without claiming an effect decision.
+            assert_eq!(
+                invocation_result["kind"], "throw",
+                "{}: retained-object refusal did not throw: {invocation_result}",
+                recipe.fixture_id
+            );
+            assert_eq!(
+                invocation_result["errorName"], "Error",
+                "{}: retained-object refusal threw the wrong error: {invocation_result}",
+                recipe.fixture_id
+            );
+            assert!(
+                invocation_result["errorMessage"]
+                    .as_str()
+                    .is_some_and(|message| message.ends_with(": invalid handle")),
+                "{}: retained-object refusal accepted the wrong failure: {invocation_result}",
+                recipe.fixture_id
+            );
+            serde_json::json!({
+                "kind": "retained-object-refusal",
+                "bodyEntered": true,
+            })
+        }
         "absent" => {
             assert_eq!(
                 invocation_result["kind"], "missing",

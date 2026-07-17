@@ -1066,6 +1066,23 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     nativeNoEffectTemplate(2, [literalArgument(0), literalArgument("stdin")]),
   ],
   ["__exactSpawnDispose", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // authority helpers must prove their exact refusal branches without
+  // fabricating a capability or retained process handle.
+  ["__exactCapabilityCheck", nativeNoEffectTemplate(1)],
+  ["__exactCreateHandle", nativeNoEffectTemplate(1)],
+  [
+    "__exactSpawnSetReferenced",
+    Object.freeze({
+      actionIds: [],
+      arguments: [literalArgument(0), literalArgument(false)],
+      expectedDecisionCounts: { "non-capability": 0 },
+      expectedResults: { "non-capability": "invalid-handle" },
+      expectedStages: { "non-capability": [] },
+      requiredSourceArity: 2,
+      setup: [],
+    }),
+  ],
   [
     "__exactFsClose",
     Object.freeze({

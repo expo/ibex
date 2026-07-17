@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(425);
+    expect(nativePublicFixtures).toHaveLength(428);
     expect(
       nativePublicFixtures
         .filter(
@@ -127,7 +127,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(241);
+    ).toHaveLength(243);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -2168,6 +2168,49 @@ describe("exact-target CapSec executable recipes", () => {
         2,
       );
     }
+  });
+
+  test("executes incomplete authority calls and exact spawn owner refusal without decisions", () => {
+    for (const globalName of [
+      "__exactCapabilityCheck",
+      "__exactCreateHandle",
+    ]) {
+      expect(
+        recipes.recipes.find(
+          (candidate) =>
+            candidate.publicSurfaceProbe?.invocation?.globalName ===
+              globalName && candidate.scenario === "non-capability",
+        ),
+      ).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [],
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+          },
+        },
+      });
+    }
+    expect(
+      recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName ===
+            "__exactSpawnSetReferenced" &&
+          candidate.scenario === "non-capability",
+      ),
+    ).toMatchObject({
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          arguments: [{ value: 0 }, { value: false }],
+          expectedResult: "invalid-handle",
+          expectedTypedDecisionCount: 0,
+        },
+      },
+    });
   });
 
   test("supplies owned callbacks and bounded delays to native timers", () => {

@@ -2254,6 +2254,98 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/unknown or missing fields/);
   });
 
+  test("accepts only the exact retained-object invalid-handle refusal", () => {
+    const recipe = completeCatalog().recipes[0];
+    Object.assign(recipe, {
+      classification: "non-capability",
+      scenario: "non-capability",
+      actionIds: [],
+      edgeIds: ["edge.terminal"],
+      terminalObservedKey: "native-op:__exactSpawnSetReferenced",
+    });
+    recipe.route = {
+      surfaceObservedKeys: [recipe.terminalObservedKey],
+      alternatives: [
+        {
+          terminalObservedKey: recipe.terminalObservedKey,
+          proofPaths: [recipe.terminalObservedKey],
+        },
+      ],
+      ambiguousCallees: [],
+    };
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactSpawnSetReferenced",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactSpawnSetReferenced",
+        arity: 2,
+        sourceRef:
+          "src/engine/hermes_runtime_process.cc#jsi-global:__exactSpawnSetReferenced",
+      },
+      arguments: [
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: false },
+      ],
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "invalid-handle",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      expectedActionIds: [],
+      allowedCoverageEdgeIds: ["edge.terminal"],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: invocation.invocationSchema,
+        kind: invocation.kind,
+        surfaceObservedKey: recipe.terminalObservedKey,
+        globalName: invocation.globalName,
+        sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+        result: {
+          kind: "throw",
+          globalName: invocation.globalName,
+          errorName: "Error",
+          errorMessage: "__exactSpawnSetReferenced: invalid handle",
+        },
+        executionProof: {
+          kind: "retained-object-refusal",
+          bodyEntered: true,
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    observation.invocation.result.errorMessage = "unrelated invalid handle";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/exact retained-object refusal/);
+  });
+
   test("binds the native async dispatcher to its exact worker terminal", () => {
     const recipe = completeCatalog().recipes[0];
     recipe.terminalObservedKey = "native-op:__exactFsPathAsync";

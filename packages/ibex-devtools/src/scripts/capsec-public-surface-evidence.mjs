@@ -1711,6 +1711,23 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
     }
+  } else if (authored.expectedResult === "invalid-handle") {
+    exactKeys(
+      invocation.result,
+      ["kind", "globalName", "errorName", "errorMessage"],
+      `${recipe.fixtureId}: retained-object refusal result`,
+    );
+    if (
+      invocation.result.kind !== "throw" ||
+      invocation.result.globalName !== authored.globalName ||
+      invocation.result.errorName !== "Error" ||
+      typeof invocation.result.errorMessage !== "string" ||
+      !invocation.result.errorMessage.endsWith(": invalid handle")
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: public invocation did not prove its exact retained-object refusal`,
+      );
+    }
   } else if (authored.expectedResult === "absent") {
     if (
       invocation.invocationSchema ===
@@ -1968,6 +1985,8 @@ function validateRuntimeInvocation(observation, recipe) {
           ]
         : authored.expectedResult === "permission-denied"
           ? ["typed-permission-denial", true]
+          : authored.expectedResult === "invalid-handle"
+            ? ["retained-object-refusal", true]
           : ["exact-global-absence", false];
     if (
       invocation.executionProof.kind !== expectedProof[0] ||
