@@ -5,6 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-17 (the metadata-mutation contract now records the narrow armed worker-backed `chmod`/`utime` exception implemented under retained-object commit/Repeat authorization; synchronous, link, ownership, descriptor variants and `mkdtemp` remain closed)
 **Revised:** 2026-07-17 (authenticated route-cache reuse now revalidates the exact cross-principal typed graph edge, including request spelling and resolution kind, rather than treating a matching package locator as sufficient authority)
 **Revised:** 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation)
 **Revised:** 2026-07-15 (resolver race closure: unknown manifest probes now
@@ -137,10 +138,12 @@ gated like `import`, because `resolve_module_meta` stats before the gate
 **`SourceLabel` is pinned** to the load-order-independent canonical spelling, closing
 two OQs that contradicted "total/deterministic"; **`os.devNull`** stops pretending to
 be a synthetic sink (it returns the constant string and fails outside-mount on use);
-the mutation surface is **default-closed** with the metadata-mutation family and
-`mkdtemp` explicitly closed; the observables table gains `typed-logical` and
-`reserved-constant` dispositions, Bun aliases, and fixed `path.win32`/`module.parent`
-rows; and — humblingly — **the ledger's stamp convention is fixed a second time**: a
+the mutation surface is **default-closed**; round 6 closed the metadata-mutation
+family and `mkdtemp`, while current §4.1 records the later retained async
+`chmod`/`utime` exception and keeps `mkdtemp` closed; the observables table gains
+`typed-logical` and `reserved-constant` dispositions, Bun aliases, and fixed
+`path.win32`/`module.parent` rows; and — humblingly — **the ledger's stamp
+convention is fixed a second time**: a
 document's `shasum` is *not* a git object (`git cat-file` rejects it), so stamps now
 name their method explicitly, `commit:<oid>` verified by git and `sha256:<prefix>`
 verified by shasum. Round-5 body follows.
@@ -1421,7 +1424,7 @@ a composite cannot perform partial effects before reaching a closed leaf:
 | `fs.watch`, `watchFile` | repeated delivery must re-authorize over time against a retained constrained set; the current impl polls `stat`/`readdir` (`fs.js:5250`), and no fixture proves `fs:list` alone cannot start one |
 | recursive `mkdir` | LLP 0021 keeps it closed (`0021:678`); it creates many objects, each needing the object-bound create protocol below |
 | disposable-temp cleanup (`mkdtempDisposable().remove()`) | routes through recursive removal (`fs.js:3102`), so its disposer cannot satisfy its own contract under the closed surface |
-| metadata mutation — `chmod`/`chown`/`utimes` and their `l`- and `f`-variants (`lchmod`, `lchown`, `lutimes`, `fchmod`, …) | not needed for the v1 workload, some are name-bound (`lchown` on a path), and permission/ownership mutation is its own escalation surface; the many such call sites in `fs.js` (roughly 140–200 lines depending on how variants are counted) were previously unclassified |
+| metadata mutation except the narrow open row below — `chown`, synchronous path `chmod`/`utimes`, and all `l`- and `f`-variants (`lchmod`, `lchown`, `lutimes`, `fchmod`, …) | some are name-bound (`lchown` on a path), ownership and descriptor mutation require separate authority contracts, and permission/ownership mutation is its own escalation surface; worker-backed single-path `chmod`/`utime` are open only through the retained-object protocol below |
 | `mkdtemp` | creates a directory in a temp location that a single `/project` mount does not provide; part of the temp-heavy surface closed above |
 
 **Closure is by default, not by enumeration.** The list above is illustrative; the
@@ -1439,6 +1442,7 @@ retained parent:
 | read, `stat`/`lstat`, `readdir`, `realpath` | staged per §2.1; each stage projected per §2.2 |
 | `readlink` and **traversal** of existing symlinks | staged discovery and translation per §4; `node_modules` depends on this |
 | single-path writes — the **open-write family**: `writeFile`/`appendFile`, `truncate`/`ftruncate`, `createWriteStream`, `open`/`openSync`/`FileHandle` in any writable/create/truncate flag mode (`O_WRONLY`/`O_RDWR`/`O_CREAT`/`O_TRUNC`/`O_APPEND`), descriptor writes, **and the durability operations on an already-authorized descriptor**: `fsync`/`fdatasync`, `FileHandle.sync()`/`.datasync()`, and the `flush: true` write option | one resource, staged, retained-parent-relative; **subject to the package-immutability rule below**. Durability ops are **open** because they act on a descriptor the caller already holds and was already authorized to write — closing the durability *leaf* would let a write succeed and then its `flush:true` deny, the partial-mutation-then-denial composite §4.1 prohibits (the routes perform them post-write at `src/builtins/fs.js:1850,5041,6162`). Every unlisted write alias is still closed by default; a v1 **registry migration marking all effect-classified mutation aliases closed** is owed (`OBL-OBJECT-BOUND-MUTATION`). |
+| worker-backed single-path `chmod` and `utime` | the armed adapter resolves beneath the authenticated root, retains parent and final object, authorizes `fs:write` at commit, and reauthorizes the same retained object at Repeat on the worker immediately before `fchmod`/`futimes`; this exception does not open synchronous, link, ownership, or descriptor variants |
 | **non-recursive** `mkdir` | one atomic `mkdirat(retained_parent_fd, name)` and nothing more. It has **no rollback** — an earlier draft rolled back a post-create verification failure with a name-bound `unlinkat` "after verifying the object is still bound to the name," but that verify-then-unlink is the exact TOCTOU §4.1 closes elsewhere (the name-bound rollback `unlinkat`s are at `hermes_runtime_fs.cc:732,740`; `:725` is the `mkdirat` itself; LLP 0021:683): a concurrent replacement between the check and the `unlinkat` deletes the wrong directory. Since `mkdirat` is itself atomic, there is nothing to roll back; a post-create step that fails (e.g. an unexpected verification result) **leaves the created directory** and returns the error. A leaked empty directory is benign; a wrong-directory deletion is not |
 
 Everything closed here is a named obligation, not a permanent refusal:
@@ -2610,11 +2614,14 @@ vendored-generated builtins run the same fixtures. All armed execution modes
 7. **Name-bound and multi-operand mutation is closed (§4.1):** `fs.symlink`,
    `fs.link`, `fs.rename`, `fs.unlink`, `fs.rmdir`, `fs.rm` (incl. `recursive`),
    `fs.cp`, `fs.copyFile`, `fs.watch`/`watchFile`, recursive `fs.mkdir`, the
-   metadata-mutation family (`chmod`/`chown`/`utimes` and their `l`/`f`-variants),
-   `mkdtemp`, and the disposable-temp cleanup path — sync, callback, promise,
-   `FileHandle`, and descriptor forms alike — each return the typed closed-operation
-   denial (`EPERM`) and take **no** filesystem action, asserted by a red-team fixture
-   that no artifact was created, moved, removed, or re-permissioned. Closure is at the
+   closed metadata-mutation family (`chown` and all `l`/`f`-variants across
+   their aliases, plus synchronous path `chmod`/`utimes`), `mkdtemp`, and the
+   disposable-temp cleanup path — each return the typed closed-operation denial
+   (`EPERM`) and take **no** filesystem action, asserted by a red-team fixture
+   that no artifact was created, moved, removed, or re-permissioned. The narrow
+   worker-backed single-path `chmod`/`utime` exception instead proves
+   retained-object commit and Repeat decisions immediately before mutation.
+   Closure is at the
    **public entry point**: `fs.rm("/project/dir", {recursive:true})` performs **no**
    `lstat` or `readdir` before denying, so a composite cannot leak existence or do
    partial effects before reaching a closed leaf. **A mutation surface not on the open

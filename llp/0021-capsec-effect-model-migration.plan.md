@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24578 binds native-public async completion to event-loop quiescence, reconciles retained-path live traces with the source-bound internal observer-stage contract, and keeps armed `mkdtemp` residual because its public entry point remains closed)
 **Revised:** 2026-07-17 (ENG-25062 was reopened after merge-prep review confirmed that graph-link receipts are produced and retained, but production source/cache/prepared-carrier reads do not yet enter the receipt-revalidated access closures; the existing Host edge authentication and exact prepared-byte comparison remain in force without claiming the stronger closure-gated boundary)
 **Revised:** 2026-07-16 (the module-runner safety review classifies exact generated manifest-builtin fan-out as closed private runtime linkage that may be eagerly materialized without a package/filesystem probe, but activation is confined to the exact builtin record's synchronous evaluation and cannot escape or re-enter through a retained `require` closure)
 **Revised:** 2026-07-16 (ENG-24933 binds asynchronous `chmod` and `utime` to retained files, repeats authorization on the worker, and closes twelve exact public scenarios with owned cleanup)
@@ -935,15 +936,22 @@ serialization. Sync and async lstat retain the link object itself with
 no-follow descriptor under its own list edge. Whole-file replace,
 append, and worker-backed write use their own edges, authorize absent-create or
 existing state before `openat`, commit the actual regular file before delayed
-truncation, and recheck before each write/flush. The remaining path-based
-filesystem operations are still pending. Non-recursive synchronous and
-worker-backed directory creation now use the `mkdir` edge: they authorize the
-requested path, retain and verify the parent, preauthorize absent creation,
-and create exactly once with `mkdirat`. A failed post-create commit leaves the
-new, still-empty directory in place: reopening the name to verify and then
-calling `unlinkat` would permit a replacement race, so armed code deliberately
-performs no name-bound rollback. Recursive creation remains closed until
-every created component can run that full sequence independently. Path removal
+truncation, and recheck before each write/flush. The registry's ordinary
+`fs:list` lifecycle remains requested/discovery; retained-object Repeat checks
+are separately bound to exact native filesystem terminals by the source-authored
+internal-observer stage contract. Non-recursive synchronous and worker-backed
+directory creation use the `mkdir` edge: they authorize the requested path,
+retain and verify the parent, preauthorize absent creation, and create exactly
+once with `mkdirat`. A failed post-create check leaves the new, still-empty
+directory in place: reopening the name to verify and then calling `unlinkat`
+would permit a replacement race, so armed code deliberately performs no
+name-bound rollback. Worker-backed single-path `chmod` and `utime` are the
+narrow metadata-mutation exception: both retain the target, authorize commit,
+and repeat authorization on the worker immediately before `fchmod`/`futimes`.
+Their synchronous, link, ownership, and descriptor variants remain closed.
+`mkdtemp` also remains closed at the armed public entry point. Recursive
+creation remains closed until every created component can run the full
+object-bound sequence independently. Path removal
 also remains closed in armed execution: retaining a target descriptor and then
 calling name-based `unlinkat` would still permit a swap between identity check
 and deletion, so sync and async denial fixtures require the original file or
@@ -964,10 +972,11 @@ evict stale rows on descriptor-number reuse. Async worker exceptions and result
 delivery failures reject instead of aborting or hanging, completed closures
 release descriptor captures eagerly, and callback attribution intersects live,
 captured, owner, and scheduler principals. Async directory traversal, realpath,
-mkdtemp, watch polling, recursive-readdir spelling, and non-recursive `rm`
-parity now use worker-backed paths. Windows preserves distinct errno values and
-implements recursive-mkdir results, exclusive copy, truncate, utimes, and
-statfs through the portable host ABI.
+watch polling, recursive-readdir spelling, and non-recursive `rm` parity now use
+worker-backed paths; that worker plumbing does not reopen the armed `mkdtemp`,
+watch, recursive, or removal entry points described above. Windows preserves
+distinct errno values and implements recursive-mkdir results, exclusive copy,
+truncate, utimes, and statfs through the portable host ABI.
 
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.

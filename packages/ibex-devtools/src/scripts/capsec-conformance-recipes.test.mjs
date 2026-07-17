@@ -7,6 +7,7 @@ import {
   buildConformanceRecipeCatalog,
   deriveAdapterActionTemplate,
   fixtureScenario,
+  nativeExpectedStageContractViolation,
 } from "./capsec-conformance-recipes.mjs";
 import {
   fixtureCatalogForTarget,
@@ -83,6 +84,32 @@ describe("exact-target CapSec executable recipes", () => {
     );
   });
 
+  test("bounds native recipe stages to registry and source-bound internal contracts", () => {
+    const semanticEffects = [
+      { cap: "fs:list", stages: ["requested", "discovery"] },
+    ];
+    const exactFilesystemEdge = {
+      surface: { kind: "native-op", name: "__exactFsPathAsync" },
+      effects: semanticEffects,
+    };
+    expect(
+      nativeExpectedStageContractViolation({
+        actionIds: ["fs:list"],
+        expectedStages: ["requested", "discovery", "repeat"],
+        semanticEffects,
+        coverageEdges: [exactFilesystemEdge],
+      }),
+    ).toBeNull();
+    expect(
+      nativeExpectedStageContractViolation({
+        actionIds: ["fs:list"],
+        expectedStages: ["requested", "delivery"],
+        semanticEffects,
+        coverageEdges: [exactFilesystemEdge],
+      }),
+    ).toMatch(/outside the registry.*delivery/u);
+  });
+
   test("accounts for every obligation exactly once and reports honest residuals", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
@@ -109,7 +136,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(348);
+    expect(nativePublicFixtures).toHaveLength(342);
     expect(
       nativePublicFixtures
         .filter(
@@ -555,6 +582,7 @@ describe("exact-target CapSec executable recipes", () => {
           kind: "event-loop-quiescence",
           timeoutMilliseconds: 1_000,
         },
+        expectedDenyMessageFragment: "filesystem policy denied",
         expectedActionIds: ["fs:list"],
       });
       expect(invocation.arguments).toHaveLength(6);
@@ -572,10 +600,31 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "repeat", "repeat"],
+          : recipe.fixtureId.includes(".logical.readdir.")
+            ? [
+                "requested",
+                "discovery",
+                "requested",
+                "repeat",
+                "repeat",
+                "repeat",
+                "repeat",
+              ]
+            : [
+                "requested",
+                "discovery",
+                "requested",
+                "repeat",
+                "repeat",
+                "repeat",
+              ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 4,
+        recipe.scenario === "deny"
+          ? 1
+          : recipe.fixtureId.includes(".logical.readdir.")
+            ? 7
+            : 6,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
@@ -587,11 +636,9 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
           "__exactFsPathAsync" &&
-        ["mkdir", "mkdtemp"].some((branch) =>
-          recipe.fixtureId.includes(`.logical.${branch}.`),
-        ),
+        recipe.fixtureId.includes(".logical.mkdir."),
     );
-    expect(rows).toHaveLength(12);
+    expect(rows).toHaveLength(6);
     for (const recipe of rows) {
       const invocation = recipe.publicSurfaceProbe.invocation;
       expect(invocation).toMatchObject({
@@ -600,6 +647,7 @@ describe("exact-target CapSec executable recipes", () => {
           timeoutMilliseconds: 1_000,
         },
         expectedCleanup: "removed-created-directory",
+        expectedDenyMessageFragment: "filesystem policy denied",
         allowedCoverageEdgeIds: [
           "surface.native.op.exactfspathasync.10cb78b",
           "surface.native.op.exactmkdir.021eaz0",
@@ -612,10 +660,18 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "requested",
+              "discovery",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 4,
+        recipe.scenario === "deny" ? 1 : 7,
       );
       expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
         "fs:list",
@@ -623,6 +679,25 @@ describe("exact-target CapSec executable recipes", () => {
       ]);
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("keeps armed mkdtemp residual because its public entry point is closed", () => {
+    const rows = recipes.recipes.filter((recipe) =>
+      recipe.fixtureId.includes(
+        ".exactfspathasync.170vjnb.logical.mkdtemp.",
+      ),
+    );
+    expect(rows).toHaveLength(6);
+    expect(rows.filter((recipe) => recipe.adapterProbe !== null)).toHaveLength(
+      5,
+    );
+    for (const recipe of rows) {
+      expect(recipe.publicSurfaceProbe).toBeNull();
+      expect(recipe.status).toBe("unresolved");
+      expect(recipe.residualReasons).toContain(
+        "native-public-arguments-not-authored",
+      );
     }
   });
 
@@ -645,15 +720,26 @@ describe("exact-target CapSec executable recipes", () => {
       ]);
       expect(invocation.allowedCoverageEdgeIds).toEqual([
         "surface.native.op.exactfspathasync.10cb78b",
+        "surface.native.op.exactstatfs.151kkzo",
       ]);
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedActionIds).toEqual(["fs:list"]);
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "repeat", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "repeat",
+              "repeat",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 4,
+        recipe.scenario === "deny" ? 1 : 6,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
@@ -680,16 +766,32 @@ describe("exact-target CapSec executable recipes", () => {
         { kind: "json-literal", value: 2 },
       ]);
       expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
+      expect(invocation.allowedCoverageEdgeIds).toEqual([
+        "surface.native.op.exactfspathasync.10cb78b",
+        "surface.native.op.exacttruncate.13gh223",
+      ]);
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
       );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 5,
+        recipe.scenario === "deny" ? 1 : 8,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
@@ -715,16 +817,28 @@ describe("exact-target CapSec executable recipes", () => {
         { kind: "json-literal", value: 0o600 },
       ]);
       expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
       );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 5,
+        recipe.scenario === "deny" ? 1 : 8,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
@@ -752,16 +866,28 @@ describe("exact-target CapSec executable recipes", () => {
         { kind: "json-literal", value: 0 },
       ]);
       expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
       );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 5,
+        recipe.scenario === "deny" ? 1 : 8,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");

@@ -657,7 +657,7 @@ function actionStagesForEdge(edge) {
     }));
 }
 
-function internalObserverActionStagesForEdge(edge) {
+export function internalObserverActionStagesForEdge(edge) {
   if (
     edge?.surface?.kind !== "native-op" ||
     !edge.surface.name.startsWith("__exact")
