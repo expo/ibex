@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24933 implements Windows mapped-DLL object identity and a pinned patched no-debugger Release artifact pipeline while retaining the target's unsupported status pending remote evidence)
 **Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
 **Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
 **Revised:** 2026-07-17 (ENG-24933 credits nine bounded authority-control refusals and the post-capture absence of the loader-private manifest resolver)
@@ -1476,6 +1477,20 @@ fixture that exposed the omission. The regenerated catalog retains 23,126
 required, 4,845 executable, and 18,281 unresolved fixtures. This corrects the
 evidence producer contract but does not promote the candidate or turn the
 remaining residuals into passes.
+The artifact workflow now reproduces that no-debugger Darwin Release profile
+as a separately named, checksummed bundle and rejects either a missing patch
+export or any exported debugger API. `download-hermes.sh` installs that exact
+profile into the same content-addressed build cache used by local source builds.
+Windows no longer has to rely on the historical unpatched NuGet artifact or a
+pathname-only loaded-engine identity. Its installer now fetches the exact
+commit-plus-patch-digest Release bundle and falls back to the same source build;
+the artifact manifest binds commit, patch digest, architecture, configuration,
+debugger state, and DLL digest. At runtime, a pinned Rust file handle derives
+the Windows volume serial/file index while the C++ bridge independently locates
+the DLL containing `makeHermesRuntime` and derives the mapped module's identity
+for comparison. The release workflow must still build and inspect that DLL on a
+Windows runner, and WP10 must still execute a complete Windows exact-target
+report before any target cell or advertisement can change.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

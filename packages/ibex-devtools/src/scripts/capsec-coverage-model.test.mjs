@@ -105,8 +105,8 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       targetVariant: "default",
     },
     {
-      authorityRef: "scripts/install-windows-hermes.ps1#Version",
-      profileId: "windows-nuget",
+      authorityRef: "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+      profileId: "windows-source-patched",
       targetVariant: "windows",
     },
   ].map(({ authorityRef, profileId, targetVariant }) => {
@@ -138,7 +138,11 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       branches,
       evidenceType: "hermes-evaluator-reachability",
       engineIdentityReviewId: HERMES_EVALUATOR_REVIEW_ID,
-      engineProfileIds: ["android-maven", "source-patched", "windows-nuget"],
+      engineProfileIds: [
+        "android-maven",
+        "source-patched",
+        "windows-source-patched",
+      ],
       installationBranches: branches,
       lockdownTamingDigest: REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST,
       tamingEvidence: "lockdownJS",

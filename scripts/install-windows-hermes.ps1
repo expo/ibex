@@ -1,183 +1,141 @@
 param(
-  [string]$Version = "0.71.1",
-  [ValidateSet("x64", "arm64", "x86")]
+  [ValidateSet("x64", "arm64")]
   [string]$Arch = "x64",
-  [switch]$Force
+  [switch]$Force,
+  [switch]$Source
 )
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Resolve-Path (Join-Path $scriptDir "..")
+$builder = Join-Path $scriptDir "build-hermes-windows.ps1"
+$builderDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $builder).Hash.ToLowerInvariant()
+$identity = (& $builder -Arch $Arch -PrintIdentity | Select-Object -Last 1).Trim()
+$tag = "hermes-$identity"
+$asset = "hermes-windows-$Arch-$identity.zip"
+$artifactRepo = if ($env:IBEX_HERMES_ARTIFACT_REPO) {
+  $env:IBEX_HERMES_ARTIFACT_REPO
+} else {
+  "ccheever/ibex"
+}
 $targetRoot = Join-Path $repoRoot "tools\hermes\windows-$Arch"
-$includeDir = Join-Path $targetRoot "include"
-$libDir = Join-Path $targetRoot "lib"
-$binDir = Join-Path $targetRoot "bin"
 
-$runtimeDlls = @(
-  "hermes.dll",
-  "icuuc.dll",
-  "icuin.dll",
-  "MSVCP140_APP.dll",
-  "VCRUNTIME140_APP.dll",
-  "VCRUNTIME140_1_APP.dll"
-)
-
-function Test-HermesInstallComplete {
-  if (-not (Test-Path $includeDir)) { return $false }
-  if (-not (Test-Path (Join-Path $libDir "hermes.lib"))) { return $false }
-  if (-not (Test-Path (Join-Path $binDir "hermesc.exe"))) { return $false }
-  foreach ($dll in $runtimeDlls) {
-    if (-not (Test-Path (Join-Path $binDir $dll))) { return $false }
-  }
-  return $true
-}
-
-function Find-FirstExistingFile {
-  param([string[]]$Candidates)
-
-  foreach ($candidate in $Candidates) {
-    if (Test-Path -LiteralPath $candidate) {
-      return $candidate
-    }
-  }
-  return $null
-}
-
-function Find-AppRuntimeDll {
-  param([string]$Name)
-
-  $lower = $Name.ToLowerInvariant()
-  $archToken = if ($Arch -eq "x64") { "x64" } elseif ($Arch -eq "arm64") { "arm64" } else { "x86" }
-  $winsxsToken = if ($Arch -eq "x64") { "amd64" } elseif ($Arch -eq "arm64") { "arm64" } else { "x86" }
-
-  $directCandidates = @(
-    (Join-Path $env:SystemRoot "System32\$Name"),
-    (Join-Path $env:SystemRoot "System32\$lower"),
-    "C:\Program Files (x86)\Microsoft SDKs\UWPNuGetPackages\microsoft.net.native.compiler\1.7.6\tools\$archToken\ilc\lib\MSCRT\$lower",
-    "C:\Program Files (x86)\Microsoft SDKs\UWPNuGetPackages\microsoft.net.native.compiler\1.7.6\tools\$archToken\ilc\lib\MSCRT\$Name"
+function Test-InstallComplete {
+  $required = @(
+    "include\jsi\jsi.h",
+    "include\jsi\jsi.cpp",
+    "include\hermes\hermes.h",
+    "include\hermes\Public\rtti.cpp",
+    "lib\hermes.lib",
+    "bin\hermesvm.dll",
+    "bin\hermes.exe",
+    "bin\hermesc.exe",
+    "artifact.json"
   )
-  $direct = Find-FirstExistingFile $directCandidates
-  if ($direct) { return $direct }
-
-  $vclibsRoot = "C:\Program Files\WindowsApps"
-  if (Test-Path $vclibsRoot) {
-    $vclibs = Get-ChildItem -LiteralPath $vclibsRoot -Directory -ErrorAction SilentlyContinue |
-      Where-Object { $_.Name -like "Microsoft.VCLibs.140.00_*_${archToken}__8wekyb3d8bbwe" } |
-      Sort-Object Name -Descending
-    foreach ($dir in $vclibs) {
-      $candidate = Find-FirstExistingFile @(
-        (Join-Path $dir.FullName $lower),
-        (Join-Path $dir.FullName $Name)
-      )
-      if ($candidate) { return $candidate }
+  foreach ($relative in $required) {
+    if (-not (Test-Path -LiteralPath (Join-Path $targetRoot $relative))) {
+      return $false
     }
   }
-
-  $winsxsRoot = Join-Path $env:SystemRoot "WinSxS"
-  if (Test-Path $winsxsRoot) {
-    $winsxs = Get-ChildItem -LiteralPath $winsxsRoot -Directory -Filter "${winsxsToken}_userexperience-core_*" -ErrorAction SilentlyContinue |
-      Sort-Object Name -Descending
-    foreach ($dir in $winsxs) {
-      $candidate = Find-FirstExistingFile @(
-        (Join-Path $dir.FullName "Core\$lower"),
-        (Join-Path $dir.FullName "Core\$Name")
-      )
-      if ($candidate) { return $candidate }
-    }
-  }
-
-  return $null
+  $manifest = Get-Content -LiteralPath (Join-Path $targetRoot "artifact.json") -Raw |
+    ConvertFrom-Json
+  return $manifest.sourceCommit.StartsWith($identity.Substring(0, 12)) -and
+    $manifest.patchDigest -eq $identity.Substring($identity.Length - 12) -and
+    $manifest.sourceBuildAuthorityDigest -eq $builderDigest -and
+    $manifest.architecture -eq $Arch -and
+    $manifest.configuration -eq "Release" -and
+    $manifest.debugger -eq $false
 }
 
-function Copy-AppRuntimeDll {
-  param([string]$Name)
-
-  $source = Find-AppRuntimeDll $Name
-  if (-not $source) {
-    throw "Could not find Windows runtime dependency $Name. Install Microsoft.VCLibs.140.00 for $Arch, then rerun this script."
-  }
-
-  Copy-Item -LiteralPath $source -Destination (Join-Path $binDir $Name) -Force
+function Invoke-SourceBuild {
+  Write-Host "Building the pinned patched Windows Hermes artifact from source."
+  & $builder -Arch $Arch
+  if ($LASTEXITCODE -ne 0) { throw "Windows Hermes source build failed" }
 }
 
-function Copy-HermesCompiler {
-  param([string]$ExtractDir)
-
-  # ReactNative.Hermes.Windows 0.71.x ships a Hermes CLI only in the x86 tools
-  # folder. Hermes bytecode is architecture-independent, so this is still the
-  # right compiler for the x64/arm64 runtimes as long as its HBC version matches
-  # the runtime headers.
-  $candidates = @(
-    (Join-Path $ExtractDir "tools\native\release\$Arch\hermes.exe"),
-    (Join-Path $ExtractDir "tools\native\debug\$Arch\hermes.exe"),
-    (Join-Path $ExtractDir "tools\native\release\x86\hermes.exe"),
-    (Join-Path $ExtractDir "tools\native\debug\x86\hermes.exe")
-  )
-  $compiler = Find-FirstExistingFile $candidates
-  if (-not $compiler) {
-    Write-Warning "Hermes compiler not found in ReactNative.Hermes.Windows $Version. Native HBC startup will remain disabled."
-    return
-  }
-
-  Copy-Item -LiteralPath $compiler -Destination (Join-Path $binDir "hermesc.exe") -Force
-  Copy-Item -LiteralPath $compiler -Destination (Join-Path $binDir "hermes.exe") -Force
-}
-
-if ((Test-HermesInstallComplete) -and -not $Force) {
-  Write-Host "Windows Hermes already installed at $targetRoot"
+if ((Test-InstallComplete) -and -not $Force) {
+  Write-Host "Patched Windows Hermes $identity is already installed at $targetRoot"
   exit 0
 }
 
-New-Item -ItemType Directory -Force -Path $includeDir, $libDir, $binDir | Out-Null
+if ($Source -or $env:IBEX_HERMES_FORCE_BUILD -eq "1") {
+  Invoke-SourceBuild
+  exit 0
+}
 
-$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("exact-hermes-" + [System.Guid]::NewGuid().ToString("N"))
-$packagePath = Join-Path $tempRoot "ReactNative.Hermes.Windows.$Version.nupkg"
-$zipPath = Join-Path $tempRoot "ReactNative.Hermes.Windows.$Version.zip"
-$extractDir = Join-Path $tempRoot "pkg"
-New-Item -ItemType Directory -Force -Path $tempRoot, $extractDir | Out-Null
-
+$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) (
+  "ibex-hermes-windows-" + [System.Guid]::NewGuid().ToString("N")
+)
+New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 try {
-  $uri = "https://www.nuget.org/api/v2/package/ReactNative.Hermes.Windows/$Version"
-  Write-Host "Downloading $uri"
-  Invoke-WebRequest -Uri $uri -OutFile $packagePath
-  Copy-Item -Path $packagePath -Destination $zipPath -Force
-  Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
-
-  $headers = Join-Path $extractDir "build\native\include"
-  if (-not (Test-Path $headers)) {
-    throw "Hermes headers not found in package at $headers"
+  $archive = Join-Path $tempRoot $asset
+  $checksum = "$archive.sha256"
+  $downloaded = $false
+  if (Get-Command gh -ErrorAction SilentlyContinue) {
+    gh auth status 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      gh release download $tag --repo $artifactRepo --dir $tempRoot `
+        --pattern $asset --pattern "$asset.sha256"
+      $downloaded = $LASTEXITCODE -eq 0
+    }
   }
-  Copy-Item -Path (Join-Path $headers "*") -Destination $includeDir -Recurse -Force
-
-  $nativeCandidates = @(
-    (Join-Path $extractDir "lib\native\release\$Arch"),
-    (Join-Path $extractDir "lib\native\debug\$Arch")
-  )
-  $nativeDir = $nativeCandidates | Where-Object { Test-Path (Join-Path $_ "hermes.lib") } | Select-Object -First 1
-  if (-not $nativeDir) {
-    throw "hermes.lib not found for $Arch in ReactNative.Hermes.Windows $Version"
+  if (-not $downloaded) {
+    $base = "https://github.com/$artifactRepo/releases/download/$tag"
+    try {
+      Invoke-WebRequest -Uri "$base/$asset" -OutFile $archive
+      Invoke-WebRequest -Uri "$base/$asset.sha256" -OutFile $checksum
+      $downloaded = $true
+    }
+    catch {
+      Write-Warning "Prebuilt Windows Hermes $identity is unavailable: $($_.Exception.Message)"
+    }
+  }
+  if (-not $downloaded) {
+    Invoke-SourceBuild
+    exit 0
   }
 
-  Copy-Item -Path (Join-Path $nativeDir "hermes.lib") -Destination $libDir -Force
-  if (Test-Path (Join-Path $nativeDir "hermes.dll")) {
-    Copy-Item -Path (Join-Path $nativeDir "hermes.dll") -Destination $binDir -Force
-    Copy-Item -Path (Join-Path $nativeDir "hermes.dll") -Destination $libDir -Force
+  $expected = ((Get-Content -LiteralPath $checksum -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+  $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+  if ($expected -ne $actual) {
+    throw "Checksum mismatch for $asset (expected $expected, got $actual)"
   }
-  if (Test-Path (Join-Path $nativeDir "hermes.pdb")) {
-    Copy-Item -Path (Join-Path $nativeDir "hermes.pdb") -Destination $binDir -Force
+
+  $unpack = Join-Path $tempRoot "unpack"
+  Expand-Archive -LiteralPath $archive -DestinationPath $unpack -Force
+  $manifestPath = Join-Path $unpack "artifact.json"
+  $dllPath = Join-Path $unpack "bin\hermesvm.dll"
+  if (-not (Test-Path -LiteralPath $manifestPath) -or
+      -not (Test-Path -LiteralPath $dllPath)) {
+    throw "Downloaded Windows Hermes bundle has an incomplete shape"
   }
-  Copy-HermesCompiler $extractDir
+  $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+  if (-not $manifest.sourceCommit.StartsWith($identity.Substring(0, 12)) -or
+      $manifest.patchDigest -ne $identity.Substring($identity.Length - 12) -or
+      $manifest.sourceBuildAuthorityDigest -ne $builderDigest -or
+      $manifest.architecture -ne $Arch -or
+      $manifest.configuration -ne "Release" -or
+      $manifest.debugger -ne $false) {
+    throw "Downloaded Windows Hermes manifest does not match $identity/$Arch/Release"
+  }
+  $dllDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $dllPath).Hash.ToLowerInvariant()
+  if ($dllDigest -ne $manifest.binarySha256) {
+    throw "Downloaded Windows Hermes DLL does not match its manifest digest"
+  }
+  if (Get-Command dumpbin -ErrorAction SilentlyContinue) {
+    $exports = dumpbin /exports $dllPath | Out-String
+    if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
+      throw "Downloaded Windows Hermes DLL lacks the patched attribution export"
+    }
+  }
 
-  Copy-AppRuntimeDll "icuuc.dll"
-  Copy-AppRuntimeDll "icuin.dll"
-  Copy-AppRuntimeDll "MSVCP140_APP.dll"
-  Copy-AppRuntimeDll "VCRUNTIME140_APP.dll"
-  Copy-AppRuntimeDll "VCRUNTIME140_1_APP.dll"
-
-  Write-Host "Installed Windows Hermes headers/libs at $targetRoot"
-  Write-Host "Installed Hermes compiler at $(Join-Path $binDir "hermesc.exe") when available."
+  Remove-Item -LiteralPath $targetRoot -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
+  Copy-Item -Path (Join-Path $unpack "*") -Destination $targetRoot -Recurse -Force
+  Write-Host "Installed patched Windows Hermes $identity at $targetRoot"
 }
 finally {
-  Remove-Item -Recurse -Force $tempRoot -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

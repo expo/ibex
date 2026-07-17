@@ -2872,13 +2872,13 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.7eb7b2d1b4d4a93f66c9374c431258868790c16e5bd43fb19fb3b0f42e16e1f1";
+  "hermes-evaluators.bceadc714cdc433cce0ed594407079cce4ef6653cfef447e0abc23860c49fd76";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
-  "windows-nuget",
+  "windows-source-patched",
 ]);
 const REVIEWED_HERMES_EVALUATOR_BRANCHES = Object.freeze([
   Object.freeze({
@@ -2894,9 +2894,9 @@ const REVIEWED_HERMES_EVALUATOR_BRANCHES = Object.freeze([
     targetVariant: "default",
   }),
   Object.freeze({
-    authorityRef: "scripts/install-windows-hermes.ps1#Version",
-    profileId: "windows-nuget",
-    routePrefix: "hermes-intrinsic-windows-nuget-",
+    authorityRef: "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+    profileId: "windows-source-patched",
+    routePrefix: "hermes-intrinsic-windows-source-patched-",
     targetVariant: "windows",
   }),
 ]);

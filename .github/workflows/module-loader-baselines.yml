@@ -67,6 +67,10 @@ jobs:
           rustup toolchain install 1.93.1 --profile minimal
           rustup default 1.93.1
 
+      - name: Configure MSVC developer environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Install Node compatibility target
         if: runner.os == 'macOS'
         uses: actions/setup-node@v4
@@ -167,6 +171,10 @@ jobs:
         run: |
           rustup toolchain install 1.93.1 --profile minimal
           rustup default 1.93.1
+
+      - name: Configure MSVC developer environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install Node compatibility target
         uses: actions/setup-node@v4

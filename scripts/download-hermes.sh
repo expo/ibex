@@ -22,9 +22,9 @@
 # naming both causes — never a quiet partial install (LLP 0018).
 # @ref LLP 0005#prebuilt-hermes-artifact-bundles — download-first bootstrap + one shared identity derivation
 #
-# The download path is only taken for the pinned-commit + default configuration
-# (debugger on, Intl default) that the published bundles were built with; any
-# other requested configuration goes straight to the source build.
+# The download path is taken for the pinned commit and a published exact
+# profile: debugger-on defaults, plus the no-debugger macOS Release bundle used
+# by exact-target conformance. Other configurations go to the source build.
 
 set -euo pipefail
 
@@ -69,8 +69,8 @@ download_eligible() {
         echo "[download] requested ref '$HERMES_VERSION' is not the pinned commit form; building from source."
         return 1
     fi
-    if ! is_truthy "$HERMES_DEBUGGER"; then
-        echo "[download] non-default debugger configuration requested; building from source."
+    if ! is_truthy "$HERMES_DEBUGGER" && [[ "$PLATFORM" != "darwin" ]]; then
+        echo "[download] no published no-debugger bundle for $PLATFORM; building from source."
         return 1
     fi
     if [[ "$PLATFORM" == "linux" ]] && is_truthy "${HERMES_ENABLE_INTL:-false}"; then
@@ -139,9 +139,13 @@ verify_frame_attribution_export() {
 # mutating step carries an explicit `|| return 1` — they are called from `if`
 # conditions, where bash suspends `set -e` for the whole body.
 try_download_darwin() (
-    identity="$1"; cache_key="$2"
+    identity="$1"; cache_key="$2"; profile="$3"
     tag="hermes-$identity"
-    asset="hermes-macos-$HOST_ARCH-$identity.tar.gz"
+    if [[ "$profile" == "release" ]]; then
+        asset="hermes-macos-$HOST_ARCH-release-$identity.tar.gz"
+    else
+        asset="hermes-macos-$HOST_ARCH-$identity.tar.gz"
+    fi
     cache_dir="$HOME/.cache/exact/hermes/$cache_key"
     tmp="$(mktemp -d)" || return 1
     trap 'rm -rf "$tmp"' EXIT
@@ -160,6 +164,12 @@ try_download_darwin() (
     [[ -f "$tmp/unpack/include/jsi/jsi.h" ]] || { echo "[download] bundle missing include/jsi/jsi.h (empty headers?)" >&2; return 1; }
     [[ -x "$tmp/unpack/bin/hermesc" ]] || { echo "[download] bundle missing bin/hermesc" >&2; return 1; }
     verify_frame_attribution_export "$tmp/unpack/hermesvm.framework/Versions/1/hermesvm" "-gU" || return 1
+    if [[ "$profile" == "release" ]] \
+        && nm -gU "$tmp/unpack/hermesvm.framework/Versions/1/hermesvm" 2>/dev/null \
+            | grep -q AsyncDebuggerAPI; then
+        echo "[download] Release bundle unexpectedly exports debugger symbols" >&2
+        return 1
+    fi
     "$tmp/unpack/bin/hermesc" --help >/dev/null 2>&1 || { echo "[download] bundled hermesc does not run on this host" >&2; return 1; }
 
     mkdir -p "$(dirname "$cache_dir")" || return 1
@@ -249,13 +259,18 @@ case "$PLATFORM" in
         DOWNLOAD_ATTEMPTED=0
         if download_eligible; then
             IDENTITY="${HERMES_VERSION:0:12}-$(ibex_hermes_patch_digest)"
-            # build-hermes.sh's cache key for the default (debugger-on) config.
-            CACHE_KEY="${HERMES_VERSION:0:12}-debug-p$(ibex_hermes_patch_digest)"
+            if is_truthy "$HERMES_DEBUGGER"; then
+                PROFILE="debug"
+                CACHE_KEY="${HERMES_VERSION:0:12}-debug-p$(ibex_hermes_patch_digest)"
+            else
+                PROFILE="release"
+                CACHE_KEY="${HERMES_VERSION:0:12}-p$(ibex_hermes_patch_digest)"
+            fi
             if [[ -d "$HOME/.cache/exact/hermes/$CACHE_KEY/hermesvm.xcframework" ]]; then
                 echo "[download] local build cache already has $CACHE_KEY; skipping download."
             else
                 DOWNLOAD_ATTEMPTED=1
-                if ! try_download_darwin "$IDENTITY" "$CACHE_KEY"; then
+                if ! try_download_darwin "$IDENTITY" "$CACHE_KEY" "$PROFILE"; then
                     echo "[download] prebuilt bundle unavailable; falling back to source build." >&2
                 fi
             fi

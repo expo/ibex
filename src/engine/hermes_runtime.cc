@@ -3566,7 +3566,38 @@ extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
   if (out_device == nullptr || out_inode == nullptr) return -1;
-#if defined(__APPLE__) && TARGET_OS_OSX
+#if defined(_WIN32)
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // derive the mapped DLL's stable Windows file identity independently of the
+  // Rust handle used to hash the named artifact.
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExA(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          reinterpret_cast<LPCSTR>(factory), &module)) {
+    return -1;
+  }
+  std::vector<char> path(32768, '\0');
+  DWORD written =
+      GetModuleFileNameA(module, path.data(), static_cast<DWORD>(path.size()));
+  if (written == 0 || written >= path.size()) return -1;
+  HANDLE file = CreateFileA(
+      path.data(), FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return -1;
+  BY_HANDLE_FILE_INFORMATION info = {};
+  BOOL identified = GetFileInformationByHandle(file, &info);
+  CloseHandle(file);
+  if (!identified) return -1;
+  *out_device = static_cast<uint64_t>(info.dwVolumeSerialNumber);
+  *out_inode = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) |
+      static_cast<uint64_t>(info.nFileIndexLow);
+  return 1;
+#elif defined(__APPLE__) && TARGET_OS_OSX
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);

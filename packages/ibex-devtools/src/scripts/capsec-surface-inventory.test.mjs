@@ -96,6 +96,10 @@ function liveHermesEvaluatorIdentityInputs() {
       path.join(repoRoot, "scripts", "install-windows-hermes.ps1"),
       "utf8",
     ),
+    windowsSourceBuildText: fs.readFileSync(
+      path.join(repoRoot, "scripts", "build-hermes-windows.ps1"),
+      "utf8",
+    ),
     patchApplicationText: fs.readFileSync(
       path.join(repoRoot, "scripts", "apply-hermes-patches.sh"),
       "utf8",
@@ -2238,7 +2242,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(profiles.map((profile) => profile.id)).toEqual([
       "android-maven",
       "source-patched",
-      "windows-nuget",
+      "windows-source-patched",
     ]);
     expect(profiles.map((profile) => profile.targetVariant)).toEqual([
       "android",
@@ -2265,8 +2269,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       {
         ...inputs,
         windowsInstallerText: inputs.windowsInstallerText.replace(
-          '[string]$Version = "0.71.1"',
-          '[string]$Version = "0.71.2"',
+          '"ccheever/ibex"',
+          '"example/reviewed-fork"',
         ),
       },
       {
@@ -2293,6 +2297,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       {
         ...inputs,
         linuxSourceBuildText: `${inputs.linuxSourceBuildText}\n# reviewed consumer mutation\n`,
+      },
+      {
+        ...inputs,
+        windowsSourceBuildText: `${inputs.windowsSourceBuildText}\n# reviewed consumer mutation\n`,
       },
     ]) {
       const mutatedProfiles = scanHermesEvaluatorIdentityProfiles(mutated);
@@ -2326,6 +2334,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       [
         "linuxSourceBuildText",
         '"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"',
+      ],
+      [
+        "windowsSourceBuildText",
+        "& bash $applyScriptUnix $sourceDirUnix",
       ],
     ]) {
       expect(() =>
@@ -4201,7 +4213,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       expect(evaluator.metadata.engineProfileIds).toEqual([
         "android-maven",
         "source-patched",
-        "windows-nuget",
+        "windows-source-patched",
       ]);
       expect(
         evaluator.metadata.branches.map((branch) => branch.targetVariant),

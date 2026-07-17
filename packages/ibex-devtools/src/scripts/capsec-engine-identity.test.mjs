@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   engineLoaderEnvironment,
@@ -68,5 +70,39 @@ describe("exact loaded engine identity", () => {
         platform: "linux",
       }).LD_LIBRARY_PATH,
     ).toBe("/opt/ibex/lib");
+  });
+
+  test("derives Windows volume and file identity from the named artifact", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-engine-"));
+    try {
+      const artifact = path.join(directory, "hermes.dll");
+      fs.writeFileSync(artifact, "hermes");
+      const canonicalArtifactPath = fs.realpathSync(artifact);
+      const metadata = fs.statSync(canonicalArtifactPath, { bigint: true });
+      const windowsTarget = {
+        triple: "x86_64-pc-windows-msvc",
+        features: [...target.features],
+      };
+      const windowsIdentity = {
+        ...identity,
+        engineArtifactPath: canonicalArtifactPath,
+        object: {
+          platform: "windows",
+          volume: `volume:${metadata.dev}`,
+          file: `file:${metadata.ino}`,
+        },
+        targetArchitecture: "x86_64",
+      };
+      expect(
+        validateLoadedEngineIdentity({
+          identity: windowsIdentity,
+          canonicalArtifactPath,
+          binaryDigest: windowsIdentity.binaryDigest,
+          target: windowsTarget,
+        }),
+      ).toEqual(windowsIdentity);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

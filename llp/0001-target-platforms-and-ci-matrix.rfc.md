@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Crypto, CI
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-17 (ENG-24933 adds a pinned patched no-debugger Windows Hermes source build/release bundle pipeline and independent loaded-DLL volume/file identity; Windows remains compatibility-only pending remote artifact and conformance evidence)
 **Revised:** 2026-07-15 (ENG-25066 advertises the native module runner on exact macOS arm64 and Linux x64 targets while retaining Windows as an explicit compatibility-only row until a matching patched Hermes artifact exists); 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
 
@@ -192,12 +193,19 @@ bundle per advertised job so its JSI headers, link library, and CLI share an
 identity. It runs the native ESM/CommonJS record and pure graph corpora on
 macOS arm64 and Linux x64, and runs the canonical plus frozen Test262 producer
 corpus through the bundled Hermes CLI on macOS. Windows remains visible: it
-builds both feature profiles, runs the platform-neutral graph corpus, and emits
-an explicit unavailability artifact because the published Windows Hermes
-package lacks the patched evaluator and compartment binder. The runtime keeps
-that exact target on the bounded compatibility loader rather than attempting
-an unauthenticated or mixed-engine native path `[observed]`
-(`.github/workflows/module-loader-baselines.yml`).
+builds both feature profiles and runs the platform-neutral graph corpus. The
+old NuGet installer is replaced by a download-first, source-build fallback for
+the same pinned commit and patch digest as Apple/Linux; the artifact workflow
+builds a no-debugger Release `hermesvm.dll`, checks the patched attribution
+export, records its binary digest/profile, and publishes the exact x64 bundle.
+Loaded-engine attestation separately derives the module DLL's Windows volume
+serial/file index and compares it with the pinned file handle used for hashing.
+These mechanisms remove the pathname-only and mismatched-engine blockers, but
+the target remains compatibility-only until a Windows runner produces the
+bundle and completes exact-target conformance; no advertisement follows from
+the implementation alone `[observed]` (`scripts/build-hermes-windows.ps1`;
+`scripts/install-windows-hermes.ps1`; `.github/workflows/hermes-artifacts.yml`;
+`.github/workflows/module-loader-baselines.yml`).
 
 ## 5. Sequencing
 
