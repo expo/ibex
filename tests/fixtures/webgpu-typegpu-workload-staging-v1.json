@@ -6,10 +6,6 @@
   "status": "audited-not-routable-not-installed",
   "supportClaim": "none",
   "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
-  "source": {
-    "path": "tests/gpu/typegpu-workload-closure-v1.json",
-    "sha256": "3ae28e76c09783fd1dc4b28670661c9a97a158888c272f943a9dcb46b16dbdb0"
-  },
   "typegpuVersion": "0.11.9",
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",
@@ -351,5 +347,10 @@
     "native-conformance-and-platform-evidence"
   ],
   "publicSurfaceRule": "members-remain-absent-until-all-blockers-close-no-throwing-stubs",
-  "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined"
+  "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined",
+  "source": {
+    "path": "tests/gpu/typegpu-workload-closure-v1.json",
+    "normalizedProjectionSha256": "d874d53e6426189afa5622be66f33b57b84b592b8ee37c0d75e8099a281ef065",
+    "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
+  }
 }

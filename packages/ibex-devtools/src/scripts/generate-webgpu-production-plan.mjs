@@ -13,6 +13,7 @@
  */
 
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,6 +70,31 @@ function exactSet(actual, expected, label) {
   }
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function stagingProjectionSha256(staging) {
+  const projection = { ...staging };
+  delete projection.source;
+  return crypto
+    .createHash("sha256")
+    .update(
+      `exact/typegpu-workload-closure/ibex-staging-projection/v1\n${canonicalJson(projection)}\n`,
+      "utf8",
+    )
+    .digest("hex");
+}
+
 function validateWorkloadStaging(staging, routeIds) {
   if (
     staging?.schema !== "ibex/webgpu-typegpu-workload-staging/1" ||
@@ -84,6 +110,15 @@ function validateWorkloadStaging(staging, routeIds) {
       "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined"
   ) {
     throw new Error("invalid TypeGPU workload staging authority");
+  }
+  if (
+    staging.source?.path !== "tests/gpu/typegpu-workload-closure-v1.json" ||
+    staging.source.fullArtifactSha256Disposition !==
+      "provenance-only-excluded-to-avoid-outer-submodule-recursion" ||
+    staging.source.normalizedProjectionSha256 !==
+      stagingProjectionSha256(staging)
+  ) {
+    throw new Error("invalid TypeGPU normalized staging projection identity");
   }
   exactSet(staging.blockers, REQUIRED_WORKLOAD_BLOCKERS, "TypeGPU staging blockers");
   if (

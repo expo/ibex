@@ -52,7 +52,8 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
     "source": {
       "path": "tests/gpu/typegpu-workload-closure-v1.json",
-      "sha256": "3ae28e76c09783fd1dc4b28670661c9a97a158888c272f943a9dcb46b16dbdb0"
+      "normalizedProjectionSha256": "d874d53e6426189afa5622be66f33b57b84b592b8ee37c0d75e8099a281ef065",
+      "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
     },
     "typegpuVersion": "0.11.9",
     "operationCount": 51,
