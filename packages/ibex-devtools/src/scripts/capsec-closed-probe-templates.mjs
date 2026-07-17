@@ -270,6 +270,71 @@ function tamedEvaluatorProbe({
   };
 }
 
+function moduleRunnerNamespaceProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const surfaceName = "ex_hermes_module_record_namespace_json";
+  if (surfaceObservedKey !== `host-abi:${surfaceName}`) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "host-abi" ||
+    live.name !== surfaceName ||
+    !Array.isArray(live.sourceRefs) ||
+    canonicalJson(live.sourceRefs) !==
+      canonicalJson([`src/engine/hermes_module_runner.cc#${surfaceName}`]) ||
+    live.metadata?.definitions?.length !== 1 ||
+    live.metadata.definitions[0].language !== "c++" ||
+    live.metadata.definitions[0].sourceRef !== live.sourceRefs[0] ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "runtime:inspect" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-module-runner-namespace",
+    surfaceObservedKey,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "host-abi",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "module-runner-namespace",
+        expectedError:
+          "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 function exactUnendowedOperationProbe({
   plan,
   route,
@@ -614,6 +679,7 @@ export function authoredClosedPublicProbe(options) {
     cliControlProbe(options) ??
     exactUnendowedOperationProbe(options) ??
     tamedEvaluatorProbe(options) ??
+    moduleRunnerNamespaceProbe(options) ??
     loaderExecutableKindProbe(options)
   );
 }

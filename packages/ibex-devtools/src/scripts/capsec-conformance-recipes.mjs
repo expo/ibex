@@ -2629,6 +2629,33 @@ const MODULE_RUNNER_LOADER_OPERATIONS = new Map([
   ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
 ]);
 
+const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
+  "ex_hermes_commonjs_create_record",
+  "ex_hermes_commonjs_record_create_esm_adapter",
+  "ex_hermes_commonjs_record_declare_export",
+  "ex_hermes_commonjs_record_evaluate",
+  "ex_hermes_commonjs_record_link_dynamic_import",
+  "ex_hermes_commonjs_record_link_require",
+  "ex_hermes_commonjs_record_link_require_esm",
+  "ex_hermes_graph_context_create",
+  "ex_hermes_graph_context_retain",
+  "ex_hermes_module_compile_factory",
+  "ex_hermes_module_create_record",
+  "ex_hermes_module_load_carrier_factory",
+  "ex_hermes_module_pin_generation",
+  "ex_hermes_module_record_declare_export",
+  "ex_hermes_module_record_instantiate",
+  "ex_hermes_module_record_link_dependency",
+  "ex_hermes_module_record_link_dynamic_import",
+  "ex_hermes_module_record_link_export",
+  "ex_hermes_module_record_link_import",
+  "ex_hermes_module_record_poll_evaluation",
+  "ex_hermes_module_record_run_declare",
+  "ex_hermes_module_record_run_execute",
+  "ex_hermes_module_release_handle",
+  "ex_hermes_module_unpin_generation",
+]);
+
 function moduleRunnerLoaderProbeForPlan({
   plan,
   scenario,
@@ -2688,6 +2715,78 @@ function moduleRunnerLoaderProbeForPlan({
       sourceDescriptor,
       sourceDescriptorDigest: taggedDigest(sourceDescriptor),
       operation: { kind: operation },
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: clone(plan.edgeIds),
+      expectedActionIds: [],
+    },
+  };
+}
+
+function moduleRunnerHostAbiProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+}) {
+  if (
+    plan.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "host-abi:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const functionName = surfaceObservedKey.slice(prefix.length);
+  if (!MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS.has(functionName)) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "host-abi" ||
+    live.name !== functionName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    !Array.isArray(live.metadata?.definitions) ||
+    live.metadata.definitions.length !== 1 ||
+    live.metadata.definitions[0].language !== "c++" ||
+    live.metadata.definitions[0].sourceRef !== live.sourceRefs[0] ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "host-abi-function",
+    functionName,
+    sourceRefs: clone(live.sourceRefs),
+    sourceMetadata: clone(live.metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [
+      "cargo",
+      "test",
+      "--bin",
+      "ibex",
+      "--features",
+      "capsec-conformance-observer",
+      "capsec_public_native_recipe_batch",
+      "--",
+      "--test-threads=1",
+    ],
+    invocation: {
+      invocationSchema: "ibex/capsec-host-abi-invocation/1",
+      kind: "host-abi-function",
+      functionName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: { kind: "module-runner-source-graph" },
       expectedResult: "return",
       expectedTypedStages: [],
       expectedTypedDecisionCount: 0,
@@ -2941,6 +3040,12 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
     });
+    const moduleRunnerHostAbiProbe = moduleRunnerHostAbiProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+    });
     const authoredPublicSurfaceProbes = callbackInvariantProbe
       ? [callbackInvariantProbe]
       : [
@@ -2952,6 +3057,7 @@ export function buildConformanceRecipeCatalog({
           nonCapabilityBuiltinPublicSurfaceProbe,
           conditionalHostAbiProbe,
           moduleRunnerLoaderProbe,
+          moduleRunnerHostAbiProbe,
           nativePublicSurface.probe,
         ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {

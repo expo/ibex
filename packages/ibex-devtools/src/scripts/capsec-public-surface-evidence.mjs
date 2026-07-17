@@ -814,15 +814,24 @@ function validateRuntimeInvocation(observation, recipe) {
       [...commonKeys, "functionName"],
       `${recipe.fixtureId}: host ABI runtime invocation`,
     );
+    const sqliteMemory = authored.operation?.kind === "sqlite-memory";
+    const moduleRunner =
+      authored.operation?.kind === "module-runner-source-graph";
     if (
       invocation.kind !== "host-abi-function" ||
       invocation.functionName !== authored.functionName ||
-      authored.operation?.kind !== "sqlite-memory" ||
-      authored.operation?.selectedBranch?.id !== "memory" ||
+      (!sqliteMemory && !moduleRunner) ||
       authored.sourceDescriptor?.kind !== "host-abi-function" ||
       authored.sourceDescriptor?.functionName !== authored.functionName ||
-      canonicalJson(authored.sourceDescriptor?.selectedBranch) !==
-        canonicalJson(authored.operation?.selectedBranch)
+      (sqliteMemory &&
+        (authored.operation?.selectedBranch?.id !== "memory" ||
+          canonicalJson(authored.sourceDescriptor?.selectedBranch) !==
+            canonicalJson(authored.operation?.selectedBranch))) ||
+      (moduleRunner &&
+        canonicalJson(authored.sourceDescriptor?.sourceRefs) !==
+          canonicalJson([
+            `src/engine/hermes_module_runner.cc#${authored.functionName}`,
+          ]))
     ) {
       throw new Error(
         `${recipe.fixtureId}: host ABI runtime invocation descriptor drift`,
@@ -1101,6 +1110,45 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(
         `${recipe.fixtureId}: closed-surface runtime invocation descriptor drift`,
       );
+    }
+    if (authored.operation?.kind === "module-runner-namespace") {
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed module-runner source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "expectedError"],
+        `${recipe.fixtureId}: closed module-runner operation`,
+      );
+      const functionName = "ex_hermes_module_record_namespace_json";
+      if (
+        authored.surfaceKind !== "host-abi" ||
+        authored.surfaceName !== functionName ||
+        descriptor.kind !== "closed-module-runner-namespace" ||
+        descriptor.surfaceObservedKey !== `host-abi:${functionName}` ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([
+            `src/engine/hermes_module_runner.cc#${functionName}`,
+          ]) ||
+        descriptor.sourceMetadata?.definitions?.length !== 1 ||
+        descriptor.sourceMetadata.definitions[0].language !== "c++" ||
+        descriptor.sourceMetadata.definitions[0].sourceRef !==
+          descriptor.sourceRefs[0] ||
+        authored.operation.expectedError !==
+          "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: closed module-runner descriptor drift`,
+        );
+      }
     }
     if (authored.operation?.kind === "loader-executable-file") {
       const loaderExpectation = new Map([
@@ -1513,19 +1561,46 @@ function validateRuntimeInvocation(observation, recipe) {
     if (
       authored.invocationSchema === "ibex/capsec-host-abi-invocation/1"
     ) {
-      exactKeys(
-        invocation.result,
-        ["kind", "functionName", "operation", "cleanup"],
-        `${recipe.fixtureId}: host ABI runtime result`,
-      );
-      if (
-        invocation.result.functionName !== authored.functionName ||
-        invocation.result.operation !== "sqlite-memory" ||
-        invocation.result.cleanup !== "released-sqlite-memory-state"
-      ) {
-        throw new Error(
-          `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+      if (authored.operation.kind === "sqlite-memory") {
+        exactKeys(
+          invocation.result,
+          ["kind", "functionName", "operation", "cleanup"],
+          `${recipe.fixtureId}: host ABI runtime result`,
         );
+        if (
+          invocation.result.functionName !== authored.functionName ||
+          invocation.result.operation !== "sqlite-memory" ||
+          invocation.result.cleanup !== "released-sqlite-memory-state"
+        ) {
+          throw new Error(
+            `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+          );
+        }
+      } else {
+        exactKeys(
+          invocation.result,
+          [
+            "kind",
+            "functionName",
+            "operation",
+            "observedFunctionNames",
+            "cleanup",
+          ],
+          `${recipe.fixtureId}: module-runner host ABI runtime result`,
+        );
+        if (
+          invocation.result.functionName !== authored.functionName ||
+          invocation.result.operation !== "module-runner-source-graph" ||
+          invocation.result.cleanup !== "released-module-graph" ||
+          !Array.isArray(invocation.result.observedFunctionNames) ||
+          !invocation.result.observedFunctionNames.includes(
+            authored.functionName,
+          )
+        ) {
+          throw new Error(
+            `${recipe.fixtureId}: module-runner graph did not enter the exact host ABI`,
+          );
+        }
       }
     } else if (
       authored.invocationSchema ===
@@ -1826,6 +1901,15 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: Exact invocation did not fail closed before the embedder callback`,
+      );
+    }
+    if (
+      authored.operation?.kind === "module-runner-namespace" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed module namespace inspection did not fail closed`,
       );
     }
     const loaderExecutableExpectation = new Map([

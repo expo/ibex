@@ -374,9 +374,11 @@ int32_t ex_hermes_module_record_poll_evaluation(
     int32_t* out_state,
     char** out_error);
 
-/// Diagnostic serialization of the stable namespace. The namespace itself
-/// never crosses the ABI; TDZ reads fail through the same checked getters used
-/// by imports.
+/// Diagnostic serialization of the stable namespace. Armed runtimes reject
+/// this inspection before reading the record; explicitly diagnostic runtimes
+/// retain it for tests and embedder diagnostics. The namespace itself never
+/// crosses the ABI; TDZ reads fail through the same checked getters used by
+/// imports.
 int32_t ex_hermes_module_record_namespace_json(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,

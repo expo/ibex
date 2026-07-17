@@ -2092,6 +2092,293 @@ async fn execute_host_abi_public_recipe(
     })
 }
 
+async fn execute_module_runner_host_abi_public_recipe(
+    recipe: &Recipe,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    use ibex_runtime::module_loader::runner_pipeline::{
+        build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
+        publish_prepared_source_graph_v1, SourceModuleGraphBuildV1,
+    };
+
+    let probe = recipe
+        .public_surface_probe
+        .as_ref()
+        .expect("module-runner host ABI recipe must have a public probe");
+    let invocation = probe
+        .invocation
+        .host_abi()
+        .expect("module-runner host ABI executor received another schema");
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "non-capability");
+    assert_eq!(recipe.scenario, "non-capability");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert_eq!(probe.surface_observed_key, format!("host-abi:{}", invocation.function_name));
+    assert_eq!(probe.surface_observed_key, recipe.terminal_observed_key);
+    assert_eq!(invocation.kind, "host-abi-function");
+    assert_eq!(invocation.operation["kind"], "module-runner-source-graph");
+    assert_eq!(invocation.expected_result, "return");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+    assert_eq!(invocation.source_descriptor["kind"], "host-abi-function");
+    assert_eq!(invocation.source_descriptor["functionName"], invocation.function_name);
+    assert_eq!(
+        invocation.source_descriptor["sourceRefs"],
+        serde_json::json!([format!(
+            "src/engine/hermes_module_runner.cc#{}",
+            invocation.function_name
+        )])
+    );
+    assert_eq!(
+        invocation.source_descriptor["sourceMetadata"]["definitions"][0]["language"],
+        "c++"
+    );
+
+    let directory = tempfile::tempdir().expect("create module-runner public graph root");
+    let project_root = std::fs::canonicalize(directory.path())
+        .expect("canonicalize module-runner public graph root");
+    let entry = project_root.join("entry.mjs");
+    std::fs::write(
+        &entry,
+        "import { value as imported } from './dep.mjs';\n\
+         export { other as forwarded } from './dep.mjs';\n\
+         export * from './star.mjs';\n\
+         export const local = imported;\n\
+         export function loadDynamic() { return import('./dynamic.mjs'); }\n",
+    )
+    .expect("write module-runner public entry");
+    std::fs::write(
+        project_root.join("dep.mjs"),
+        "export let value = 1; export const other = 2;\n",
+    )
+    .expect("write module-runner public dependency");
+    std::fs::write(
+        project_root.join("star.mjs"),
+        "export const star = 3;\n",
+    )
+    .expect("write module-runner public star dependency");
+    std::fs::write(
+        project_root.join("dynamic.mjs"),
+        "export const dynamicValue = 4;\n",
+    )
+    .expect("write module-runner public dynamic dependency");
+    let commonjs_entry = project_root.join("commonjs-entry.cjs");
+    std::fs::write(
+        &commonjs_entry,
+        "const peer = require('./commonjs-peer.cjs');\n\
+         const esm = require('./commonjs-esm.mjs');\n\
+         exports.total = peer.value + esm.value;\n\
+         import('./dynamic.mjs');\n",
+    )
+    .expect("write module-runner public CommonJS entry");
+    std::fs::write(
+        project_root.join("commonjs-peer.cjs"),
+        "exports.value = 2;\n",
+    )
+    .expect("write module-runner public CommonJS dependency");
+    std::fs::write(
+        project_root.join("commonjs-esm.mjs"),
+        "export const value = 3;\n",
+    )
+    .expect("write module-runner public CommonJS ESM dependency");
+    let asynchronous_entry = project_root.join("asynchronous-entry.mjs");
+    std::fs::write(
+        &asynchronous_entry,
+        "await new Promise((resolve) => setTimeout(resolve, 0));\n\
+         export const settled = true;\n",
+    )
+    .expect("write module-runner public asynchronous entry");
+
+    let (host, snapshot_digest) = build_armed_test_host_custom(
+        Some(&project_root),
+        false,
+        true,
+        true,
+        Vec::new(),
+        None,
+        |_| {},
+    );
+    assert_ne!(crate::host::abi::install_host(host), 0);
+    let _reset = HostResetGuard;
+    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
+        .expect("loaded engine digest is a canonical digest");
+    let build_graph = |entry: &std::path::Path, label: &str| {
+        match build_authenticated_source_graph_v1(entry, producer_digest.clone(), label)
+            .expect("build authenticated module-runner public graph")
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "module-runner public graph unexpectedly required legacy: {}",
+                    requirement.reason
+                )
+            }
+        }
+    };
+    let graph = build_graph(&entry, "capsec-module-runner-public-esm");
+    let commonjs_graph = build_graph(
+        &commonjs_entry,
+        "capsec-module-runner-public-commonjs",
+    );
+    let asynchronous_graph = build_graph(
+        &asynchronous_entry,
+        "capsec-module-runner-public-asynchronous",
+    );
+    let deployment_digest = ibex_runtime::module_loader::artifact::digest_bytes(
+        "ibex/capsec-module-runner-public-prepared/1",
+        b"authenticated prepared graph",
+    )
+    .expect("digest module-runner public prepared graph");
+    let prepared_cache = publish_prepared_source_graph_v1(
+        &graph,
+        &project_root,
+        deployment_digest.clone(),
+    )
+    .expect("publish authenticated module-runner public prepared graph");
+    let prepared_graph = load_prepared_source_graph_v1(
+        &prepared_cache,
+        &producer_digest,
+        &deployment_digest,
+    )
+    .expect("load authenticated module-runner public prepared graph");
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create isolated module-runner host ABI engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load runtime before module-runner host ABI recipe");
+    unsafe { ibex_test_begin_module_runner_abi_observation() };
+    let session_id = format!("public-module-runner-host-abi:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &session_id
+    ));
+    let runtime = engine
+        .ensure_runtime()
+        .await
+        .expect("borrow loaded runtime for graph-context retain");
+    runtime
+        .with_runtime(|raw| -> anyhow::Result<()> {
+            use ibex_runtime::engine::module_runner::{
+                GraphEvaluationContext, NativeModuleRuntime,
+            };
+            use ibex_runtime::module_loader::identity::SourceId;
+
+            let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+            let raw = std::ptr::NonNull::new(raw.cast())
+                .expect("loaded Hermes runtime pointer is non-null");
+            let native = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
+            let context = native.create_graph_context(GraphEvaluationContext::new(
+                SourceId::synthetic("capsec-module-runner-public", "retained-context")?,
+                0,
+                0,
+                [0],
+                1,
+            )?)?;
+            let retained = context.clone();
+            drop(retained);
+            drop(context);
+            Ok(())
+        })
+        .expect("access loaded runtime for graph-context retain")
+        .expect("retain a real native graph context");
+    engine
+        .run_authenticated_module_graph(&graph)
+        .await
+        .expect("execute authenticated module-runner public ESM graph");
+    engine
+        .run_authenticated_module_graph(&commonjs_graph)
+        .await
+        .expect("execute authenticated module-runner public CommonJS graph");
+    engine
+        .run_authenticated_module_graph(&asynchronous_graph)
+        .await
+        .expect("execute authenticated module-runner public asynchronous graph");
+    engine
+        .run_authenticated_module_graph(&prepared_graph)
+        .await
+        .expect("execute authenticated module-runner public prepared graph");
+    let pointer = unsafe { ibex_test_take_module_runner_abi_observation() };
+    assert!(!pointer.is_null(), "module-runner ABI observer returned no result");
+    let observed_text = unsafe { std::ffi::CStr::from_ptr(pointer) }
+        .to_str()
+        .expect("module-runner ABI observations must be UTF-8")
+        .to_owned();
+    unsafe { ex_hermes_free_string(pointer) };
+    let observed_function_names: Vec<String> = serde_json::from_value(
+        capsec_semantics::strict_json::parse_strict(&observed_text)
+            .expect("module-runner ABI observations must be strict JSON"),
+    )
+    .expect("module-runner ABI observations must be a string array");
+    assert!(
+        observed_function_names
+            .iter()
+            .any(|name| name == &invocation.function_name),
+        "module-runner public graph did not enter {}: {:?}",
+        invocation.function_name,
+        observed_function_names
+    );
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let invocation_result = serde_json::json!({
+        "kind": "return",
+        "functionName": invocation.function_name,
+        "operation": "module-runner-source-graph",
+        "observedFunctionNames": observed_function_names,
+        "cleanup": "released-module-graph",
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": "ibex/capsec-host-abi-invocation/1",
+            "kind": invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "functionName": invocation.function_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": invocation_result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected module-runner ABI observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": probe.surface_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), serde_json::Value::String(digest));
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-native-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 #[derive(Clone)]
 struct ModuleLoaderPublicPolicy {
     digest: capsec_semantics::model::Digest,
@@ -2444,19 +2731,38 @@ async fn capsec_public_native_recipe_batch() {
                 .await,
             );
         } else if probe.invocation.host_abi().is_some() {
-            let (host, snapshot_digest) =
-                build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
-            assert_ne!(crate::host::abi::install_host(host), 0);
-            let _reset = HostResetGuard;
-            let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
-                .expect("create isolated host-ABI public recipe engine");
-            engine
-                .load_runtime()
-                .await
-                .expect("load runtime before host-ABI public recipe");
-            executions.push(
-                execute_host_abi_public_recipe(recipe, &identity_before.binary_digest).await,
-            );
+            if probe.invocation.host_abi().unwrap().operation["kind"]
+                == "module-runner-source-graph"
+            {
+                executions.push(
+                    execute_module_runner_host_abi_public_recipe(
+                        recipe,
+                        &identity_before.binary_digest,
+                    )
+                    .await,
+                );
+            } else {
+                let (host, snapshot_digest) = build_armed_test_host_custom(
+                    None,
+                    false,
+                    false,
+                    false,
+                    Vec::new(),
+                    None,
+                    |_| {},
+                );
+                assert_ne!(crate::host::abi::install_host(host), 0);
+                let _reset = HostResetGuard;
+                let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+                    .expect("create isolated host-ABI public recipe engine");
+                engine
+                    .load_runtime()
+                    .await
+                    .expect("load runtime before host-ABI public recipe");
+                executions.push(
+                    execute_host_abi_public_recipe(recipe, &identity_before.binary_digest).await,
+                );
+            }
         } else {
             assert!(probe.invocation.module_loader().is_some());
             let (host, snapshot_digest) =

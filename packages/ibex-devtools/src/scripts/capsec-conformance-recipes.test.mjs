@@ -2164,7 +2164,9 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
-        "ibex/capsec-host-abi-invocation/1",
+          "ibex/capsec-host-abi-invocation/1" &&
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "sqlite-memory",
     );
     expect(rows).toHaveLength(14);
     expect(
@@ -2194,6 +2196,100 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.expectedActionIds.length === 0,
       ),
     ).toBe(true);
+  });
+
+  test("executes source-defined module-runner host ABIs through one real graph", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "module-runner-source-graph",
+    );
+    expect(rows).toHaveLength(24);
+    expect(
+      rows.map((recipe) => recipe.publicSurfaceProbe.invocation.functionName),
+    ).toEqual([
+      "ex_hermes_commonjs_create_record",
+      "ex_hermes_commonjs_record_create_esm_adapter",
+      "ex_hermes_commonjs_record_declare_export",
+      "ex_hermes_commonjs_record_evaluate",
+      "ex_hermes_commonjs_record_link_dynamic_import",
+      "ex_hermes_commonjs_record_link_require",
+      "ex_hermes_commonjs_record_link_require_esm",
+      "ex_hermes_graph_context_create",
+      "ex_hermes_graph_context_retain",
+      "ex_hermes_module_compile_factory",
+      "ex_hermes_module_create_record",
+      "ex_hermes_module_load_carrier_factory",
+      "ex_hermes_module_pin_generation",
+      "ex_hermes_module_record_declare_export",
+      "ex_hermes_module_record_instantiate",
+      "ex_hermes_module_record_link_dependency",
+      "ex_hermes_module_record_link_dynamic_import",
+      "ex_hermes_module_record_link_export",
+      "ex_hermes_module_record_link_import",
+      "ex_hermes_module_record_poll_evaluation",
+      "ex_hermes_module_record_run_declare",
+      "ex_hermes_module_record_run_execute",
+      "ex_hermes_module_release_handle",
+      "ex_hermes_module_unpin_generation",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.actionIds.length === 0 &&
+          recipe.adapterProbe === null &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
+            "host-abi-function" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs[0] ===
+            `src/engine/hermes_module_runner.cc#${recipe.publicSurfaceProbe.invocation.functionName}` &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0,
+      ),
+    ).toBe(true);
+  });
+
+  test("closes module namespace inspection on an armed runtime", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "module-runner-namespace",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      classification: "closed",
+      scenario: "closed",
+      status: "fully-executable",
+      residualReasons: [],
+      terminalObservedKey:
+        "host-abi:ex_hermes_module_record_namespace_json",
+      publicSurfaceProbe: {
+        surfaceObservedKey:
+          "host-abi:ex_hermes_module_record_namespace_json",
+        invocation: {
+          invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+          kind: "closed-surface",
+          surfaceKind: "host-abi",
+          surfaceName: "ex_hermes_module_record_namespace_json",
+          sourceDescriptor: {
+            kind: "closed-module-runner-namespace",
+            sourceRefs: [
+              "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json",
+            ],
+          },
+          operation: {
+            kind: "module-runner-namespace",
+            expectedError:
+              "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup",
+          },
+          expectedResult: "closed",
+          expectedTypedDecisionCount: 0,
+        },
+      },
+    });
   });
 
   test("binds OS-info calls to exact typed selectors and stages", () => {

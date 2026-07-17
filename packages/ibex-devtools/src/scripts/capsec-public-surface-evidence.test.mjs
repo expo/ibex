@@ -103,6 +103,14 @@ const coverage = {
       classification: "closed",
       surface: { kind: "native-op", name: "global:exact.invokeHostAsync" },
     },
+    {
+      id: "edge.module-runner-namespace-closed",
+      classification: "closed",
+      surface: {
+        kind: "host-abi",
+        name: "ex_hermes_module_record_namespace_json",
+      },
+    },
   ],
 };
 
@@ -2539,6 +2547,194 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/did not prove its exact access/);
+  });
+
+  test("accepts a source-bound module-runner ABI only when the graph enters it", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const functionName = "ex_hermes_module_compile_factory";
+    const sourceDescriptor = {
+      kind: "host-abi-function",
+      functionName,
+      sourceRefs: [`src/engine/hermes_module_runner.cc#${functionName}`],
+      sourceMetadata: {
+        definitions: [
+          {
+            language: "c++",
+            sourceRef: `src/engine/hermes_module_runner.cc#${functionName}`,
+            targetVariant: "default",
+          },
+        ],
+      },
+    };
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-runner.compile.non-capability",
+      classification: "non-capability",
+      scenario: "non-capability",
+      edgeIds: ["edge.module-runner-compile"],
+      actionIds: [],
+      terminalObservedKey: `host-abi:${functionName}`,
+      route: {
+        surfaceObservedKeys: [`host-abi:${functionName}`],
+        alternatives: [
+          {
+            terminalObservedKey: `host-abi:${functionName}`,
+            proofPaths: [`host-abi:${functionName}`],
+          },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: recipe.terminalObservedKey,
+      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-host-abi-invocation/1",
+        kind: "host-abi-function",
+        functionName,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "module-runner-source-graph" },
+        expectedResult: "return",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.module-runner-compile"],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-host-abi-invocation/1",
+        kind: "host-abi-function",
+        surfaceObservedKey: recipe.terminalObservedKey,
+        functionName,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "return",
+          functionName,
+          operation: "module-runner-source-graph",
+          observedFunctionNames: [functionName],
+          cleanup: "released-module-graph",
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.observedFunctionNames = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not enter the exact host ABI/);
+  });
+
+  test("accepts armed module namespace closure only at the exact ABI", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const functionName = "ex_hermes_module_record_namespace_json";
+    const surfaceObservedKey = `host-abi:${functionName}`;
+    const sourceDescriptor = {
+      kind: "closed-module-runner-namespace",
+      surfaceObservedKey,
+      sourceRefs: [`src/engine/hermes_module_runner.cc#${functionName}`],
+      sourceMetadata: {
+        definitions: [
+          {
+            language: "c++",
+            sourceRef: `src/engine/hermes_module_runner.cc#${functionName}`,
+          },
+        ],
+      },
+    };
+    const expectedError =
+      "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup";
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-runner.namespace.closed",
+      classification: "closed",
+      scenario: "closed",
+      edgeIds: ["edge.module-runner-namespace-closed"],
+      actionIds: [],
+      terminalObservedKey: surfaceObservedKey,
+      route: {
+        surfaceObservedKeys: [surfaceObservedKey],
+        alternatives: [
+          { terminalObservedKey: surfaceObservedKey, proofPaths: [surfaceObservedKey] },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: ["cargo", "test", "capsec_public_closed_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+        kind: "closed-surface",
+        surfaceKind: "host-abi",
+        surfaceName: functionName,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "module-runner-namespace", expectedError },
+        expectedResult: "closed",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+        kind: "closed-surface",
+        surfaceObservedKey,
+        surfaceKind: "host-abi",
+        surfaceName: functionName,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "closed",
+          surfaceKind: "host-abi",
+          surfaceName: functionName,
+          mechanism: "module-runner-namespace",
+          errorName: "ClosedSurface",
+          errorMessage: expectedError,
+          engineExecuted: true,
+          projectCodeExecuted: false,
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.errorMessage = "different rejection";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not fail closed/);
   });
 
   test("accepts callback invariants only with exact typed outcomes and reasons", () => {
