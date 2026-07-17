@@ -6219,19 +6219,29 @@
     var authenticatedBuiltinRecord = kind === 'builtin' &&
       typeof record.sourceId === 'string' &&
       record.sourceId.indexOf('ibex-source-id-v1:') === 0;
+    // Diagnostic/unarmed resolvers historically supplied a SourceId without
+    // the armed record envelope. Preserve that identity so two modules with
+    // one host display label cannot collapse in compatibility mode. Armed
+    // records never enter this branch and still require the closed VFS shape
+    // above before their SourceId can influence cache identity.
+    var unarmedSourceId = !__armedResolverCapture &&
+      typeof record.sourceId === 'string' && record.sourceId.length > 0
+      ? record.sourceId
+      : null;
     // Builtins and file modules use the same tagged SourceId key shape when
-    // native supplied one. The source-text fallback is retained only for old
-    // unarmed records. (ENG-22981; LLP 0023 §2.3)
+    // native supplied one. Unarmed compatibility records retain their host-
+    // supplied identity; source text/path are only the oldest fallbacks.
+    // (ENG-22981; LLP 0023 §2.3)
     const cacheKey = kind === 'builtin'
       ? (authenticatedBuiltinRecord
           ? record.sourceId
-          : builtinCacheKeyFor(legacyId, record.source))
+          : (unarmedSourceId || builtinCacheKeyFor(legacyId, record.source)))
       : (authenticatedGeneratedBundleRecord
           ? 'ibex-generated-bundle-wrapper-v1:' + generatedProvenance.digest +
             ':' + generatedProvenance.chunk
           : ((authenticatedFileRecord || authenticatedDirectEntry)
           ? record.sourceId
-          : legacyId));
+          : (unarmedSourceId || legacyId)));
     if (authenticatedFileRecord && authenticatedRouteKey !== null) {
       __authenticatedResolutionMemo[authenticatedRouteKey] = {
         cacheKey: cacheKey

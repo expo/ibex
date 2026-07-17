@@ -376,7 +376,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_010);
+    expect(rationaleOnly).toHaveLength(3_014);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -385,10 +385,10 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 556,
-      "generation-recheck": 556,
-      "principal-restore": 556,
-      "snapshot-mismatch-deny": 556,
+      "attribution-missing-deny": 557,
+      "generation-recheck": 557,
+      "principal-restore": 557,
+      "snapshot-mismatch-deny": 557,
       "cannot-widen-authority": 393,
       "post-lockdown-invariant": 393,
     });
