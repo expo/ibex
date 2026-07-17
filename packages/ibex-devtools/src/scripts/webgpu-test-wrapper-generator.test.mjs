@@ -47,7 +47,7 @@ describe("test-only WebGPU wrapper generator", () => {
       "provenance-only-not-executable-acceptance",
     );
     const nativePrograms = authority.payload.wireEnvelope.nativeCodecPrograms;
-    expect(nativePrograms.schema).toBe("ibex/webgpu-native-codec-programs/1");
+    expect(nativePrograms.schema).toBe("ibex/webgpu-native-codec-programs/2");
     expect(nativePrograms.scope.excluded).toBe(
       "full-call-or-event-construction-and-global-v2-carrier-validation",
     );
@@ -58,10 +58,17 @@ describe("test-only WebGPU wrapper generator", () => {
       "GPU.requestAdapter",
     ]);
     expect(nativePrograms.routes[0].request.catalog.wireTag).toBe(2);
-    expect(nativePrograms.routes[0].completion.catalog.wireTag).toBe(3);
+    expect(nativePrograms.routes[0].completion.catalog.wireTag).toBe(6);
     expect(nativePrograms.routes[0].completion.variants[0].payload).toEqual({
       kind: "empty",
       exactLengthBytes: 0,
+    });
+    expect(
+      nativePrograms.routes[0].completion.variants[1].payload.fields.at(-1),
+    ).toEqual({
+      name: "serviceDetachedExpired",
+      type: "u8",
+      constraint: "boolean-zero-or-one",
     });
   });
 
@@ -232,7 +239,7 @@ describe("test-only WebGPU wrapper generator", () => {
 
     const nativeSchema = clone(authority);
     nativeSchema.payload.wireEnvelope.nativeCodecPrograms.schema =
-      "ibex/webgpu-native-codec-programs/2";
+      "ibex/webgpu-native-codec-programs/1";
     mutations.push(nativeSchema);
 
     const nativeBodyOrder = clone(authority);
@@ -274,6 +281,11 @@ describe("test-only WebGPU wrapper generator", () => {
       .completion.variants[1].carrierJoins[0].carrierPath =
         "record.operation_result.operation.result_device.provider_generation";
     mutations.push(nativeProviderJoin);
+
+    const nativeDetachedState = clone(authority);
+    nativeDetachedState.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+      .completion.variants[1].payload.fields.at(-1).constraint = "positive";
+    mutations.push(nativeDetachedState);
 
     for (const mutation of mutations) {
       expect(() => validateWebGpuWrapperAuthority(mutation)).toThrow();

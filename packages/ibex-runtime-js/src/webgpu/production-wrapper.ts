@@ -62,6 +62,7 @@ interface WrapperState {
   providerGeneration: string;
   nextAdapterOrdinal: string;
   expired: boolean;
+  serviceDetached: boolean;
   retired: boolean;
   status: string;
   invalid: boolean;
@@ -455,6 +456,7 @@ export function createProductionWebGpuPrivateBinding(
       providerGeneration: device?.providerGeneration ?? '0',
       nextAdapterOrdinal: '1',
       expired: false,
+      serviceDetached: false,
       retired: false,
       status: 'live',
       invalid: false,
@@ -714,6 +716,13 @@ export function createProductionWebGpuPrivateBinding(
       if (!isPositiveDecimal(state.providerGeneration)) {
         throw new TypeError('GPUAdapter result lacks a provider generation');
       }
+      if (typeof identity.serviceDetachedExpired !== 'boolean') {
+        throw new TypeError(
+          'GPUAdapter result lacks authenticated detached state',
+        );
+      }
+      state.expired = identity.serviceDetachedExpired;
+      state.serviceDetached = identity.serviceDetachedExpired;
       return state.wrapper;
     }
     if (expectedKind === 'GPUDevice') {

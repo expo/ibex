@@ -118,7 +118,11 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
 
 function createFakeCodecs(
   log: string[] = [],
-  options: Readonly<{ detachedDevices?: boolean }> = {},
+  options: Readonly<{
+    detachedAdapters?: boolean;
+    detachedDevices?: boolean;
+    omitAdapterDetachedState?: boolean;
+  }> = {},
 ): ExecutableWebGpuCodecBundle & {
   readonly encodings: ProductionGpuServiceEncodingInput[];
 } {
@@ -181,6 +185,11 @@ function createFakeCodecs(
             objectId: '101',
             objectGeneration: '1',
             providerGeneration: '7',
+            ...(options.omitAdapterDetachedState
+              ? {}
+              : {
+                serviceDetachedExpired: Boolean(options.detachedAdapters),
+              }),
           },
         };
       }
@@ -328,6 +337,32 @@ describe('production-private WebGPU wrapper factory', () => {
     await expect(pending).rejects.toThrow('conversion exploded');
     expect(bridge.submissions).toHaveLength(0);
     installation.status === 'installed' && installation.revoke();
+  });
+
+  test('requires authenticated adapter attachment state without defaulting live', async () => {
+    const log: string[] = [];
+    const detached = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(log, { detachedAdapters: true }),
+    );
+    const adapter = await (detached.gpu as {
+      requestAdapter(): Promise<unknown>;
+    }).requestAdapter() as { requestDevice(): Promise<unknown> };
+    await expect(adapter.requestDevice()).resolves.toBeObject();
+    expect(log).toContain('convert:GPUAdapter.requestDevice');
+    expect(log).toContain('encode:GPUAdapter.requestDevice');
+    detached.revoke();
+
+    const missing = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs([], { omitAdapterDetachedState: true }),
+    );
+    await expect((missing.gpu as {
+      requestAdapter(): Promise<unknown>;
+    }).requestAdapter()).rejects.toThrow(
+      'GPUAdapter result lacks authenticated detached state',
+    );
+    missing.revoke();
   });
 
   test('keeps the audited TypeGPU delta descriptive and absent from prototypes', () => {

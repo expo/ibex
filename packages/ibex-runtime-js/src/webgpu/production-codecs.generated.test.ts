@@ -268,7 +268,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'reviewed-generated-injection-and-request-adapter-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
-      schema: 'ibex/webgpu-native-codec-programs/1',
+      schema: 'ibex/webgpu-native-codec-programs/2',
       scope: {
         excluded:
           'full-call-or-event-construction-and-global-v2-carrier-validation',
@@ -888,8 +888,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectId: '41',
         objectGeneration: '2',
         providerGeneration: '8',
+        serviceDetachedExpired: false,
       },
     );
+    expect(adapterPayload.byteLength).toBe(38);
     expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPU.requestAdapter',
       resultEvent('GPU.requestAdapter', 3, adapterPayload),
@@ -900,6 +902,28 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectId: '41',
         objectGeneration: '2',
         providerGeneration: '8',
+        serviceDetachedExpired: false,
+      },
+    });
+    const detachedPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeServiceResult('GPU.requestAdapter', {
+        kind: 'adapter',
+        objectId: '42',
+        objectGeneration: '3',
+        providerGeneration: '8',
+        serviceDetachedExpired: true,
+      });
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPU.requestAdapter',
+      resultEvent('GPU.requestAdapter', 3, detachedPayload),
+    )).toEqual({
+      kind: 'object',
+      object: {
+        kind: 'GPUAdapter',
+        objectId: '42',
+        objectGeneration: '3',
+        providerGeneration: '8',
+        serviceDetachedExpired: true,
       },
     });
     const mismatchedProviderPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
@@ -908,6 +932,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectId: '41',
         objectGeneration: '2',
         providerGeneration: '9',
+        serviceDetachedExpired: false,
       });
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPU.requestAdapter',
@@ -950,8 +975,42 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectId: '0',
         objectGeneration: '2',
         providerGeneration: '8',
+        serviceDetachedExpired: false,
       },
     )).toThrow('positive identity');
+
+    const invalidDetachedState = adapterPayload.slice();
+    invalidDetachedState[37] = 2;
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPU.requestAdapter',
+      resultEvent('GPU.requestAdapter', 3, invalidDetachedState),
+    )).toThrow('invalid authenticated detached state');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPU.requestAdapter',
+      resultEvent('GPU.requestAdapter', 3, adapterPayload.slice(0, 37)),
+    )).toThrow();
+    const trailing = new Uint8Array(adapterPayload.byteLength + 1);
+    trailing.set(adapterPayload);
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPU.requestAdapter',
+      resultEvent('GPU.requestAdapter', 3, trailing),
+    )).toThrow('Trailing bytes in WebGPU payload');
+    const oldCodecTag = adapterPayload.slice();
+    oldCodecTag[6] = 3;
+    oldCodecTag[7] = 0;
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPU.requestAdapter',
+      resultEvent('GPU.requestAdapter', 3, oldCodecTag),
+    )).toThrow('Unexpected WebGPU codec tag: 3');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPU.requestAdapter',
+      {
+        kind: 'adapter',
+        objectId: '41',
+        objectGeneration: '2',
+        providerGeneration: '8',
+      } as never,
+    )).toThrow('lacks authenticated detached state');
   });
 
   test('derives detached device loss only from authenticated carrier fields', () => {

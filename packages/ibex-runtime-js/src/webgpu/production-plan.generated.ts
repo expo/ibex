@@ -10,9 +10,9 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "digests": {
     "operationSet": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
     "semanticProgramSet": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-    "runtimeRouting": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-    "webgpuCVocabulary": "1ac6b5c6d3bd938317fee5c11f03ea195f85536e442b09a386b6f420d5a23290",
-    "projection": "23487decb740812135f6b310118c8e87bdce9bcf82e1c78e34637f5c7f2e04ff"
+    "runtimeRouting": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
+    "webgpuCVocabulary": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
+    "projection": "9c49bed873cbe5117777d51a2f7f6a80847326f4944a01e7c76b12d838c7d88d"
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",
@@ -309,7 +309,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       },
       "publicArgumentCodec": "gpu-request-adapter-options-v1",
       "serviceArgumentCodec": "gpu-request-adapter-service-request-v1",
-      "serviceCompletionCodec": "nullable-gpu-adapter-service-completion-v1",
+      "serviceCompletionCodec": "nullable-gpu-adapter-service-completion-v2",
       "publicResultCodec": "nullable-gpu-adapter-handle-promise-v1",
       "promiseIdentity": "required-nonzero-distinct-from-operation-instance"
     },

@@ -54,11 +54,11 @@ interface NativeCodecField {
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3;
+    codecTag: 2 | 6;
     operationWireId: 1660448199;
   }>;
   readonly constant?: 1;
-  readonly constraint?: 'positive';
+  readonly constraint?: 'positive' | 'boolean-zero-or-one';
 }
 
 interface NativeCodecCanonicalVariant {
@@ -130,8 +130,8 @@ interface NativeCodecCatalogReference {
   readonly name: 'serviceArguments' | 'serviceCompletions';
   readonly tag:
     | 'gpu-request-adapter-service-request-v1'
-    | 'nullable-gpu-adapter-service-completion-v1';
-  readonly wireTag: 2 | 3;
+    | 'nullable-gpu-adapter-service-completion-v2';
+  readonly wireTag: 2 | 6;
 }
 
 interface NativeCodecCompletionVariant {
@@ -179,8 +179,8 @@ interface NativeCodecRequestAdapterRoute {
   }>;
 }
 
-export interface NativeCodecProgramsV1 {
-  readonly schema: 'ibex/webgpu-native-codec-programs/1';
+export interface NativeCodecProgramsV2 {
+  readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
     'request-adapter-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
@@ -310,7 +310,7 @@ export interface ExecutableWebGpuCodecManifest {
     dictionaryMaxFields: number;
     nestingMaxDepth: number;
   }>;
-  readonly nativeCodecPrograms: NativeCodecProgramsV1;
+  readonly nativeCodecPrograms: NativeCodecProgramsV2;
   readonly objectKindAuthority: Readonly<{
     path: string;
     sha256: string;
@@ -352,7 +352,7 @@ const REQUEST_ADAPTER_WIRE_ID = 1660448199;
 const REQUEST_ADAPTER_REQUEST_CODEC =
   'gpu-request-adapter-service-request-v1';
 const REQUEST_ADAPTER_COMPLETION_CODEC =
-  'nullable-gpu-adapter-service-completion-v1';
+  'nullable-gpu-adapter-service-completion-v2';
 
 const EXPECTED_WEBGPU_CARRIER_CONSTANTS = Object.freeze({
   EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: 1,
@@ -362,7 +362,7 @@ const EXPECTED_WEBGPU_CARRIER_CONSTANTS = Object.freeze({
 } as const satisfies WebGpuCarrierConstants);
 
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
-  schema: 'ibex/webgpu-native-codec-programs/1',
+  schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
     'request-adapter-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
@@ -728,7 +728,7 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
       catalog: {
         name: 'serviceCompletions',
         tag: REQUEST_ADAPTER_COMPLETION_CODEC,
-        wireTag: 3,
+        wireTag: 6,
       },
       commonCarrierConstraints: [
         {
@@ -784,7 +784,7 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
                 constants: {
                   magic: 'IBGR',
                   version: 1,
-                  codecTag: 3,
+                  codecTag: 6,
                   operationWireId: REQUEST_ADAPTER_WIRE_ID,
                 },
               },
@@ -804,6 +804,11 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
                 type: 'u64le',
                 constraint: 'positive',
               },
+              {
+                name: 'serviceDetachedExpired',
+                type: 'u8',
+                constraint: 'boolean-zero-or-one',
+              },
             ],
           },
           carrierJoins: [{
@@ -817,7 +822,7 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
       ],
     },
   }],
-} as const satisfies NativeCodecProgramsV1);
+} as const satisfies NativeCodecProgramsV2);
 
 const TEXTURE_FORMATS = Object.freeze([
   'r8unorm',
@@ -2156,6 +2161,7 @@ export interface WebGpuCodecTestAdapterResult {
   readonly objectId: string;
   readonly objectGeneration: string;
   readonly providerGeneration: string;
+  readonly serviceDetachedExpired: boolean;
 }
 
 export interface WebGpuCodecTestDeviceResult {
@@ -2503,6 +2509,15 @@ export function createExecutableWebGpuCodecs(
         reader.u64(),
         'GPUAdapter.providerGeneration',
       );
+      const serviceDetachedExpiredTag = reader.u8();
+      if (
+        serviceDetachedExpiredTag !== 0 &&
+        serviceDetachedExpiredTag !== 1
+      ) {
+        throw new TypeError(
+          'GPUAdapter result has invalid authenticated detached state',
+        );
+      }
       if (providerGeneration !== event.operationProviderGeneration) {
         throw new TypeError('GPUAdapter result provider provenance mismatch');
       }
@@ -2514,6 +2529,7 @@ export function createExecutableWebGpuCodecs(
           objectId,
           objectGeneration,
           providerGeneration,
+          serviceDetachedExpired: serviceDetachedExpiredTag === 1,
         }),
       });
     }
@@ -2735,6 +2751,11 @@ export function createExecutableWebGpuCodecs(
     );
     if (adapterCompletion) {
       if (result.kind === 'adapter') {
+        if (typeof result.serviceDetachedExpired !== 'boolean') {
+          throw new TypeError(
+            'GPUAdapter completion test value lacks authenticated detached state',
+          );
+        }
         writer.u8(1);
         writer.u64(positiveIdentity(result.objectId, 'GPUAdapter.objectId'));
         writer.u64(positiveIdentity(
@@ -2745,6 +2766,7 @@ export function createExecutableWebGpuCodecs(
           result.providerGeneration,
           'GPUAdapter.providerGeneration',
         ));
+        writer.u8(result.serviceDetachedExpired ? 1 : 0);
       } else {
         throw new TypeError('Adapter completion test value has the wrong shape');
       }

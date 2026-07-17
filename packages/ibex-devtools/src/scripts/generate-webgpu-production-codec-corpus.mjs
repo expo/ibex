@@ -234,12 +234,21 @@ function buildCorpus() {
     }),
   );
 
-  const objectResult =
+  const liveObjectResult =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(operationId, {
       kind: "adapter",
       objectId: "41",
       objectGeneration: "2",
       providerGeneration: "9",
+      serviceDetachedExpired: false,
+    });
+  const detachedExpiredObjectResult =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(operationId, {
+      kind: "adapter",
+      objectId: "42",
+      objectGeneration: "3",
+      providerGeneration: "9",
+      serviceDetachedExpired: true,
     });
   const nullResult =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(operationId, {
@@ -260,7 +269,7 @@ function buildCorpus() {
     logicalDeviceGeneration: "0",
     providerGeneration: "0",
     operationProviderGeneration: "9",
-    payload: objectResult,
+    payload: liveObjectResult,
   });
   const nullResultEvent = Object.freeze({
     kind: 1,
@@ -316,10 +325,18 @@ function buildCorpus() {
       },
     },
   });
-  const decodedObject =
+  const decodedLiveObject =
     WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       operationId,
       objectResultEvent,
+    );
+  const decodedDetachedExpiredObject =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      operationId,
+      Object.freeze({
+        ...objectResultEvent,
+        payload: detachedExpiredObjectResult,
+      }),
     );
   const decodedNull = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
     operationId,
@@ -331,7 +348,7 @@ function buildCorpus() {
       notAdmittedNullResultEvent,
     );
   if (
-    canonicalJson(decodedObject) !==
+    canonicalJson(decodedLiveObject) !==
       canonicalJson({
         kind: "object",
         object: {
@@ -339,6 +356,18 @@ function buildCorpus() {
           objectId: "41",
           objectGeneration: "2",
           providerGeneration: "9",
+          serviceDetachedExpired: false,
+        },
+      }) ||
+    canonicalJson(decodedDetachedExpiredObject) !==
+      canonicalJson({
+        kind: "object",
+        object: {
+          kind: "GPUAdapter",
+          objectId: "42",
+          objectGeneration: "3",
+          providerGeneration: "9",
+          serviceDetachedExpired: true,
         },
       }) ||
     canonicalJson(decodedNull) !== canonicalJson({ kind: "null" }) ||
@@ -390,7 +419,7 @@ function buildCorpus() {
       highPerformanceRequest,
       compatibilityRequest,
       {
-        id: "request-adapter-object-result",
+        id: "request-adapter-live-object-result",
         kind: "result",
         carrierProjection: resultCarrierProjection(3),
         event: {
@@ -409,7 +438,7 @@ function buildCorpus() {
           providerGeneration: "0",
           operationProviderGeneration: "9",
         },
-        bytesHex: toHex(objectResult),
+        bytesHex: toHex(liveObjectResult),
         expected: {
           kind: "object",
           object: {
@@ -417,6 +446,39 @@ function buildCorpus() {
             objectId: "41",
             objectGeneration: "2",
             providerGeneration: "9",
+            serviceDetachedExpired: false,
+          },
+        },
+      },
+      {
+        id: "request-adapter-detached-expired-object-result",
+        kind: "result",
+        carrierProjection: resultCarrierProjection(3),
+        event: {
+          kind: 1,
+          operationId: route.wireId,
+          resultKind: 3,
+          status: 0,
+          providerAdmission: 1,
+          physicalSequence: "5",
+          deviceTransition: 0,
+          ingressLogicalDeviceId: "0",
+          ingressLogicalDeviceGeneration: "0",
+          ingressProviderGeneration: "0",
+          logicalDeviceId: "0",
+          logicalDeviceGeneration: "0",
+          providerGeneration: "0",
+          operationProviderGeneration: "9",
+        },
+        bytesHex: toHex(detachedExpiredObjectResult),
+        expected: {
+          kind: "object",
+          object: {
+            kind: "GPUAdapter",
+            objectId: "42",
+            objectGeneration: "3",
+            providerGeneration: "9",
+            serviceDetachedExpired: true,
           },
         },
       },
@@ -493,7 +555,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter request/object/null and UTF-8 ordering vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter request/live-object/detached-object/null and UTF-8 ordering vectors are fresh",
     );
     return;
   }

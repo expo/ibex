@@ -17,9 +17,9 @@
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
     "operationSetSha256": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
     "semanticProgramSetSha256": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-    "runtimeRoutingSha256": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-    "webgpuCVocabularySha256": "1ac6b5c6d3bd938317fee5c11f03ea195f85536e442b09a386b6f420d5a23290",
-    "projectionPayloadSha256": "23487decb740812135f6b310118c8e87bdce9bcf82e1c78e34637f5c7f2e04ff"
+    "runtimeRoutingSha256": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
+    "webgpuCVocabularySha256": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
+    "projectionPayloadSha256": "9c49bed873cbe5117777d51a2f7f6a80847326f4944a01e7c76b12d838c7d88d"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -241,7 +241,7 @@
         "nestingMaxDepth": 16
       },
       "nativeCodecPrograms": {
-        "schema": "ibex/webgpu-native-codec-programs/1",
+        "schema": "ibex/webgpu-native-codec-programs/2",
         "disposition": "request-adapter-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
         "dispatch": {
           "carrierPath": "ExactGpuSemanticCallV2.operation_id",
@@ -721,8 +721,8 @@
               "payloadRole": "service-completion-payload-codec-plus-operation-specific-event-joins",
               "catalog": {
                 "name": "serviceCompletions",
-                "tag": "nullable-gpu-adapter-service-completion-v1",
-                "wireTag": 3
+                "tag": "nullable-gpu-adapter-service-completion-v2",
+                "wireTag": 6
               },
               "commonCarrierConstraints": [
                 {
@@ -780,7 +780,7 @@
                         "constants": {
                           "magic": "IBGR",
                           "version": 1,
-                          "codecTag": 3,
+                          "codecTag": 6,
                           "operationWireId": 1660448199
                         }
                       },
@@ -803,6 +803,11 @@
                         "name": "providerGeneration",
                         "type": "u64le",
                         "constraint": "positive"
+                      },
+                      {
+                        "name": "serviceDetachedExpired",
+                        "type": "u8",
+                        "constraint": "boolean-zero-or-one"
                       }
                     ]
                   },
@@ -1375,6 +1380,11 @@
           "tag": "nullable-gpu-error-service-completion-v1",
           "wireShape": "nullable typed GPUError value after exact scope barrier",
           "identity": "one-promise-settlement"
+        },
+        {
+          "tag": "nullable-gpu-adapter-service-completion-v2",
+          "wireShape": "null or fresh adapter identity plus a required authenticated serviceDetachedExpired u8; zero retains a live service attachment and credits, one denotes a post-positive-commit close settlement with no retained service object, credits, or provider handle",
+          "identity": "one-promise-settlement"
         }
       ]
     },
@@ -1696,7 +1706,7 @@
         "publicArgumentCodec": "gpu-request-adapter-options-v1",
         "serviceArgumentCodec": "gpu-request-adapter-service-request-v1",
         "publicResultCodec": "nullable-gpu-adapter-handle-promise-v1",
-        "serviceCompletionCodec": "nullable-gpu-adapter-service-completion-v1",
+        "serviceCompletionCodec": "nullable-gpu-adapter-service-completion-v2",
         "resultTiming": "promise-settlement",
         "errors": [
           "operation-error-promise-rejection-v1",
@@ -2430,10 +2440,10 @@
       "topologyId": 1,
       "profileId": "exact-webgpu-v1-draft",
       "profileDigest": "286e4f80638b8a3a997f2cecb2c50bfaa4e21813738bfdfc7563f30557e76125",
-      "webgpuCVocabularyDigest": "1ac6b5c6d3bd938317fee5c11f03ea195f85536e442b09a386b6f420d5a23290",
+      "webgpuCVocabularyDigest": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
       "operationSetDigest": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
       "semanticProgramDigest": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-      "runtimeRoutingDigest": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
+      "runtimeRoutingDigest": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
       "sortedOperationIds": [
         206890944,
         308839175,

@@ -5,25 +5,25 @@
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "5b3cd9922f870c13a97bc5446b159ad51b43cea517049e2bc71276cc8b70865e"
+    "manifestSha256": "9fdca699f847e12220727f424ffeb184675e407d7aa57e94766966449b974c76"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
   "digests": {
     "operationSet": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
     "semanticProgramSet": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-    "runtimeRouting": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
-    "webgpuCVocabulary": "1ac6b5c6d3bd938317fee5c11f03ea195f85536e442b09a386b6f420d5a23290",
-    "projection": "23487decb740812135f6b310118c8e87bdce9bcf82e1c78e34637f5c7f2e04ff"
+    "runtimeRouting": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
+    "webgpuCVocabulary": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
+    "projection": "9c49bed873cbe5117777d51a2f7f6a80847326f4944a01e7c76b12d838c7d88d"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
     "wireId": 1660448199,
-    "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/1",
+    "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
     "requestCodec": "gpu-request-adapter-service-request-v1",
     "requestCodecTag": 2,
-    "completionCodec": "nullable-gpu-adapter-service-completion-v1",
-    "completionCodecTag": 3
+    "completionCodec": "nullable-gpu-adapter-service-completion-v2",
+    "completionCodecTag": 6
   },
   "vectors": [
     {
@@ -194,7 +194,7 @@
       }
     },
     {
-      "id": "request-adapter-object-result",
+      "id": "request-adapter-live-object-result",
       "kind": "result",
       "carrierProjection": {
         "kind": 1,
@@ -256,14 +256,90 @@
         "providerGeneration": "0",
         "operationProviderGeneration": "9"
       },
-      "bytesHex": "4942475201000300c76df86201290000000000000002000000000000000900000000000000",
+      "bytesHex": "4942475201000600c76df8620129000000000000000200000000000000090000000000000000",
       "expected": {
         "kind": "object",
         "object": {
           "kind": "GPUAdapter",
           "objectId": "41",
           "objectGeneration": "2",
-          "providerGeneration": "9"
+          "providerGeneration": "9",
+          "serviceDetachedExpired": false
+        }
+      }
+    },
+    {
+      "id": "request-adapter-detached-expired-object-result",
+      "kind": "result",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 3,
+            "status": 0,
+            "operation": {
+              "operation_id": 1660448199,
+              "operation_instance_id": "11",
+              "promise_id": "7",
+              "provider_admission": 1,
+              "physical_sequence": "5",
+              "captured_scope_id": "0",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "0",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "0",
+                "logical_device_generation": "0",
+                "provider_generation": "0"
+              },
+              "result_device": {
+                "logical_device_id": "0",
+                "logical_device_generation": "0",
+                "provider_generation": "0"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 1,
+                "flags": 0,
+                "object_id": "23",
+                "object_generation": "4"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "event": {
+        "kind": 1,
+        "operationId": 1660448199,
+        "resultKind": 3,
+        "status": 0,
+        "providerAdmission": 1,
+        "physicalSequence": "5",
+        "deviceTransition": 0,
+        "ingressLogicalDeviceId": "0",
+        "ingressLogicalDeviceGeneration": "0",
+        "ingressProviderGeneration": "0",
+        "logicalDeviceId": "0",
+        "logicalDeviceGeneration": "0",
+        "providerGeneration": "0",
+        "operationProviderGeneration": "9"
+      },
+      "bytesHex": "4942475201000600c76df862012a000000000000000300000000000000090000000000000001",
+      "expected": {
+        "kind": "object",
+        "object": {
+          "kind": "GPUAdapter",
+          "objectId": "42",
+          "objectGeneration": "3",
+          "providerGeneration": "9",
+          "serviceDetachedExpired": true
         }
       }
     },

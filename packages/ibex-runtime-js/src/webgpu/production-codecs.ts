@@ -26,6 +26,8 @@ export interface ProductionGpuObjectIdentity {
   readonly logicalDeviceId?: string;
   readonly logicalDeviceGeneration?: string;
   readonly providerGeneration?: string;
+  /** Required for GPUAdapter identities; never inferred or defaulted. */
+  readonly serviceDetachedExpired?: boolean;
   readonly features?: readonly string[];
   readonly limits?: Readonly<Record<string, number>>;
   readonly queue?: Readonly<{
