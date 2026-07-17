@@ -17,9 +17,9 @@
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
     "operationSetSha256": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
     "semanticProgramSetSha256": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-    "runtimeRoutingSha256": "a94996d1293b8bed10e7b337968986d8f926e6234d56e01f973806606a99cf08",
-    "webgpuCVocabularySha256": "31e7f7d522ad54413b1314d63182111692310a73924356c5981faa1ea24080b9",
-    "projectionPayloadSha256": "bf5ed4fca25bd46ddab46e4284c77941881a04ab613a65eaef41bfecc38b50c6"
+    "runtimeRoutingSha256": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
+    "webgpuCVocabularySha256": "1cb8a921904c7d67c25b6dad49327d9a21149147a78d76aff13d6ef3a404fcd5",
+    "projectionPayloadSha256": "81e7bad3954d2c55e53dec1a080eac2915bebdf841b26930cc72b42429e3d62b"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -183,16 +183,16 @@
       ]
     },
     "wireEnvelope": {
-      "serviceCall": "ExactGpuSemanticCallV1",
-      "serviceEvent": "ExactGpuServiceEventV1",
+      "serviceCall": "ExactGpuSemanticCallV2",
+      "serviceEvent": "ExactGpuServiceEventV2",
       "payloadEncoding": "planned-operation-selected-tagged-binary-v1",
-      "layoutStatus": "semantic-fields-only-no-byte-offsets-or-numeric-codec-tags",
-      "currentAbiReadiness": "v1-foundation-insufficient-for-runtime-wire-install",
-      "graduationTarget": "abi-v2-required-before-wrapper-or-global-install",
+      "layoutStatus": "authenticated-abi-v2-carrier-installed-semantic-payload-codecs-still-descriptive",
+      "currentAbiReadiness": "abi-v2-carrier-installed-runtime-install-still-blocked",
+      "graduationTarget": "semantic-service-executable-codecs-production-wrapper-and-capsec-required-before-global-install",
       "carrierStatus": {
-        "currentFoundation": "ExactGpuSemanticCallV1-and-ExactGpuServiceEventV1-pinned-but-insufficient",
-        "requiredGraduation": "ExactGpuSemanticCallV2-and-ExactGpuServiceEventV2-not-installed",
-        "semanticFieldModel": "all-request-ingress-operation-key-completion-event-and-lifecycle-fields-below-are-mandatory-ABI-v2-semantics-not-a-claim-about-V1-layout",
+        "currentFoundation": "ExactGpuSemanticCallV2-and-ExactGpuServiceEventV2-installed-as-authenticated-private-carrier",
+        "requiredGraduation": "semantic-service-executable-codecs-production-wrapper-and-capsec-not-installed",
+        "semanticFieldModel": "all-request-ingress-operation-key-completion-event-and-lifecycle-fields-below-have-an-authenticated-ABI-v2-carrier-without-a-semantic-execution-or-support-claim",
         "vocabularyVersion": "artifact-v1-tags-independent-of-carrier-abi-version"
       },
       "operationInstanceIdentity": "nonzero-monotonic-per-realm-and-distinct-from-promise-identity",
@@ -282,7 +282,7 @@
         },
         {
           "name": "receiverRef",
-          "requirement": "typed full-generation reference for every object method; null only for GPU singleton operations"
+          "requirement": "carrier-level typed full-generation service receiver for every service call; object methods preserve the wrapper receiver, while realm-level GPU calls derive a nonzero GPU singleton reference from authenticated realm identity even though the public wrapper has no receiver handle"
         },
         {
           "name": "wrapperAllocatedTargetRef",
@@ -364,7 +364,7 @@
         },
         {
           "name": "receiverRef",
-          "requirement": "same typed full-generation receiver reference as the admitted request or null for GPU singleton operations"
+          "requirement": "same nonzero typed full-generation service receiver reference as the admitted request, including the realm-derived GPU singleton"
         },
         {
           "name": "wrapperAllocatedTargetRef",
@@ -514,7 +514,7 @@
         },
         {
           "tag": "gpu-request-adapter-service-request-v1",
-          "wireShape": "GPU-singleton receiver zero plus converted options and authority/account snapshot",
+          "wireShape": "full typed GPU-singleton receiver derived from authenticated realm identity plus converted options and authority/account snapshot; the public wrapper receiver remains null and is never forwarded as the carrier receiver",
           "ownership": "owned-copy"
         },
         {
@@ -791,6 +791,26 @@
       "finalization": "best-effort-deduplicated-retire-not-authoritative-reclamation",
       "authoritativeReclamation": "device-account-realm-sweep-after-accepted-work-terminal-receipts",
       "releaseAfterRevocation": "authority-reducing-cleanup-remains-admitted",
+      "serviceReceiverProjection": {
+        "selectionOrder": [
+          "providerSubmission=none -> not-carried",
+          "receiverHandleKind!=null -> wrapper-full-reference",
+          "receiverInterface=GPU -> realm-gpu-singleton",
+          "otherwise -> reject-generation"
+        ],
+        "wrapperFullReference": {
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
+        "realmGpuSingleton": {
+          "kind": "GPU",
+          "flags": 0,
+          "objectIdSource": "realmIdentity.realmId",
+          "objectGenerationSource": "realmIdentity.realmGeneration",
+          "publicReceiverHandleKind": null
+        }
+      },
       "externalOrigins": {
         "GPUCanvasContext": "generation-fenced Exact CanvasHandle/context attachment seam; currently unwired; unknown context handles are rejected and never ambiently materialized",
         "GPUTexture.current": "getCurrentTexture mints a wrapper-local epoch identity and sealed mint-operation provenance; createView, destroy, queue submit, or a popErrorScope prefix flush carries and validates its context/attachment/configuration/current-epoch origin without ambient materialization"
@@ -1043,6 +1063,13 @@
         "resultTiming": "synchronous-return",
         "errors": [],
         "receiverHandleKind": null,
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "not-carried-wrapper-only",
@@ -1067,6 +1094,13 @@
           "type-error-promise-rejection-v1"
         ],
         "receiverHandleKind": null,
+        "serviceReceiverProjection": {
+          "source": "realm-gpu-singleton",
+          "kind": "GPU",
+          "flags": 0,
+          "objectIdSource": "realmIdentity.realmId",
+          "objectGenerationSource": "realmIdentity.realmGeneration"
+        },
         "resultHandleKind": "GPUAdapter",
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1092,6 +1126,13 @@
           "type-error-promise-rejection-v1"
         ],
         "receiverHandleKind": "GPUAdapter",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUAdapter",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": "GPUDevice",
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1120,6 +1161,13 @@
           "validation-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUCanvasContext",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUCanvasContext",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1140,6 +1188,13 @@
         "resultTiming": "synchronous-return",
         "errors": [],
         "receiverHandleKind": "GPUCanvasContext",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "not-carried-wrapper-only",
@@ -1165,6 +1220,13 @@
           "security-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUCanvasContext",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": "GPUTexture",
         "wrapperAllocatedTargetHandleKind": "GPUTexture",
         "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
@@ -1188,6 +1250,13 @@
           "security-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUCanvasContext",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUCanvasContext",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1212,6 +1281,13 @@
           "validation-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUCommandEncoder",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": "GPURenderPassEncoder",
         "wrapperAllocatedTargetHandleKind": "GPURenderPassEncoder",
         "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
@@ -1236,6 +1312,13 @@
           "type-error-synchronous-webidl-v1"
         ],
         "receiverHandleKind": "GPUCommandEncoder",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": "GPUCommandBuffer",
         "wrapperAllocatedTargetHandleKind": "GPUCommandBuffer",
         "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
@@ -1262,6 +1345,13 @@
           "type-error-synchronous-webidl-v1"
         ],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUDevice",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": "GPUCommandEncoder",
         "wrapperAllocatedTargetHandleKind": "GPUCommandEncoder",
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1289,6 +1379,13 @@
           "validation-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUDevice",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": "GPURenderPipeline",
         "wrapperAllocatedTargetHandleKind": "GPURenderPipeline",
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1316,6 +1413,13 @@
           "validation-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUDevice",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": "GPUShaderModule",
         "wrapperAllocatedTargetHandleKind": "GPUShaderModule",
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1340,6 +1444,13 @@
           "security-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUDevice",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1360,6 +1471,13 @@
         "resultTiming": "synchronous-stable-property",
         "errors": [],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "not-carried-wrapper-only",
@@ -1380,6 +1498,13 @@
         "resultTiming": "synchronous-stable-property",
         "errors": [],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "not-carried-wrapper-only",
@@ -1402,6 +1527,13 @@
           "device-lost-stable-promise-v1"
         ],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "not-carried-wrapper-only",
@@ -1424,6 +1556,13 @@
           "operation-error-promise-rejection-v1"
         ],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUDevice",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1446,6 +1585,13 @@
           "type-error-synchronous-webidl-v1"
         ],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUDevice",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1466,6 +1612,13 @@
         "resultTiming": "synchronous-stable-property",
         "errors": [],
         "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": "GPUQueue",
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "not-carried-wrapper-only",
@@ -1493,6 +1646,13 @@
           "validation-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUQueue",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUQueue",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1517,6 +1677,13 @@
           "validation-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPURenderPassEncoder",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
@@ -1539,6 +1706,13 @@
           "invalid-state-device-timeline-v1"
         ],
         "receiverHandleKind": "GPURenderPassEncoder",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
@@ -1562,6 +1736,13 @@
           "validation-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPURenderPassEncoder",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
@@ -1589,6 +1770,13 @@
           "validation-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUTexture",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUTexture",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": "GPUTextureView",
         "wrapperAllocatedTargetHandleKind": "GPUTextureView",
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1612,6 +1800,13 @@
           "security-error-device-timeline-v1"
         ],
         "receiverHandleKind": "GPUTexture",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUTexture",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
         "resultHandleKind": null,
         "wrapperAllocatedTargetHandleKind": null,
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
@@ -1620,15 +1815,15 @@
       }
     ],
     "providerDescriptor": {
-      "serviceAbiVersion": 65536,
+      "serviceAbiVersion": 131072,
       "requiredGraduationServiceAbiVersion": 131072,
       "topologyId": 1,
       "profileId": "exact-webgpu-v1-draft",
       "profileDigest": "2882b29f8fdec892b6f3db5cdfaeb87b128c9ba994c567b249743ff8851d54e5",
-      "webgpuCVocabularyDigest": "31e7f7d522ad54413b1314d63182111692310a73924356c5981faa1ea24080b9",
+      "webgpuCVocabularyDigest": "1cb8a921904c7d67c25b6dad49327d9a21149147a78d76aff13d6ef3a404fcd5",
       "operationSetDigest": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
       "semanticProgramDigest": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
-      "runtimeRoutingDigest": "a94996d1293b8bed10e7b337968986d8f926e6234d56e01f973806606a99cf08",
+      "runtimeRoutingDigest": "5b1244d55a739e1c7999c2f88213ab440d55573fcbda96a939c53f49ef5afc28",
       "sortedOperationIds": [
         206890944,
         308839175,
