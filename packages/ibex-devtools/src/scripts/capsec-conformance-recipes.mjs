@@ -556,6 +556,9 @@ const harnessNoopCallbackArgument = () => ({ kind: "harness-noop-callback" });
 const harnessLoopbackClientHandleArgument = () => ({
   kind: "harness-loopback-client-handle",
 });
+const harnessFsFileDescriptorArgument = () => ({
+  kind: "harness-fs-file-descriptor",
+});
 const harnessSqliteDatabaseHandleArgument = () => ({
   kind: "harness-sqlite-database-handle",
 });
@@ -585,6 +588,16 @@ const sqliteMemorySetup = (withStatement = false) => [
         },
       ]
     : []),
+];
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// retained filesystem controls receive a source-bound descriptor created by
+// the harness before the zero-decision invocation is observed.
+const fsReadFileSetup = () => [
+  {
+    kind: "fs-read-file",
+    globalName: "__exactFsOpen",
+    requiredSourceArity: 4,
+  },
 ];
 const nativeResultArgument = (
   globalName,
@@ -1034,6 +1047,70 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   [
     "__exactTypedHandleRevoke",
     nativeNoEffectTemplate(1, [literalArgument("unknown-handle")]),
+  ],
+  ["__exactHttpOwner", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  [
+    "__exactHttpRespondAbort",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactHttpClose",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactHttpSetRef",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactSpawnCloseStdin",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument("stdin")]),
+  ],
+  ["__exactSpawnDispose", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  [
+    "__exactFsClose",
+    Object.freeze({
+      ...nativeNoEffectTemplate(
+        1,
+        [harnessFsFileDescriptorArgument()],
+        fsReadFileSetup(),
+        "consumed-fs-file-descriptor",
+      ),
+      requiredFloor: [
+        {
+          cap: "fs:list",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+        {
+          cap: "fs:read",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+      ],
+    }),
+  ],
+  [
+    "__exactFsCloseAsync",
+    Object.freeze({
+      ...nativeNoEffectTemplate(
+        1,
+        [harnessFsFileDescriptorArgument()],
+        fsReadFileSetup(),
+        "consumed-fs-file-descriptor",
+      ),
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+      requiredFloor: [
+        {
+          cap: "fs:list",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+        {
+          cap: "fs:read",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+      ],
+    }),
   ],
   [
     "__exactTcpConnect",
@@ -2434,6 +2511,7 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
 function bindNativeSetupSources(setup, liveByObservedKey) {
   if (
     !new Set([
+      "fs-read-file",
       "sqlite-memory-database",
       "sqlite-memory-statement",
       "tcp-loopback-client",

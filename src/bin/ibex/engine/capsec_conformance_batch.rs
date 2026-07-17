@@ -221,6 +221,7 @@ enum NativeProbeArgument {
         value: serde_json::Value,
     },
     HarnessNoopCallback,
+    HarnessFsFileDescriptor,
     HarnessLoopbackClientHandle,
     HarnessSqliteDatabaseHandle,
     HarnessSqliteStatementHandle,
@@ -255,6 +256,14 @@ enum NativeProbeArgument {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 enum NativeProbeSetup {
+    FsReadFile {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
     InvokeNativeGlobal {
         #[serde(rename = "globalName")]
         global_name: String,
@@ -846,6 +855,7 @@ fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
 
 #[derive(Default)]
 struct NativeSetupState {
+    fs_file_descriptor: Option<f64>,
     tcp_loopback_client_handle: Option<f64>,
     sqlite_database_handle: Option<f64>,
     sqlite_statement_handle: Option<f64>,
@@ -859,6 +869,41 @@ async fn run_native_setup(
     let mut state = NativeSetupState::default();
     for setup in &invocation.setup {
         match setup {
+            NativeProbeSetup::FsReadFile {
+                global_name,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+                // setup owns the descriptor before observation so a close
+                // recipe proves the real retained-object path without
+                // miscrediting its prerequisite open decisions.
+                assert_eq!(global_name, "__exactFsOpen");
+                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 4);
+                assert!(state.fs_file_descriptor.is_none());
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[serde_json::json!("Cargo.toml"), serde_json::json!("r")],
+                    ))
+                    .await
+                    .expect("execute native filesystem descriptor setup")
+                    .expect("native filesystem descriptor setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("native filesystem descriptor setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.fs_file_descriptor = Some(
+                    result["value"]
+                        .as_f64()
+                        .expect("native filesystem setup must return a numeric descriptor"),
+                );
+            }
             NativeProbeSetup::InvokeNativeGlobal {
                 global_name,
                 arguments,
@@ -999,6 +1044,12 @@ fn materialize_native_arguments(
             }),
             NativeProbeArgument::HarnessNoopCallback => serde_json::json!({
                 "kind": "harness-noop-callback",
+            }),
+            NativeProbeArgument::HarnessFsFileDescriptor => serde_json::json!({
+                "kind": "json-literal",
+                "value": setup_state
+                    .fs_file_descriptor
+                    .expect("filesystem descriptor argument requires file setup"),
             }),
             NativeProbeArgument::HarnessLoopbackClientHandle => serde_json::json!({
                 "kind": "json-literal",
@@ -1145,7 +1196,7 @@ fn native_invocation_script(
     );
     script.replacen(
         cleanup_marker,
-        "else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
+        "else if(n===\"__exactFsClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-fs-file-descriptor\";}else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
         1,
     )
 }
@@ -1162,13 +1213,9 @@ fn native_async_invocation_script(
         .expect("async native invocation requires a completion contract");
     assert_eq!(completion.kind, "event-loop-quiescence");
     assert_eq!(completion.timeout_milliseconds, 1_000);
-    assert!(invocation.setup.is_empty());
-    assert!(invocation
-        .arguments
-        .iter()
-        .all(|argument| matches!(argument, NativeProbeArgument::JsonLiteral { .. })));
+    assert!(arguments.iter().all(|argument| argument["kind"] == "json-literal"));
     format!(
-        "(function(){{var slot={};var n={};delete globalThis[slot];function record(value){{globalThis[slot]=JSON.stringify(value);}}function returned(value){{return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:\"none\"}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        "(function(){{var slot={};var n={};delete globalThis[slot];function record(value){{globalThis[slot]=JSON.stringify(value);}}function returned(value){{return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\"}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only materialized JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
         serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
         serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
         serde_json::to_string(arguments).expect("serialize async native arguments"),

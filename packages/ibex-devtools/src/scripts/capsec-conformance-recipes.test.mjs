@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(417);
+    expect(nativePublicFixtures).toHaveLength(425);
     expect(
       nativePublicFixtures
         .filter(
@@ -127,7 +127,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(233);
+    ).toHaveLength(241);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -2095,6 +2095,79 @@ describe("exact-target CapSec executable recipes", () => {
         },
       },
     });
+  });
+
+  test("refuses unknown retained HTTP and process ids without external effects", () => {
+    const expectedArguments = new Map([
+      ["__exactHttpOwner", [0]],
+      ["__exactHttpRespondAbort", [0, 0]],
+      ["__exactHttpClose", [0, 0]],
+      ["__exactHttpSetRef", [0, 0]],
+      ["__exactSpawnCloseStdin", [0, "stdin"]],
+      ["__exactSpawnDispose", [0]],
+    ]);
+    for (const [globalName, values] of expectedArguments) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+          },
+        },
+      });
+      expect(
+        recipe.publicSurfaceProbe.invocation.arguments.map(
+          (argument) => argument.value,
+        ),
+      ).toEqual(values);
+    }
+  });
+
+  test("closes harness-owned filesystem descriptors outside typed observation", () => {
+    for (const globalName of ["__exactFsClose", "__exactFsCloseAsync"]) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [{ kind: "harness-fs-file-descriptor" }],
+            expectedCleanup: "consumed-fs-file-descriptor",
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+            setup: [
+              {
+                kind: "fs-read-file",
+                globalName: "__exactFsOpen",
+                sourceDescriptor: {
+                  arity: 4,
+                  globalName: "__exactFsOpen",
+                  kind: "native-global-function",
+                },
+              },
+            ],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.requiredFloor).toHaveLength(
+        2,
+      );
+    }
   });
 
   test("supplies owned callbacks and bounded delays to native timers", () => {
