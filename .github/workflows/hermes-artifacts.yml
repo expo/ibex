@@ -329,7 +329,11 @@ jobs:
           $asset = "hermes-windows-x64-$env:IDENTITY.zip"
           Compress-Archive -Path (Join-Path $env:install "*") -DestinationPath $asset -CompressionLevel Optimal
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
-          "$hash  $asset" | Set-Content -LiteralPath "$asset.sha256" -Encoding ascii
+          [IO.File]::WriteAllText(
+            "$asset.sha256",
+            "$hash  $asset`n",
+            [Text.Encoding]::ASCII
+          )
           Get-Item $asset, "$asset.sha256" | Format-Table Name, Length
 
       - name: Upload to release (idempotent overwrite)
