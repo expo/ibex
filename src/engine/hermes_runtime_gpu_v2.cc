@@ -2450,6 +2450,17 @@ void drainGpuMailboxV2(
     return;
   }
   auto& binding = *runtime->gpu_binding_v2;
+  auto quarantineProtocolViolation = [&]() noexcept {
+    (void)poisonGpuMailboxV2(mailbox);
+    reduceGpuV2Realm(
+        binding,
+        rt,
+        "protocol-violation",
+        EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION,
+        {},
+        "Exact GPU V2 provider violated the event protocol",
+        true);
+  };
   if (mailbox->phase.load(std::memory_order_acquire) ==
       GpuMailboxPhaseV2::ProtocolViolation) {
     reduceGpuV2Realm(
@@ -2495,7 +2506,7 @@ void drainGpuMailboxV2(
         }
       }
     } catch (...) {
-      (void)poisonGpuMailboxV2(mailbox);
+      quarantineProtocolViolation();
       return;
     }
     if (!hasEvent) return;
@@ -2512,7 +2523,7 @@ void drainGpuMailboxV2(
         }
         if (gGpuV2DrainPauseState.load(std::memory_order_seq_cst) == 2) {
           gGpuV2DrainPauseState.store(0, std::memory_order_seq_cst);
-          (void)poisonGpuMailboxV2(mailbox);
+          quarantineProtocolViolation();
           return;
         }
         gGpuV2DrainPauseState.store(0, std::memory_order_seq_cst);
@@ -2563,7 +2574,7 @@ void drainGpuMailboxV2(
     // but do not terminalize any logical device or its pending operations.
     if (event.kind == EXACT_GPU_SERVICE_EVENT_PROVIDER_LOSS_V2) {
       if (!deliverGpuV2WrapperEvent(binding, rt, std::move(copied))) {
-        (void)poisonGpuMailboxV2(mailbox);
+        quarantineProtocolViolation();
         return;
       }
       continue;
@@ -2582,7 +2593,7 @@ void drainGpuMailboxV2(
       // authenticated semantic service emits one typed terminal for each
       // affected positive operation while cleanup operations remain pending.
       if (!deliverGpuV2WrapperEvent(binding, rt, std::move(copied))) {
-        (void)poisonGpuMailboxV2(mailbox);
+        quarantineProtocolViolation();
         return;
       }
       continue;
@@ -2590,7 +2601,7 @@ void drainGpuMailboxV2(
 
     const auto* operation = eventOperationV2(event);
     if (!operation) {
-      (void)poisonGpuMailboxV2(mailbox);
+      quarantineProtocolViolation();
       return;
     }
     if (!currentOperation) continue;
@@ -2600,7 +2611,7 @@ void drainGpuMailboxV2(
     // carrier result whose object identity is still deferred. A throwing sink
     // quarantines while the receipt remains pending for realm reduction.
     if (!deliverGpuV2WrapperEvent(binding, rt, copied)) {
-      (void)poisonGpuMailboxV2(mailbox);
+      quarantineProtocolViolation();
       return;
     }
     if (operation->promise_id != 0) {
@@ -2608,7 +2619,7 @@ void drainGpuMailboxV2(
       if (pending == binding.pending_receipts.end() ||
           pending->second.operation_instance_id !=
               operation->operation_instance_id) {
-        (void)poisonGpuMailboxV2(mailbox);
+        quarantineProtocolViolation();
         return;
       }
       auto receipt = std::move(pending->second);

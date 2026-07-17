@@ -4883,6 +4883,7 @@ cp \"$input\" \"$out\"\n";
     }
 
     const EXACT_GPU_SERVICE_ABI_VERSION_V1: u32 = 0x0001_0000;
+    const EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION: i32 = -8;
     const EXACT_EMBEDDER_CAPABILITIES_INVALID_STATE: i32 = -3;
     const EXACT_EMBEDDER_CAPABILITIES_FINALIZATION_FAILED: i32 = -4;
     #[cfg(any(feature = "capsec-conformance-observer", feature = "webgpu-binding"))]
@@ -6899,7 +6900,11 @@ cp \"$input\" \"$out\"\n";
             .unwrap();
         let state = fake_gpu_v2_state().lock().unwrap();
         assert_eq!(state.activate_calls, 1);
-        assert_eq!(state.close_calls.len(), 1);
+        assert_eq!(
+            state.close_calls.len(),
+            0,
+            "an accepted service REALM_CLOSED terminal owns cleanup and rollback must not echo close_realm"
+        );
         assert_eq!(state.release_service_calls, 1);
         drop(state);
         drop(runtime);
@@ -7522,7 +7527,7 @@ cp \"$input\" \"$out\"\n";
                         7 => {
                             assert_eq!(
                                 submit_gpu_v2_test_call(raw, &template, true),
-                                (-1000, 1, 1)
+                                (EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION, 1, 1)
                             );
                             unsafe {
                                 assert_eq!(ibex_test_gpu_v2_pending_receipts(raw), 1);
@@ -7532,7 +7537,10 @@ cp \"$input\" \"$out\"\n";
                         8 => {
                             assert_eq!(submit_gpu_v2_test_call(raw, &template, true), (0, 1, 1));
                             unsafe {
-                                assert_eq!(ibex_test_gpu_v2_cancel(raw, 1, 1), -1000);
+                                assert_eq!(
+                                    ibex_test_gpu_v2_cancel(raw, 1, 1),
+                                    EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION
+                                );
                                 assert_eq!(ibex_test_gpu_v2_pending_receipts(raw), 1);
                                 assert_eq!(ibex_test_gpu_v2_reject_calls(), 0);
                             }
@@ -7544,7 +7552,10 @@ cp \"$input\" \"$out\"\n";
                                 object: template.target,
                             };
                             unsafe {
-                                assert_eq!(ibex_test_gpu_v2_retire(raw, &owned, 1), -1000);
+                                assert_eq!(
+                                    ibex_test_gpu_v2_retire(raw, &owned, 1),
+                                    EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION
+                                );
                             }
                         }
                         _ => unreachable!(),
