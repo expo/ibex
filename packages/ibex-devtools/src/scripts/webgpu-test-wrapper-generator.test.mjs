@@ -224,6 +224,10 @@ describe("test-only WebGPU wrapper generator", () => {
     provider.payload.providerDescriptor.runtimeRoutingDigest = "0".repeat(64);
     mutations.push(provider);
 
+    const shutdown = clone(authority);
+    shutdown.payload.providerDescriptor.serviceShutdownPolicy.clock = "wall";
+    mutations.push(shutdown);
+
     const missing = clone(authority);
     missing.payload.operations.pop();
     mutations.push(missing);

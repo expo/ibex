@@ -12,7 +12,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "semanticProgramSet": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
     "runtimeRouting": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
     "webgpuCVocabulary": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
-    "projection": "9c49bed873cbe5117777d51a2f7f6a80847326f4944a01e7c76b12d838c7d88d"
+    "projection": "8650c9faa794ac34c4b881804a8dd210f34abe3b1833deb7f3f09876cc408651"
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",

@@ -19,7 +19,7 @@
     "semanticProgramSetSha256": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
     "runtimeRoutingSha256": "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
     "webgpuCVocabularySha256": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
-    "projectionPayloadSha256": "9c49bed873cbe5117777d51a2f7f6a80847326f4944a01e7c76b12d838c7d88d"
+    "projectionPayloadSha256": "8650c9faa794ac34c4b881804a8dd210f34abe3b1833deb7f3f09876cc408651"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -2439,7 +2439,13 @@
       "requiredGraduationServiceAbiVersion": 131072,
       "topologyId": 1,
       "profileId": "exact-webgpu-v1-draft",
-      "profileDigest": "286e4f80638b8a3a997f2cecb2c50bfaa4e21813738bfdfc7563f30557e76125",
+      "profileDigest": "95bf47e03db4b50b4db7420abd5bf20630763ad5d7bde54cd61c1a1f987277e6",
+      "serviceShutdownPolicy": {
+        "deadlineMs": 10000,
+        "clock": "monotonic",
+        "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
+        "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
+      },
       "webgpuCVocabularyDigest": "6ea4da1993483fee17a87bb7e09918bfd51a02ca61ddf72bd5b0289866695f1b",
       "operationSetDigest": "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
       "semanticProgramDigest": "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",

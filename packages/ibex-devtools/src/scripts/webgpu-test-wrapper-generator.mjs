@@ -17,7 +17,7 @@ import crypto from "node:crypto";
 import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  projection: "9c49bed873cbe5117777d51a2f7f6a80847326f4944a01e7c76b12d838c7d88d",
+  projection: "8650c9faa794ac34c4b881804a8dd210f34abe3b1833deb7f3f09876cc408651",
   operationSet: "ba939cdb05e89cb5243317e6836465e3612b25d8e02f49a94187064b972830e7",
   semanticProgramSet: "ecb999ed815c17184598f83bf3f64702bf050ff31fbd4c2326b68cac74f09058",
   runtimeRouting: "519b32708751fc7357e5e9f76f9b1e76bda491972ae0f7141279b2df7be4cb94",
@@ -726,6 +726,16 @@ export function validateWebGpuWrapperAuthority(authority) {
   assertDigest(authority.authentication.projectionPayloadSha256, projection, "embedded projection");
 
   const descriptor = payload.providerDescriptor;
+  assertCanonical(
+    descriptor.serviceShutdownPolicy,
+    {
+      deadlineMs: 10000,
+      clock: "monotonic",
+      wedgedProviderDisposition: "force-loss-and-quarantine-generation",
+      redactedDiagnostic: "gpu-provider-shutdown-deadline-exceeded-v1",
+    },
+    "provider service shutdown policy",
+  );
   assertDigest(descriptor.operationSetDigest, operationSet, "provider operation-set");
   assertDigest(descriptor.semanticProgramDigest, semanticProgramSet, "provider semantic-program");
   assertDigest(descriptor.runtimeRoutingDigest, runtimeRouting, "provider routing");

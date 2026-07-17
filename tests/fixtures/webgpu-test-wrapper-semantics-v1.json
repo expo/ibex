@@ -4,9 +4,9 @@
   "provenance": {
     "sourceExactCommit": "4012883f61d849c2158844097953cd5de2dc39e5",
     "profilePath": "tests/gpu/webgpu-profile-v1.generated.json",
-    "profileSha256": "286e4f80638b8a3a997f2cecb2c50bfaa4e21813738bfdfc7563f30557e76125",
+    "profileSha256": "95bf47e03db4b50b4db7420abd5bf20630763ad5d7bde54cd61c1a1f987277e6",
     "logicalPath": "tests/gpu/logical-validation-v1.generated.json",
-    "logicalSha256": "fa13de0972b3983880f549ac6855521f274fba71decac71e3240406d2f5f3761",
+    "logicalSha256": "9deb1114ac480bc948afa866b8b97af1d7f99ca84a9c757ea178fa73c5009a59",
     "normalizedSemanticComparison": "required-across-outer-ibex-repins"
   },
   "authentication": {
