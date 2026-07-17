@@ -124,6 +124,42 @@ export interface ProductionWebGpuPrivateBinding {
   readonly revoke: () => void;
 }
 
+const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
+  scopeId: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.scopeId,
+  status: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.status,
+  supportClaim: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.supportClaim,
+  nativeExecutionEvidence:
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.nativeExecutionEvidence,
+  typegpuVersion: WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.typegpuVersion,
+  activeRouteOperationCount:
+    WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount,
+  workloadOperationCount:
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.operationCount,
+  additionalOperationCount:
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.additionalOperationCount,
+  additionalOperations: Object.freeze(
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.additionalOperations.map(
+      (operation) => Object.freeze({ ...operation }),
+    ),
+  ),
+  blockers: Object.freeze([
+    ...WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.blockers,
+  ]),
+  publicSurfaceRule:
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.publicSurfaceRule,
+  embeddedCodecRule:
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.embeddedCodecRule,
+});
+
+/**
+ * Construction-private planning evidence for the pinned TypeGPU workloads.
+ * Additional members are intentionally descriptive only: they have no route,
+ * codec, prototype entry, or install path until every listed blocker closes.
+ */
+export function describeProductionWebGpuWorkloadStaging() {
+  return TYPEGPU_WORKLOAD_STAGING;
+}
+
 export type ProductionWebGpuInstallResult =
   | Readonly<{
     status: 'not-installed';

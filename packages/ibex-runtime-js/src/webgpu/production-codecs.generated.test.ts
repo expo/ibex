@@ -152,8 +152,8 @@ function resultEvent(
   resultKind: number,
   payload: ArrayBufferView,
   detachedAlreadyLost = false,
-  lossReason = 0,
-  backendClass = 0,
+  lossReason?: number,
+  backendClass?: number,
 ): ResultEvent {
   return {
     kind: 1,
@@ -195,8 +195,8 @@ function resultEvent(
     status: 0,
     payload,
     detachedAlreadyLost,
-    lossReason,
-    backendClass,
+    ...(lossReason === undefined ? {} : { lossReason }),
+    ...(backendClass === undefined ? {} : { backendClass }),
   } as unknown as ResultEvent;
 }
 
@@ -221,11 +221,16 @@ function completeLimits(value = 4): Record<string, number> {
 
 describe('generated injection-only WebGPU executable codecs', () => {
   test('pins one generated catalog over the exact reviewed 25-operation profile', () => {
-    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationCount).toBe(25);
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationCount).toBe(
+      WEBGPU_PRODUCTION_PLAN.routes.length,
+    );
+    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(25);
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).toEqual(
       WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     );
-    expect(new Set(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).size).toBe(25);
+    expect(new Set(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).size).toBe(
+      WEBGPU_PRODUCTION_PLAN.routes.length,
+    );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.completeLimitNames).toHaveLength(36);
     expect(validateExecutableWebGpuCodecs(
       WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION,

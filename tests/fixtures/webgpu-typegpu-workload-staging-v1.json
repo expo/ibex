@@ -1,0 +1,355 @@
+{
+  "schema": "ibex/webgpu-typegpu-workload-staging/1",
+  "artifactVersion": 1,
+  "profileId": "exact-webgpu-v1-draft",
+  "scopeId": "typegpu-workloads-native-staging-v1",
+  "status": "audited-not-routable-not-installed",
+  "supportClaim": "none",
+  "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
+  "source": {
+    "path": "tests/gpu/typegpu-workload-closure-v1.json",
+    "sha256": "f7a8c4e5c2b88753c54ec5f3ec02b11e08778dff80d813fe39542f25d7c21350"
+  },
+  "typegpuVersion": "0.11.9",
+  "activeRouteSubset": {
+    "scopeId": "native-triangle-phase-1a-v1",
+    "operationCount": 25,
+    "operationIds": [
+      "GPU.getPreferredCanvasFormat",
+      "GPU.requestAdapter",
+      "GPUAdapter.requestDevice",
+      "GPUCanvasContext.configure",
+      "GPUCanvasContext.getConfiguration",
+      "GPUCanvasContext.getCurrentTexture",
+      "GPUCanvasContext.unconfigure",
+      "GPUCommandEncoder.beginRenderPass",
+      "GPUCommandEncoder.finish",
+      "GPUDevice.createCommandEncoder",
+      "GPUDevice.createRenderPipeline",
+      "GPUDevice.createShaderModule",
+      "GPUDevice.destroy",
+      "GPUDevice.features",
+      "GPUDevice.limits",
+      "GPUDevice.lost",
+      "GPUDevice.popErrorScope",
+      "GPUDevice.pushErrorScope",
+      "GPUDevice.queue",
+      "GPUQueue.submit",
+      "GPURenderPassEncoder.draw",
+      "GPURenderPassEncoder.end",
+      "GPURenderPassEncoder.setPipeline",
+      "GPUTexture.createView",
+      "GPUTexture.destroy"
+    ]
+  },
+  "workloadClosure": {
+    "operationCount": 51,
+    "additionalOperationCount": 30,
+    "operations": [
+      {
+        "operationId": "GPU.getPreferredCanvasFormat",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPU.requestAdapter",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUAdapter.requestDevice",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUBuffer.destroy",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.getMappedRange",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.mapAsync",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.mapState",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.unmap",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.usage",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCanvasContext.configure",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUCanvasContext.getCurrentTexture",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUCanvasContext.unconfigure",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUCommandEncoder.beginComputePass",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCommandEncoder.beginRenderPass",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUCommandEncoder.clearBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCommandEncoder.copyBufferToBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCommandEncoder.copyTextureToTexture",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCommandEncoder.finish",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.end",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.setBindGroup",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.setPipeline",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createBindGroup",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createBindGroupLayout",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createCommandEncoder",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUDevice.createComputePipeline",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createPipelineLayout",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createRenderPipeline",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUDevice.createSampler",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createShaderModule",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUDevice.createTexture",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.destroy",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUDevice.features",
+        "memberKind": "property",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUDevice.limits",
+        "memberKind": "property",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUDevice.queue",
+        "memberKind": "property",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUQueue.copyExternalImageToTexture",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUQueue.submit",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUQueue.writeBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUQueue.writeTexture",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.draw",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.end",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.setBindGroup",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.setPipeline",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.setVertexBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUTexture.createView",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUTexture.destroy",
+        "memberKind": "method",
+        "disposition": "active-private-triangle-route"
+      },
+      {
+        "operationId": "GPUTexture.dimension",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUTexture.format",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUTexture.height",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUTexture.width",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      }
+    ],
+    "properties": [
+      "GPUBuffer.mapState",
+      "GPUBuffer.usage",
+      "GPUDevice.features",
+      "GPUDevice.limits",
+      "GPUDevice.queue",
+      "GPUTexture.dimension",
+      "GPUTexture.format",
+      "GPUTexture.height",
+      "GPUTexture.width"
+    ],
+    "constants": [
+      "GPUBufferUsage.COPY_DST",
+      "GPUBufferUsage.COPY_SRC",
+      "GPUBufferUsage.MAP_READ",
+      "GPUBufferUsage.STORAGE",
+      "GPUBufferUsage.UNIFORM",
+      "GPUBufferUsage.VERTEX",
+      "GPUMapMode.READ",
+      "GPUShaderStage.COMPUTE",
+      "GPUShaderStage.FRAGMENT",
+      "GPUShaderStage.VERTEX",
+      "GPUTextureUsage.COPY_DST",
+      "GPUTextureUsage.COPY_SRC",
+      "GPUTextureUsage.RENDER_ATTACHMENT",
+      "GPUTextureUsage.STORAGE_BINDING",
+      "GPUTextureUsage.TEXTURE_BINDING"
+    ],
+    "hostExtensions": [
+      "CanvasHandle.context",
+      "CanvasHandle.invalidate",
+      "CanvasHandle.onDamage",
+      "CanvasHandle.onFrame",
+      "FrameLease.getCurrentTexture",
+      "FrameLease.submit",
+      "globalThis.cancelAnimationFrame",
+      "globalThis.createImageBitmap",
+      "globalThis.fetch",
+      "globalThis.requestAnimationFrame"
+    ]
+  },
+  "blockers": [
+    "ordered-logical-semantic-program",
+    "executable-public-and-service-codecs",
+    "matching-native-service-decoder-and-provider-method",
+    "generated-capsec-edge-and-supported-target-cell",
+    "native-conformance-and-platform-evidence"
+  ],
+  "publicSurfaceRule": "members-remain-absent-until-all-blockers-close-no-throwing-stubs",
+  "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined"
+}

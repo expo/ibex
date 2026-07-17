@@ -143,7 +143,10 @@ export function validateExecutableWebGpuCodecs(
   ) {
     return false;
   }
-  if (!Array.isArray(value.operationIds) || value.operationIds.length !== 25) {
+  if (
+    !Array.isArray(value.operationIds) ||
+    value.operationIds.length !== WEBGPU_PRODUCTION_PLAN.routes.length
+  ) {
     return false;
   }
   const actual = value.operationIds.slice().sort();

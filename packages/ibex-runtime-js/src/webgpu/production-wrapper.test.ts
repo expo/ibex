@@ -12,6 +12,7 @@ import type {
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 import {
   createProductionWebGpuPrivateBinding,
+  describeProductionWebGpuWorkloadStaging,
   installProductionWebGpu,
 } from './production-wrapper';
 
@@ -264,6 +265,45 @@ describe('production-private WebGPU wrapper gate', () => {
 });
 
 describe('production-private WebGPU wrapper factory', () => {
+  test('keeps the audited TypeGPU delta descriptive and absent from prototypes', () => {
+    const staging = describeProductionWebGpuWorkloadStaging();
+    expect(staging.supportClaim).toBe('none');
+    expect(staging.nativeExecutionEvidence).toBe(
+      'none-recording-provider-is-inventory-only',
+    );
+    expect(staging.typegpuVersion).toBe('0.11.9');
+    expect(staging.activeRouteOperationCount).toBe(25);
+    expect(staging.workloadOperationCount).toBe(51);
+    expect(staging.additionalOperationCount).toBe(30);
+    expect(staging.additionalOperations).toHaveLength(30);
+    expect(staging.blockers).toHaveLength(5);
+    expect(staging.embeddedCodecRule).toBe(
+      'EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined',
+    );
+    expect(Object.isFrozen(staging)).toBe(true);
+    expect(Object.isFrozen(staging.additionalOperations)).toBe(true);
+    expect(Object.isFrozen(staging.blockers)).toBe(true);
+
+    const binding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    for (const operation of staging.additionalOperations) {
+      const separator = operation.operationId.indexOf('.');
+      const interfaceName = operation.operationId.slice(0, separator);
+      const memberName = operation.operationId.slice(separator + 1);
+      const interfaceObject = binding.interfaceObjects[interfaceName] as
+        | { readonly prototype: object }
+        | undefined;
+      expect(
+        interfaceObject === undefined
+          ? undefined
+          : Object.getOwnPropertyDescriptor(interfaceObject.prototype, memberName),
+      ).toBeUndefined();
+    }
+    binding.revoke();
+  });
+
   test('materializes exactly the reviewed 25-operation interface shape', () => {
     const binding = createProductionWebGpuPrivateBinding(
       createFakeBridge(),

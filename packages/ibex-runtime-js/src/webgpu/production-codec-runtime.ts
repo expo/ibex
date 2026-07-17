@@ -1259,7 +1259,7 @@ export function createExecutableWebGpuCodecs(
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/1' ||
     manifest.disposition !==
       'reviewed-generated-injection-only-native-decoder-absent-no-support-claim' ||
-    manifest.operationCount !== 25 ||
+    manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.completeLimitNames.length !== 36
   ) {
@@ -1278,8 +1278,8 @@ export function createExecutableWebGpuCodecs(
     manifest.serviceCompletions.map((codec) => [codec.tag, codec]),
   );
   if (
-    routes.size !== 25 ||
-    manifest.operationIds.length !== 25 ||
+    routes.size !== WEBGPU_PRODUCTION_PLAN.routes.length ||
+    manifest.operationIds.length !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.operationIds.some((operationId, index) =>
       WEBGPU_PRODUCTION_PLAN.routes[index]?.operationId !== operationId)
   ) {
@@ -1500,7 +1500,11 @@ export function createExecutableWebGpuCodecs(
           throw new TypeError('GPUDevice detached result has invalid authenticated loss fields');
         }
         alreadyLost = Object.freeze({ reason: 'unknown', message });
-      } else if (carrier.lossReason !== 0 || carrier.backendClass !== 0 || message !== '') {
+      } else if (
+        carrier.lossReason !== undefined ||
+        carrier.backendClass !== undefined ||
+        message !== ''
+      ) {
         throw new TypeError('Live GPUDevice result carries detached-only diagnostics');
       }
       return Object.freeze({

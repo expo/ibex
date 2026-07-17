@@ -14,6 +14,251 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "webgpuCVocabulary": "1cb8a921904c7d67c25b6dad49327d9a21149147a78d76aff13d6ef3a404fcd5",
     "projection": "81e7bad3954d2c55e53dec1a080eac2915bebdf841b26930cc72b42429e3d62b"
   },
+  "activeRouteSubset": {
+    "scopeId": "native-triangle-phase-1a-v1",
+    "operationCount": 25,
+    "operationIds": [
+      "GPU.getPreferredCanvasFormat",
+      "GPU.requestAdapter",
+      "GPUAdapter.requestDevice",
+      "GPUCanvasContext.configure",
+      "GPUCanvasContext.getConfiguration",
+      "GPUCanvasContext.getCurrentTexture",
+      "GPUCanvasContext.unconfigure",
+      "GPUCommandEncoder.beginRenderPass",
+      "GPUCommandEncoder.finish",
+      "GPUDevice.createCommandEncoder",
+      "GPUDevice.createRenderPipeline",
+      "GPUDevice.createShaderModule",
+      "GPUDevice.destroy",
+      "GPUDevice.features",
+      "GPUDevice.limits",
+      "GPUDevice.lost",
+      "GPUDevice.popErrorScope",
+      "GPUDevice.pushErrorScope",
+      "GPUDevice.queue",
+      "GPUQueue.submit",
+      "GPURenderPassEncoder.draw",
+      "GPURenderPassEncoder.end",
+      "GPURenderPassEncoder.setPipeline",
+      "GPUTexture.createView",
+      "GPUTexture.destroy"
+    ]
+  },
+  "stagedWorkloadClosure": {
+    "scopeId": "typegpu-workloads-native-staging-v1",
+    "status": "audited-not-routable-not-installed",
+    "supportClaim": "none",
+    "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
+    "source": {
+      "path": "tests/gpu/typegpu-workload-closure-v1.json",
+      "sha256": "f7a8c4e5c2b88753c54ec5f3ec02b11e08778dff80d813fe39542f25d7c21350"
+    },
+    "typegpuVersion": "0.11.9",
+    "operationCount": 51,
+    "additionalOperationCount": 30,
+    "additionalOperations": [
+      {
+        "operationId": "GPUBuffer.destroy",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.getMappedRange",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.mapAsync",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.mapState",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.unmap",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUBuffer.usage",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCommandEncoder.beginComputePass",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCommandEncoder.clearBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCommandEncoder.copyBufferToBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUCommandEncoder.copyTextureToTexture",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.end",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.setBindGroup",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.setPipeline",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createBindGroup",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createBindGroupLayout",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createComputePipeline",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createPipelineLayout",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createSampler",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUDevice.createTexture",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUQueue.copyExternalImageToTexture",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUQueue.writeBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUQueue.writeTexture",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.setBindGroup",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPURenderPassEncoder.setVertexBuffer",
+        "memberKind": "method",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUTexture.dimension",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUTexture.format",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUTexture.height",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      },
+      {
+        "operationId": "GPUTexture.width",
+        "memberKind": "property",
+        "disposition": "staged-unroutable-no-prototype-member"
+      }
+    ],
+    "properties": [
+      "GPUBuffer.mapState",
+      "GPUBuffer.usage",
+      "GPUDevice.features",
+      "GPUDevice.limits",
+      "GPUDevice.queue",
+      "GPUTexture.dimension",
+      "GPUTexture.format",
+      "GPUTexture.height",
+      "GPUTexture.width"
+    ],
+    "constants": [
+      "GPUBufferUsage.COPY_DST",
+      "GPUBufferUsage.COPY_SRC",
+      "GPUBufferUsage.MAP_READ",
+      "GPUBufferUsage.STORAGE",
+      "GPUBufferUsage.UNIFORM",
+      "GPUBufferUsage.VERTEX",
+      "GPUMapMode.READ",
+      "GPUShaderStage.COMPUTE",
+      "GPUShaderStage.FRAGMENT",
+      "GPUShaderStage.VERTEX",
+      "GPUTextureUsage.COPY_DST",
+      "GPUTextureUsage.COPY_SRC",
+      "GPUTextureUsage.RENDER_ATTACHMENT",
+      "GPUTextureUsage.STORAGE_BINDING",
+      "GPUTextureUsage.TEXTURE_BINDING"
+    ],
+    "hostExtensions": [
+      "CanvasHandle.context",
+      "CanvasHandle.invalidate",
+      "CanvasHandle.onDamage",
+      "CanvasHandle.onFrame",
+      "FrameLease.getCurrentTexture",
+      "FrameLease.submit",
+      "globalThis.cancelAnimationFrame",
+      "globalThis.createImageBitmap",
+      "globalThis.fetch",
+      "globalThis.requestAnimationFrame"
+    ],
+    "blockers": [
+      "ordered-logical-semantic-program",
+      "executable-public-and-service-codecs",
+      "matching-native-service-decoder-and-provider-method",
+      "generated-capsec-edge-and-supported-target-cell",
+      "native-conformance-and-platform-evidence"
+    ],
+    "publicSurfaceRule": "members-remain-absent-until-all-blockers-close-no-throwing-stubs",
+    "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined"
+  },
   "routes": [
     {
       "operationId": "GPU.getPreferredCanvasFormat",
