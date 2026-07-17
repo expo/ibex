@@ -486,7 +486,7 @@ fn default_reject_unauthorized() -> bool {
     true
 }
 
-#[cfg(not(target_os = "ios"))]
+#[cfg(all(not(target_os = "ios"), feature = "tls-client-identity-openssl"))]
 fn client_identity_from_pfx(
     encoded: &str,
     passphrase: Option<&str>,
@@ -544,7 +544,7 @@ fn client_identity_from_pfx(
     Ok((certs, key))
 }
 
-#[cfg(not(target_os = "ios"))]
+#[cfg(all(not(target_os = "ios"), feature = "tls-client-identity-openssl"))]
 fn encrypted_client_key(key_pem: &str, passphrase: &str) -> Result<PrivateKeyDer<'static>, String> {
     use openssl::pkey::PKey;
 
@@ -570,9 +570,14 @@ fn client_identity(
         if config.cert.is_some() || config.key.is_some() {
             return Err("pfx cannot be combined with cert or key client identity options".into());
         }
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(all(not(target_os = "ios"), feature = "tls-client-identity-openssl"))]
         {
             return client_identity_from_pfx(encoded, config.passphrase.as_deref()).map(Some);
+        }
+        #[cfg(all(not(target_os = "ios"), not(feature = "tls-client-identity-openssl")))]
+        {
+            let _ = encoded;
+            return Err("pfx client identities are unavailable in this reduced TLS profile".into());
         }
         #[cfg(target_os = "ios")]
         {
@@ -602,9 +607,17 @@ fn client_identity(
                 return Err("cert option contained no certificates".into());
             }
             let key = if let Some(passphrase) = config.passphrase.as_deref() {
-                #[cfg(not(target_os = "ios"))]
+                #[cfg(all(not(target_os = "ios"), feature = "tls-client-identity-openssl"))]
                 {
                     encrypted_client_key(key_pem, passphrase)?
+                }
+                #[cfg(all(not(target_os = "ios"), not(feature = "tls-client-identity-openssl")))]
+                {
+                    let _ = passphrase;
+                    return Err(
+                        "encrypted client private keys are unavailable in this reduced TLS profile"
+                            .into(),
+                    );
                 }
                 #[cfg(target_os = "ios")]
                 {

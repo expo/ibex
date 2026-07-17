@@ -133,7 +133,10 @@ swc_ecma_transforms_react = "49.0.0"
 # LLP 0026 native module graphs are the ordinary source evaluator. The
 # bounded 0.1 compatibility window retains the old bundler only for module
 # shapes the authenticated v1 graph explicitly classifies as unsupported.
-default = ["module-runner"]
+# tls-client-identity-openssl is default-on by design: native/CLI builds keep
+# the OpenSSL PKCS#12/encrypted-PKCS#8 client-identity decoders; compile-only
+# cross gates opt out with default-features = false.
+default = ["module-runner", "tls-client-identity-openssl"]
 app-host = []
 # Fixture-only LLP 0026 adoption evidence. This compiles the bounded producer
 # but never selects it as the runtime evaluator or enables artifact caching.
@@ -166,6 +169,10 @@ webgpu-binding = []
 # lets the feature-off matrix exercise construction-capture failure paths.
 gpu-bridge-test-hooks = []
 openssl-crypto = ["dep:openssl-sys"]
+# OpenSSL decodes the PKCS#12 and encrypted-PKCS#8 client identity formats.
+# Keep it default-on for native/CLI builds, but explicit so compile-only cross
+# gates can omit the C library when the build host cannot produce it.
+tls-client-identity-openssl = ["dep:openssl"]
 # Retained as a CLI scheduling profile switch. The callback symbol itself is
 # always supplied by the library; the CLI registers a wake hook at runtime so
 # library and integration-test link units never depend on a second symbol.
@@ -178,7 +185,7 @@ openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
 # and `passphrase` client options; vendoring keeps that parser hermetic across
 # desktop targets.
 # @ref LLP 0004#the-tls-builtin — scoped identity decoding, not wire TLS/trust.
-openssl = { version = "0.10.81", features = ["vendored"] }
+openssl = { version = "0.10.81", features = ["vendored"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # Windows does not ship a C zlib development package. Build zlib from source so
