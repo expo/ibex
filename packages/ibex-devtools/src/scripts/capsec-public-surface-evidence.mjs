@@ -1291,6 +1291,120 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "debugger-abi-disabled") {
+      const debuggerExpectation = new Map([
+        ["enable", ["ex_hermes_debugger_enable", "integer-zero"]],
+        ["eval", ["ex_hermes_debugger_eval", "null-pointer"]],
+        [
+          "get-script-source",
+          ["ex_hermes_debugger_get_script_source", "null-pointer"],
+        ],
+        ["get-scripts", ["ex_hermes_debugger_get_scripts", "null-pointer"]],
+        ["next-event", ["ex_hermes_debugger_next_event", "null-pointer"]],
+        ["pause", ["ex_hermes_debugger_pause", "no-event"]],
+        [
+          "remove-breakpoint",
+          ["ex_hermes_debugger_remove_breakpoint", "no-event"],
+        ],
+        ["resume", ["ex_hermes_debugger_resume", "no-event"]],
+        [
+          "set-breakpoint",
+          ["ex_hermes_debugger_set_breakpoint", "null-pointer"],
+        ],
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "functionName",
+          "selectedSourceRef",
+          "targetTriple",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed debugger ABI source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "functionName", "expectedCallResult", "expectedError"],
+        `${recipe.fixtureId}: closed debugger ABI operation`,
+      );
+      const operationSlug = [...debuggerExpectation].find(
+        ([, [functionName]]) =>
+          functionName === authored.operation.functionName,
+      )?.[0];
+      const expected = debuggerExpectation.get(operationSlug);
+      const functionName = authored.operation.functionName;
+      const defaultSourceRef =
+        `src/engine/hermes_runtime_debugger.cc#${functionName}`;
+      const windowsSourceRef =
+        `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+      const expectedSurfaceName =
+        authored.surfaceKind === "host-abi"
+          ? functionName
+          : `inspector.debugger-${operationSlug}`;
+      const alternative = (targetVariant, sourceRef) => ({
+        id: targetVariant,
+        kind: "alternative",
+        sourceRefs: [sourceRef],
+        stubDisposition: "not-structurally-proven",
+        targetVariant,
+      });
+      const alternatives = [
+        alternative("default", defaultSourceRef),
+        alternative("windows", windowsSourceRef),
+      ];
+      const expectedMetadata =
+        authored.surfaceKind === "host-abi"
+          ? {
+              alternatives,
+              branches: structuredClone(alternatives),
+              definitions: [
+                {
+                  language: "c++",
+                  sourceRef: defaultSourceRef,
+                  targetVariant: "default",
+                  unsafe: false,
+                  weak: false,
+                },
+                {
+                  language: "c++",
+                  sourceRef: windowsSourceRef,
+                  targetVariant: "windows",
+                  unsafe: false,
+                  weak: false,
+                },
+              ],
+              provenanceLimitation:
+                "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
+            }
+          : null;
+      if (
+        expected === undefined ||
+        !["host-abi", "native-op"].includes(authored.surfaceKind) ||
+        authored.surfaceName !== expectedSurfaceName ||
+        recipe.terminalObservedKey !==
+          `${authored.surfaceKind}:${expectedSurfaceName}` ||
+        descriptor.kind !== "closed-debugger-abi" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.functionName !== functionName ||
+        descriptor.selectedSourceRef !== defaultSourceRef ||
+        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([defaultSourceRef, windowsSourceRef]) ||
+        canonicalJson(descriptor.sourceMetadata) !==
+          canonicalJson(expectedMetadata) ||
+        authored.operation.expectedCallResult !== expected[1] ||
+        authored.operation.expectedError !==
+          `debugger ABI ${functionName} is unavailable in the no-debugger exact target`
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: debugger ABI closure is not bound to the physical no-debugger target`,
+        );
+      }
+    }
     if (authored.operation?.kind === "exact-unendowed-operation") {
       const descriptor = authored.sourceDescriptor;
       exactKeys(
@@ -2033,6 +2147,15 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: terminal builtin aliases did not fail closed at the authenticated import gate`,
+      );
+    }
+    if (
+      authored.operation?.kind === "debugger-abi-disabled" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: debugger ABI did not prove the no-debugger physical result`,
       );
     }
     const loaderExecutableExpectation = new Map([

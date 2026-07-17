@@ -3260,6 +3260,7 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
       coverageByObservedKey,
+      target,
     });
     const startupPublicSurfaceProbe = authoredStartupPublicProbe({
       plan,

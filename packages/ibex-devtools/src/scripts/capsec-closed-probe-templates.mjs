@@ -98,6 +98,21 @@ const TERMINAL_BUILTIN_SPECIFIERS = new Map([
   ["node_worker_threads", ["node:worker_threads", "worker_threads"]],
 ]);
 
+const DEBUGGER_ABI_FUNCTIONS = new Map([
+  ["enable", ["ex_hermes_debugger_enable", "integer-zero"]],
+  ["eval", ["ex_hermes_debugger_eval", "null-pointer"]],
+  ["get-script-source", ["ex_hermes_debugger_get_script_source", "null-pointer"]],
+  ["get-scripts", ["ex_hermes_debugger_get_scripts", "null-pointer"]],
+  ["next-event", ["ex_hermes_debugger_next_event", "null-pointer"]],
+  ["pause", ["ex_hermes_debugger_pause", "no-event"]],
+  [
+    "remove-breakpoint",
+    ["ex_hermes_debugger_remove_breakpoint", "no-event"],
+  ],
+  ["resume", ["ex_hermes_debugger_resume", "no-event"]],
+  ["set-breakpoint", ["ex_hermes_debugger_set_breakpoint", "null-pointer"]],
+]);
+
 const EXACT_OPERATION_MANIFEST_DIGEST =
   "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
 const EXACT_APP_OPERATION_IDS = Object.freeze([7, 11]);
@@ -762,6 +777,110 @@ function terminalBuiltinImportProbe({
   };
 }
 
+function debuggerAbiDisabledProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    target?.triple !== "aarch64-apple-darwin" ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const hostAbi = surfaceObservedKey.startsWith("host-abi:");
+  const nativePrefix = "native-op:inspector.debugger-";
+  const selected = hostAbi
+    ? [...DEBUGGER_ABI_FUNCTIONS].find(
+        ([, [functionName]]) =>
+          surfaceObservedKey === `host-abi:${functionName}`,
+      )
+    : surfaceObservedKey.startsWith(nativePrefix)
+      ? [
+          surfaceObservedKey.slice(nativePrefix.length),
+          DEBUGGER_ABI_FUNCTIONS.get(
+            surfaceObservedKey.slice(nativePrefix.length),
+          ),
+        ]
+      : null;
+  if (!selected) return null;
+  const [operationSlug, operation] = selected;
+  if (!operation) return null;
+  const [functionName, expectedCallResult] = operation;
+  const defaultSourceRef =
+    `src/engine/hermes_runtime_debugger.cc#${functionName}`;
+  const windowsSourceRef =
+    `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+  if (
+    !live ||
+    live.observedKey !== surfaceObservedKey ||
+    !new Set(["host-abi", "native-op"]).has(live.kind) ||
+    canonicalJson(live.sourceRefs) !==
+      canonicalJson([defaultSourceRef, windowsSourceRef]) ||
+    (hostAbi
+      ? live.name !== functionName ||
+        canonicalJson(
+          live.metadata?.definitions?.map((definition) => [
+            definition.targetVariant,
+            definition.sourceRef,
+          ]),
+        ) !==
+          canonicalJson([
+            ["default", defaultSourceRef],
+            ["windows", windowsSourceRef],
+          ])
+      : live.name !== `inspector.debugger-${operationSlug}` ||
+        live.metadata != null) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-debugger-abi",
+    surfaceObservedKey,
+    functionName,
+    selectedSourceRef: defaultSourceRef,
+    targetTriple: target.triple,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata ?? null),
+  };
+  const expectedError =
+    `debugger ABI ${functionName} is unavailable in the no-debugger exact target`;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: live.kind,
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "debugger-abi-disabled",
+        functionName,
+        expectedCallResult,
+        expectedError,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredClosedPublicProbe(options) {
   const { plan, scenario } = options;
   if (
@@ -780,7 +899,8 @@ export function authoredClosedPublicProbe(options) {
     tamedEvaluatorProbe(options) ??
     moduleRunnerNamespaceProbe(options) ??
     loaderExecutableKindProbe(options) ??
-    terminalBuiltinImportProbe(options)
+    terminalBuiltinImportProbe(options) ??
+    debuggerAbiDisabledProbe(options)
   );
 }
 

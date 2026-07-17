@@ -1458,6 +1458,85 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 
+  test("binds every debugger ABI facet to the physical no-debugger Apple target", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "debugger-abi-disabled",
+    );
+    expect(rows).toHaveLength(18);
+    expect(
+      Object.entries(
+        Object.groupBy(
+          rows,
+          (recipe) => recipe.publicSurfaceProbe.invocation.surfaceKind,
+        ),
+      )
+        .map(([kind, grouped]) => [kind, grouped.length])
+        .sort(),
+    ).toEqual([
+      ["host-abi", 9],
+      ["native-op", 9],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
+            "aarch64-apple-darwin",
+      ),
+    ).toBe(true);
+    const host = rows.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "host-abi:ex_hermes_debugger_eval",
+    );
+    expect(host).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          surfaceKind: "host-abi",
+          surfaceName: "ex_hermes_debugger_eval",
+          sourceDescriptor: {
+            kind: "closed-debugger-abi",
+            selectedSourceRef:
+              "src/engine/hermes_runtime_debugger.cc#ex_hermes_debugger_eval",
+          },
+          operation: {
+            kind: "debugger-abi-disabled",
+            functionName: "ex_hermes_debugger_eval",
+            expectedCallResult: "null-pointer",
+          },
+        },
+      },
+    });
+    const native = rows.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:inspector.debugger-pause",
+    );
+    expect(native).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          surfaceKind: "native-op",
+          surfaceName: "inspector.debugger-pause",
+          sourceDescriptor: {
+            kind: "closed-debugger-abi",
+            sourceMetadata: null,
+          },
+          operation: {
+            kind: "debugger-abi-disabled",
+            functionName: "ex_hermes_debugger_pause",
+            expectedCallResult: "no-event",
+          },
+        },
+      },
+    });
+  });
+
   test("executes module-runner authority and trusted-access loader surfaces", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>

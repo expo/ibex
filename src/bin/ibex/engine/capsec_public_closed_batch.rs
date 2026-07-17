@@ -88,6 +88,12 @@ struct ClosedSourceDescriptor {
     export_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     module_specifiers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    function_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected_source_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target_triple: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -151,6 +157,14 @@ enum ClosedOperation {
         #[serde(rename = "expectedRejectionFragment")]
         expected_rejection_fragment: String,
     },
+    DebuggerAbiDisabled {
+        #[serde(rename = "functionName")]
+        function_name: String,
+        #[serde(rename = "expectedCallResult")]
+        expected_call_result: String,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
 }
 
 impl ClosedOperation {
@@ -163,6 +177,7 @@ impl ClosedOperation {
             Self::ExactUnendowedOperation { .. } => "exact-unendowed-operation",
             Self::ModuleRunnerNamespace { .. } => "module-runner-namespace",
             Self::TerminalBuiltinImport { .. } => "terminal-builtin-import",
+            Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
         }
     }
 
@@ -174,7 +189,8 @@ impl ClosedOperation {
             | Self::LoaderExecutableFile { .. }
             | Self::ExactUnendowedOperation { .. }
             | Self::ModuleRunnerNamespace { .. }
-            | Self::TerminalBuiltinImport { .. } => None,
+            | Self::TerminalBuiltinImport { .. }
+            | Self::DebuggerAbiDisabled { .. } => None,
         }
     }
 }
@@ -1329,6 +1345,302 @@ async fn execute_closed_terminal_builtin_import(
     })
 }
 
+fn reviewed_debugger_abi(function_name: &str) -> Option<(&'static str, &'static str)> {
+    Some(match function_name {
+        "ex_hermes_debugger_enable" => ("enable", "integer-zero"),
+        "ex_hermes_debugger_eval" => ("eval", "null-pointer"),
+        "ex_hermes_debugger_get_script_source" => ("get-script-source", "null-pointer"),
+        "ex_hermes_debugger_get_scripts" => ("get-scripts", "null-pointer"),
+        "ex_hermes_debugger_next_event" => ("next-event", "null-pointer"),
+        "ex_hermes_debugger_pause" => ("pause", "no-event"),
+        "ex_hermes_debugger_remove_breakpoint" => ("remove-breakpoint", "no-event"),
+        "ex_hermes_debugger_resume" => ("resume", "no-event"),
+        "ex_hermes_debugger_set_breakpoint" => ("set-breakpoint", "null-pointer"),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+unsafe fn assert_null_debugger_string(
+    value: *mut std::os::raw::c_char,
+    function_name: &str,
+) {
+    if !value.is_null() {
+        unsafe { ex_hermes_free_string(value) };
+        panic!("{function_name} returned debugger data on the no-debugger exact target");
+    }
+}
+
+#[cfg(test)]
+async fn execute_closed_debugger_abi(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::DebuggerAbiDisabled {
+        function_name,
+        expected_call_result,
+        expected_error,
+    } = &invocation.operation
+    else {
+        panic!("debugger ABI probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert!(matches!(
+        invocation.surface_kind.as_str(),
+        "host-abi" | "native-op"
+    ));
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    let (operation_slug, reviewed_call_result) =
+        reviewed_debugger_abi(function_name).expect("unreviewed debugger ABI function");
+    assert_eq!(expected_call_result, reviewed_call_result);
+    assert_eq!(descriptor.kind, "closed-debugger-abi");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(
+        descriptor.function_name.as_deref(),
+        Some(function_name.as_str())
+    );
+    assert_eq!(
+        descriptor.target_triple.as_deref(),
+        Some("aarch64-apple-darwin")
+    );
+    let default_source_ref = format!("src/engine/hermes_runtime_debugger.cc#{function_name}");
+    let windows_source_ref =
+        format!("src/engine/hermes_runtime_platform_windows.cc#{function_name}");
+    assert_eq!(
+        descriptor.selected_source_ref.as_deref(),
+        Some(default_source_ref.as_str())
+    );
+    assert_eq!(
+        descriptor.source_refs,
+        [default_source_ref.clone(), windows_source_ref.clone()]
+    );
+    if invocation.surface_kind == "host-abi" {
+        assert_eq!(invocation.surface_name.as_str(), function_name.as_str());
+        let alternatives = serde_json::json!([
+            {
+                "id": "default",
+                "kind": "alternative",
+                "sourceRefs": [default_source_ref.clone()],
+                "stubDisposition": "not-structurally-proven",
+                "targetVariant": "default",
+            },
+            {
+                "id": "windows",
+                "kind": "alternative",
+                "sourceRefs": [windows_source_ref.clone()],
+                "stubDisposition": "not-structurally-proven",
+                "targetVariant": "windows",
+            },
+        ]);
+        assert_eq!(
+            descriptor.source_metadata,
+            serde_json::json!({
+                "alternatives": alternatives.clone(),
+                "branches": alternatives,
+                "definitions": [
+                    {
+                        "language": "c++",
+                        "sourceRef": default_source_ref,
+                        "targetVariant": "default",
+                        "unsafe": false,
+                        "weak": false,
+                    },
+                    {
+                        "language": "c++",
+                        "sourceRef": windows_source_ref,
+                        "targetVariant": "windows",
+                        "unsafe": false,
+                        "weak": false,
+                    },
+                ],
+                "provenanceLimitation": "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
+            })
+        );
+    } else {
+        assert_eq!(
+            invocation.surface_name,
+            format!("inspector.debugger-{operation_slug}")
+        );
+        assert!(descriptor.source_metadata.is_null());
+    }
+    assert_eq!(
+        expected_error,
+        &format!(
+            "debugger ABI {function_name} is unavailable in the no-debugger exact target"
+        )
+    );
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed debugger ABI recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    assert_eq!(
+        engine
+            .eval_immediate("'IBEX_CAPSEC_DEBUGGER_ABI_READY'")
+            .await
+            .expect("evaluate debugger ABI precondition marker")
+            .as_deref(),
+        Some("IBEX_CAPSEC_DEBUGGER_ABI_READY")
+    );
+    let runtime = engine
+        .ensure_runtime()
+        .await
+        .expect("load debugger ABI runtime handle");
+    let enable_result = runtime
+        .with_runtime(|raw| unsafe { ex_hermes_debugger_enable(raw) })
+        .expect("probe debugger enablement on the runtime owner thread");
+    assert_eq!(enable_result, 0, "exact target unexpectedly enabled debugger");
+    runtime
+        .with_runtime(|raw| unsafe {
+            match function_name.as_str() {
+                "ex_hermes_debugger_enable" => {}
+                "ex_hermes_debugger_eval" => {
+                    let expression = std::ffi::CString::new(
+                        "globalThis.__IBEX_CAPSEC_DEBUGGER_EVAL_EXECUTED__ = true",
+                    )
+                    .unwrap();
+                    assert_null_debugger_string(
+                        ex_hermes_debugger_eval(raw, expression.as_ptr(), 0),
+                        function_name,
+                    );
+                }
+                "ex_hermes_debugger_get_script_source" => {
+                    assert_null_debugger_string(
+                        ex_hermes_debugger_get_script_source(raw, 0),
+                        function_name,
+                    );
+                }
+                "ex_hermes_debugger_get_scripts" => {
+                    assert_null_debugger_string(ex_hermes_debugger_get_scripts(raw), function_name);
+                }
+                "ex_hermes_debugger_next_event" => {
+                    assert_null_debugger_string(ex_hermes_debugger_next_event(raw), function_name);
+                }
+                "ex_hermes_debugger_pause" => ex_hermes_debugger_pause(raw),
+                "ex_hermes_debugger_remove_breakpoint" => {
+                    ex_hermes_debugger_remove_breakpoint(raw, 0)
+                }
+                "ex_hermes_debugger_resume" => ex_hermes_debugger_resume(raw, 0),
+                "ex_hermes_debugger_set_breakpoint" => {
+                    assert_null_debugger_string(
+                        ex_hermes_debugger_set_breakpoint(raw, 0, 0, 0, std::ptr::null()),
+                        function_name,
+                    );
+                }
+                _ => unreachable!(),
+            }
+            assert_null_debugger_string(
+                ex_hermes_debugger_next_event(raw),
+                "ex_hermes_debugger_next_event after closed call",
+            );
+        })
+        .expect("invoke debugger ABI on the runtime owner thread");
+    assert_eq!(
+        engine
+            .eval_immediate(
+                "typeof globalThis.__IBEX_CAPSEC_DEBUGGER_EVAL_EXECUTED__ === 'undefined' ? 'closed' : 'executed'",
+            )
+            .await
+            .expect("evaluate debugger ABI postcondition marker")
+            .as_deref(),
+        Some("closed")
+    );
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": expected_error,
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 fn clap_command_at_path<'a>(root: &'a clap::Command, path: &str) -> &'a clap::Command {
     let mut components = path.split(' ');
     assert_eq!(components.next(), Some(root.get_name()));
@@ -2212,6 +2524,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let debugger_abi_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::DebuggerAbiDisabled { .. }
+            )
+        })
+        .count();
     assert_eq!(
         recipe_indexes.len(),
         startup_count
@@ -2220,7 +2544,8 @@ async fn capsec_public_closed_recipe_batch() {
             + loader_count
             + exact_unendowed_count
             + module_runner_namespace_count
-            + terminal_builtin_count,
+            + terminal_builtin_count
+            + debugger_abi_count,
         "every closed recipe must have an accounted execution family"
     );
     assert_eq!(
@@ -2249,6 +2574,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         terminal_builtin_count, 106,
         "expected every source facet of the five terminal builtin modules"
+    );
+    assert_eq!(
+        debugger_abi_count, 18,
+        "expected every debugger ABI and native-operation facet on Apple"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
@@ -2321,12 +2650,52 @@ async fn capsec_public_closed_recipe_batch() {
             );
         }
     }
+    if debugger_abi_count > 0 {
+        let debugger_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::DebuggerAbiDisabled { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact no-debugger ABI closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact no-debugger ABI closure runtime");
+        for index in debugger_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_debugger_abi(
+                    &engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await,
+            );
+        }
+    }
     for index in recipe_indexes {
         let recipe = &catalog.recipes[index];
         let probe = closed_surface_probe(recipe).unwrap();
         if matches!(
             &probe.invocation.operation,
             ClosedOperation::TerminalBuiltinImport { .. }
+                | ClosedOperation::DebuggerAbiDisabled { .. }
         ) {
             continue;
         }
@@ -2386,6 +2755,7 @@ async fn capsec_public_closed_recipe_batch() {
                 .await
             }
             ClosedOperation::TerminalBuiltinImport { .. } => unreachable!(),
+            ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),
         });
     }
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
