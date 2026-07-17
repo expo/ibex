@@ -829,6 +829,42 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
   } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-module-loader-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "surfaceName"],
+      `${recipe.fixtureId}: module-loader runtime invocation`,
+    );
+    const operations = new Map([
+      ["module-runner-edge-authorization", "authorize-edge"],
+      ["module-runner-trusted-source-acquisition", "source-acquisition"],
+      ["module-runner-cache-access", "cache-read"],
+      ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
+    ]);
+    const expectedOperation = operations.get(authored.surfaceName);
+    const expectedFunction =
+      expectedOperation === "authorize-edge"
+        ? "authorize"
+        : "authorize_then_access";
+    if (
+      invocation.kind !== "module-loader-authority" ||
+      invocation.surfaceName !== authored.surfaceName ||
+      !expectedOperation ||
+      authored.operation?.kind !== expectedOperation ||
+      authored.sourceDescriptor?.kind !== "module-loader-function" ||
+      authored.sourceDescriptor?.surfaceName !== authored.surfaceName ||
+      canonicalJson(authored.sourceDescriptor?.sourceRefs) !==
+        canonicalJson([
+          `src/module_loader/security.rs#${expectedFunction}`,
+        ])
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: module-loader runtime invocation descriptor drift`,
+      );
+    }
+  } else if (
     BUILTIN_RUNTIME_INVOCATION_SCHEMAS.has(invocation?.invocationSchema)
   ) {
     const requiresCompletion = recipe.classification === "non-capability";
@@ -1489,6 +1525,26 @@ function validateRuntimeInvocation(observation, recipe) {
       ) {
         throw new Error(
           `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+        );
+      }
+    } else if (
+      authored.invocationSchema ===
+      "ibex/capsec-module-loader-invocation/1"
+    ) {
+      exactKeys(
+        invocation.result,
+        ["kind", "surfaceName", "operation", "accessExecuted", "cleanup"],
+        `${recipe.fixtureId}: module-loader runtime result`,
+      );
+      const isAccess = authored.operation.kind !== "authorize-edge";
+      if (
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.operation !== authored.operation.kind ||
+        invocation.result.accessExecuted !== isAccess ||
+        invocation.result.cleanup !== "none"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: module-loader runtime result did not prove its exact access`,
         );
       }
     } else if (

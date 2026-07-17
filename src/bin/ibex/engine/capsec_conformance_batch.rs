@@ -78,6 +78,11 @@ enum PublicInvocation {
         #[serde(flatten)]
         details: HostAbiPublicInvocation,
     },
+    #[serde(rename = "ibex/capsec-module-loader-invocation/1")]
+    ModuleLoader {
+        #[serde(flatten)]
+        details: ModuleLoaderPublicInvocation,
+    },
     #[serde(other)]
     Other,
 }
@@ -86,14 +91,30 @@ impl PublicInvocation {
     fn native(&self) -> Option<&NativePublicInvocation> {
         match self {
             Self::NativeGlobal { details } => Some(details),
-            Self::BuiltinExport { .. } | Self::HostAbi { .. } | Self::Other => None,
+            Self::BuiltinExport { .. }
+            | Self::HostAbi { .. }
+            | Self::ModuleLoader { .. }
+            | Self::Other => None,
         }
     }
 
     fn host_abi(&self) -> Option<&HostAbiPublicInvocation> {
         match self {
             Self::HostAbi { details } => Some(details),
-            Self::NativeGlobal { .. } | Self::BuiltinExport { .. } | Self::Other => None,
+            Self::NativeGlobal { .. }
+            | Self::BuiltinExport { .. }
+            | Self::ModuleLoader { .. }
+            | Self::Other => None,
+        }
+    }
+
+    fn module_loader(&self) -> Option<&ModuleLoaderPublicInvocation> {
+        match self {
+            Self::ModuleLoader { details } => Some(details),
+            Self::NativeGlobal { .. }
+            | Self::BuiltinExport { .. }
+            | Self::HostAbi { .. }
+            | Self::Other => None,
         }
     }
 }
@@ -103,6 +124,21 @@ impl PublicInvocation {
 struct HostAbiPublicInvocation {
     kind: String,
     function_name: String,
+    source_descriptor: serde_json::Value,
+    source_descriptor_digest: String,
+    operation: serde_json::Value,
+    expected_result: String,
+    expected_typed_stages: Vec<String>,
+    expected_typed_decision_count: usize,
+    allowed_coverage_edge_ids: Vec<String>,
+    expected_action_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModuleLoaderPublicInvocation {
+    kind: String,
+    surface_name: String,
     source_descriptor: serde_json::Value,
     source_descriptor_digest: String,
     operation: serde_json::Value,
@@ -2056,6 +2092,253 @@ async fn execute_host_abi_public_recipe(
     })
 }
 
+#[derive(Clone)]
+struct ModuleLoaderPublicPolicy {
+    digest: capsec_semantics::model::Digest,
+    generations: capsec_semantics::arming::SnapshotGenerations,
+}
+
+impl ibex_runtime::module_loader::security::GraphImportPolicy for ModuleLoaderPublicPolicy {
+    fn snapshot_digest(&self) -> &capsec_semantics::model::Digest {
+        &self.digest
+    }
+
+    fn snapshot_generations(&self) -> capsec_semantics::arming::SnapshotGenerations {
+        self.generations
+    }
+
+    fn authenticates_module_edge(
+        &self,
+        _importer: &capsec_semantics::model::Principal,
+        specifier: &str,
+        _imported: &capsec_semantics::model::Principal,
+        resolution_kind: &str,
+        conditions: &[String],
+        attributes: &BTreeMap<String, String>,
+    ) -> bool {
+        specifier == "dep"
+            && resolution_kind == "esm-static"
+            && conditions == ["import", "node"]
+            && attributes.is_empty()
+    }
+}
+
+fn module_loader_public_digest(label: &str) -> capsec_semantics::model::Digest {
+    use sha2::Digest as _;
+    let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(label));
+    capsec_semantics::model::Digest::new(format!("sha256-{encoded}"))
+        .expect("module-loader public fixture digest")
+}
+
+fn module_loader_public_principal(name: &str) -> capsec_semantics::model::Principal {
+    capsec_semantics::model::Principal::Package {
+        name: capsec_semantics::model::NonEmptyString::new(name)
+            .expect("module-loader public fixture package name"),
+        integrity: module_loader_public_digest(name),
+        locator: capsec_semantics::model::PackageLocator::new(format!("{name}@1.0.0"))
+            .expect("module-loader public fixture locator"),
+    }
+}
+
+// @ref LLP 0021#module-initialization-and-trusted-source-acquisition — prove
+// the authenticated loader receipt path separately from ordinary host-effect
+// DecisionSets; a successful access therefore observes no CapSec decision.
+async fn execute_module_loader_public_recipe(
+    recipe: &Recipe,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    use capsec_semantics::arming::{SnapshotGenerations};
+    use capsec_semantics::model::{Generation, PathComponent, Stage};
+    use ibex_runtime::module_loader::identity::{
+        ConditionSet, ImportAttributes, ResolutionKind, SourceId,
+    };
+    use ibex_runtime::module_loader::security::{
+        GraphAuthorityContext, GraphDecisionSet, GraphOperationKind, ModuleGraphAuthorizer,
+    };
+
+    let probe = recipe
+        .public_surface_probe
+        .as_ref()
+        .expect("module-loader recipe must have a public probe");
+    let invocation = probe
+        .invocation
+        .module_loader()
+        .expect("module-loader executor received another invocation schema");
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "non-capability");
+    assert_eq!(recipe.scenario, "non-capability");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert_eq!(probe.surface_observed_key, format!("loader:{}", invocation.surface_name));
+    assert_eq!(probe.surface_observed_key, recipe.terminal_observed_key);
+    assert!(recipe.route.alternatives.iter().any(|alternative| {
+        alternative.terminal_observed_key == probe.surface_observed_key
+    }));
+    assert_eq!(invocation.kind, "module-loader-authority");
+    assert_eq!(invocation.expected_result, "return");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+    assert_eq!(invocation.source_descriptor["kind"], "module-loader-function");
+    assert_eq!(invocation.source_descriptor["surfaceName"], invocation.surface_name);
+
+    let expected = match invocation.surface_name.as_str() {
+        "module-runner-edge-authorization" => ("authorize-edge", "authorize"),
+        "module-runner-trusted-source-acquisition" => {
+            ("source-acquisition", "authorize_then_access")
+        }
+        "module-runner-cache-access" => ("cache-read", "authorize_then_access"),
+        "module-runner-prepared-carrier-access" => {
+            ("prepared-carrier-read", "authorize_then_access")
+        }
+        other => panic!("unsupported module-loader public surface {other}"),
+    };
+    assert_eq!(invocation.operation["kind"], expected.0);
+    assert_eq!(
+        invocation.source_descriptor["sourceRefs"],
+        serde_json::json!([format!("src/module_loader/security.rs#{}", expected.1)])
+    );
+
+    let generation = Generation::new(1).expect("module-loader public fixture generation");
+    let policy = ModuleLoaderPublicPolicy {
+        digest: module_loader_public_digest("module-loader-public-snapshot"),
+        generations: SnapshotGenerations {
+            policy: generation,
+            negative: generation,
+            dynamic: generation,
+            handle: generation,
+        },
+    };
+    let importer = module_loader_public_principal("app");
+    let imported = module_loader_public_principal("dep");
+    let requester = SourceId::file(
+        importer.clone(),
+        vec![PathComponent::utf8("entry.mjs").expect("fixture path component")],
+    )
+    .expect("module-loader public requester");
+    let target = SourceId::file(
+        imported,
+        vec![PathComponent::utf8("index.mjs").expect("fixture path component")],
+    )
+    .expect("module-loader public target");
+    let decision = || {
+        GraphDecisionSet::new(
+            GraphOperationKind::StaticImport,
+            GraphAuthorityContext::new(
+                requester.clone(),
+                importer.clone(),
+                importer.clone(),
+                importer.clone(),
+                vec![importer.clone()],
+                Stage::Requested,
+                7,
+            )
+            .expect("module-loader public authority context"),
+            target.clone(),
+            "dep",
+            ResolutionKind::EsmStatic,
+            ConditionSet::for_kind(ResolutionKind::EsmStatic),
+            ImportAttributes::default(),
+            None,
+            None,
+        )
+        .expect("module-loader public decision")
+    };
+    let authorizer = ModuleGraphAuthorizer::new(&policy);
+    let accessed = std::cell::Cell::new(false);
+    let session_id = format!("public-module-loader:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &session_id
+    ));
+    match expected.0 {
+        "authorize-edge" => {
+            authorizer
+                .authorize(decision())
+                .expect("authenticated module edge must authorize");
+        }
+        operation => {
+            let access_kind = match operation {
+                "source-acquisition" => GraphOperationKind::SourceAcquisition,
+                "cache-read" => GraphOperationKind::CacheRead,
+                "prepared-carrier-read" => GraphOperationKind::PreparedCarrierRead,
+                _ => unreachable!(),
+            };
+            authorizer
+                .authorize_then_access(
+                    decision(),
+                    access_kind,
+                    module_loader_public_digest("module-loader-public-source"),
+                    (access_kind == GraphOperationKind::PreparedCarrierRead)
+                        .then(|| module_loader_public_digest("module-loader-public-carrier")),
+                    || {
+                        accessed.set(true);
+                        Ok(())
+                    },
+                )
+                .expect("authenticated module-loader access must execute");
+            assert!(accessed.get(), "module-loader access closure did not run");
+        }
+    }
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let invocation_result = serde_json::json!({
+        "kind": "return",
+        "surfaceName": invocation.surface_name,
+        "operation": expected.0,
+        "accessExecuted": accessed.get(),
+        "cleanup": "none",
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": "ibex/capsec-module-loader-invocation/1",
+            "kind": invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "surfaceName": invocation.surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": invocation_result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected module-loader observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": probe.surface_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), serde_json::Value::String(digest));
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-native-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 9] = [
     "cargo",
     "test",
@@ -2069,7 +2352,9 @@ const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 9] = [
 ];
 
 fn is_native_public_batch_probe(probe: &PublicSurfaceProbe) -> bool {
-    (probe.invocation.native().is_some() || probe.invocation.host_abi().is_some())
+    (probe.invocation.native().is_some()
+        || probe.invocation.host_abi().is_some()
+        || probe.invocation.module_loader().is_some())
         && probe
             .command
             .iter()
@@ -2158,8 +2443,7 @@ async fn capsec_public_native_recipe_batch() {
                 )
                 .await,
             );
-        } else {
-            assert!(probe.invocation.host_abi().is_some());
+        } else if probe.invocation.host_abi().is_some() {
             let (host, snapshot_digest) =
                 build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
             assert_ne!(crate::host::abi::install_host(host), 0);
@@ -2172,6 +2456,21 @@ async fn capsec_public_native_recipe_batch() {
                 .expect("load runtime before host-ABI public recipe");
             executions.push(
                 execute_host_abi_public_recipe(recipe, &identity_before.binary_digest).await,
+            );
+        } else {
+            assert!(probe.invocation.module_loader().is_some());
+            let (host, snapshot_digest) =
+                build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+            assert_ne!(crate::host::abi::install_host(host), 0);
+            let _reset = HostResetGuard;
+            let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+                .expect("create isolated module-loader public recipe engine");
+            engine
+                .load_runtime()
+                .await
+                .expect("load runtime before module-loader public recipe");
+            executions.push(
+                execute_module_loader_public_recipe(recipe, &identity_before.binary_digest).await,
             );
         }
         eprintln!("CapSec native public fixture passed: {}", recipe.fixture_id);

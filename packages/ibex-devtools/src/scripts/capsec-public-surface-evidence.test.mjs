@@ -2459,6 +2459,88 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/did not prove bounded cleanup/);
   });
 
+  test("accepts exact module-loader authority access with no CapSec decision", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const sourceDescriptor = {
+      kind: "module-loader-function",
+      surfaceName: "module-runner-cache-access",
+      sourceRefs: ["src/module_loader/security.rs#authorize_then_access"],
+    };
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-loader.cache.non-capability",
+      classification: "non-capability",
+      scenario: "non-capability",
+      edgeIds: ["edge.module-loader-cache"],
+      actionIds: [],
+      terminalObservedKey: "loader:module-runner-cache-access",
+      route: {
+        surfaceObservedKeys: ["loader:module-runner-cache-access"],
+        alternatives: [
+          {
+            terminalObservedKey: "loader:module-runner-cache-access",
+            proofPaths: ["loader:module-runner-cache-access"],
+          },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: recipe.terminalObservedKey,
+      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-module-loader-invocation/1",
+        kind: "module-loader-authority",
+        surfaceName: "module-runner-cache-access",
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "cache-read" },
+        expectedResult: "return",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.module-loader-cache"],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-module-loader-invocation/1",
+        kind: "module-loader-authority",
+        surfaceObservedKey: recipe.terminalObservedKey,
+        surfaceName: "module-runner-cache-access",
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "return",
+          surfaceName: "module-runner-cache-access",
+          operation: "cache-read",
+          accessExecuted: true,
+          cleanup: "none",
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.accessExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact access/);
+  });
+
   test("accepts callback invariants only with exact typed outcomes and reasons", () => {
     const catalog = completeCallbackCatalog();
     const recipe = catalog.recipes[0];

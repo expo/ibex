@@ -1392,6 +1392,60 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("executes module-runner authority and trusted-access loader surfaces", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-module-loader-invocation/1",
+    );
+    expect(rows).toHaveLength(4);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.surfaceName,
+        recipe.publicSurfaceProbe.invocation.operation.kind,
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs[0],
+      ]),
+    ).toEqual([
+      [
+        "module-runner-cache-access",
+        "cache-read",
+        "src/module_loader/security.rs#authorize_then_access",
+      ],
+      [
+        "module-runner-edge-authorization",
+        "authorize-edge",
+        "src/module_loader/security.rs#authorize",
+      ],
+      [
+        "module-runner-prepared-carrier-access",
+        "prepared-carrier-read",
+        "src/module_loader/security.rs#authorize_then_access",
+      ],
+      [
+        "module-runner-trusted-source-acquisition",
+        "source-acquisition",
+        "src/module_loader/security.rs#authorize_then_access",
+      ],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.actionIds.length === 0 &&
+          recipe.adapterProbe === null &&
+          recipe.publicSurfaceProbe.invocation.expectedResult === "return" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages.length ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedActionIds.length === 0,
+      ),
+    ).toBe(true);
+  });
+
   test("leaves cache-order-dependent builtin alias initialization residual", () => {
     const imports = recipes.recipes.filter(
       (recipe) =>

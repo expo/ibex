@@ -2619,6 +2619,84 @@ function conditionalHostAbiProbeForPlan({
   };
 }
 
+// @ref LLP 0021#module-initialization-and-trusted-source-acquisition — loader
+// admission and source/cache/carrier reads are control-plane operations, so
+// their public proof must execute with zero host-effect decisions.
+const MODULE_RUNNER_LOADER_OPERATIONS = new Map([
+  ["module-runner-edge-authorization", "authorize-edge"],
+  ["module-runner-trusted-source-acquisition", "source-acquisition"],
+  ["module-runner-cache-access", "cache-read"],
+  ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
+]);
+
+function moduleRunnerLoaderProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+}) {
+  if (
+    plan.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "loader:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  const operation = MODULE_RUNNER_LOADER_OPERATIONS.get(surfaceName);
+  if (!operation) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "loader" ||
+    live.name !== surfaceName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "module-loader-function",
+    surfaceName,
+    sourceRefs: clone(live.sourceRefs),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [
+      "cargo",
+      "test",
+      "--bin",
+      "ibex",
+      "--features",
+      "capsec-conformance-observer",
+      "capsec_public_native_recipe_batch",
+      "--",
+      "--test-threads=1",
+    ],
+    invocation: {
+      invocationSchema: "ibex/capsec-module-loader-invocation/1",
+      kind: "module-loader-authority",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: { kind: operation },
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: clone(plan.edgeIds),
+      expectedActionIds: [],
+    },
+  };
+}
+
 function residualReasons({
   plan,
   scenario,
@@ -2857,6 +2935,12 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       coverageByEdge,
     });
+    const moduleRunnerLoaderProbe = moduleRunnerLoaderProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+    });
     const authoredPublicSurfaceProbes = callbackInvariantProbe
       ? [callbackInvariantProbe]
       : [
@@ -2867,6 +2951,7 @@ export function buildConformanceRecipeCatalog({
           effectBuiltinPublicSurfaceProbe,
           nonCapabilityBuiltinPublicSurfaceProbe,
           conditionalHostAbiProbe,
+          moduleRunnerLoaderProbe,
           nativePublicSurface.probe,
         ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {
