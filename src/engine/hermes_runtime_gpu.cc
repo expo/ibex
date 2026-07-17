@@ -1489,7 +1489,9 @@ extern "C" int32_t ex_hermes_set_gpu_provider_v1(
       EmbedderCapabilityState::Configuring) {
     return EXACT_GPU_PROVIDER_INVALID_STATE;
   }
-  if (runtime->gpu_binding) return EXACT_GPU_PROVIDER_ALREADY_INSTALLED;
+  if (runtime->gpu_binding || runtime->gpu_binding_v2) {
+    return EXACT_GPU_PROVIDER_ALREADY_INSTALLED;
+  }
   if (!descriptor) return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
   if (descriptor->struct_size < sizeof(ExactHermesGpuProviderDescriptorV1)) {
     return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
@@ -1562,6 +1564,9 @@ int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime) {
   (void)runtime;
   return EXACT_GPU_PROVIDER_OK;
 #else
+  if (runtime && runtime->gpu_binding_v2) {
+    return exactGpuV2ActivateInstall(runtime);
+  }
   if (!runtime || !runtime->gpu_binding) return EXACT_GPU_PROVIDER_OK;
   auto& binding = runtime->gpu_binding;
   if (binding->realm_open) return EXACT_GPU_PROVIDER_OK;
@@ -1650,6 +1655,9 @@ bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime) {
   (void)runtime;
   return true;
 #else
+  if (runtime && runtime->gpu_binding_v2) {
+    return exactGpuV2PublishPrivateBridge(runtime);
+  }
   if (!runtime || !runtime->runtime || !runtime->gpu_binding) return true;
   auto& binding = *runtime->gpu_binding;
   if (binding.bridge_captured) return true;
@@ -1758,6 +1766,9 @@ bool exactGpuSealPrivateBridge(ExactHermesRuntime* runtime) {
   return closeGpuConstructionCaptureImpl(runtime);
 #else
   if (!runtime || !runtime->runtime) return false;
+  if (runtime->gpu_binding_v2) {
+    return exactGpuV2SealPrivateBridge(runtime);
+  }
   if (!closeGpuConstructionCaptureImpl(runtime)) return false;
   if (!runtime->gpu_binding) return true;
   auto& binding = *runtime->gpu_binding;
@@ -1776,7 +1787,8 @@ bool exactGpuCloseConstructionCapture(ExactHermesRuntime* runtime) {
 }
 
 bool exactGpuBindingInstalled(const ExactHermesRuntime* runtime) {
-  return runtime && runtime->gpu_binding != nullptr;
+  return runtime &&
+      (runtime->gpu_binding != nullptr || runtime->gpu_binding_v2 != nullptr);
 }
 
 bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime) {
@@ -1784,9 +1796,11 @@ bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime) {
   (void)runtime;
   return false;
 #else
-  return runtime && runtime->gpu_binding && runtime->gpu_binding->mailbox &&
+  const bool v1Pending = runtime && runtime->gpu_binding &&
+      runtime->gpu_binding->mailbox &&
       runtime->gpu_binding->mailbox->owner_drain_required.load(
           std::memory_order_acquire);
+  return v1Pending || exactGpuV2OwnerDrainPending(runtime);
 #endif
 }
 
@@ -1795,25 +1809,29 @@ int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime) {
   (void)runtime;
   return 0;
 #else
+  int drained = exactGpuV2DrainOwnerFallback(runtime);
   if (!runtime || !runtime->runtime || !runtime->gpu_binding ||
       !runtime->gpu_binding->mailbox) {
-    return 0;
+    return drained;
   }
   auto* mailbox = runtime->gpu_binding->mailbox;
   if (!mailbox->owner_drain_required.exchange(
           false, std::memory_order_acq_rel)) {
-    return 0;
+    return drained;
   }
 #ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
   gGpuTestOwnerFallbackDrainCalls.fetch_add(1, std::memory_order_seq_cst);
 #endif
   drainGpuMailbox(mailbox, *runtime->runtime);
-  return 1;
+  return drained + 1;
 #endif
 }
 
 void exactGpuRollbackInstall(ExactHermesRuntime* runtime) {
   if (!runtime) return;
+  if (runtime->gpu_binding_v2) {
+    exactGpuV2RollbackInstall(runtime);
+  }
   if (!runtime->gpu_binding) {
     if (!closeGpuConstructionCaptureImpl(runtime)) {
       runtime->embedder_capability_state = EmbedderCapabilityState::Failed;
@@ -1826,6 +1844,9 @@ void exactGpuRollbackInstall(ExactHermesRuntime* runtime) {
 
 void exactGpuBeginRuntimeTeardown(ExactHermesRuntime* runtime) {
   if (!runtime) return;
+  if (runtime->gpu_binding_v2) {
+    exactGpuV2BeginRuntimeTeardown(runtime);
+  }
   if (!runtime->gpu_binding) {
     closeGpuConstructionCaptureImpl(runtime);
     return;

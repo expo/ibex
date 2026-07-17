@@ -77,6 +77,24 @@ const GPU_TERMINAL_IDENTITY_EVIDENCE = {
   terminalHandlerBindingCount: 1,
   terminalHandlerDefinitionCount: 1,
 };
+const GPU_V2_TERMINAL_IDENTITY_EVIDENCE = {
+  ...GPU_TERMINAL_IDENTITY_EVIDENCE,
+  identityGuardCount: 5,
+  identityGuardError:
+    "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
+  identityGuardIdentifiers: [
+    "submitGpuV2BridgeCall",
+    "cancelGpuV2BridgeCall",
+    "retireGpuV2BridgeCall",
+    "setGpuV2EventSinkBridgeCall",
+  ],
+  protectedIdentifierTokenCounts: {
+    submitGpuV2BridgeCall: 7,
+    cancelGpuV2BridgeCall: 7,
+    retireGpuV2BridgeCall: 7,
+    setGpuV2EventSinkBridgeCall: 7,
+  },
+};
 const GPU_CALLBACK_IDENTITY_EVIDENCE = {
   callbackDefinitionCount: 1,
   conditionalContext: "webgpu-enabled-if",
@@ -730,6 +748,53 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       expect(operation.implementationRows[0].implementationOwner, name).toBe(
         "WP4",
       );
+    }
+
+    for (const [memberName, arity, terminalHandler] of [
+      ["cancel", 2, "cancelGpuV2BridgeCall"],
+      ["retire", 1, "retireGpuV2BridgeCall"],
+      ["setEventSink", 1, "setGpuV2EventSinkBridgeCall"],
+      ["submit", 4, "submitGpuV2BridgeCall"],
+    ]) {
+      const name = `construction-private:gpuNativeBridgeV2.${memberName}`;
+      const operation = classifyObservedSurface(
+        surface("native-op", name, {
+          ...GPU_V2_TERMINAL_IDENTITY_EVIDENCE,
+          arity,
+          bridgeOwner: "gpuNativeBridgeV2",
+          evidenceType: "construction-private-host-function",
+          functionVariable: memberName,
+          memberName,
+          occurrenceCount: 1,
+          semanticRoles: ["construction-private-native-operation"],
+          surfaceType: "construction-private-bridge",
+          terminalHandler,
+        }),
+        context,
+      );
+      expect(operation.edge, name).toMatchObject({
+        classification: "closed",
+        cap: "ipc:channel",
+      });
+
+      const crossWired = surface("native-op", name, {
+        ...GPU_V2_TERMINAL_IDENTITY_EVIDENCE,
+        arity,
+        bridgeOwner: "gpuNativeBridgeV2",
+        evidenceType: "construction-private-host-function",
+        functionVariable: memberName,
+        memberName,
+        occurrenceCount: 1,
+        semanticRoles: ["construction-private-native-operation"],
+        surfaceType: "construction-private-bridge",
+        terminalHandler: terminalHandler === "submitGpuV2BridgeCall"
+          ? "cancelGpuV2BridgeCall"
+          : "submitGpuV2BridgeCall",
+      });
+      expect(
+        () => classifyObservedSurface(crossWired, context),
+        `${memberName} V2 classifier cross-wire`,
+      ).toThrow(/unclassified observed surface/u);
     }
 
     const [ingressName] = reviewedCallbackIngressNames();

@@ -100,6 +100,7 @@ struct ExactHostCallAsyncEntry {
 
 struct ExactHermesRuntime;
 struct ExactGpuRuntimeBinding;
+struct ExactGpuRuntimeBindingV2;
 
 enum class EmbedderCapabilityState : uint8_t {
   LegacyAutoFinalize,
@@ -410,6 +411,10 @@ struct ExactHermesRuntime {
   // no physical WGPU handle crosses this boundary. Runtime-js captures the
   // bridge only in its private construction module and revokes it on teardown.
   std::shared_ptr<ExactGpuRuntimeBinding> gpu_binding;
+  // Additive full-identity carrier. Exactly one of gpu_binding/gpu_binding_v2
+  // may be populated; keeping distinct types makes the V1 ABI and behavior
+  // mechanically unchanged while V2 is staged behind the same feature gate.
+  std::shared_ptr<ExactGpuRuntimeBindingV2> gpu_binding_v2;
 };
 
 /// Common owner-thread, liveness, generation, and non-reentrancy gate for
@@ -1342,6 +1347,17 @@ bool exactGpuPublishPrivateBridge(ExactHermesRuntime* runtime);
 bool exactGpuSealPrivateBridge(ExactHermesRuntime* runtime);
 void exactGpuRollbackInstall(ExactHermesRuntime* runtime);
 void exactGpuBeginRuntimeTeardown(ExactHermesRuntime* runtime);
+
+// Additive V2 implementation hooks, composed by the version-neutral lifecycle
+// helpers above. These stay engine-internal; the public surface is the C ABI in
+// exact_runtime.h plus the one-shot runtime-js construction capture.
+int32_t exactGpuV2ActivateInstall(ExactHermesRuntime* runtime);
+bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime);
+bool exactGpuV2SealPrivateBridge(ExactHermesRuntime* runtime);
+bool exactGpuV2OwnerDrainPending(const ExactHermesRuntime* runtime);
+int exactGpuV2DrainOwnerFallback(ExactHermesRuntime* runtime);
+void exactGpuV2RollbackInstall(ExactHermesRuntime* runtime);
+void exactGpuV2BeginRuntimeTeardown(ExactHermesRuntime* runtime);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);

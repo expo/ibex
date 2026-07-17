@@ -406,6 +406,7 @@ impl Host {
         webgpu_c_vocabulary_digest: &capsec_semantics::model::Digest,
         operation_set_digest: &capsec_semantics::model::Digest,
         semantic_program_digest: &capsec_semantics::model::Digest,
+        runtime_routing_digest: Option<&capsec_semantics::model::Digest>,
         operations: &[u32],
         topology_id: u32,
     ) -> bool {
@@ -421,6 +422,7 @@ impl Host {
             && &binding.webgpu_c_vocabulary_digest == webgpu_c_vocabulary_digest
             && &binding.operation_set_digest == operation_set_digest
             && &binding.semantic_program_digest == semantic_program_digest
+            && binding.runtime_routing_digest.as_ref() == runtime_routing_digest
             && binding.operation_ids == operations
             && topology_id == 1
             && binding.topology == "isolated-per-logical-v1"
@@ -4240,6 +4242,7 @@ mod tests {
             &vocabulary,
             &operations,
             &semantics,
+            None,
             &[7, 11, 19],
             1,
         ));
@@ -4250,6 +4253,7 @@ mod tests {
             &vocabulary,
             &operations,
             &semantics,
+            None,
             &[7, 19],
             1,
         ));
@@ -4260,6 +4264,7 @@ mod tests {
             &vocabulary,
             &operations,
             &semantics,
+            None,
             &[7, 11, 19],
             9,
         ));

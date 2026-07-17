@@ -2777,6 +2777,74 @@ ${GPU_CANONICAL_INCLUDE_BLOCK}
     );
   });
 
+  test("V2 construction-private bridge discovers all four guarded methods and fails closed under mutation", () => {
+    const sourcePath = "src/engine/hermes_runtime_gpu_v2.cc";
+    const source = fs.readFileSync(path.join(repoRoot, sourcePath), "utf8");
+    const expected = [
+      "construction-private:gpuNativeBridgeV2.cancel",
+      "construction-private:gpuNativeBridgeV2.retire",
+      "construction-private:gpuNativeBridgeV2.setEventSink",
+      "construction-private:gpuNativeBridgeV2.submit",
+    ];
+    const rows = scanCppConstructionPrivateBridgeSurfaces(source, sourcePath);
+    expect(rows.map((row) => row.name)).toEqual(expected);
+    expect(
+      rows.map((row) => [
+        row.metadata.memberName,
+        row.metadata.arity,
+        row.metadata.terminalHandler,
+        row.metadata.identityGuardCount,
+      ]),
+    ).toEqual([
+      ["cancel", 2, "cancelGpuV2BridgeCall", 5],
+      ["retire", 1, "retireGpuV2BridgeCall", 5],
+      ["setEventSink", 1, "setGpuV2EventSinkBridgeCall", 5],
+      ["submit", 4, "submitGpuV2BridgeCall", 5],
+    ]);
+
+    const guardError =
+      '#error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"';
+    const bindingReturn =
+      "return submitGpuV2BridgeCall(runtime, rt, args, count);";
+    const capturedRoot =
+      "auto revokeValue = capture.call(rt, *captured);";
+    for (const [label, mutated] of [
+      [
+        "guard error mutation",
+        source.replace(guardError, '#error "compatible V2 guard"'),
+      ],
+      [
+        "terminal cross-wire",
+        source.replace(
+          bindingReturn,
+          "return cancelGpuV2BridgeCall(runtime, rt, args, count);",
+        ),
+      ],
+      [
+        "capture root removed",
+        source.replace(capturedRoot, "auto revokeValue = captured;"),
+      ],
+    ]) {
+      expect(mutated, label).not.toBe(source);
+      expect(
+        scanCppConstructionPrivateBridgeSurfaces(mutated, sourcePath),
+        label,
+      ).toEqual([]);
+    }
+
+    const renamedProperty = source.replace(
+      '"setEventSink",\n        std::move(setEventSink)',
+      '"setEventSinkMissing",\n        std::move(setEventSink)',
+    );
+    expect(renamedProperty).not.toBe(source);
+    expect(
+      scanCppConstructionPrivateBridgeSurfaces(
+        renamedProperty,
+        sourcePath,
+      ).map((row) => row.name),
+    ).not.toContain("construction-private:gpuNativeBridgeV2.setEventSink");
+  });
+
   test("versioned callback-table ingress is source-derived from the bound slot", () => {
     const source = String.raw`
 ${GPU_CANONICAL_INCLUDE_BLOCK}
@@ -5322,7 +5390,7 @@ int main() { return 0; }
     ).toEqual(["src/engine/hermes_runtime.cc#ex_hermes_create_armed"]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(126);
+    ).toHaveLength(128);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
@@ -5658,6 +5726,10 @@ int main() { return 0; }
       "construction-private:gpuNativeBridge.cancel",
       "construction-private:gpuNativeBridge.retire",
       "construction-private:gpuNativeBridge.submit",
+      "construction-private:gpuNativeBridgeV2.cancel",
+      "construction-private:gpuNativeBridgeV2.retire",
+      "construction-private:gpuNativeBridgeV2.setEventSink",
+      "construction-private:gpuNativeBridgeV2.submit",
     ]);
     expect(
       gpuPrivateBridge.map((row) => [
@@ -5669,6 +5741,10 @@ int main() { return 0; }
       ["cancel", 1, "cancelGpuBridgeCall"],
       ["retire", 1, "retireGpuBridgeCall"],
       ["submit", 5, "submitGpuBridgeCall"],
+      ["cancel", 2, "cancelGpuV2BridgeCall"],
+      ["retire", 1, "retireGpuV2BridgeCall"],
+      ["setEventSink", 1, "setGpuV2EventSinkBridgeCall"],
+      ["submit", 4, "submitGpuV2BridgeCall"],
     ]);
     const gpuEventIngress = first.callbacks.filter(
       (row) =>
@@ -5698,6 +5774,31 @@ int main() { return 0; }
           retainCallback: "retainGpuClient",
           structSizeExpression: "sizeof(ExactGpuClientSinkV1)",
           tableType: "ExactGpuClientSinkV1",
+        }),
+      }),
+      expect.objectContaining({
+        name: "ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent",
+        metadata: expect.objectContaining({
+          abiVersionExpression: "EXACT_GPU_SERVICE_ABI_VERSION_V2",
+          callback: "receiveGpuEvent",
+          effectiveCallbackExpression: "receiveGpuEvent",
+          callbackFieldCount: 5,
+          callbackFieldIndex: 4,
+          fieldName: "on_event",
+          initializerVariable: "kGpuClientSinkV2",
+          macroConditionalDirectiveCount: 0,
+          macroDefinitionCount: 1,
+          macroInvocationCount: 1,
+          macroLifetimeOrder: "define-invocation-undef",
+          macroName: "IBEX_CAPSEC_CALLBACK_TABLE_INGRESS",
+          macroParameters: ["table_type", "field_name", "callback"],
+          macroReplacement: "callback",
+          macroUndefCount: 1,
+          occurrenceCount: 1,
+          releaseCallback: "releaseGpuClientV2",
+          retainCallback: "retainGpuClientV2",
+          structSizeExpression: "sizeof(ExactGpuClientSinkV2)",
+          tableType: "ExactGpuClientSinkV2",
         }),
       }),
     ]);

@@ -347,6 +347,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_module_runner.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_gpu.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_gpu_v2.cc");
     // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
     // native registry IDs are committed generated input to the C++ archive.
     println!("cargo:rerun-if-changed=src/engine/capsec_registry_generated.h");
@@ -948,6 +949,7 @@ fn main() {
         .file("src/engine/hermes_runtime.cc")
         .file("src/engine/hermes_module_runner.cc")
         .file("src/engine/hermes_runtime_gpu.cc")
+        .file("src/engine/hermes_runtime_gpu_v2.cc")
         .file("src/engine/hermes_bootstrap.cc")
         .file("src/engine/hermes_runtime_utils.cc")
         .file("src/engine/hermes_runtime_sqlite.cc")

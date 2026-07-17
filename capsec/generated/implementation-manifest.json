@@ -97641,6 +97641,37 @@
       ]
     },
     {
+      "edgeId": "surface.callback.ingress.src.engine.hermes.runtime.gpu.v2.cc.exactgpuclientsinkv2.on.even.0fl97zy",
+      "observedKey": "callback:ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent",
+      "branchId": "surface.callback.ingress.src.engine.hermes.runtime.gpu.v2.cc.exactgpuclientsinkv2.on.even.0fl97zy.versioned.callback.table.ingress.0ycd3cv",
+      "enforcementBranchId": "surface.callback.ingress.src.engine.hermes.runtime.gpu.v2.cc.exactgpuclientsinkv2.on.even.0fl97zy.versioned.callback.table.ingress.0ycd3cv",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "callback:ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#callback-table:ExactGpuClientSinkV2:kGpuClientSinkV2.on_event[4]:receiveGpuEvent"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#callback-table:ExactGpuClientSinkV2:kGpuClientSinkV2.on_event[4]:receiveGpuEvent"
+        ],
+        "terminalObservedKey": "callback:ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#callback-table:ExactGpuClientSinkV2:kGpuClientSinkV2.on_event[4]:receiveGpuEvent"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.callback.ingress.src.engine.hermes.runtime.gpu.v2.cc.exactgpuclientsinkv2.on.even.0fl97zy.versioned.callback.table.ingress.0ycd3cv.closed"
+      ]
+    },
+    {
       "edgeId": "surface.callback.ios.dispatch.0j6pity",
       "observedKey": "callback:ios-dispatch",
       "branchId": "surface.callback.ios.dispatch.0j6pity.main",
@@ -115967,6 +115998,38 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.v2.1rrvsxc",
+      "observedKey": "host-abi:ex_hermes_gpu_provider_abi_version_v2",
+      "branchId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.v2.1rrvsxc.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.gpu.provider.abi.version.v2.1rrvsxc.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_gpu_provider_abi_version_v2"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_abi_version_v2"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_abi_version_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_gpu_provider_abi_version_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_abi_version_v2"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.gpu.provider.abi.version.v2.1rrvsxc.default.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n",
       "observedKey": "host-abi:ex_hermes_gpu_provider_descriptor_size_v1",
       "branchId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n.default",
@@ -115996,6 +116059,38 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v2.0zwcorm",
+      "observedKey": "host-abi:ex_hermes_gpu_provider_descriptor_size_v2",
+      "branchId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v2.0zwcorm.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v2.0zwcorm.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_gpu_provider_descriptor_size_v2"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_descriptor_size_v2"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_descriptor_size_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_gpu_provider_descriptor_size_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_gpu_provider_descriptor_size_v2"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v2.0zwcorm.default.non-capability"
       ]
     },
     {
@@ -117085,6 +117180,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9",
+      "observedKey": "host-abi:ex_hermes_set_gpu_provider_v2",
+      "branchId": "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_set_gpu_provider_v2"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_provider_v2"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_provider_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_set_gpu_provider_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#ex_hermes_set_gpu_provider_v2"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9.default.non-capability",
+        "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
       "observedKey": "host-abi:ex_hermes_set_host_call",
       "branchId": "surface.host.abi.ex.hermes.set.host.call.16xhko5.default",
@@ -117494,6 +117623,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe",
+      "observedKey": "host-abi:ex_host_authorize_exact_gpu_provider_v2",
+      "branchId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_authorize_exact_gpu_provider_v2"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_exact_gpu_provider_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_exact_gpu_provider_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_authorize_exact_gpu_provider_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_exact_gpu_provider_v2"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe.default.non-capability",
+        "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv",
       "observedKey": "host-abi:ex_host_authorize_typed_environment_read_stack",
       "branchId": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv.default",
@@ -117763,6 +117926,42 @@
         "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default.cannot-widen-authority",
         "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default.non-capability",
         "surface.host.abi.ex.host.build.exact.gpu.armed.embedder.artifacts.0pk4s1p.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+      "observedKey": "host-abi:ex_host_capture_exact_gpu_authority_context_v2",
+      "branchId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_capture_exact_gpu_authority_context_v2"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_authority_context_v2"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_capture_exact_gpu_authority_context_v2"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_capture_exact_gpu_authority_context_v2"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_capture_exact_gpu_authority_context_v2"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt.default.attribution-missing-deny",
+        "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt.default.generation-recheck",
+        "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt.default.non-capability",
+        "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt.default.principal-restore",
+        "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt.default.snapshot-mismatch-deny"
       ]
     },
     {
@@ -149426,6 +149625,130 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.native.op.construction.private.gpunativebridge.submit.0msz5eh.construction.private.host.function.11r7ve8.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.cancel",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z.construction.private.host.function.0xxzddl",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z.construction.private.host.function.0xxzddl",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.cancel"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.cancel:cancel:cancelGpuV2BridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.cancel:cancel:cancelGpuV2BridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.cancel"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.cancel:cancel:cancelGpuV2BridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z.construction.private.host.function.0xxzddl.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.retire",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa.construction.private.host.function.1dv8ls4",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa.construction.private.host.function.1dv8ls4",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.retire"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retire:retire:retireGpuV2BridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retire:retire:retireGpuV2BridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.retire"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.retire:retire:retireGpuV2BridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa.construction.private.host.function.1dv8ls4.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.setEventSink",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72.construction.private.host.function.142jfty",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72.construction.private.host.function.142jfty",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.setEventSink"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.setEventSink:setEventSink:setGpuV2EventSinkBridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.setEventSink:setEventSink:setGpuV2EventSinkBridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.setEventSink"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.setEventSink:setEventSink:setGpuV2EventSinkBridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72.construction.private.host.function.142jfty.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.submit",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99.construction.private.host.function.03axzw3",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99.construction.private.host.function.03axzw3",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.submit"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.submit:submit:submitGpuV2BridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.submit:submit:submitGpuV2BridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.submit"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.submit:submit:submitGpuV2BridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99.construction.private.host.function.03axzw3.closed"
       ]
     },
     {
@@ -248540,11 +248863,13 @@
         ],
         "proofSourceRefs": [
           "packages/ibex-runtime-js/src/webgpu/native-bridge.ts#installNativeGpuBridgeCapture:globals:__ibexCaptureGpuNativeBridge",
-          "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge"
+          "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge",
+          "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuNativeBridge"
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/webgpu/native-bridge.ts#installNativeGpuBridgeCapture:globals:__ibexCaptureGpuNativeBridge",
-          "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge"
+          "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge",
+          "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuNativeBridge"
         ],
         "terminalObservedKey": "native-op:__ibexCaptureGpuNativeBridge"
       },
@@ -248555,7 +248880,8 @@
       },
       "sourceRefs": [
         "packages/ibex-runtime-js/src/webgpu/native-bridge.ts#installNativeGpuBridgeCapture:globals:__ibexCaptureGpuNativeBridge",
-        "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge"
+        "src/engine/hermes_runtime_gpu.cc#__ibexCaptureGpuNativeBridge",
+        "src/engine/hermes_runtime_gpu_v2.cc#__ibexCaptureGpuNativeBridge"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
@@ -264211,6 +264537,7 @@
         "surface.callback.android.platform.event.10mp30s",
         "surface.callback.host.call.async.resolve.1gl67f1",
         "surface.callback.ingress.src.engine.hermes.runtime.gpu.cc.exactgpuclientsinkv1.on.event.r.1fte4gg",
+        "surface.callback.ingress.src.engine.hermes.runtime.gpu.v2.cc.exactgpuclientsinkv2.on.even.0fl97zy",
         "surface.callback.ios.dispatch.0j6pity",
         "surface.callback.ios.dispatch.debug.context.1floye2",
         "surface.callback.ios.module.dispatch.03dvnsp",
@@ -264248,6 +264575,10 @@
         "surface.native.op.construction.private.gpunativebridge.cancel.0xsazz3",
         "surface.native.op.construction.private.gpunativebridge.retire.0rdydxm",
         "surface.native.op.construction.private.gpunativebridge.submit.0msz5eh",
+        "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z",
+        "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
+        "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
+        "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
         "surface.native.op.exactaccessibilitysnapshot.0cpctmz",
         "surface.native.op.exactaccessibilitysnapshot.colorscheme.08wrj05",
         "surface.native.op.exactaccessibilitysnapshot.dynamictypesize.1s9wxzp",
@@ -264405,7 +264736,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 227 observed surface edges."
+      "rationale": "Closed by 232 observed surface edges."
     },
     {
       "definitionId": "network:connect",
@@ -266896,44 +267227,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-Vd0ikvBl0GAkZinhaQW6hnD8KL6L-AVYDvQhTsKc6DY"
+      "rawContentDigest": "sha256-a302ReIOEEu84zR93AQ5RwanQYqiCQa6ebc8Exwqx0M"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-HqR2ov7zfufFqbTqL72TQarG8tyhsHRg2OatLWd8g0k"
+      "rawContentDigest": "sha256-WfoJKKJpcgfwce_1AAFKsUomL6BvgdV6iGuP-i508w0"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-O77rCWwlUr31KptZoCdYNc7mLbYAOEDdkx7x5g8qHuA"
+      "rawContentDigest": "sha256-2YJpSrNsDLAaoPiRjDeKnpquM00oF-kTdBbK8v3OtHs"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-wGuEbN0nUUsy6v1-TOlDK1qIRoQmzYu0N4Zcz3XCYS0"
+      "rawContentDigest": "sha256-6FPoiFm_dZSofTvCYbdVrQnh4p_ZGzADz4LG9xgtjxw"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-fNLQMRbHHDy3vsursrh9LjeEBBNycZ7lhQA1eTJMDdo"
+      "rawContentDigest": "sha256-KO7gkZlHAzkgIJj5H3FajqcESjxphDIqEEDQKrCf9p0"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-eDHnJ0jc5XN6i1oE01nNf6u0s--JOSWzndX2ZoF4m9s"
+      "rawContentDigest": "sha256-NCcXEmKzzVpAfh2_8J8dTf_qj8CNz-1G4L3QxsTvdmc"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-rG0OuuACTcrNzjkJhGzWuTOL-fUiYCOcyy65is584ac"
+      "rawContentDigest": "sha256-k5kheFb7kMUSmyXQwidXta1xD5h5e74weV4R0dWA22I"
     }
   ],
   "counts": {
-    "observedReferences": 12872,
-    "logicalSurfaces": 7170,
-    "enforcementBranches": 7369,
-    "coverageEdges": 7170,
-    "targetCells": 7170
+    "observedReferences": 12883,
+    "logicalSurfaces": 7180,
+    "enforcementBranches": 7379,
+    "coverageEdges": 7180,
+    "targetCells": 7180
   }
 }

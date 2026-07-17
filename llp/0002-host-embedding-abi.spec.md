@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
@@ -364,9 +364,11 @@ service. This is deliberately **not** the physical wgpu-native API. Raw
 `WGPUDevice`, `WGPUQueue`, provider function pointers, and provider-owned Rust
 types never cross the Ibex boundary. Exact remains responsible for GPU
 accounts, authority contexts, semantic validation, sequencing, and physical
-provider generations; Ibex sees only opaque realm/account tokens and a copied
-`ExactGpuServiceApiV1` table `[observed]` (`include/exact_runtime.h`;
-`src/engine/hermes_runtime_gpu.cc`).
+provider generations. ABI V1 keeps its opaque realm/account tokens and copied
+`ExactGpuServiceApiV1` table unchanged. The additive ABI V2 uses exact-size,
+generation-bearing realm/account/device/object records and a copied
+`ExactGpuServiceApiV2` table `[observed]` (`include/exact_runtime.h`;
+`src/engine/hermes_runtime_gpu.cc`; `src/engine/hermes_runtime_gpu_v2.cc`).
 
 `ExactHermesGpuProviderDescriptorV1` binds ABI version, profile identity, the
 WebGPU C-vocabulary digest, operation-set digest, semantic-program digest,
@@ -379,6 +381,16 @@ Diagnostic runtimes keep their explicit unarmed test posture. The
 `webgpu-binding` Cargo feature controls whether a descriptor can be installed;
 the ABI symbols and version query remain present when it is off, and installation
 returns the stable unsupported result.
+
+`ExactHermesGpuProviderDescriptorV2` is selected only by the exact V2 ABI
+version; V1 never accepts or aliases it. It adds a mandatory
+`runtime_routing_digest` over the operation-selected public/service codecs,
+public-wrapper-to-service receiver projection, target kind, timing,
+dispatch/provider mode, result shape, and typed error tags. Descriptor, service
+table, event envelope, and selected event record all require their exact
+compiled sizes: neither undersized nor oversized prefix compatibility is
+accepted. The armed snapshot carries the routing digest only for ABI V2, and
+the Host authorization comparison includes it before the service is retained.
 
 The service owns no Hermes or JSI value. `open_realm` receives a ref-counted
 plain-native client sink. It may call `retain_client`/`release_client` while
@@ -419,6 +431,16 @@ bounded to 16 MiB. It publishes no `navigator.gpu`, `createImageBitmap`, global
 bridge, or other app API. Presence of either the C ABI or this private bridge
 is therefore neither WebGPU support nor conformance evidence.
 
+The V2 construction-private object is separately classified and contains
+`submit`, `cancel`, `retire`, and the one-shot `setEventSink`. Every method is a
+closed CapSec `ipc:channel` edge and exists only inside the authenticated
+capture. V2 `submit` carries one full typed receiver and an optional typed
+target. A realm-level public wrapper may have no public handle, but its
+authenticated runtime-routing record must project that fact to the service's
+typed GPU singleton; callers may not fabricate a singleton or select a
+service-receiver kind ad hoc. Ibex validates the resulting full object record
+generically and does not special-case an operation ID.
+
 Each `ExactGpuSemanticCallV1.completion_id` that reaches the provider is
 nonzero and strictly increasing within its realm. Completion, cancellation,
 provider admission rejection, and retirement never make an earlier value
@@ -426,6 +448,17 @@ reusable. Validation that rejects before the provider call does not allocate
 an ID. This is a bounded anti-ABA identity allocator contract; it does not
 stand in for the independent realm, device, queue, or physical-provider
 sequencing domains owned by Exact.
+
+V2 allocates independent, strictly increasing operation-instance and Promise
+IDs. Its semantic call carries exact realm, account, ingress-device,
+provider-generation, scope/adapter/device/queue ordinals, receiver/target, and
+an Ibex-captured caller-attribution digest. JavaScript cannot supply or
+override that digest. It is provenance rather than positive operation
+authority: the semantic service still joins the authenticated operation
+routing program, effects, stages, target, and handle lineage before provider
+admission. A V2 cancellation repeats the complete immutable call key; retire
+uses complete generation-fenced owned-object references. No identity is
+recovered from ambient provider state.
 
 Before either the pending maps or provider can observe an accepted call, Ibex
 fully materializes the Promise success carrier (`completionId`, zero admission
@@ -460,6 +493,34 @@ discarded; malformed future IDs, mismatched operations, invalid prefixes, or
 budget overflow poison the realm and reject/cancel all pending receipts.
 Pending receipts, queued events, queued bytes, recent terminal IDs, retire
 batches, and per-event payloads all have fixed bounds.
+
+V2 replaces the V1 generic completion shape with an exact typed union:
+operation result, device error, provider loss, logical-device loss, account
+close, and realm close. Operation terminals carry the full immutable
+provenance key, provider-admission verdict, physical sequence, and device
+transition. Result payload canonicality is selected by `result_kind`; device
+errors cannot assign devices. An `ASSIGNED + NOT_ADMITTED` requestDevice
+terminal is accepted only after the exact initiating logical-device-loss
+tombstone. The raw loss callback therefore precedes the raw result, and one
+owner poll enqueues the stable `device.lost` Promise reaction before the outer
+requestDevice receipt reaction.
+
+Lifecycle tombstones are realm-lifetime, bounded replay authority. Exact
+replay is discarded even after its initiating operation ages beyond the
+2,048-entry recent-operation ring; a same-key mutation is a protocol
+violation. Distinct lifecycle overflow also quarantines rather than evicting
+replay authority. Operation-terminal payload eviction releases backing
+capacity as well as decrementing logical byte accounting, so rotating a large
+payload cannot accumulate hidden capacity.
+
+Submit, cancel, and retire reserve a service entry under the same mailbox mutex
+used by realm-close callback admission, then release the mutex before invoking
+provider code. A service call may cross after wall-clock close only if that
+exact entry reserved first. Once REALM_CLOSED is accepted, new submit/cancel/
+retire/setEventSink entries fail closed immediately. A synchronous malformed
+callback during any of the three provider calls makes protocol reduction
+dominate the provider return; pending receipts remain for that reduction rather
+than settling as ordinary rejection or cancellation.
 
 A terminal device-loss, realm-close, or protocol event may fan out to all 1,024
 pending receipts. The owner drain materializes its at-most-16-MiB opaque
@@ -497,11 +558,15 @@ an armed snapshot that expects more than that Exact ingress cannot use the
 legacy path.
 
 GPU teardown is a nonblocking release path. Runtime destruction revokes the
-runtime-js module slot, changes the plain callback mailbox to `Closing`, clears
-queued events, calls `cancel` once for each pending completion outside internal
-locks, rejects each receipt on the owner thread, calls `close_realm` once,
-changes the mailbox to `Detached`, releases its service reference, and proceeds
-without waiting for a provider terminal event.
+runtime-js module slot and reserves `Closing` under the callback-admission
+mutex. If teardown wins, it clears queued events, calls `cancel` once for each
+pending completion outside internal locks, rejects each receipt on the owner
+thread, calls `close_realm` once, changes the mailbox to `Detached`, and
+proceeds without waiting. If a service REALM_CLOSED callback wins that mutex,
+the accepted service terminal owns cleanup immediately—even before owner poll—
+and teardown must not synthesize per-operation cancellations or echo
+`close_realm`. Exact replay is discarded; a mutated replay quarantines without
+issuing another close.
 The service may finish or quarantine backend work in native state and release
 its retained mailbox later. Late callbacks observe `Detached` and are discarded
 without dereferencing a runtime address. No realm-long native-worker pin is

@@ -358,6 +358,10 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "construction-private:gpuNativeBridge.cancel",
   "construction-private:gpuNativeBridge.retire",
   "construction-private:gpuNativeBridge.submit",
+  "construction-private:gpuNativeBridgeV2.cancel",
+  "construction-private:gpuNativeBridgeV2.retire",
+  "construction-private:gpuNativeBridgeV2.setEventSink",
+  "construction-private:gpuNativeBridgeV2.submit",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -389,6 +393,7 @@ const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
 
 const REVIEWED_CALLBACK_INGRESS_NAMES = new Set([
   "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent",
+  "ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent",
 ]);
 
 // Authored builtin specifier roots are reviewed independently from their
@@ -2866,6 +2871,10 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "construction-private:gpuNativeBridge.cancel",
   "construction-private:gpuNativeBridge.retire",
   "construction-private:gpuNativeBridge.submit",
+  "construction-private:gpuNativeBridgeV2.cancel",
+  "construction-private:gpuNativeBridgeV2.retire",
+  "construction-private:gpuNativeBridgeV2.setEventSink",
+  "construction-private:gpuNativeBridgeV2.submit",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -5150,7 +5159,9 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_get_gc_stats",
     "ex_hermes_get_heap_info",
     "ex_hermes_gpu_provider_abi_version",
+    "ex_hermes_gpu_provider_abi_version_v2",
     "ex_hermes_gpu_provider_descriptor_size_v1",
+    "ex_hermes_gpu_provider_descriptor_size_v2",
     "ex_hermes_graph_context_create",
     "ex_hermes_graph_context_retain",
     "ex_hermes_has_pending_tasks",
@@ -5183,6 +5194,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_dispatch_with_debug_context_callback",
     "ex_hermes_set_exact_host_call_async",
     "ex_hermes_set_gpu_provider_v1",
+    "ex_hermes_set_gpu_provider_v2",
     "ex_hermes_set_host_call",
     "ex_hermes_set_host_call_async",
     "ex_hermes_set_host_wake_hook",
@@ -5195,6 +5207,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_authorize_embedder_capability_set",
     "ex_host_authorize_exact_endowment",
     "ex_host_authorize_exact_gpu_provider",
+    "ex_host_authorize_exact_gpu_provider_v2",
     "ex_host_authorize_typed_environment_read_stack",
     "ex_host_authorize_typed_fs_stack",
     "ex_host_authorize_typed_network_stack",
@@ -5203,6 +5216,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_authorize_typed_udp_datagram_stack",
     "ex_host_build_exact_armed_embedder_artifacts",
     "ex_host_build_exact_gpu_armed_embedder_artifacts",
+    "ex_host_capture_exact_gpu_authority_context_v2",
     "ex_host_check_capability",
     "ex_host_check_capability_no_follow_final",
     "ex_host_check_capability_stack",
@@ -9212,11 +9226,32 @@ function builtinClassification(surface) {
 function callbackClassification(surface) {
   if (REVIEWED_CALLBACK_INGRESS_NAMES.has(surface.name)) {
     const metadata = surface.metadata ?? {};
+    const expected =
+      surface.name ===
+      "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent"
+        ? {
+            abiVersionExpression: "EXACT_GPU_SERVICE_ABI_VERSION_V1",
+            initializerVariable: "kGpuClientSink",
+            releaseCallback: "releaseGpuClient",
+            retainCallback: "retainGpuClient",
+            structSizeExpression: "sizeof(ExactGpuClientSinkV1)",
+            tableType: "ExactGpuClientSinkV1",
+          }
+        : surface.name ===
+            "ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent"
+          ? {
+              abiVersionExpression: "EXACT_GPU_SERVICE_ABI_VERSION_V2",
+              initializerVariable: "kGpuClientSinkV2",
+              releaseCallback: "releaseGpuClientV2",
+              retainCallback: "retainGpuClientV2",
+              structSizeExpression: "sizeof(ExactGpuClientSinkV2)",
+              tableType: "ExactGpuClientSinkV2",
+            }
+          : null;
     if (
-      surface.name !==
-        "ingress:src/engine/hermes_runtime_gpu.cc:ExactGpuClientSinkV1.on_event:receiveGpuEvent" ||
+      expected === null ||
       metadata.evidenceType !== "versioned-callback-table-ingress" ||
-      metadata.tableType !== "ExactGpuClientSinkV1" ||
+      metadata.tableType !== expected.tableType ||
       metadata.fieldName !== "on_event" ||
       metadata.callback !== "receiveGpuEvent" ||
       metadata.callbackDefinitionCount !== 1 ||
@@ -9225,7 +9260,7 @@ function callbackClassification(surface) {
       metadata.externalFeatureGate !== "IBEX_ENABLE_WEBGPU_BINDING" ||
       metadata.externalFeatureGateSourceMutationCount !== 0 ||
       metadata.effectiveCallbackExpression !== "receiveGpuEvent" ||
-      metadata.initializerVariable !== "kGpuClientSink" ||
+      metadata.initializerVariable !== expected.initializerVariable ||
       metadata.identityGuardCount !== 1 ||
       metadata.identityGuardError !==
         "Ibex CapSec GPU callback identifiers must not be preprocessor macros" ||
@@ -9251,10 +9286,10 @@ function callbackClassification(surface) {
       metadata.physicalGuardFormat !== "exact-lf-physical-lines" ||
       metadata.callbackFieldIndex !== 4 ||
       metadata.callbackFieldCount !== 5 ||
-      metadata.structSizeExpression !== "sizeof(ExactGpuClientSinkV1)" ||
-      metadata.abiVersionExpression !== "EXACT_GPU_SERVICE_ABI_VERSION_V1" ||
-      metadata.retainCallback !== "retainGpuClient" ||
-      metadata.releaseCallback !== "releaseGpuClient" ||
+      metadata.structSizeExpression !== expected.structSizeExpression ||
+      metadata.abiVersionExpression !== expected.abiVersionExpression ||
+      metadata.retainCallback !== expected.retainCallback ||
+      metadata.releaseCallback !== expected.releaseCallback ||
       JSON.stringify(metadata.protectedIdentifierTokenCounts) !==
         JSON.stringify({
           IBEX_CAPSEC_CALLBACK_TABLE_INGRESS: 4,
@@ -11862,6 +11897,7 @@ function embedderAbiClassification(name) {
         "exhermesfinalizeembeddercapabilitiesv1",
         "exhermessetexacthostcallasync",
         "exhermessetgpuproviderv1",
+        "exhermessetgpuproviderv2",
       ]).has(name)
     ) {
       return nonCapabilitySpec("authority-control-plane", "WP4");
@@ -11869,7 +11905,9 @@ function embedderAbiClassification(name) {
     if (
       new Set([
         "exhermesgpuproviderabiversion",
+        "exhermesgpuproviderabiversionv2",
         "exhermesgpuproviderdescriptorsizev1",
+        "exhermesgpuproviderdescriptorsizev2",
       ]).has(name)
     ) {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
@@ -12025,6 +12063,7 @@ function hostAbiClassification(name) {
       "exhostauthorizeembeddercapabilityset",
       "exhostauthorizeexactendowment",
       "exhostauthorizeexactgpuprovider",
+      "exhostauthorizeexactgpuproviderv2",
       "exhostbuildexactarmedembedderartifacts",
       "exhostbuildexactgpuarmedembedderartifacts",
       "exhostinstallarmed",
@@ -12034,6 +12073,9 @@ function hostAbiClassification(name) {
     ]).has(name)
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
+  }
+  if (name === "exhostcaptureexactgpuauthoritycontextv2") {
+    return nonCapabilitySpec("callback-attribution-carrier", "WP8");
   }
   if (name === "exhostconsolelog") {
     return effectSpec(["stdio:write"], "stdio", "WP7", {
@@ -12421,27 +12463,131 @@ function classifyConcreteSurface(surface) {
     const constructionPrivateGpuMembers = new Map([
       [
         "construction-private:gpuNativeBridge.cancel",
-        { arity: 1, terminalHandler: "cancelGpuBridgeCall" },
+        {
+          arity: 1,
+          bridgeOwner: "gpuNativeBridge",
+          guardError:
+            "Ibex CapSec GPU terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuBridgeCall",
+            "cancelGpuBridgeCall",
+            "retireGpuBridgeCall",
+          ],
+          terminalHandler: "cancelGpuBridgeCall",
+          tokenCount: 6,
+        },
       ],
       [
         "construction-private:gpuNativeBridge.retire",
-        { arity: 1, terminalHandler: "retireGpuBridgeCall" },
+        {
+          arity: 1,
+          bridgeOwner: "gpuNativeBridge",
+          guardError:
+            "Ibex CapSec GPU terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuBridgeCall",
+            "cancelGpuBridgeCall",
+            "retireGpuBridgeCall",
+          ],
+          terminalHandler: "retireGpuBridgeCall",
+          tokenCount: 6,
+        },
       ],
       [
         "construction-private:gpuNativeBridge.submit",
-        { arity: 5, terminalHandler: "submitGpuBridgeCall" },
+        {
+          arity: 5,
+          bridgeOwner: "gpuNativeBridge",
+          guardError:
+            "Ibex CapSec GPU terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuBridgeCall",
+            "cancelGpuBridgeCall",
+            "retireGpuBridgeCall",
+          ],
+          terminalHandler: "submitGpuBridgeCall",
+          tokenCount: 6,
+        },
+      ],
+      [
+        "construction-private:gpuNativeBridgeV2.cancel",
+        {
+          arity: 2,
+          bridgeOwner: "gpuNativeBridgeV2",
+          guardError:
+            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuV2BridgeCall",
+            "cancelGpuV2BridgeCall",
+            "retireGpuV2BridgeCall",
+            "setGpuV2EventSinkBridgeCall",
+          ],
+          terminalHandler: "cancelGpuV2BridgeCall",
+          tokenCount: 7,
+        },
+      ],
+      [
+        "construction-private:gpuNativeBridgeV2.retire",
+        {
+          arity: 1,
+          bridgeOwner: "gpuNativeBridgeV2",
+          guardError:
+            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuV2BridgeCall",
+            "cancelGpuV2BridgeCall",
+            "retireGpuV2BridgeCall",
+            "setGpuV2EventSinkBridgeCall",
+          ],
+          terminalHandler: "retireGpuV2BridgeCall",
+          tokenCount: 7,
+        },
+      ],
+      [
+        "construction-private:gpuNativeBridgeV2.setEventSink",
+        {
+          arity: 1,
+          bridgeOwner: "gpuNativeBridgeV2",
+          guardError:
+            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuV2BridgeCall",
+            "cancelGpuV2BridgeCall",
+            "retireGpuV2BridgeCall",
+            "setGpuV2EventSinkBridgeCall",
+          ],
+          terminalHandler: "setGpuV2EventSinkBridgeCall",
+          tokenCount: 7,
+        },
+      ],
+      [
+        "construction-private:gpuNativeBridgeV2.submit",
+        {
+          arity: 4,
+          bridgeOwner: "gpuNativeBridgeV2",
+          guardError:
+            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuV2BridgeCall",
+            "cancelGpuV2BridgeCall",
+            "retireGpuV2BridgeCall",
+            "setGpuV2EventSinkBridgeCall",
+          ],
+          terminalHandler: "submitGpuV2BridgeCall",
+          tokenCount: 7,
+        },
       ],
     ]);
     if (constructionPrivateGpuMembers.has(surface.name)) {
       const metadata = surface.metadata ?? {};
       const expected = constructionPrivateGpuMembers.get(surface.name);
       const memberName = surface.name.slice(
-        "construction-private:gpuNativeBridge.".length,
+        `construction-private:${expected.bridgeOwner}.`.length,
       );
       if (
         metadata.evidenceType !== "construction-private-host-function" ||
         metadata.surfaceType !== "construction-private-bridge" ||
-        metadata.bridgeOwner !== "gpuNativeBridge" ||
+        metadata.bridgeOwner !== expected.bridgeOwner ||
         metadata.memberName !== memberName ||
         metadata.functionVariable !== memberName ||
         metadata.arity !== expected.arity ||
@@ -12450,26 +12596,24 @@ function classifyConcreteSurface(surface) {
         metadata.definitionConditionalContext !== "webgpu-enabled-if" ||
         metadata.externalFeatureGate !== "IBEX_ENABLE_WEBGPU_BINDING" ||
         metadata.externalFeatureGateSourceMutationCount !== 0 ||
-        metadata.identityGuardCount !== 4 ||
-        metadata.identityGuardError !==
-          "Ibex CapSec GPU terminal handlers must not be preprocessor macros" ||
+        metadata.identityGuardCount !== expected.guardIdentifiers.length + 1 ||
+        metadata.identityGuardError !== expected.guardError ||
         JSON.stringify(metadata.identityGuardIdentifiers) !==
-          JSON.stringify([
-            "submitGpuBridgeCall",
-            "cancelGpuBridgeCall",
-            "retireGpuBridgeCall",
-          ]) ||
+          JSON.stringify(expected.guardIdentifiers) ||
         metadata.identityGuardLifetime !== "guard-definitions-and-bindings" ||
         metadata.interveningDirectiveCount !== 0 ||
         metadata.includeDirectiveCount !== 20 ||
         metadata.includeInventory !== "hermes-runtime-gpu-exact-v1" ||
         metadata.physicalGuardFormat !== "exact-lf-physical-lines" ||
         JSON.stringify(metadata.protectedIdentifierTokenCounts) !==
-          JSON.stringify({
-            submitGpuBridgeCall: 6,
-            cancelGpuBridgeCall: 6,
-            retireGpuBridgeCall: 6,
-          }) ||
+          JSON.stringify(
+            Object.fromEntries(
+              expected.guardIdentifiers.map((identifier) => [
+                identifier,
+                expected.tokenCount,
+              ]),
+            ),
+          ) ||
         metadata.sourceAliasCount !== 0 ||
         metadata.translationPhaseAuthenticated !== true ||
         metadata.terminalHandlerBindingCount !== 1 ||

@@ -134590,6 +134590,16 @@
       "rationale": "The versioned GPU client callback table is a provider-to-runtime data channel and remains closed until its event attribution and lifecycle checks authorize delivery."
     },
     {
+      "id": "surface.callback.ingress.src.engine.hermes.runtime.gpu.v2.cc.exactgpuclientsinkv2.on.even.0fl97zy",
+      "classification": "closed",
+      "surface": {
+        "kind": "callback",
+        "name": "ingress:src/engine/hermes_runtime_gpu_v2.cc:ExactGpuClientSinkV2.on_event:receiveGpuEvent"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The versioned GPU client callback table is a provider-to-runtime data channel and remains closed until its event attribution and lifecycle checks authorize delivery."
+    },
+    {
       "id": "surface.callback.ios.dispatch.0j6pity",
       "classification": "closed",
       "surface": {
@@ -140330,11 +140340,31 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.host.abi.ex.hermes.gpu.provider.abi.version.v2.1rrvsxc",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_gpu_provider_abi_version_v2"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v1.0zmd32n",
       "classification": "non-capability",
       "surface": {
         "kind": "host-abi",
         "name": "ex_hermes_gpu_provider_descriptor_size_v1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.gpu.provider.descriptor.size.v2.0zwcorm",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_gpu_provider_descriptor_size_v2"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -140660,6 +140690,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.hermes.set.gpu.provider.v2.16fjuf9",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_set_gpu_provider_v2"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
       "classification": "closed",
       "surface": {
@@ -140780,6 +140820,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.host.authorize.exact.gpu.provider.v2.0p7bkxe",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_authorize_exact_gpu_provider_v2"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv",
       "classification": "non-capability",
       "surface": {
@@ -140858,6 +140908,16 @@
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.capture.exact.gpu.authority.context.v2.1il17lt",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_capture_exact_gpu_authority_context_v2"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
       "id": "surface.host.abi.ex.host.check.capability.1h17wl4",
@@ -193952,6 +194012,46 @@
       "surface": {
         "kind": "native-op",
         "name": "construction-private:gpuNativeBridge.submit"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.cancel"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.retire"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.setEventSink"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.submit"
       },
       "cap": "ipc:channel",
       "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."

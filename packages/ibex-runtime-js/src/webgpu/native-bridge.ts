@@ -4,7 +4,7 @@
 
 const CAPTURE_NAME = '__ibexCaptureGpuNativeBridge';
 
-export interface NativeGpuBridge {
+export interface NativeGpuBridgeV1 {
   readonly realmToken: string;
   readonly accountToken: string;
   readonly submit: (
@@ -22,17 +22,218 @@ export interface NativeGpuBridge {
   readonly retire: (logicalHandles: readonly string[]) => number;
 }
 
+/** Full generation-bearing metadata consumed only by the future generated
+ * wrapper. Synchronous wrapper-local recording operations never call submit;
+ * the queue submit operation carries its already-sealed bounded program here.
+ */
+export interface NativeGpuCallMetadataV2 {
+  readonly accountId: string;
+  readonly accountGeneration: string;
+  readonly authorityDigest: ArrayBuffer | ArrayBufferView;
+  /** Exact logical-device identity at API ingress; all zero before device creation. */
+  readonly logicalDeviceId: string;
+  readonly logicalDeviceGeneration: string;
+  readonly providerGeneration: string;
+  /** Standalone physical provider incarnation; may precede device creation. */
+  readonly operationProviderGeneration: string;
+  /** Scope captured at API ingress; zero means no eligible scope. */
+  readonly capturedScopeId: string;
+  readonly adapterOrdinal: string;
+  readonly deviceIngressOrdinal: string;
+  readonly queueIngressOrdinal: string;
+  readonly receiverKind: number;
+  readonly receiverId: string;
+  readonly receiverGeneration: string;
+  readonly targetKind: number;
+  readonly targetId: string;
+  readonly targetGeneration: string;
+}
+
+export interface NativeGpuOwnedObjectV2 {
+  readonly accountId: string;
+  readonly accountGeneration: string;
+  readonly authorityDigest: ArrayBuffer | ArrayBufferView;
+  readonly logicalDeviceId: string;
+  readonly logicalDeviceGeneration: string;
+  readonly providerGeneration: string;
+  readonly objectKind: number;
+  readonly objectId: string;
+  readonly objectGeneration: string;
+}
+
+interface NativeGpuOperationProvenanceV2 {
+  readonly runtimeAddress: string;
+  readonly runtimeNonce: string;
+  readonly topologyId: number;
+  readonly operationId: number;
+  readonly operationInstanceId: string;
+  readonly promiseId: string;
+  readonly providerAdmission: 0 | 1;
+  readonly physicalSequence: string;
+  readonly capturedScopeId: string;
+  readonly realmId: string;
+  readonly realmGeneration: string;
+  readonly accountId: string;
+  readonly accountGeneration: string;
+  readonly accountAuthorityDigest: ArrayBufferView;
+  readonly logicalDeviceId: string;
+  readonly logicalDeviceGeneration: string;
+  /** Provider generation attached to the result/common-completion device. */
+  readonly providerGeneration: string;
+  readonly ingressLogicalDeviceId: string;
+  readonly ingressLogicalDeviceGeneration: string;
+  readonly ingressProviderGeneration: string;
+  readonly deviceTransition: 0 | 1;
+  readonly operationProviderGeneration: string;
+  readonly authorityContextDigest: ArrayBufferView;
+  readonly adapterOrdinal: string;
+  readonly deviceIngressOrdinal: string;
+  readonly queueIngressOrdinal: string;
+  readonly receiverKind: number;
+  readonly receiverFlags: number;
+  readonly receiverId: string;
+  readonly receiverGeneration: string;
+  readonly targetKind: number;
+  readonly targetFlags: number;
+  readonly targetId: string;
+  readonly targetGeneration: string;
+}
+
+export type NativeGpuEventV2 =
+  | (NativeGpuOperationProvenanceV2 & {
+      readonly kind: 1;
+      readonly resultKind: number;
+      readonly status: 0;
+      readonly payload: ArrayBufferView;
+    })
+  | (NativeGpuOperationProvenanceV2 & {
+      readonly kind: 2;
+      readonly errorKind: number;
+      readonly backendClass: number;
+      readonly status: number;
+      readonly payload: ArrayBufferView;
+    })
+  | {
+      readonly kind: 3;
+      readonly runtimeAddress: string;
+      readonly runtimeNonce: string;
+      readonly topologyId: number;
+      readonly realmId: string;
+      readonly realmGeneration: string;
+      readonly logicalDeviceId: string;
+      readonly logicalDeviceGeneration: string;
+      readonly providerGeneration: string;
+      readonly lastAcceptedPhysicalSequence: string;
+      readonly backendClass: number;
+      readonly lossReason: number;
+      readonly hasInitiatingOperation: boolean;
+      readonly initiatingOperation?: NativeGpuOperationProvenanceV2;
+      readonly payload: ArrayBufferView;
+    }
+  | {
+      /** Exactly-once settlement input for the stable GPUDevice.lost promise. */
+      readonly kind: 4;
+      readonly runtimeAddress: string;
+      readonly runtimeNonce: string;
+      readonly topologyId: number;
+      readonly realmId: string;
+      readonly realmGeneration: string;
+      readonly accountId: string;
+      readonly accountGeneration: string;
+      readonly accountAuthorityDigest: ArrayBufferView;
+      readonly logicalDeviceId: string;
+      readonly logicalDeviceGeneration: string;
+      readonly providerGeneration: string;
+      readonly logicalLossOrdinal: string;
+      readonly lastAcceptedPhysicalSequence: string;
+      readonly backendClass: number;
+      readonly lossReason: number;
+      readonly hasInitiatingOperation: boolean;
+      readonly initiatingOperation?: NativeGpuOperationProvenanceV2;
+      readonly payload: ArrayBufferView;
+    }
+  | {
+      readonly kind: 5;
+      readonly runtimeAddress: string;
+      readonly runtimeNonce: string;
+      readonly realmId: string;
+      readonly realmGeneration: string;
+      readonly accountId: string;
+      readonly accountGeneration: string;
+      readonly accountAuthorityDigest: ArrayBufferView;
+      readonly closeOrdinal: string;
+      readonly closeReason: number;
+      readonly payload: ArrayBufferView;
+    }
+  | {
+      readonly kind: 6;
+      readonly runtimeAddress: string;
+      readonly runtimeNonce: string;
+      readonly realmId: string;
+      readonly realmGeneration: string;
+      readonly closeOrdinal: string;
+      readonly closeReason: number;
+      readonly payload: ArrayBufferView;
+    };
+
+export interface NativeGpuBridgeV2 {
+  readonly abiVersion: 0x0002_0000;
+  readonly runtimeAddress: string;
+  readonly runtimeNonce: string;
+  readonly realmId: string;
+  readonly realmGeneration: string;
+  readonly rootAccountId: string;
+  readonly rootAccountGeneration: string;
+  readonly rootAuthorityDigest: ArrayBufferView;
+  readonly submit: (
+    operationId: number,
+    wantsPromise: boolean,
+    metadata: NativeGpuCallMetadataV2,
+    payload: ArrayBuffer | ArrayBufferView,
+  ) => {
+    operationInstanceId: string;
+    /** Zero for non-Promise semantic work. */
+    promiseId: string;
+    /** Semantic-service acceptance/tracking; not physical provider admission. */
+    submissionStatus: number;
+    receipt?: Promise<unknown>;
+  };
+  readonly cancel: (operationInstanceId: string, promiseId: string) => number;
+  readonly retire: (objects: readonly NativeGpuOwnedObjectV2[]) => number;
+  /**
+   * One-shot owner-thread ordered raw-event channel. It receives every typed
+   * record, including Promise terminals also settled through `receipt`; the
+   * generated wrapper correlates by operationInstanceId/promiseId and must not
+   * treat the second projection as a second settlement.
+   */
+  readonly setEventSink: (sink: (event: NativeGpuEventV2) => void) => void;
+}
+
+export type NativeGpuBridge = NativeGpuBridgeV1 | NativeGpuBridgeV2;
+
 let capturedBridge: NativeGpuBridge | undefined;
 let captureClosed = false;
 
-function isNativeGpuBridge(value: unknown): value is NativeGpuBridge {
+/** Internal validation hook used by the construction handoff and its tests. */
+export function isNativeGpuBridge(value: unknown): value is NativeGpuBridge {
   if (typeof value !== 'object' || value === null) return false;
-  const candidate = value as Partial<NativeGpuBridge>;
-  return typeof candidate.realmToken === 'string' &&
-    typeof candidate.accountToken === 'string' &&
-    typeof candidate.submit === 'function' &&
+  const candidate = value as Record<string, unknown>;
+  const methodsArePresent = typeof candidate.submit === 'function' &&
     typeof candidate.cancel === 'function' &&
     typeof candidate.retire === 'function';
+  if (!methodsArePresent) return false;
+  if (candidate.abiVersion === 0x0002_0000) {
+    return typeof candidate.runtimeAddress === 'string' &&
+      typeof candidate.runtimeNonce === 'string' &&
+      typeof candidate.realmId === 'string' &&
+      typeof candidate.realmGeneration === 'string' &&
+      typeof candidate.rootAccountId === 'string' &&
+      typeof candidate.rootAccountGeneration === 'string' &&
+      ArrayBuffer.isView(candidate.rootAuthorityDigest) &&
+      typeof candidate.setEventSink === 'function';
+  }
+  return typeof candidate.realmToken === 'string' &&
+    typeof candidate.accountToken === 'string';
 }
 
 /** Install the one-shot construction handoff before any untrusted code runs. */

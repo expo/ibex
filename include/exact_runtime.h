@@ -71,6 +71,19 @@ typedef enum ExactEmbedderCapabilitiesStatus {
 /// physical provider handle crosses it.
 #define EXACT_GPU_SERVICE_ABI_VERSION_V1 UINT32_C(0x00010000)
 #define EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_V1 UINT32_C(1)
+/// Additive carrier ABI used by the generated-wrapper checkpoint. V2 keeps the
+/// authenticated semantic operation vocabulary from V1, but replaces ambient
+/// token/ordinal interpretation with complete generation-bearing identities.
+/// V1 remains supported and unchanged.
+#define EXACT_GPU_SERVICE_ABI_VERSION_V2 UINT32_C(0x00020000)
+#define EXACT_GPU_SERVICE_TOPOLOGY_ISOLATED_PER_LOGICAL_V2 UINT32_C(1)
+#define EXACT_GPU_AUTHORITY_DIGEST_SIZE_V2 UINT32_C(32)
+/// Maximum number of distinct provider-loss/logical-loss/account-close/
+/// realm-close records retained for exact replay arbitration in one realm.
+/// A service must fold larger fanout into its semantic operation terminals or
+/// close/reopen a realm. Exceeding this declared realm-lifetime limit fails
+/// closed rather than evicting an exactly-once tombstone.
+#define EXACT_GPU_MAX_LIFECYCLE_TERMINALS_PER_REALM_V2 UINT32_C(1024)
 
 typedef enum ExactGpuProviderStatus {
     EXACT_GPU_PROVIDER_OK = 0,
@@ -98,6 +111,106 @@ typedef enum ExactGpuServiceEventKind {
     EXACT_GPU_SERVICE_EVENT_DEVICE_LOST = 3,
     EXACT_GPU_SERVICE_EVENT_REALM_CLOSED = 4,
 } ExactGpuServiceEventKind;
+
+typedef enum ExactGpuServiceEventKindV2 {
+    EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 = 1,
+    EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2 = 2,
+    EXACT_GPU_SERVICE_EVENT_PROVIDER_LOSS_V2 = 3,
+    EXACT_GPU_SERVICE_EVENT_LOGICAL_DEVICE_LOST_V2 = 4,
+    EXACT_GPU_SERVICE_EVENT_ACCOUNT_CLOSED_V2 = 5,
+    EXACT_GPU_SERVICE_EVENT_REALM_CLOSED_V2 = 6,
+} ExactGpuServiceEventKindV2;
+
+typedef enum ExactGpuProviderAdmissionV2 {
+    /// Semantic validation/admission terminated before a provider token and
+    /// physical sequence existed. physical_sequence must be zero.
+    EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 = 0,
+    /// Provider admission minted the operation token. physical_sequence must
+    /// be nonzero and is carried unchanged on every later terminal.
+    EXACT_GPU_PROVIDER_ADMITTED_V2 = 1,
+} ExactGpuProviderAdmissionV2;
+
+typedef enum ExactGpuDeviceTransitionV2 {
+    /// The result/completion logical-device identity exactly equals the
+    /// ingress identity. Adapter-discovery operations keep both absent.
+    EXACT_GPU_DEVICE_UNCHANGED_V2 = 0,
+    /// The authenticated semantic service assigned a new logical device for a
+    /// requestDevice-class operation whose ingress identity was absent. This
+    /// is orthogonal to provider admission: an already-lost service-detached
+    /// result may be returned with NOT_ADMITTED and physical_sequence zero.
+    EXACT_GPU_DEVICE_ASSIGNED_V2 = 1,
+} ExactGpuDeviceTransitionV2;
+
+typedef enum ExactGpuObjectKindV2 {
+    EXACT_GPU_OBJECT_NONE_V2 = 0,
+    EXACT_GPU_OBJECT_GPU_V2 = 1,
+    EXACT_GPU_OBJECT_ADAPTER_V2 = 2,
+    EXACT_GPU_OBJECT_DEVICE_V2 = 3,
+    EXACT_GPU_OBJECT_QUEUE_V2 = 4,
+    EXACT_GPU_OBJECT_BUFFER_V2 = 5,
+    EXACT_GPU_OBJECT_TEXTURE_V2 = 6,
+    EXACT_GPU_OBJECT_TEXTURE_VIEW_V2 = 7,
+    EXACT_GPU_OBJECT_SAMPLER_V2 = 8,
+    EXACT_GPU_OBJECT_BIND_GROUP_LAYOUT_V2 = 9,
+    EXACT_GPU_OBJECT_BIND_GROUP_V2 = 10,
+    EXACT_GPU_OBJECT_PIPELINE_LAYOUT_V2 = 11,
+    EXACT_GPU_OBJECT_SHADER_MODULE_V2 = 12,
+    EXACT_GPU_OBJECT_COMPUTE_PIPELINE_V2 = 13,
+    EXACT_GPU_OBJECT_RENDER_PIPELINE_V2 = 14,
+    EXACT_GPU_OBJECT_COMMAND_ENCODER_V2 = 15,
+    EXACT_GPU_OBJECT_COMPUTE_PASS_ENCODER_V2 = 16,
+    EXACT_GPU_OBJECT_RENDER_PASS_ENCODER_V2 = 17,
+    EXACT_GPU_OBJECT_RENDER_BUNDLE_ENCODER_V2 = 18,
+    EXACT_GPU_OBJECT_RENDER_BUNDLE_V2 = 19,
+    EXACT_GPU_OBJECT_COMMAND_BUFFER_V2 = 20,
+    EXACT_GPU_OBJECT_QUERY_SET_V2 = 21,
+    EXACT_GPU_OBJECT_CANVAS_CONTEXT_V2 = 22,
+} ExactGpuObjectKindV2;
+
+typedef enum ExactGpuResultKindV2 {
+    EXACT_GPU_RESULT_NONE_V2 = 0,
+    EXACT_GPU_RESULT_UNDEFINED_V2 = 1,
+    EXACT_GPU_RESULT_NULL_V2 = 2,
+    EXACT_GPU_RESULT_OBJECT_V2 = 3,
+    EXACT_GPU_RESULT_BYTES_V2 = 4,
+} ExactGpuResultKindV2;
+
+typedef enum ExactGpuErrorKindV2 {
+    EXACT_GPU_ERROR_NONE_V2 = 0,
+    EXACT_GPU_ERROR_VALIDATION_V2 = 1,
+    EXACT_GPU_ERROR_OUT_OF_MEMORY_V2 = 2,
+    EXACT_GPU_ERROR_INTERNAL_V2 = 3,
+    EXACT_GPU_ERROR_OPERATION_V2 = 4,
+    EXACT_GPU_ERROR_SECURITY_V2 = 5,
+    EXACT_GPU_ERROR_TYPE_V2 = 6,
+    EXACT_GPU_ERROR_INVALID_STATE_V2 = 7,
+} ExactGpuErrorKindV2;
+
+typedef enum ExactGpuDeviceLossReasonV2 {
+    EXACT_GPU_DEVICE_LOSS_NONE_V2 = 0,
+    EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2 = 1,
+    EXACT_GPU_DEVICE_LOSS_DESTROYED_V2 = 2,
+    EXACT_GPU_DEVICE_LOSS_PHYSICAL_DEVICE_V2 = 3,
+    EXACT_GPU_DEVICE_LOSS_PROVIDER_RESTART_V2 = 4,
+    EXACT_GPU_DEVICE_LOSS_ACCOUNT_CLOSED_V2 = 5,
+} ExactGpuDeviceLossReasonV2;
+
+typedef enum ExactGpuBackendClassV2 {
+    EXACT_GPU_BACKEND_NONE_V2 = 0,
+    EXACT_GPU_BACKEND_VALIDATION_V2 = 1,
+    EXACT_GPU_BACKEND_OUT_OF_MEMORY_V2 = 2,
+    EXACT_GPU_BACKEND_INTERNAL_V2 = 3,
+    EXACT_GPU_BACKEND_DEVICE_REMOVED_V2 = 4,
+    EXACT_GPU_BACKEND_PROVIDER_FAILURE_V2 = 5,
+} ExactGpuBackendClassV2;
+
+typedef enum ExactGpuCloseReasonV2 {
+    EXACT_GPU_CLOSE_NONE_V2 = 0,
+    EXACT_GPU_CLOSE_EXPLICIT_V2 = 1,
+    EXACT_GPU_CLOSE_OWNER_TEARDOWN_V2 = 2,
+    EXACT_GPU_CLOSE_AUTHORITY_REVOKED_V2 = 3,
+    EXACT_GPU_CLOSE_PROVIDER_FAILURE_V2 = 4,
+} ExactGpuCloseReasonV2;
 
 typedef uint64_t ExactGpuRealmTokenV1;
 typedef uint64_t ExactGpuAccountTokenV1;
@@ -223,6 +336,358 @@ typedef struct ExactHermesGpuProviderDescriptorV1 {
     const ExactGpuServiceApiV1* api;
 } ExactHermesGpuProviderDescriptorV1;
 
+/// V2 identities are values, not service-owned pointers. Every generation and
+/// digest participates in equality; zero is reserved for the explicitly
+/// absent device/target forms described below.
+typedef struct ExactGpuRuntimeIdentityV2 {
+    uint64_t runtime_address;
+    uint64_t runtime_nonce;
+} ExactGpuRuntimeIdentityV2;
+
+typedef struct ExactGpuRealmIdentityV2 {
+    ExactGpuRuntimeIdentityV2 runtime;
+    uint64_t realm_id;
+    uint64_t realm_generation;
+} ExactGpuRealmIdentityV2;
+
+typedef struct ExactGpuAccountIdentityV2 {
+    uint64_t account_id;
+    uint64_t account_generation;
+    uint8_t authority_digest[EXACT_GPU_AUTHORITY_DIGEST_SIZE_V2];
+} ExactGpuAccountIdentityV2;
+
+typedef struct ExactGpuDeviceIdentityV2 {
+    uint64_t logical_device_id;
+    uint64_t logical_device_generation;
+    uint64_t provider_generation;
+} ExactGpuDeviceIdentityV2;
+
+typedef struct ExactGpuObjectRefV2 {
+    uint32_t kind;
+    uint32_t flags;
+    uint64_t object_id;
+    uint64_t object_generation;
+} ExactGpuObjectRefV2;
+
+typedef struct ExactGpuRealmOpenV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t context_kind;
+    uint32_t reserved;
+    ExactGpuRuntimeIdentityV2 runtime;
+    /// Digest of the exact authenticated provider/profile authority selected
+    /// by the embedder transaction. The service must bind its returned root
+    /// account to this value or open fails closed.
+    uint8_t authority_digest[EXACT_GPU_AUTHORITY_DIGEST_SIZE_V2];
+    /// Domain-separated digest of the exact operation-to-runtime routing plan:
+    /// public/service codecs, receiver/target kinds, timing, dispatch/provider
+    /// mode, result shape, and typed error tags.
+    uint8_t runtime_routing_digest[32];
+} ExactGpuRealmOpenV2;
+
+typedef struct ExactGpuSemanticCallV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t operation_id;
+    uint32_t flags;
+    uint32_t topology_id;
+    uint32_t reserved;
+    ExactGpuRealmIdentityV2 realm;
+    ExactGpuAccountIdentityV2 account;
+    /// All-zero means that this is a realm/adapter operation. Otherwise every
+    /// word is nonzero and names one logical device incarnation and provider
+    /// incarnation exactly.
+    ExactGpuDeviceIdentityV2 ingress_device;
+    /// Provider incarnation known at ingress. Zero is allowed only before an
+    /// operation such as requestAdapter selects a provider. When `device` is
+    /// present this must equal device.provider_generation.
+    uint64_t provider_generation;
+    /// Always nonzero and strictly increasing per realm, including rejected
+    /// admissions. This is distinct from promise identity.
+    uint64_t operation_instance_id;
+    /// Zero for synchronous-enqueue operations; otherwise nonzero and strictly
+    /// increasing in the independent Promise domain.
+    uint64_t promise_id;
+    /// Zero means no eligible error scope was captured at API ingress.
+    uint64_t captured_scope_id;
+    uint64_t adapter_ordinal;
+    uint64_t device_ingress_ordinal;
+    uint64_t queue_ingress_ordinal;
+    /// Generation-fenced caller-attribution digest captured by Ibex from the
+    /// armed snapshot, native actor/effect-owner/scheduler attribution, the
+    /// canonical constrained-principal stack, and all authority generations at
+    /// API ingress. JS metadata cannot supply or override this value. This is
+    /// not positive operation authority: the semantic service must separately
+    /// authorize the selected effects, stages, targets, and handle lineage
+    /// encoded by the operation-selected payload before provider admission.
+    uint8_t authority_context_digest[32];
+    /// Receiver is always a full typed service reference. Realm-level public
+    /// calls may have no wrapper handle, but their authenticated runtime-routing
+    /// record projects that fact to the singleton GPU reference rather than an
+    /// untyped zero handle; callers cannot choose or fabricate the projection.
+    ExactGpuObjectRefV2 receiver;
+    /// `kind == EXACT_GPU_OBJECT_NONE_V2` with zero flags/id/generation means
+    /// no caller-allocated target; every other form is a full typed reference.
+    /// requestAdapter/requestDevice-class calls use NONE: the authenticated
+    /// service returns the adapter/device reference only in that operation's
+    /// typed result payload, never by accepting a caller-selected target.
+    ExactGpuObjectRefV2 target;
+    /// Borrowed only for the duration of `submit`. The operation ID selects the
+    /// authenticated codec; the payload contains no caller-selected codec tag.
+    /// Ibex bounds this operation-selected program to 16 MiB.
+    const uint8_t* payload;
+    size_t payload_len;
+} ExactGpuSemanticCallV2;
+
+/// Full immutable terminal key. The service sets provider_admission and, only
+/// after provider admission, assigns a nonzero physical sequence. A provider
+/// generation already known at ingress remains unchanged even on NOT_ADMITTED
+/// validation/security/account terminals. Pre-provider allocation paths may
+/// carry generation zero; an ADMITTED terminal then assigns a nonzero provider
+/// generation. Every NOT_ADMITTED terminal carries physical_sequence zero; no
+/// callback fabricates either value or reconstructs ownership ambiently.
+/// Completion callbacks may reorder, so the carrier does not enforce an
+/// arrival-order high-water mark. It rejects duplicate nonzero sequences while
+/// their full keys remain in the bounded terminal/lifecycle windows and applies
+/// ProviderLoss fences. The authenticated semantic service's conformance suite
+/// must prove realm-lifetime unique, monotonic assignment after ordinary
+/// terminal keys age out of the carrier's 2048-entry recent-terminal window.
+typedef struct ExactGpuOperationProvenanceV2 {
+    ExactGpuRealmIdentityV2 realm;
+    ExactGpuAccountIdentityV2 account;
+    /// Exact device identity received at API ingress; absent for requestAdapter
+    /// and requestDevice-class operations.
+    ExactGpuDeviceIdentityV2 ingress_device;
+    /// Logical device named by the common completion key. Existing-device
+    /// operations equal ingress_device; requestDevice-class operations may
+    /// assign a distinct nonzero identity even when provider admission fails.
+    ExactGpuDeviceIdentityV2 result_device;
+    uint64_t provider_generation;
+    uint32_t topology_id;
+    uint32_t operation_id;
+    uint64_t operation_instance_id;
+    uint64_t promise_id;
+    uint32_t provider_admission;
+    uint32_t device_transition;
+    uint32_t reserved;
+    uint32_t reserved2;
+    uint64_t physical_sequence;
+    uint64_t captured_scope_id;
+    uint64_t adapter_ordinal;
+    uint64_t device_ingress_ordinal;
+    uint64_t queue_ingress_ordinal;
+    uint8_t authority_context_digest[32];
+    ExactGpuObjectRefV2 receiver;
+    ExactGpuObjectRefV2 target;
+} ExactGpuOperationProvenanceV2;
+
+/// Typed cancellation is built from the carrier's retained admitted call, not
+/// from mutable JS metadata. `promise_id` may be zero for cancellable
+/// non-Promise work; operation_instance_id remains the realm-unique key. A
+/// service-rejected call can never initiate lifecycle loss. When cancellation
+/// wins before terminal delivery, the first later lifecycle initiator may pin
+/// the exact full call provenance for a physical-cleanup race; subsequent
+/// lifecycle replays or late terminals must match that pinned key exactly.
+typedef struct ExactGpuCancelV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t flags;
+    uint32_t reserved;
+    ExactGpuRealmIdentityV2 realm;
+    ExactGpuAccountIdentityV2 account;
+    ExactGpuDeviceIdentityV2 ingress_device;
+    uint64_t provider_generation;
+    uint32_t topology_id;
+    uint32_t operation_id;
+    uint64_t operation_instance_id;
+    uint64_t promise_id;
+    uint64_t captured_scope_id;
+    uint64_t adapter_ordinal;
+    uint64_t device_ingress_ordinal;
+    uint64_t queue_ingress_ordinal;
+    uint8_t authority_context_digest[32];
+    ExactGpuObjectRefV2 receiver;
+    ExactGpuObjectRefV2 target;
+} ExactGpuCancelV2;
+
+typedef struct ExactGpuOwnedObjectRefV2 {
+    ExactGpuAccountIdentityV2 account;
+    ExactGpuDeviceIdentityV2 device;
+    ExactGpuObjectRefV2 object;
+} ExactGpuOwnedObjectRefV2;
+
+typedef struct ExactGpuRetireBatchV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t flags;
+    uint32_t reserved;
+    /// Unique full references, borrowed only for the duration of `retire`.
+    const ExactGpuOwnedObjectRefV2* objects;
+    size_t object_count;
+} ExactGpuRetireBatchV2;
+
+typedef struct ExactGpuOperationResultRecordV2 {
+    ExactGpuOperationProvenanceV2 operation;
+    uint32_t result_kind;
+    int32_t status;
+} ExactGpuOperationResultRecordV2;
+
+typedef struct ExactGpuDeviceErrorRecordV2 {
+    ExactGpuOperationProvenanceV2 operation;
+    uint32_t error_kind;
+    uint32_t backend_class;
+    int32_t status;
+    uint32_t reserved;
+} ExactGpuDeviceErrorRecordV2;
+
+/// Spontaneous loss is not a fabricated operation completion. The provider
+/// supplies its last accepted sequence (zero is valid) and may include one
+/// complete initiating operation key when causality is known.
+typedef struct ExactGpuProviderLossRecordV2 {
+    ExactGpuRealmIdentityV2 realm;
+    ExactGpuDeviceIdentityV2 device;
+    uint32_t topology_id;
+    uint32_t backend_class;
+    uint32_t loss_reason;
+    uint32_t has_initiating_operation;
+    uint64_t last_accepted_physical_sequence;
+    ExactGpuOperationProvenanceV2 initiating_operation;
+} ExactGpuProviderLossRecordV2;
+
+/// Exactly-once logical loss settlement for one GPUDevice incarnation. This is
+/// distinct from provider loss: destroy(), account closure, already-lost
+/// requestDevice, and semantic settlement need no spontaneous provider event.
+/// The service-detached already-lost requestDevice form is canonical: its
+/// initiating operation is ASSIGNED + NOT_ADMITTED and the loss record uses
+/// UNKNOWN, backend NONE, and last_accepted_physical_sequence zero.
+typedef struct ExactGpuLogicalDeviceLostRecordV2 {
+    ExactGpuRealmIdentityV2 realm;
+    ExactGpuAccountIdentityV2 account;
+    ExactGpuDeviceIdentityV2 device;
+    uint32_t topology_id;
+    uint32_t backend_class;
+    uint32_t loss_reason;
+    uint32_t has_initiating_operation;
+    uint64_t logical_loss_ordinal;
+    /// Diagnostic snapshot and exact-initiator bound only. Unlike the field on
+    /// ProviderLoss, this is not a future-sequence fence: the semantic service
+    /// may admit release-after-loss cleanup at later physical sequences. The
+    /// canonical service-detached ASSIGNED + NOT_ADMITTED form must use zero.
+    uint64_t last_accepted_physical_sequence;
+    ExactGpuOperationProvenanceV2 initiating_operation;
+} ExactGpuLogicalDeviceLostRecordV2;
+
+typedef struct ExactGpuAccountClosedRecordV2 {
+    ExactGpuRealmIdentityV2 realm;
+    ExactGpuAccountIdentityV2 account;
+    uint64_t close_ordinal;
+    uint32_t close_reason;
+    uint32_t reserved;
+} ExactGpuAccountClosedRecordV2;
+
+typedef struct ExactGpuRealmClosedRecordV2 {
+    ExactGpuRealmIdentityV2 realm;
+    uint64_t close_ordinal;
+    uint32_t close_reason;
+    uint32_t reserved;
+} ExactGpuRealmClosedRecordV2;
+
+typedef union ExactGpuServiceEventRecordV2 {
+    ExactGpuOperationResultRecordV2 operation_result;
+    ExactGpuDeviceErrorRecordV2 device_error;
+    ExactGpuProviderLossRecordV2 provider_loss;
+    ExactGpuLogicalDeviceLostRecordV2 logical_device_lost;
+    ExactGpuAccountClosedRecordV2 account_closed;
+    ExactGpuRealmClosedRecordV2 realm_closed;
+} ExactGpuServiceEventRecordV2;
+
+typedef struct ExactGpuServiceEventV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint32_t kind;
+    uint32_t flags;
+    /// Must equal sizeof(the selected typed record), never a prefix size.
+    uint32_t record_size;
+    uint32_t reserved;
+    ExactGpuServiceEventRecordV2 record;
+    /// Variant-qualified diagnostic/result bytes, copied into the bounded
+    /// native mailbox before `on_event` returns.
+    const uint8_t* payload;
+    size_t payload_len;
+} ExactGpuServiceEventV2;
+
+typedef struct ExactGpuClientSinkV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    void (*retain_client)(void* client_context);
+    void (*release_client)(void* client_context);
+    /// Callback-safe bounded mailbox ingress. Distinct lifecycle records are
+    /// subject to EXACT_GPU_MAX_LIFECYCLE_TERMINALS_PER_REALM_V2 for the realm
+    /// lifetime; identical replays discard and contradictory replays or
+    /// overflow quarantine the realm.
+    int32_t (*on_event)(void* client_context,
+                        const ExactGpuServiceEventV2* event);
+} ExactGpuClientSinkV2;
+
+typedef struct ExactGpuServiceApiV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t feature_bits;
+    void* service_context;
+    void (*retain_service)(void* service_context);
+    void (*release_service)(void* service_context);
+    int32_t (*open_realm)(void* service_context,
+                          const ExactGpuRealmOpenV2* open,
+                          const ExactGpuClientSinkV2* sink,
+                          void* client_context,
+                          ExactGpuRealmIdentityV2* out_realm,
+                          ExactGpuAccountIdentityV2* out_root_account);
+    void (*activate_realm)(void* service_context,
+                           const ExactGpuRealmIdentityV2* realm);
+    /// These three entries run without the Ibex mailbox mutex held. A
+    /// synchronous on_event is allowed. If it reports a protocol violation,
+    /// that violation dominates the service return and owner reduction settles
+    /// any Promise; the bridge must not publish ordinary success/cancellation.
+    /// Each call reserves its exact entry under the callback-admission mutex.
+    /// A pre-reserved entry may finish after wall-clock realm close, while a
+    /// new entry after accepted REALM_CLOSED is rejected before service code.
+    int32_t (*submit)(void* service_context,
+                      const ExactGpuSemanticCallV2* call);
+    int32_t (*retire)(void* service_context,
+                      const ExactGpuRealmIdentityV2* realm,
+                      const ExactGpuRetireBatchV2* batch);
+    int32_t (*cancel)(void* service_context,
+                      const ExactGpuCancelV2* cancel);
+    /// Nonblocking close requested only when Ibex teardown wins the admission
+    /// mutex. Once a service REALM_CLOSED record is accepted, Ibex neither
+    /// synthesizes per-operation cancellation nor echoes close_realm, even if
+    /// owner polling has not yet drained that record.
+    int32_t (*close_realm)(void* service_context,
+                           const ExactGpuRealmIdentityV2* realm,
+                           uint64_t close_ordinal);
+} ExactGpuServiceApiV2;
+
+typedef struct ExactHermesGpuProviderDescriptorV2 {
+    uint32_t struct_size;
+    uint32_t abi_version;
+    uint64_t flags;
+    const char* profile_id;
+    size_t profile_id_len;
+    uint8_t profile_digest[32];
+    uint8_t webgpu_c_vocabulary_digest[32];
+    uint8_t operation_set_digest[32];
+    uint8_t semantic_program_digest[32];
+    /// Domain-separated digest over each operation's runtime routing record,
+    /// including argument/result codecs, receiver/target, timing,
+    /// dispatch/provider mode, and typed error tags.
+    uint8_t runtime_routing_digest[32];
+    const uint32_t* sorted_operation_ids;
+    size_t operation_id_count;
+    uint32_t topology_id;
+    uint32_t reserved;
+    const ExactGpuServiceApiV2* api;
+} ExactHermesGpuProviderDescriptorV2;
+
 // =============================================================================
 // Runtime Lifecycle
 // =============================================================================
@@ -259,6 +724,10 @@ int32_t ex_hermes_finalize_embedder_capabilities_v1(ExactHermesRuntime* runtime)
 /// disabled so embedders can fail deterministically without symbol probing.
 uint32_t ex_hermes_gpu_provider_abi_version(void);
 size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
+/// Additive V2 query symbols. The V1 query above deliberately continues to
+/// report V1 so existing embedders do not silently switch layouts.
+uint32_t ex_hermes_gpu_provider_abi_version_v2(void);
+size_t ex_hermes_gpu_provider_descriptor_size_v2(void);
 
 /// Register one authenticated provider-independent Exact GPU service. The
 /// descriptor and function table are copied. The function returns
@@ -289,6 +758,14 @@ size_t ex_hermes_gpu_provider_descriptor_size_v1(void);
 int32_t ex_hermes_set_gpu_provider_v1(
     ExactHermesRuntime* runtime,
     const ExactHermesGpuProviderDescriptorV1* descriptor);
+
+/// Register the additive full-identity carrier. V1 and V2 are mutually
+/// exclusive per runtime. V2 requires exact (not prefix-compatible) structure
+/// sizes and zero reserved fields, and otherwise follows the same authenticated
+/// construction/activation/teardown rules documented for V1 above.
+int32_t ex_hermes_set_gpu_provider_v2(
+    ExactHermesRuntime* runtime,
+    const ExactHermesGpuProviderDescriptorV2* descriptor);
 
 /// Copy the filesystem path of the loaded artifact that contains Hermes'
 /// runtime factory. Returns the byte length, or -1 on failure.

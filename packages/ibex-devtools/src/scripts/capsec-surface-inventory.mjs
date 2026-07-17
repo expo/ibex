@@ -9118,6 +9118,30 @@ const CAPSEC_GPU_TERMINAL_GUARD_CONDITION = [
   "#if defined(submitGpuBridgeCall) || defined(cancelGpuBridgeCall) || \\",
   "    defined(retireGpuBridgeCall)",
 ].join("\n");
+const CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS = [
+  "submitGpuV2BridgeCall",
+  "cancelGpuV2BridgeCall",
+  "retireGpuV2BridgeCall",
+  "setGpuV2EventSinkBridgeCall",
+];
+const CAPSEC_GPU_V2_TERMINAL_GUARD_ERROR =
+  "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros";
+const CAPSEC_GPU_V2_TERMINAL_GUARD_CONDITION = [
+  "#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \\",
+  "    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall)",
+].join("\n");
+const CAPSEC_GPU_TERMINAL_GUARD_PROFILES = [
+  {
+    condition: CAPSEC_GPU_TERMINAL_GUARD_CONDITION,
+    error: CAPSEC_GPU_TERMINAL_GUARD_ERROR,
+    identifiers: CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS,
+  },
+  {
+    condition: CAPSEC_GPU_V2_TERMINAL_GUARD_CONDITION,
+    error: CAPSEC_GPU_V2_TERMINAL_GUARD_ERROR,
+    identifiers: CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS,
+  },
+];
 const CAPSEC_WEBGPU_ENABLED_IF = "#if defined(IBEX_ENABLE_WEBGPU_BINDING)";
 const CAPSEC_WEBGPU_DISABLED_IF = "#if !defined(IBEX_ENABLE_WEBGPU_BINDING)";
 const CAPSEC_WEBGPU_EXTERNAL_GATE = "IBEX_ENABLE_WEBGPU_BINDING";
@@ -9370,7 +9394,9 @@ export function scanCppConstructionPrivateBridgeSurfaces(
   const rows = [];
   for (let index = 0; index < tokens.length; index += 1) {
     if (
-      tokens[index]?.value !== "defineGpuProperty" ||
+      !new Set(["defineGpuProperty", "defineGpuV2Property"]).has(
+        tokens[index]?.value,
+      ) ||
       tokens[index + 1]?.value !== "("
     ) {
       continue;
@@ -9664,6 +9690,7 @@ function cppGpuProtectedSpellingsAreAuthentic(text, tokens) {
     CAPSEC_WEBGPU_EXTERNAL_GATE,
     ...CAPSEC_GPU_CALLBACK_GUARD_IDENTIFIERS,
     ...CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS,
+    ...CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS,
     "include",
     "include_next",
     "import",
@@ -9954,6 +9981,22 @@ function cppAuthenticatedGpuConditionalContext(
 }
 
 function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
+  const candidates = CAPSEC_GPU_TERMINAL_GUARD_PROFILES.map((profile) => ({
+    profile,
+    evidence: cppExactDefinedErrorGuards(
+      text,
+      tokens,
+      profile.identifiers,
+      profile.error,
+      profile.condition,
+    ),
+  })).filter(
+    ({ profile, evidence }) =>
+      evidence.conditionalModel &&
+      evidence.guards.length === profile.identifiers.length + 1,
+  );
+  if (candidates.length !== 1) return null;
+  const { profile } = candidates[0];
   const {
     conditionalModel,
     directives,
@@ -9963,16 +10006,9 @@ function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
     includeDirectiveCount,
     includeInventory,
     translationPhaseAuthenticated,
-  } = cppExactDefinedErrorGuards(
-    text,
-    tokens,
-    CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS,
-    CAPSEC_GPU_TERMINAL_GUARD_ERROR,
-    CAPSEC_GPU_TERMINAL_GUARD_CONDITION,
-  );
+  } = candidates[0].evidence;
+  const terminalIdentifiers = profile.identifiers;
   if (
-    !conditionalModel ||
-    guards.length !== 4 ||
     guards.some(
       (guard, index) => index > 0 && guards[index - 1].start >= guard.start,
     )
@@ -9983,12 +10019,12 @@ function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
   const definitions = new Map();
   const bindings = new Map();
   const protectedIdentifierTokenCounts = {};
-  for (const identifier of CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS) {
+  for (const identifier of terminalIdentifiers) {
     const allTokens = tokens.filter(
       (token) => token.type === "identifier" && token.value === identifier,
     );
     protectedIdentifierTokenCounts[identifier] = allTokens.length;
-    if (allTokens.length !== 6) return null;
+    if (allTokens.length !== guards.length + 2) return null;
     const sourceTokens = cppIdentifierTokensOutsideDirectives(
       tokens,
       directives,
@@ -10019,7 +10055,7 @@ function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
   const bindingEnd = Math.max(
     ...[...bindings.values()].map((binding) => binding.factoryEnd),
   );
-  const orderedDefinitions = CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS.map(
+  const orderedDefinitions = terminalIdentifiers.map(
     (identifier) => definitions.get(identifier),
   );
   for (let index = 0; index < orderedDefinitions.length; index += 1) {
@@ -10038,13 +10074,13 @@ function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
     }
   }
   if (
-    definitionEnd >= guards[3].start ||
-    guards[3].end >= bindingStart ||
+    definitionEnd >= guards.at(-1).start ||
+    guards.at(-1).end >= bindingStart ||
     !cppRegionHasOnlyDirectives(
       directives,
-      guards[3].start,
+      guards.at(-1).start,
       bindingEnd,
-      new Set(guards[3].directiveStarts),
+      new Set(guards.at(-1).directiveStarts),
     )
   ) {
     return null;
@@ -10053,7 +10089,7 @@ function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
     directives,
     conditionalModel,
     [
-      ...guards.slice(0, 3).map((guard) => guard.start),
+      ...guards.slice(0, terminalIdentifiers.length).map((guard) => guard.start),
       ...orderedDefinitions.map((definition) => definition.start),
     ],
     "webgpu-enabled-if",
@@ -10062,7 +10098,7 @@ function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
     directives,
     conditionalModel,
     [
-      guards[3].start,
+      guards.at(-1).start,
       ...[...bindings.values()].map((binding) => binding.terminalHandlerStart),
       bindingEnd - 1,
     ],
@@ -10087,8 +10123,8 @@ function cppGpuTerminalGuardEvidence(text, tokens, assignedHostFunctions) {
     externalFeatureGate,
     externalFeatureGateSourceMutationCount,
     identityGuardCount: guards.length,
-    identityGuardError: CAPSEC_GPU_TERMINAL_GUARD_ERROR,
-    identityGuardIdentifiers: [...CAPSEC_GPU_TERMINAL_GUARD_IDENTIFIERS],
+    identityGuardError: profile.error,
+    identityGuardIdentifiers: [...terminalIdentifiers],
     identityGuardLifetime: "guard-definitions-and-bindings",
     includeDirectiveCount,
     includeInventory,

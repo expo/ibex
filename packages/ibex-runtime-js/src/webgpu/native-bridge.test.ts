@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { nativeGpuBridgeForGeneratedWrapper } from './runtime-internal';
 import {
   installNativeGpuBridgeCapture,
+  isNativeGpuBridge,
   type NativeGpuBridge,
 } from './native-bridge';
 
@@ -23,7 +24,7 @@ describe('construction-private GPU bridge capture', () => {
       submit: () => ({
         completionId: '1',
         admissionStatus: 0,
-        receipt: Promise.resolve(undefined),
+        receipt: Promise.resolve(),
       }),
       cancel: () => 0,
       retire: () => 0,
@@ -41,6 +42,30 @@ describe('construction-private GPU bridge capture', () => {
     expect(nativeGpuBridgeForGeneratedWrapper()).toBe(bridge);
     revoke();
     expect(nativeGpuBridgeForGeneratedWrapper()).toBeUndefined();
+  });
+
+  test('V2 capture validation requires the typed raw-event sink', () => {
+    const bridge: NativeGpuBridge = {
+      abiVersion: 0x0002_0000,
+      runtimeAddress: '11',
+      runtimeNonce: '13',
+      realmId: '17',
+      realmGeneration: '19',
+      rootAccountId: '23',
+      rootAccountGeneration: '29',
+      rootAuthorityDigest: new Uint8Array(32).fill(7),
+      submit: () => ({
+        operationInstanceId: '1',
+        promiseId: '0',
+        submissionStatus: 0,
+      }),
+      cancel: () => 0,
+      retire: () => 0,
+      setEventSink: () => undefined,
+    };
+    expect(isNativeGpuBridge(bridge)).toBe(true);
+    const missingSink = { ...bridge, setEventSink: undefined };
+    expect(isNativeGpuBridge(missingSink)).toBe(false);
   });
 
   test('the committed runtime bundle contains one capture module instance', () => {

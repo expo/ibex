@@ -90,6 +90,10 @@ pub struct ExactGpuProviderBinding {
     pub webgpu_c_vocabulary_digest: Digest,
     pub operation_set_digest: Digest,
     pub semantic_program_digest: Digest,
+    /// Present only for ABI V2. This independently binds the generated
+    /// operation-to-runtime routing/codec/timing plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_routing_digest: Option<Digest>,
     pub operation_ids: Vec<u32>,
     pub topology: String,
 }
@@ -1179,8 +1183,13 @@ pub fn validate_exact_gpu_provider_binding(binding: &ExactGpuProviderBinding) ->
     if binding.schema != "exact/webgpu-provider/1" {
         return refused("Exact GPU provider binding schema is unsupported");
     }
-    if binding.abi_version != 0x0001_0000 {
+    if binding.abi_version != 0x0001_0000 && binding.abi_version != 0x0002_0000 {
         return refused("Exact GPU provider ABI version is unsupported");
+    }
+    if (binding.abi_version == 0x0001_0000 && binding.runtime_routing_digest.is_some())
+        || (binding.abi_version == 0x0002_0000 && binding.runtime_routing_digest.is_none())
+    {
+        return refused("Exact GPU runtime-routing digest does not match the ABI version");
     }
     if binding.profile_id.is_empty()
         || binding.profile_id.len() > 256
@@ -2093,6 +2102,41 @@ mod tests {
         assert_eq!(binding.profile_id, "exact-webgpu-phase1a-draft");
         assert_eq!(binding.profile_digest, profile_digest);
         assert_eq!(binding.operation_ids, [7, 11, 19]);
+
+        let routing_digest =
+            Digest::new("sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA").unwrap();
+        let mut v2 = value.clone();
+        v2["exactGpuProvider"]["abiVersion"] = serde_json::json!(131072);
+        v2["exactGpuProvider"]["runtimeRoutingDigest"] = serde_json::json!(routing_digest.clone());
+        let v2_bytes = redigest(&mut v2);
+        let mut v2_expected = expected.clone();
+        v2_expected.armed_snapshot_digest =
+            Digest::new(v2["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        let v2_armed = ArmedSnapshot::load(&v2_bytes, &v2_expected).unwrap();
+        let v2_binding = v2_armed.exact_gpu_provider_binding().unwrap().unwrap();
+        assert_eq!(v2_binding.abi_version, 0x0002_0000);
+        assert_eq!(
+            v2_binding.runtime_routing_digest.as_ref(),
+            Some(&routing_digest)
+        );
+
+        let mut v2_missing_routing = v2.clone();
+        v2_missing_routing["exactGpuProvider"]
+            .as_object_mut()
+            .unwrap()
+            .remove("runtimeRoutingDigest");
+        assert!(ArmedSnapshot::load(
+            &serde_json::to_vec(&v2_missing_routing).unwrap(),
+            &v2_expected
+        )
+        .is_err());
+
+        let mut v1_with_routing = value.clone();
+        v1_with_routing["exactGpuProvider"]["runtimeRoutingDigest"] =
+            serde_json::json!(routing_digest.clone());
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&v1_with_routing).unwrap(), &expected).is_err()
+        );
 
         let mut unsorted = value.clone();
         unsorted["exactGpuProvider"]["operationIds"] = serde_json::json!([11, 7]);
