@@ -21,6 +21,7 @@ const AUTHORED_BUILTIN_HARNESS: &str = include_str!("capsec_public_noncap_builti
 const GLOBAL_ACCESSOR_HARNESS: &str = include_str!("capsec_global_accessor_get.js");
 const AUTHORED_BUILTIN_TIMEOUT_MS: u64 = 1_000;
 const DESCRIPTOR_SWEEP_BATCH_ROWS: usize = 8;
+const LOADED_REALM_SWEEP_BATCH_ROWS: usize = 8;
 
 fn is_source_return_output(raw: &Value) -> bool {
     raw["kind"] == "return"
@@ -402,10 +403,12 @@ const DESCRIPTOR_SWEEP_SCRIPT: &str = r#"
   function descriptorReturned(value) {
     var shape = valueShape(value);
     // A descriptor route proves presence and value shape; it is not authority
-    // to serialize an arbitrary module/global object graph. Keep structural
-    // object and array observations bounded while explicit call/read fixtures
-    // continue to return their actual authored values.
-    var projected = shape === 'object' ? null : (shape === 'array' ? [] : jsonValue(value, shape));
+    // to serialize arbitrary module/global contents. Strings and BigInts are
+    // unbounded just like object graphs, so preserve only fixed-width scalar
+    // payloads here. Explicit call/read fixtures still return their authored
+    // values, while rawValueShape records every descriptor value's type.
+    var projected = shape === 'array' ? []
+      : (shape === 'number' || shape === 'boolean' || shape === 'null' ? value : null);
     return { kind: 'return', rawValueShape: shape, value: projected, errorCode: null };
   }
 
@@ -870,7 +873,9 @@ async fn loaded_descriptor_results(
         let encoded = sweep
             .eval_string(engine, "globalThis.__ibexOutputShapeDescriptorBatch")
             .await
-            .expect("read output-shape descriptor sweep")
+            .unwrap_or_else(|error| {
+                panic!("read output-shape descriptor sweep batch {batch_index}: {error:#}")
+            })
             .expect("output-shape descriptor sweep returned no result");
         let value: Value = serde_json::from_str(&encoded)
             .expect("output-shape descriptor sweep returned invalid JSON");
@@ -882,6 +887,19 @@ async fn loaded_descriptor_results(
             .as_array()
             .expect("output-shape descriptor sweep did not return an array");
         assert_eq!(batch_results.len(), batch.len());
+        for (row, result) in batch.iter().zip(batch_results) {
+            if row["probe"]["sourceDescriptor"]["exercise"]["kind"] == "descriptor"
+                && matches!(
+                    result["raw"]["rawValueShape"].as_str(),
+                    Some("string" | "bigint")
+                )
+            {
+                assert!(
+                    result["raw"]["value"].is_null(),
+                    "unbounded primitive descriptor evidence must remain shape-only"
+                );
+            }
+        }
         results.extend(batch_results.iter().cloned());
     }
     assert_eq!(results.len(), rows.len());
@@ -1553,35 +1571,46 @@ async fn loaded_structured_results(
     if rows.is_empty() {
         return Vec::new();
     }
-    let encoded = serde_json::to_string(rows).expect("serialize output-shape loaded-realm probes");
-    let script = STRUCTURED_SWEEP_SCRIPT.replace("__IBEX_OUTPUT_SHAPE_PROBES__", &encoded);
-    assert_eq!(
+    // Keep the control transport independently below the fixed Stage-1 text
+    // bound. These rows carry authored values, so unlike descriptor evidence
+    // they are split rather than projected.
+    let mut results = Vec::with_capacity(rows.len());
+    for (batch_index, batch) in rows.chunks(LOADED_REALM_SWEEP_BATCH_ROWS).enumerate() {
+        let encoded =
+            serde_json::to_string(batch).expect("serialize output-shape loaded-realm probes");
+        let script = STRUCTURED_SWEEP_SCRIPT.replace("__IBEX_OUTPUT_SHAPE_PROBES__", &encoded);
+        assert_eq!(
+            sweep
+                .eval_string(engine, &script)
+                .await
+                .expect("start output-shape loaded-realm sweep")
+                .as_deref(),
+            Some("output-shape-structured-sweep-started")
+        );
+        let context = format!("output-shape loaded-realm sweep batch {batch_index}");
         sweep
-            .eval_string(engine, &script)
+            .drive_event_loop(engine, &context)
             .await
-            .expect("start output-shape loaded-realm sweep")
-            .as_deref(),
-        Some("output-shape-structured-sweep-started")
-    );
-    sweep
-        .drive_event_loop(engine, "output-shape loaded-realm sweep")
-        .await
-        .expect("settle output-shape loaded-realm sweep");
-    let encoded = sweep
-        .eval_string(engine, "globalThis.__ibexOutputShapeStructuredBatch")
-        .await
-        .expect("read output-shape loaded-realm sweep")
-        .expect("output-shape loaded-realm sweep returned no result");
-    let value: Value = serde_json::from_str(&encoded)
-        .expect("output-shape loaded-realm sweep returned invalid JSON");
-    assert!(
-        value.get("fatal").is_none(),
-        "structured sweep failed: {value}"
-    );
-    let results = value
-        .as_array()
-        .expect("output-shape loaded-realm sweep did not return an array")
-        .clone();
+            .expect("settle output-shape loaded-realm sweep");
+        let encoded = sweep
+            .eval_string(engine, "globalThis.__ibexOutputShapeStructuredBatch")
+            .await
+            .unwrap_or_else(|error| {
+                panic!("read output-shape loaded-realm sweep batch {batch_index}: {error:#}")
+            })
+            .expect("output-shape loaded-realm sweep returned no result");
+        let value: Value = serde_json::from_str(&encoded)
+            .expect("output-shape loaded-realm sweep returned invalid JSON");
+        assert!(
+            value.get("fatal").is_none(),
+            "structured sweep failed: {value}"
+        );
+        let batch_results = value
+            .as_array()
+            .expect("output-shape loaded-realm sweep did not return an array");
+        assert_eq!(batch_results.len(), batch.len());
+        results.extend(batch_results.iter().cloned());
+    }
     assert_eq!(results.len(), rows.len());
     results
 }
@@ -1656,7 +1685,8 @@ impl AuthenticatedSweep {
                 );
                 anyhow::ensure!(
                     !display.truncated,
-                    "authenticated output-shape control result exceeded the Stage-1 text bound"
+                    "authenticated output-shape control result exceeded the Stage-1 text bound (retained {} UTF-8 bytes)",
+                    display.text.len()
                 );
                 Ok(Some(serde_json::from_str(&display.text)?))
             }
