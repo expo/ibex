@@ -933,6 +933,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
   ["__exactEnsureWebStorage", 0],
   ["__exactGrantCapability", 2],
   ["__exactRegisterPackage", 4],
+  ["__exactResolveManifestBuiltinInternal", 1],
   ["__exactSetActiveModuleId", 1],
   ["__exactSetPendingPackageId", 1],
   ["__hostCall", 2],
@@ -1000,6 +1001,39 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
         literalArgument(60_000),
       ]),
     ]),
+  ],
+  [
+    "__exactHandleScoped",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument("fs:read")]),
+  ],
+  ["__exactRevokeHandle", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  [
+    "__exactPermissionRequest",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactPermissionRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactPermissionStatus",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactTypedPermissionRequest",
+    nativeNoEffectTemplate(1, [literalArgument({})]),
+  ],
+  [
+    "__exactTypedPermissionRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("unknown-grant")]),
+  ],
+  [
+    "__exactTypedHandleMint",
+    nativeNoEffectTemplate(1, [literalArgument({})]),
+  ],
+  [
+    "__exactTypedHandleRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("unknown-handle")]),
   ],
   [
     "__exactTcpConnect",

@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(407);
+    expect(nativePublicFixtures).toHaveLength(417);
     expect(
       nativePublicFixtures
         .filter(
@@ -127,13 +127,13 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(224);
+    ).toHaveLength(233);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.expectedResult === "absent",
       ),
-    ).toHaveLength(26);
+    ).toHaveLength(27);
     expect(recipes.summary.fullyExecutableFixtures).toBe(
       authoredPublicFixtures,
     );
@@ -2038,6 +2038,63 @@ describe("exact-target CapSec executable recipes", () => {
     expect(rsaDecrypt.arguments[0].arguments).toEqual(
       rsaDecrypt.arguments[3].arguments[0].arguments,
     );
+  });
+
+  test("executes bounded authority-control refusals without minting authority", () => {
+    const expectedArguments = new Map([
+      ["__exactHandleScoped", [0, "fs:read"]],
+      ["__exactRevokeHandle", [0]],
+      ["__exactPermissionRequest", ["capsec:unknown"]],
+      ["__exactPermissionRevoke", ["capsec:unknown"]],
+      ["__exactPermissionStatus", ["capsec:unknown"]],
+      ["__exactTypedPermissionRequest", [{}]],
+      ["__exactTypedPermissionRevoke", ["unknown-grant"]],
+      ["__exactTypedHandleMint", [{}]],
+      ["__exactTypedHandleRevoke", ["unknown-handle"]],
+    ]);
+    for (const [globalName, values] of expectedArguments) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+          },
+        },
+      });
+      expect(
+        recipe.publicSurfaceProbe.invocation.arguments.map(
+          (argument) => argument.value,
+        ),
+      ).toEqual(values);
+    }
+
+    const loaderPrivate = recipes.recipes.find(
+      (candidate) =>
+        candidate.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactResolveManifestBuiltinInternal",
+    );
+    expect(loaderPrivate).toMatchObject({
+      classification: "non-capability",
+      scenario: "non-capability",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          expectedResult: "absent",
+          expectedTypedDecisionCount: 0,
+          expectedTypedStages: [],
+        },
+      },
+    });
   });
 
   test("supplies owned callbacks and bounded delays to native timers", () => {

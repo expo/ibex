@@ -6,6 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
 **Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
+**Revised:** 2026-07-17 (ENG-24933 credits nine bounded authority-control refusals and the post-capture absence of the loader-private manifest resolver)
 **Revised:** 2026-07-17 (ENG-24933 authenticates timer cancellation and ref-state mutation to the retained timer owner, replacing four closed native/global rows with eight executable non-capability and invariant recipes)
 **Revised:** 2026-07-17 (ENG-24933 credits 29 exact module-runner executions: four loader/source-acquisition surfaces, 24 native ABI lifecycle surfaces, and one armed namespace-inspection closure)
 **Revised:** 2026-07-16 (ENG-24933 removes thirteen closed memory-debug implementation surfaces by capturing diagnostic state behind its deliberate API)
@@ -602,12 +603,13 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalog has 23,126 required
-fixtures, 4,824 fully executable recipes, and 18,302 unresolved
+fixtures, 4,834 fully executable recipes, and 18,292 unresolved
 fixtures. The latest source-bound tranches add four loader/source-acquisition
 recipes, 24 native module-runner ABI lifecycle recipes, one armed
 namespace-inspection closure, 14 asymmetric/EVP crypto recipes, eight
-owner-authenticated timer-control recipes, five cached system-information
-authorization scenarios and twelve asynchronous path-operation scenarios for
+owner-authenticated timer-control recipes, nine bounded authority-control
+refusals, one loader-private post-capture absence, five cached
+system-information authorization scenarios and twelve asynchronous path-operation scenarios for
 the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
 scenarios, five retained-target direct `statfs` scenarios, twelve complete
 malformed/attribution/principal scenarios for retained metadata and whole-file
