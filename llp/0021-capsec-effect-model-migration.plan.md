@@ -5,6 +5,21 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
+**Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
+**Revised:** 2026-07-17 (ENG-24933 credits nine bounded authority-control refusals and the post-capture absence of the loader-private manifest resolver)
+**Revised:** 2026-07-17 (ENG-24933 credits six owner-authenticated refusals for unknown retained HTTP server and spawned-process identifiers)
+**Revised:** 2026-07-17 (ENG-24933 credits synchronous and asynchronous filesystem close through harness-owned, source-bound descriptors)
+**Revised:** 2026-07-17 (ENG-24933 credits two incomplete authority-call refusals and the exact invalid spawned-process handle refusal)
+**Revised:** 2026-07-17 (ENG-24933 proves immutable module-level intrinsic receivers in builtin routes, removing 404 false ambiguous-route residuals without promoting unexecuted fixtures)
+**Revised:** 2026-07-17 (ENG-24933 authenticates timer cancellation and ref-state mutation to the retained timer owner, replacing four closed native/global rows with eight executable non-capability and invariant recipes)
+**Revised:** 2026-07-17 (ENG-24933 credits 29 exact module-runner executions: four loader/source-acquisition surfaces, 24 native ABI lifecycle surfaces, and one armed namespace-inspection closure)
+**Revised:** 2026-07-16 (ENG-24933 removes thirteen closed memory-debug implementation surfaces by capturing diagnostic state behind its deliberate API)
+**Revised:** 2026-07-16 (ENG-24933 removes ten closed internal locale/accessibility state surfaces by retaining mutable state in module singletons)
+**Revised:** 2026-07-16 (ENG-24933 completes malformed, missing-attribution, and wrong-principal scenarios for bounded loopback TCP connect)
+**Revised:** 2026-07-16 (ENG-24933 completes thirty-six malformed, missing-attribution, and wrong-principal scenarios for system information, environment, and stdout)
+**Revised:** 2026-07-16 (ENG-24933 closes twelve malformed, missing-attribution, and wrong-principal scenarios for retained metadata and whole-file reads)
+**Revised:** 2026-07-16 (ENG-24933 binds direct `statfs` metadata to retained typed `fs:list` authorization and closes five exact public scenarios)
 **Revised:** 2026-07-16 (ENG-24933 binds asynchronous `chmod` and `utime` to retained files, repeats authorization on the worker, and closes twelve exact public scenarios with owned cleanup)
 **Revised:** 2026-07-15 (ENG-25062 registered the module-runner factory, record, CJS-to-ESM edge, generation-lease, and compatibility-marker surfaces as closed non-capability control-plane operations)
 **Revised:** 2026-07-15 (ENG-25066 made the authenticated graph decision set and process-stable principal projection the ordinary-ESM execution path)
@@ -591,20 +606,49 @@ Apple and Windows consumers use this seam. The normal target-local producer now
 builds the complete pair directly from the installed app root, loaded engine,
 checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
-bundled-root producer now also has an additive GPU path that validates the
-complete `exactGpuProvider` identity, verifies the exact profile bytes before
-cache publication, and protects that profile as the sixth artifact. The
-non-GPU path cannot acquire this binding. Package-bearing policy input remains
-a separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed catalog has 23,186 required
-fixtures, 4,755 fully executable recipes, and 18,431 unresolved
-fixtures. The latest source-bound tranche adds five cached system-information
-authorization scenarios and twelve asynchronous path-operation scenarios for
-the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime` scenarios,
-plus five zlib stream lifecycle recipes, eleven TLS lifecycle recipes, and a
-principal-owned network stamp recipe. The resource recipes create, exercise,
-and release their runtime/principal-owned native state in one bounded
-invocation. Fourteen Linux/Android-only
+bundled-root producer is complete and now also has an additive GPU path that
+validates the complete `exactGpuProvider` identity, verifies the exact profile
+bytes before cache publication, and protects that profile as the sixth
+artifact. The non-GPU path cannot acquire this binding, while package-bearing
+policy input remains a separate future contract. Apple/Windows conformance
+reports and target advertisements remain incomplete. The refreshed catalog has
+23,208 required
+fixtures, 4,872 fully executable recipes, and 18,336 unresolved
+fixtures. The latest source-bound tranches add four loader/source-acquisition
+recipes, 24 native module-runner ABI lifecycle recipes, one armed
+namespace-inspection closure, 14 asymmetric/EVP crypto recipes, eight
+owner-authenticated timer-control recipes, nine bounded authority-control
+refusals, six retained HTTP/process owner refusals, two owned filesystem-close
+executions, three incomplete/invalid authority-control refusals, one loader-private
+post-capture absence, five cached
+system-information authorization scenarios and twelve asynchronous path-operation scenarios for
+the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
+scenarios, five retained-target direct `statfs` scenarios, twelve complete
+malformed/attribution/principal scenarios for retained metadata and whole-file
+reads, thirty-six complete malformed/attribution/principal scenarios for system
+information, environment, and stdout, three complete adversarial loopback TCP
+connect scenarios, plus five zlib stream lifecycle recipes, eleven TLS lifecycle
+recipes, and a principal-owned network stamp recipe. Ten internal locale and
+accessibility state-object surfaces no longer exist: normalized mutable state is
+held in module singletons while host snapshot inputs and update hooks remain
+explicit globals. Thirteen memory-debug implementation surfaces likewise no
+longer exist: the timer, samples, counters, and options are captured behind the
+deliberate `__exactMemoryDebug` diagnostic API. Six `__OriginalPromise`
+surfaces likewise no longer exist: rejection tracking
+retains the unwrapped constructor in its install closure instead of publishing
+a project-visible bypass around the wrapped global constructor. Eleven
+write-only process-compatibility diagnostics likewise no longer publish
+bootstrap progress, fallback objects, or exception strings to project code;
+the sole control predicate is local to the compatibility IIFE. The
+decompression unhandled-rejection filter sentinel is module-local as well,
+rather than a project-writable global. Bundled-entry remap consumption is now
+tracked by exact host entry-path value in the trusted module-loader closure
+while the host entry-path input remains explicit. The libuv EOF value is now an
+immutable constant at both internal consumers rather than a project-writable
+transport sentinel. Readable-stream compatibility retry scheduling is likewise
+captured inside bootstrap rather than exposed as a mutable global. The resource
+recipes create, exercise, and release their runtime/principal-owned
+native state in one bounded invocation. Fourteen Linux/Android-only
 `node:constants` exports now carry source-bound Apple absence evidence from the
 real public module path rather than remaining generic availability residuals.
 Async evidence remains open through a bounded event-loop quiescence drain and
@@ -618,6 +662,13 @@ static data constants whose descriptors prove the exact property path. Runtime
 evidence records the owner depth for every path segment and requires a positive
 final depth; own-property substitution, inherited callables/accessors, instance
 members, and dynamic tables remain rejected.
+
+The builtin route analyzer now admits module bindings only when their source
+initializer is recursively proven intrinsic and the binding is never
+reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
+7,092 while retaining all 18,336 unresolved fixtures: an opaque reassignment
+still fails closed, and removing false route ambiguity is not itself public
+execution evidence.
 
 ### WP0 artifacts and gate
 
@@ -1417,6 +1468,20 @@ than reusing a generic malformed adapter result or a hand-labelled terminal.
 The macOS/aarch64
 candidate has exact loaded-Hermes adapter-probe evidence, but probe coverage is
 deliberately non-promotable and is not represented as fixture pass claims.
+The physical Release candidate is a universal MinSizeRel Hermes build with the
+debugger disabled, the pinned Exact patch set applied, and the expected patched
+package-attribution export. Its loaded arm64 identity is recorded independently
+from the executable probe. The first whole-report run against that artifact
+failed closed when the native public batch reached an Apple OpenSSL-backed ECDH
+fixture without the `openssl-crypto` build profile. All executable-recipe,
+fixture-evidence, public-surface, callback, closed, startup, startup-environment,
+and target-absence commands now bind that profile explicitly alongside the
+observer. A focused rerun against the same loaded Release artifact passes all
+470 native, host-ABI, and module-loader public fixtures, including the ECDH
+fixture that exposed the omission. The regenerated catalog retains 23,126
+required, 4,845 executable, and 18,281 unresolved fixtures. This corrects the
+evidence producer contract but does not promote the candidate or turn the
+remaining residuals into passes.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

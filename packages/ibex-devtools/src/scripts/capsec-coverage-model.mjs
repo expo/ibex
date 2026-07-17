@@ -4562,14 +4562,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "write",
   ],
   "[[dynamic-table:native-global-name]]": [""],
-  __OriginalPromise: [
-    "",
-    "prototype",
-    "prototype.catch",
-    "prototype.finally",
-    "prototype.then",
-    "reject",
-  ],
   __dirname: [""],
   __exactAccessibilityChanged: [""],
   __exactAccessibilitySnapshot: [
@@ -4583,13 +4575,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "prefersHighContrast",
     "prefersReducedMotion",
     "prefersReducedTransparency",
-  ],
-  __exactAccessibilityState: [
-    "",
-    "changeTimer",
-    "eventListeners",
-    "listeners",
-    "snapshot",
   ],
   __exactAllowNativesSyntax: [""],
   __exactAndroidCameraMetadata: [
@@ -4612,17 +4597,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactDebugModuleSource: [""],
   __exactDebugModuleSources: ["", "length"],
   __exactEnsureFilesystemModule: [""],
-  __exactEntryFileConsumed: [""],
-  __exactFinalVersionsDefineOK: [""],
-  __exactFinalVersionsError: [""],
-  __exactFinalVersionsFixRan: [""],
-  __exactFinalVersionsNewProtoOK: [""],
-  __exactFinalVersionsObj: [""],
-  __exactFinalVersionsOpenssl: [""],
-  __exactFinalVersionsOpensslAfter: [""],
-  __exactFinalVersionsProtoOK: [""],
-  __exactFinalVersionsSame: [""],
-  __exactHasDecompressionUnhandledFilter: [""],
   __exactHostNavigator: ["", "[[dynamic-table:host-navigator-properties]]"],
   __exactInstallAsyncIpcListenerPatch: [""],
   __exactInstallProcessIpcBootstrap: [""],
@@ -4632,7 +4606,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactLoadTimings: ["", "installGlobalsEnd", "installGlobalsStart"],
   __exactLocaleChanged: [""],
   __exactLocaleSnapshot: ["tag", "tags", "uses24Hour"],
-  __exactLocaleState: ["", "changeTimer", "listeners", "override", "snapshot"],
   __exactMemoryDebug: [
     "",
     "clearModuleDebugSources",
@@ -4644,21 +4617,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "stop",
     "summary",
   ],
-  __exactMemoryDebugState: [
-    "",
-    "lastLoggedHeapUsed",
-    "nextSampleId",
-    "options",
-    "options.includeExpensive",
-    "options.includeGCStats",
-    "options.intervalMs",
-    "options.logEvery",
-    "options.logOnGrowthBytes",
-    "options.maxSamples",
-    "sampleCount",
-    "samples",
-    "timer",
-  ],
   __exactNativeWrapState: [
     "",
     "Pipe",
@@ -4669,9 +4627,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "pipeConstants",
     "tcpConstants",
   ],
-  __exactProcessCompatFixRan: [""],
-  __exactProcessCompatFixSawProcess: [""],
-  __exactReadableStreamCompatIteratorPatchScheduled: [""],
   __exactReapplyCompatPolyfills: [""],
   __exactRequire: [""],
   __exactRuntime: [
@@ -4689,7 +4644,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactStreamWrapState: [""],
   __exactSyncTrackedIpcListenersAfterDispatch: [""],
   __exactUnhandledRejectionHandler: [""],
-  __exactUvEOFValue: [""],
   __exactWebStreamsPolyfillLoaded: [""],
   __exactWindowNotifyMediaChange: [""],
   __exactWindowNotifyResize: [""],
@@ -9069,12 +9023,15 @@ function builtinExportClassification(surface) {
   }
 
   if (source === "node_timers" || source === "node_timers_promises") {
-    if (/^clear(?:immediate|interval|timeout)$/u.test(name)) {
+    if (/^clearimmediate$/u.test(name)) {
       return closedSpec(
         "runtime:inspect",
         "WP7",
         "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner.",
       );
+    }
+    if (/^clear(?:interval|timeout)$/u.test(name)) {
+      return nonCapabilitySpec("authority-release", "WP8");
     }
     if (/close|unenroll/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP8");
@@ -11522,12 +11479,15 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   if (/^(?:import|importmodule|require)$/u.test(globalName)) {
     return nonCapabilitySpec("module-reachability-only", "WP7");
   }
-  if (/^(?:clearimmediate|cleartimeout|clearinterval)$/u.test(globalName)) {
+  if (/^clearimmediate$/u.test(globalName)) {
     return closedSpec(
       "runtime:inspect",
       "WP7",
       "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner.",
     );
+  }
+  if (/^clear(?:timeout|interval)$/u.test(globalName)) {
+    return nonCapabilitySpec("authority-release", "WP8");
   }
   if (
     /^(?:queuemicrotask|settimeout|setinterval|setimmediate|cleartimeout|clearinterval|clearimmediate)$/u.test(
@@ -12864,11 +12824,7 @@ function classifyConcreteSurface(surface) {
     );
   }
   if (/^exacttimer(?:ref|unref)$/u.test(name)) {
-    return closedSpec(
-      "runtime:inspect",
-      "WP7",
-      "Timer ref-state mutation accepts a process-global sequential identifier without authenticating the timer owner.",
-    );
+    return nonCapabilitySpec("authority-control-plane", "WP8");
   }
   if (/^exacttlsownertoken$/u.test(name)) {
     return nonCapabilitySpec("authority-control-plane", "WP8");

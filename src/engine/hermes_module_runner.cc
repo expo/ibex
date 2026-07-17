@@ -13,6 +13,16 @@
 
 namespace {
 
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+thread_local std::set<std::string> moduleRunnerAbiObservations;
+
+void observeModuleRunnerAbi(const char* functionName) {
+  moduleRunnerAbiObservations.emplace(functionName);
+}
+#else
+void observeModuleRunnerAbi(const char*) {}
+#endif
+
 void writeError(char** out, const std::string& message) {
   if (out == nullptr) return;
   *out = static_cast<char*>(std::malloc(message.size() + 1));
@@ -880,6 +890,31 @@ facebook::jsi::Object dynamicEvaluationPromise(
 
 }  // namespace
 
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+extern "C" void ibex_test_begin_module_runner_abi_observation() {
+  moduleRunnerAbiObservations.clear();
+}
+
+extern "C" char* ibex_test_take_module_runner_abi_observation() {
+  std::string json = "[";
+  bool first = true;
+  for (const auto& name : moduleRunnerAbiObservations) {
+    if (!first) json += ',';
+    first = false;
+    json += '"';
+    json += name;
+    json += '"';
+  }
+  json += ']';
+  moduleRunnerAbiObservations.clear();
+  auto* result = static_cast<char*>(std::malloc(json.size() + 1));
+  if (result == nullptr) return nullptr;
+  std::memcpy(result, json.data(), json.size());
+  result[json.size()] = '\0';
+  return result;
+}
+#endif
+
 extern "C" int32_t ex_hermes_module_compile_factory(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -898,6 +933,7 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     size_t source_label_len,
     ExactModuleRunnerHandle* out_factory,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
   if (out_factory) *out_factory = ExactModuleRunnerHandle{{0, 0, 0}};
 
@@ -1072,6 +1108,7 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     size_t source_label_len,
     ExactModuleRunnerHandle* out_factory,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
   if (out_factory) *out_factory = ExactModuleRunnerHandle{{0, 0, 0}};
 
@@ -1269,6 +1306,7 @@ extern "C" int32_t ex_hermes_commonjs_create_record(
     const uint8_t* dirname,
     size_t dirname_len,
     ExactModuleRunnerHandle* out_record) {
+  observeModuleRunnerAbi(__func__);
   if (out_record) *out_record = ExactModuleRunnerHandle{{0, 0, 0}};
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
@@ -1326,6 +1364,7 @@ extern "C" int32_t ex_hermes_commonjs_record_declare_export(
     ExactModuleRunnerHandle record,
     const uint8_t* export_name,
     size_t export_name_len) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
@@ -1350,6 +1389,7 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require(
     const uint8_t* specifier,
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
@@ -1378,6 +1418,7 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require_esm(
     const uint8_t* specifier,
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
@@ -1406,6 +1447,7 @@ extern "C" int32_t ex_hermes_commonjs_record_link_dynamic_import(
     const uint8_t* specifier,
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = commonJsRecordFor(runtime, record);
@@ -1432,6 +1474,7 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
     ExactModuleRunnerHandle record,
     int32_t* out_evicted,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_evicted) *out_evicted = 0;
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
@@ -1467,6 +1510,7 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
     ExactModuleRunnerHandle record,
     ExactModuleRunnerHandle* out_adapter,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_adapter) *out_adapter = ExactModuleRunnerHandle{{0, 0, 0}};
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
@@ -1524,6 +1568,7 @@ extern "C" int32_t ex_hermes_module_pin_generation(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     uint64_t graph_generation) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (graph_generation == 0 ||
@@ -1537,6 +1582,7 @@ extern "C" int32_t ex_hermes_module_unpin_generation(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     uint64_t graph_generation) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (runtime->pinned_module_generations.erase(graph_generation) != 1) {
@@ -1569,6 +1615,7 @@ extern "C" int32_t ex_hermes_module_release_handle(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle handle) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (handle.opaque[0] != runtime_nonce || handle.opaque[1] == 0 ||
@@ -1629,6 +1676,7 @@ extern "C" int32_t ex_hermes_graph_context_create(
     const uint32_t* constrained_principals,
     size_t constrained_principals_len,
     ExactModuleRunnerHandle* out_context) {
+  observeModuleRunnerAbi(__func__);
   if (out_context) *out_context = ExactModuleRunnerHandle{{0, 0, 0}};
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
@@ -1667,6 +1715,7 @@ extern "C" int32_t ex_hermes_graph_context_retain(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle context) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (context.opaque[0] != runtime_nonce || context.opaque[1] == 0 ||
@@ -1691,6 +1740,7 @@ extern "C" int32_t ex_hermes_module_create_record(
     const uint8_t* source_id,
     size_t source_id_len,
     ExactModuleRunnerHandle* out_record) {
+  observeModuleRunnerAbi(__func__);
   if (out_record) *out_record = ExactModuleRunnerHandle{{0, 0, 0}};
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
@@ -1735,6 +1785,7 @@ extern "C" int32_t ex_hermes_module_record_declare_export(
     ExactModuleRunnerHandle record,
     const uint8_t* export_name,
     size_t export_name_len) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
@@ -1759,6 +1810,7 @@ extern "C" int32_t ex_hermes_module_record_link_export(
     ExactModuleRunnerHandle target_record,
     const uint8_t* target_export,
     size_t target_export_len) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
@@ -1797,6 +1849,7 @@ extern "C" int32_t ex_hermes_module_record_link_import(
     ExactModuleRunnerHandle target_record,
     const uint8_t* target_export,
     size_t target_export_len) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
@@ -1833,6 +1886,7 @@ extern "C" int32_t ex_hermes_module_record_link_dependency(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     ExactModuleRunnerHandle target_record) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
@@ -1853,6 +1907,7 @@ extern "C" int32_t ex_hermes_module_record_link_dynamic_import(
     const uint8_t* specifier,
     size_t specifier_len,
     ExactModuleRunnerHandle target_record) {
+  observeModuleRunnerAbi(__func__);
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
@@ -1881,6 +1936,7 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
     size_t meta_url_len,
     int32_t is_main,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
@@ -2111,6 +2167,7 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
@@ -2149,6 +2206,7 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
     ExactModuleRunnerHandle record,
     int32_t* out_async,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_async) *out_async = 0;
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
@@ -2190,6 +2248,7 @@ extern "C" int32_t ex_hermes_module_record_poll_evaluation(
     ExactModuleRunnerHandle record,
     int32_t* out_state,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_state) *out_state = -1;
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
@@ -2218,10 +2277,20 @@ extern "C" int32_t ex_hermes_module_record_namespace_json(
     ExactModuleRunnerHandle record,
     char** out_json,
     char** out_error) {
+  observeModuleRunnerAbi(__func__);
   if (out_json) *out_json = nullptr;
   if (out_error) *out_error = nullptr;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  // Namespace serialization is diagnostic runtime inspection. Production
+  // module execution never needs it and armed runtimes reject it before
+  // reading a record or evaluating a namespace getter.
+  if (runtime->armed) {
+    writeError(out_error,
+               "module namespace inspection is closed under armed startup");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state == NativeModuleRecordState::Errored) {

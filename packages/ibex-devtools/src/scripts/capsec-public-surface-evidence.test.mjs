@@ -38,6 +38,10 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactPublic" },
     },
     {
+      id: "edge.mkdir-worker",
+      surface: { kind: "native-op", name: "__exactMkdir" },
+    },
+    {
       id: "edge.callback-terminal",
       classification: "effects",
       surface: { kind: "native-op", name: "__exactGetEnv" },
@@ -98,6 +102,14 @@ const coverage = {
       id: "edge.exact-closed",
       classification: "closed",
       surface: { kind: "native-op", name: "global:exact.invokeHostAsync" },
+    },
+    {
+      id: "edge.module-runner-namespace-closed",
+      classification: "closed",
+      surface: {
+        kind: "host-abi",
+        name: "ex_hermes_module_record_namespace_json",
+      },
     },
   ],
 };
@@ -2242,6 +2254,217 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/unknown or missing fields/);
   });
 
+  test("accepts only the exact retained-object invalid-handle refusal", () => {
+    const recipe = completeCatalog().recipes[0];
+    Object.assign(recipe, {
+      classification: "non-capability",
+      scenario: "non-capability",
+      actionIds: [],
+      edgeIds: ["edge.terminal"],
+      terminalObservedKey: "native-op:__exactSpawnSetReferenced",
+    });
+    recipe.route = {
+      surfaceObservedKeys: [recipe.terminalObservedKey],
+      alternatives: [
+        {
+          terminalObservedKey: recipe.terminalObservedKey,
+          proofPaths: [recipe.terminalObservedKey],
+        },
+      ],
+      ambiguousCallees: [],
+    };
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactSpawnSetReferenced",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactSpawnSetReferenced",
+        arity: 2,
+        sourceRef:
+          "src/engine/hermes_runtime_process.cc#jsi-global:__exactSpawnSetReferenced",
+      },
+      arguments: [
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: false },
+      ],
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "invalid-handle",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      expectedActionIds: [],
+      allowedCoverageEdgeIds: ["edge.terminal"],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: invocation.invocationSchema,
+        kind: invocation.kind,
+        surfaceObservedKey: recipe.terminalObservedKey,
+        globalName: invocation.globalName,
+        sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+        result: {
+          kind: "throw",
+          globalName: invocation.globalName,
+          errorName: "Error",
+          errorMessage: "__exactSpawnSetReferenced: invalid handle",
+        },
+        executionProof: {
+          kind: "retained-object-refusal",
+          bodyEntered: true,
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    observation.invocation.result.errorMessage = "unrelated invalid handle";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/exact retained-object refusal/);
+  });
+
+  test("binds the native async dispatcher to its exact worker terminal", () => {
+    const recipe = completeCatalog().recipes[0];
+    recipe.terminalObservedKey = "native-op:__exactFsPathAsync";
+    recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+    recipe.route.alternatives = [
+      {
+        terminalObservedKey: recipe.terminalObservedKey,
+        proofPaths: [recipe.terminalObservedKey],
+      },
+    ];
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactFsPathAsync",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactFsPathAsync",
+        arity: 6,
+        sourceRef:
+          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsPathAsync",
+      },
+      arguments: [
+        { kind: "json-literal", value: "mkdir" },
+        { kind: "json-literal", value: "target/owned-directory" },
+        { kind: "json-literal", value: null },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+      ],
+      requiredFloor: [],
+      setup: [],
+      expectedCleanup: "none",
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+      allowedCoverageEdgeIds: ["edge.mkdir-worker"],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = runtimeObservation(recipe);
+    delete observation.invocation.moduleSpecifier;
+    delete observation.invocation.exportName;
+    Object.assign(observation.invocation, {
+      kind: invocation.kind,
+      globalName: invocation.globalName,
+      result: {
+        kind: "return",
+        globalName: invocation.globalName,
+        valueType: "undefined",
+        cleanup: "none",
+      },
+      executionProof: { kind: "native-return", bodyEntered: true },
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+        status: "quiescent",
+      },
+    });
+    observation.typedDecisions[0].decisionSet.atomicityGroup =
+      "edge.mkdir-worker.decision";
+    observation.typedDecisions[0].gates[0].coverageEdgeId =
+      "edge.mkdir-worker";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const deniedRecipe = structuredClone(recipe);
+    deniedRecipe.publicSurfaceProbe.invocation.expectedResult =
+      "permission-denied";
+    const denied = structuredClone(observation);
+    denied.invocation.result = {
+      kind: "throw",
+      globalName: invocation.globalName,
+      errorName: "Error",
+      errorMessage: "EACCES: permission denied, mkdir 'target/owned-directory'",
+    };
+    denied.invocation.executionProof.kind = "typed-permission-denial";
+    denied.typedDecisions[0].evidence.outcome = "deny";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: deniedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: denied,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const wrongWorker = structuredClone(observation);
+    wrongWorker.typedDecisions[0].decisionSet.atomicityGroup =
+      "edge.terminal.decision";
+    wrongWorker.typedDecisions[0].gates[0].coverageEdgeId = "edge.terminal";
+    const wrongWorkerRecipe = structuredClone(recipe);
+    wrongWorkerRecipe.publicSurfaceProbe.invocation.allowedCoverageEdgeIds = [
+      "edge.mkdir-worker",
+      "edge.terminal",
+    ];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongWorkerRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongWorker,
+        coverage,
+      }),
+    ).toThrow(/source-selected worker/);
+  });
+
   test("accepts a source-bound zero-effect host ABI branch with cleanup", () => {
     const catalog = completeCatalog();
     const recipe = catalog.recipes[0];
@@ -2334,6 +2557,276 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/did not prove bounded cleanup/);
+  });
+
+  test("accepts exact module-loader authority access with no CapSec decision", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const sourceDescriptor = {
+      kind: "module-loader-function",
+      surfaceName: "module-runner-cache-access",
+      sourceRefs: ["src/module_loader/security.rs#authorize_then_access"],
+    };
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-loader.cache.non-capability",
+      classification: "non-capability",
+      scenario: "non-capability",
+      edgeIds: ["edge.module-loader-cache"],
+      actionIds: [],
+      terminalObservedKey: "loader:module-runner-cache-access",
+      route: {
+        surfaceObservedKeys: ["loader:module-runner-cache-access"],
+        alternatives: [
+          {
+            terminalObservedKey: "loader:module-runner-cache-access",
+            proofPaths: ["loader:module-runner-cache-access"],
+          },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: recipe.terminalObservedKey,
+      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-module-loader-invocation/1",
+        kind: "module-loader-authority",
+        surfaceName: "module-runner-cache-access",
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "cache-read" },
+        expectedResult: "return",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.module-loader-cache"],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-module-loader-invocation/1",
+        kind: "module-loader-authority",
+        surfaceObservedKey: recipe.terminalObservedKey,
+        surfaceName: "module-runner-cache-access",
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "return",
+          surfaceName: "module-runner-cache-access",
+          operation: "cache-read",
+          accessExecuted: true,
+          cleanup: "none",
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.accessExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not prove its exact access/);
+  });
+
+  test("accepts a source-bound module-runner ABI only when the graph enters it", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const functionName = "ex_hermes_module_compile_factory";
+    const sourceDescriptor = {
+      kind: "host-abi-function",
+      functionName,
+      sourceRefs: [`src/engine/hermes_module_runner.cc#${functionName}`],
+      sourceMetadata: {
+        definitions: [
+          {
+            language: "c++",
+            sourceRef: `src/engine/hermes_module_runner.cc#${functionName}`,
+            targetVariant: "default",
+          },
+        ],
+      },
+    };
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-runner.compile.non-capability",
+      classification: "non-capability",
+      scenario: "non-capability",
+      edgeIds: ["edge.module-runner-compile"],
+      actionIds: [],
+      terminalObservedKey: `host-abi:${functionName}`,
+      route: {
+        surfaceObservedKeys: [`host-abi:${functionName}`],
+        alternatives: [
+          {
+            terminalObservedKey: `host-abi:${functionName}`,
+            proofPaths: [`host-abi:${functionName}`],
+          },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: recipe.terminalObservedKey,
+      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-host-abi-invocation/1",
+        kind: "host-abi-function",
+        functionName,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "module-runner-source-graph" },
+        expectedResult: "return",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.module-runner-compile"],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-host-abi-invocation/1",
+        kind: "host-abi-function",
+        surfaceObservedKey: recipe.terminalObservedKey,
+        functionName,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "return",
+          functionName,
+          operation: "module-runner-source-graph",
+          observedFunctionNames: [functionName],
+          cleanup: "released-module-graph",
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.observedFunctionNames = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not enter the exact host ABI/);
+  });
+
+  test("accepts armed module namespace closure only at the exact ABI", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const functionName = "ex_hermes_module_record_namespace_json";
+    const surfaceObservedKey = `host-abi:${functionName}`;
+    const sourceDescriptor = {
+      kind: "closed-module-runner-namespace",
+      surfaceObservedKey,
+      sourceRefs: [`src/engine/hermes_module_runner.cc#${functionName}`],
+      sourceMetadata: {
+        definitions: [
+          {
+            language: "c++",
+            sourceRef: `src/engine/hermes_module_runner.cc#${functionName}`,
+          },
+        ],
+      },
+    };
+    const expectedError =
+      "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup";
+    Object.assign(recipe, {
+      fixtureId: "fixture.module-runner.namespace.closed",
+      classification: "closed",
+      scenario: "closed",
+      edgeIds: ["edge.module-runner-namespace-closed"],
+      actionIds: [],
+      terminalObservedKey: surfaceObservedKey,
+      route: {
+        surfaceObservedKeys: [surfaceObservedKey],
+        alternatives: [
+          { terminalObservedKey: surfaceObservedKey, proofPaths: [surfaceObservedKey] },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: ["cargo", "test", "capsec_public_closed_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+        kind: "closed-surface",
+        surfaceKind: "host-abi",
+        surfaceName: functionName,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "module-runner-namespace", expectedError },
+        expectedResult: "closed",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+        kind: "closed-surface",
+        surfaceObservedKey,
+        surfaceKind: "host-abi",
+        surfaceName: functionName,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "closed",
+          surfaceKind: "host-abi",
+          surfaceName: functionName,
+          mechanism: "module-runner-namespace",
+          errorName: "ClosedSurface",
+          errorMessage: expectedError,
+          engineExecuted: true,
+          projectCodeExecuted: false,
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.errorMessage = "different rejection";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not fail closed/);
   });
 
   test("accepts callback invariants only with exact typed outcomes and reasons", () => {

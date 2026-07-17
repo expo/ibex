@@ -22,7 +22,7 @@ fn registry_identity_is_pointer_plus_nonce_with_an_explicit_closing_phase() {
     assert!(runtime.contains("enum class RuntimeLifecycleState"));
     assert!(runtime.contains("Running") && runtime.contains("Closing"));
     assert!(runtime.contains("it->second.nonce == target.nonce"));
-    assert!(runtime.contains("beginRuntimeTeardown(target)"));
+    assert!(runtime.contains("beginRuntimeTeardown(runtime, runtime_nonce, &target)"));
     assert!(runtime.contains("finishRuntimeTeardown(target)"));
 }
 

@@ -45,6 +45,30 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["stream-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
 ]);
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
+// dispatcher remains the public surface, while typed evidence must select its
+// exact source-chosen worker rather than any allowed auxiliary edge.
+const NATIVE_ASYNC_WORKER_TERMINALS = new Map([
+  ["mkdir", "native-op:__exactMkdir"],
+  ["mkdtemp", "native-op:__exactMkdir"],
+  ["readdir", "native-op:__exactReaddir"],
+  ["realpath", "native-op:__exactRealpath"],
+]);
+
+function nativeAsyncWorkerTerminal(authored) {
+  if (
+    authored?.invocationSchema !==
+      "ibex/capsec-native-global-invocation/1" ||
+    authored.kind !== "native-global-function" ||
+    authored.globalName !== "__exactFsPathAsync"
+  ) {
+    return null;
+  }
+  const operation = authored.arguments?.[0];
+  return operation?.kind === "json-literal"
+    ? NATIVE_ASYNC_WORKER_TERMINALS.get(operation.value) ?? null
+    : null;
+}
 
 // Independent verifier authority for the small curated startup family. Keep
 // this separate from recipe authorship so descriptor tampering cannot change
@@ -851,18 +875,63 @@ function validateRuntimeInvocation(observation, recipe) {
       [...commonKeys, "functionName"],
       `${recipe.fixtureId}: host ABI runtime invocation`,
     );
+    const sqliteMemory = authored.operation?.kind === "sqlite-memory";
+    const moduleRunner =
+      authored.operation?.kind === "module-runner-source-graph";
     if (
       invocation.kind !== "host-abi-function" ||
       invocation.functionName !== authored.functionName ||
-      authored.operation?.kind !== "sqlite-memory" ||
-      authored.operation?.selectedBranch?.id !== "memory" ||
+      (!sqliteMemory && !moduleRunner) ||
       authored.sourceDescriptor?.kind !== "host-abi-function" ||
       authored.sourceDescriptor?.functionName !== authored.functionName ||
-      canonicalJson(authored.sourceDescriptor?.selectedBranch) !==
-        canonicalJson(authored.operation?.selectedBranch)
+      (sqliteMemory &&
+        (authored.operation?.selectedBranch?.id !== "memory" ||
+          canonicalJson(authored.sourceDescriptor?.selectedBranch) !==
+            canonicalJson(authored.operation?.selectedBranch))) ||
+      (moduleRunner &&
+        canonicalJson(authored.sourceDescriptor?.sourceRefs) !==
+          canonicalJson([
+            `src/engine/hermes_module_runner.cc#${authored.functionName}`,
+          ]))
     ) {
       throw new Error(
         `${recipe.fixtureId}: host ABI runtime invocation descriptor drift`,
+      );
+    }
+  } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-module-loader-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "surfaceName"],
+      `${recipe.fixtureId}: module-loader runtime invocation`,
+    );
+    const operations = new Map([
+      ["module-runner-edge-authorization", "authorize-edge"],
+      ["module-runner-trusted-source-acquisition", "source-acquisition"],
+      ["module-runner-cache-access", "cache-read"],
+      ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
+    ]);
+    const expectedOperation = operations.get(authored.surfaceName);
+    const expectedFunction =
+      expectedOperation === "authorize-edge"
+        ? "authorize"
+        : "authorize_then_access";
+    if (
+      invocation.kind !== "module-loader-authority" ||
+      invocation.surfaceName !== authored.surfaceName ||
+      !expectedOperation ||
+      authored.operation?.kind !== expectedOperation ||
+      authored.sourceDescriptor?.kind !== "module-loader-function" ||
+      authored.sourceDescriptor?.surfaceName !== authored.surfaceName ||
+      canonicalJson(authored.sourceDescriptor?.sourceRefs) !==
+        canonicalJson([
+          `src/module_loader/security.rs#${expectedFunction}`,
+        ])
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: module-loader runtime invocation descriptor drift`,
       );
     }
   } else if (
@@ -1102,6 +1171,45 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(
         `${recipe.fixtureId}: closed-surface runtime invocation descriptor drift`,
       );
+    }
+    if (authored.operation?.kind === "module-runner-namespace") {
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed module-runner source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "expectedError"],
+        `${recipe.fixtureId}: closed module-runner operation`,
+      );
+      const functionName = "ex_hermes_module_record_namespace_json";
+      if (
+        authored.surfaceKind !== "host-abi" ||
+        authored.surfaceName !== functionName ||
+        descriptor.kind !== "closed-module-runner-namespace" ||
+        descriptor.surfaceObservedKey !== `host-abi:${functionName}` ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([
+            `src/engine/hermes_module_runner.cc#${functionName}`,
+          ]) ||
+        descriptor.sourceMetadata?.definitions?.length !== 1 ||
+        descriptor.sourceMetadata.definitions[0].language !== "c++" ||
+        descriptor.sourceMetadata.definitions[0].sourceRef !==
+          descriptor.sourceRefs[0] ||
+        authored.operation.expectedError !==
+          "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: closed module-runner descriptor drift`,
+        );
+      }
     }
     if (authored.operation?.kind === "loader-executable-file") {
       const loaderExpectation = new Map([
@@ -1514,18 +1622,65 @@ function validateRuntimeInvocation(observation, recipe) {
     if (
       authored.invocationSchema === "ibex/capsec-host-abi-invocation/1"
     ) {
+      if (authored.operation.kind === "sqlite-memory") {
+        exactKeys(
+          invocation.result,
+          ["kind", "functionName", "operation", "cleanup"],
+          `${recipe.fixtureId}: host ABI runtime result`,
+        );
+        if (
+          invocation.result.functionName !== authored.functionName ||
+          invocation.result.operation !== "sqlite-memory" ||
+          invocation.result.cleanup !== "released-sqlite-memory-state"
+        ) {
+          throw new Error(
+            `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+          );
+        }
+      } else {
+        exactKeys(
+          invocation.result,
+          [
+            "kind",
+            "functionName",
+            "operation",
+            "observedFunctionNames",
+            "cleanup",
+          ],
+          `${recipe.fixtureId}: module-runner host ABI runtime result`,
+        );
+        if (
+          invocation.result.functionName !== authored.functionName ||
+          invocation.result.operation !== "module-runner-source-graph" ||
+          invocation.result.cleanup !== "released-module-graph" ||
+          !Array.isArray(invocation.result.observedFunctionNames) ||
+          !invocation.result.observedFunctionNames.includes(
+            authored.functionName,
+          )
+        ) {
+          throw new Error(
+            `${recipe.fixtureId}: module-runner graph did not enter the exact host ABI`,
+          );
+        }
+      }
+    } else if (
+      authored.invocationSchema ===
+      "ibex/capsec-module-loader-invocation/1"
+    ) {
       exactKeys(
         invocation.result,
-        ["kind", "functionName", "operation", "cleanup"],
-        `${recipe.fixtureId}: host ABI runtime result`,
+        ["kind", "surfaceName", "operation", "accessExecuted", "cleanup"],
+        `${recipe.fixtureId}: module-loader runtime result`,
       );
+      const isAccess = authored.operation.kind !== "authorize-edge";
       if (
-        invocation.result.functionName !== authored.functionName ||
-        invocation.result.operation !== "sqlite-memory" ||
-        invocation.result.cleanup !== "released-sqlite-memory-state"
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.operation !== authored.operation.kind ||
+        invocation.result.accessExecuted !== isAccess ||
+        invocation.result.cleanup !== "none"
       ) {
         throw new Error(
-          `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+          `${recipe.fixtureId}: module-loader runtime result did not prove its exact access`,
         );
       }
     } else if (
@@ -1613,9 +1768,26 @@ function validateRuntimeInvocation(observation, recipe) {
     if (
       invocation.result.kind !== "throw" ||
       typeof invocation.result.errorMessage !== "string" ||
-      !invocation.result.errorMessage.includes("Permission denied")
+      !invocation.result.errorMessage.toLowerCase().includes("permission denied")
     ) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
+    }
+  } else if (authored.expectedResult === "invalid-handle") {
+    exactKeys(
+      invocation.result,
+      ["kind", "globalName", "errorName", "errorMessage"],
+      `${recipe.fixtureId}: retained-object refusal result`,
+    );
+    if (
+      invocation.result.kind !== "throw" ||
+      invocation.result.globalName !== authored.globalName ||
+      invocation.result.errorName !== "Error" ||
+      typeof invocation.result.errorMessage !== "string" ||
+      !invocation.result.errorMessage.endsWith(": invalid handle")
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: public invocation did not prove its exact retained-object refusal`,
+      );
     }
   } else if (authored.expectedResult === "absent") {
     if (
@@ -1809,6 +1981,15 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: Exact invocation did not fail closed before the embedder callback`,
       );
     }
+    if (
+      authored.operation?.kind === "module-runner-namespace" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed module namespace inspection did not fail closed`,
+      );
+    }
     const loaderExecutableExpectation = new Map([
       [
         "native-addon",
@@ -1865,6 +2046,8 @@ function validateRuntimeInvocation(observation, recipe) {
           ]
         : authored.expectedResult === "permission-denied"
           ? ["typed-permission-denial", true]
+          : authored.expectedResult === "invalid-handle"
+            ? ["retained-object-refusal", true]
           : ["exact-global-absence", false];
     if (
       invocation.executionProof.kind !== expectedProof[0] ||
@@ -1919,6 +2102,7 @@ export function validatePublicFixtureRuntimeObservation(
     authored.invocationSchema ===
     "ibex/capsec-startup-environment-invocation/1";
   const auxiliaryCarrier = callbackInvariant || startupEnvironment;
+  const nativeWorkerTerminal = nativeAsyncWorkerTerminal(authored);
   if (callbackInvariant) {
     // Callback/control surfaces are non-capabilities, but their invariant can
     // exercise one separately reviewed effect edge. Bind that auxiliary
@@ -2231,6 +2415,16 @@ export function validatePublicFixtureRuntimeObservation(
       : sourceVariantAbsence
       ? `${observation.invocation.result.surfaceKind}:${observation.invocation.result.surfaceName}`
       : observation.invocation.surfaceObservedKey;
+  } else if (nativeWorkerTerminal !== null) {
+    if (
+      terminals.size !== 1 ||
+      !terminals.has(nativeWorkerTerminal)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: async invocation did not remain on its source-selected worker`,
+      );
+    }
+    terminalObservedKey = observation.invocation.surfaceObservedKey;
   } else {
     if (terminals.size !== 1) {
       throw new Error(

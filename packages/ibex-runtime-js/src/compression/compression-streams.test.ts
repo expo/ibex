@@ -22,6 +22,10 @@ import * as zlib from 'node:zlib';
 import { CompressionStream } from './CompressionStream';
 import { DecompressionStream } from './DecompressionStream';
 
+test('keeps the unhandled-rejection filter sentinel off globalThis', () => {
+  expect('__exactHasDecompressionUnhandledFilter' in globalThis).toBe(false);
+});
+
 const g = globalThis as Record<string, any>;
 
 const toBuf = (input: Uint8Array): Buffer =>

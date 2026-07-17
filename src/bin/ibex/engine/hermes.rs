@@ -913,6 +913,10 @@ extern "C" {
         callbacks_queued: *mut u64,
         callbacks_delivered: *mut u64,
     ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_begin_module_runner_abi_observation();
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_take_module_runner_abi_observation() -> *mut std::os::raw::c_char;
     fn ex_hermes_debugger_enable(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_debugger_get_scripts(
         runtime: *mut HermesRuntimeOpaque,

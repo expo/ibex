@@ -283,7 +283,7 @@ commandEvidence.push(
       "--bin",
       "ibex",
       "--features",
-      "capsec-conformance-observer",
+      "capsec-conformance-observer,openssl-crypto",
       "capsec_executable_recipe_adapter_batch",
       "--",
       "--test-threads=1",

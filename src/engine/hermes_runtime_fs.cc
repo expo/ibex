@@ -4246,6 +4246,37 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactStatfs: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution —
+          // Filesystem metadata is authorized as fs:list and read from the
+          // retained target, never from a later path lookup.
+          constexpr uint32_t kFsStatfsSurface = 14;
+          auto descriptors = openArmedListTarget(
+              runtime, path, kFsStatfsSurface, metadataOpenFlags(), "");
+#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
+          struct statfs buf;
+          if (::fstatfs(*descriptors.target, &buf) != 0) {
+            throwFsError(runtime, "statfs", path);
+          }
+          uint64_t type = static_cast<uint64_t>(buf.f_type);
+#else
+          struct statvfs buf;
+          if (::fstatvfs(*descriptors.target, &buf) != 0) {
+            throwFsError(runtime, "statfs", path);
+          }
+          uint64_t type = 0;
+#endif
+          std::ostringstream oss;
+          oss << "{"
+              << "\"type\":" << type << ","
+              << "\"bsize\":" << buf.f_bsize << ","
+              << "\"blocks\":" << static_cast<uint64_t>(buf.f_blocks) << ","
+              << "\"bfree\":" << static_cast<uint64_t>(buf.f_bfree) << ","
+              << "\"bavail\":" << static_cast<uint64_t>(buf.f_bavail) << ","
+              << "\"files\":" << static_cast<uint64_t>(buf.f_files) << ","
+              << "\"ffree\":" << static_cast<uint64_t>(buf.f_ffree) << "}";
+          return facebook::jsi::String::createFromUtf8(runtime, oss.str());
+        }
         // Filesystem stats are a read/metadata disclosure. (ENG-22627)
         if (!checkCapability("fs:read:" + path)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");

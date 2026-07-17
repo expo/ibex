@@ -16,7 +16,7 @@ const STARTUP_ENVIRONMENT_BATCH_COMMAND: [&str; 9] = [
     "--bin",
     "ibex",
     "--features",
-    "capsec-conformance-observer",
+    "capsec-conformance-observer,openssl-crypto",
     "capsec_public_startup_environment_batch",
     "--",
     "--test-threads=1",

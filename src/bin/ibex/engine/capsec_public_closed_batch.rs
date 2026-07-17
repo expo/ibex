@@ -133,6 +133,10 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    ModuleRunnerNamespace {
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
 }
 
 impl ClosedOperation {
@@ -143,6 +147,7 @@ impl ClosedOperation {
             Self::TamedEvaluator { .. } => "tamed-evaluator",
             Self::LoaderExecutableFile { .. } => "loader-executable-file",
             Self::ExactUnendowedOperation { .. } => "exact-unendowed-operation",
+            Self::ModuleRunnerNamespace { .. } => "module-runner-namespace",
         }
     }
 
@@ -152,7 +157,8 @@ impl ClosedOperation {
             Self::CliControl { .. }
             | Self::TamedEvaluator { .. }
             | Self::LoaderExecutableFile { .. }
-            | Self::ExactUnendowedOperation { .. } => None,
+            | Self::ExactUnendowedOperation { .. }
+            | Self::ModuleRunnerNamespace { .. } => None,
         }
     }
 }
@@ -163,7 +169,7 @@ const CLOSED_BATCH_COMMAND: [&str; 9] = [
     "--bin",
     "ibex",
     "--features",
-    "capsec-conformance-observer",
+    "capsec-conformance-observer,openssl-crypto",
     "capsec_public_closed_recipe_batch",
     "--",
     "--test-threads=1",
@@ -1440,6 +1446,233 @@ fn assert_cli_control_selected(
     }
 }
 
+async fn execute_closed_module_runner_namespace(
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    use ibex_runtime::engine::module_runner::{NativeModuleRuntime, NativeSynchronousGraph};
+    use ibex_runtime::module_loader::runner_pipeline::{
+        build_authenticated_source_graph_v1, SourceModuleGraphBuildV1,
+    };
+    use ibex_runtime::module_loader::security::ModuleGraphAuthorizer;
+
+    let invocation = &probe.invocation;
+    let ClosedOperation::ModuleRunnerNamespace { expected_error } = &invocation.operation else {
+        panic!("module-runner namespace probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "host-abi");
+    assert_eq!(
+        invocation.surface_name,
+        "ex_hermes_module_record_namespace_json"
+    );
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+    assert_eq!(
+        expected_error,
+        "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup"
+    );
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-module-runner-namespace");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(
+        descriptor.source_refs,
+        ["src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json"]
+    );
+    assert_eq!(
+        descriptor.source_metadata["definitions"][0]["language"],
+        "c++"
+    );
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed module-runner recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let directory = tempfile::tempdir().expect("create closed module-runner project root");
+    let project_root = std::fs::canonicalize(directory.path())
+        .expect("canonicalize closed module-runner project root");
+    let entry = project_root.join("entry.mjs");
+    std::fs::write(&entry, "export const value = 42;\n")
+        .expect("write closed module-runner entry");
+    let (host, snapshot_digest) = build_armed_test_host_custom(
+        Some(&project_root),
+        false,
+        true,
+        true,
+        Vec::new(),
+        None,
+        |_| {},
+    );
+    assert_ne!(crate::host::abi::install_host(host), 0);
+    let _reset = HostResetGuard;
+    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
+        .expect("loaded engine digest is canonical");
+    let graph = match build_authenticated_source_graph_v1(
+        &entry,
+        producer_digest,
+        "capsec-closed-module-runner-namespace",
+    )
+    .expect("build authenticated closed module-runner graph")
+    {
+        SourceModuleGraphBuildV1::Native(graph) => graph,
+        SourceModuleGraphBuildV1::LegacyRequired(requirement) => panic!(
+            "closed module-runner graph unexpectedly required legacy: {}",
+            requirement.reason
+        ),
+    };
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create armed closed module-runner engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load armed closed module-runner runtime");
+    unsafe { ibex_test_begin_module_runner_abi_observation() };
+    let session_id = format!("closed-module-runner-namespace:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &session_id
+    ));
+    let runtime = engine
+        .ensure_runtime()
+        .await
+        .expect("borrow armed closed module-runner runtime");
+    let error = runtime
+        .with_runtime(|raw| -> anyhow::Result<String> {
+            let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+            let pin_status = unsafe { ex_hermes_module_pin_generation(raw, nonce, 1) };
+            anyhow::ensure!(pin_status == 0, "module generation pin refused ({pin_status})");
+            let result = (|| -> anyhow::Result<String> {
+                let raw = std::ptr::NonNull::new(raw.cast())
+                    .expect("loaded Hermes runtime pointer is non-null");
+                let native = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
+                let plan = graph.plan()?;
+                let (configs, authority_contexts) = graph.native_execution_inputs(1)?;
+                let authorizer = ModuleGraphAuthorizer::new(graph.snapshot());
+                let linked = NativeSynchronousGraph::link_authorized(
+                    &native,
+                    &plan,
+                    graph.entry(),
+                    configs,
+                    &authorizer,
+                    &authority_contexts,
+                )?;
+                let error = linked
+                    .namespace_json(graph.entry())
+                    .expect_err("armed runtime exposed module namespace inspection")
+                    .to_string();
+                drop(linked);
+                drop(native);
+                Ok(error)
+            })();
+            let unpin_status = unsafe { ex_hermes_module_unpin_generation(raw, nonce, 1) };
+            anyhow::ensure!(
+                unpin_status == 0,
+                "module generation unpin refused ({unpin_status})"
+            );
+            result
+        })
+        .expect("access armed closed module-runner runtime")
+        .expect("exercise armed module namespace closure");
+    assert_eq!(&error, expected_error);
+    let pointer = unsafe { ibex_test_take_module_runner_abi_observation() };
+    assert!(!pointer.is_null(), "module-runner ABI observer returned no result");
+    let observed_text = unsafe { std::ffi::CStr::from_ptr(pointer) }
+        .to_str()
+        .expect("module-runner ABI observations must be UTF-8")
+        .to_owned();
+    unsafe { ex_hermes_free_string(pointer) };
+    let observed: Vec<String> = serde_json::from_value(
+        capsec_semantics::strict_json::parse_strict(&observed_text)
+            .expect("module-runner ABI observations must be strict JSON"),
+    )
+    .expect("module-runner ABI observations must be a string array");
+    assert!(observed
+        .iter()
+        .any(|name| name == "ex_hermes_module_record_namespace_json"));
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": error,
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed module-runner observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 async fn execute_closed_cli_control(
     recipe: &Recipe,
     probe: &ClosedSurfaceProbe,
@@ -1719,9 +1952,26 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let module_runner_namespace_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::ModuleRunnerNamespace { .. }
+            )
+        })
+        .count();
     assert_eq!(
         recipe_indexes.len(),
-        startup_count + cli_count + evaluator_count + loader_count + exact_unendowed_count,
+        startup_count
+            + cli_count
+            + evaluator_count
+            + loader_count
+            + exact_unendowed_count
+            + module_runner_namespace_count,
         "every closed recipe must have an accounted execution family"
     );
     assert_eq!(
@@ -1742,6 +1992,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         exact_unendowed_count, 1,
         "expected the authenticated Exact app endowment closure fixture"
+    );
+    assert_eq!(
+        module_runner_namespace_count, 1,
+        "expected the armed module namespace inspection closure fixture"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
@@ -1792,6 +2046,15 @@ async fn capsec_public_closed_recipe_batch() {
             }
             ClosedOperation::ExactUnendowedOperation { .. } => {
                 execute_closed_exact_unendowed_operation(
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await
+            }
+            ClosedOperation::ModuleRunnerNamespace { .. } => {
+                execute_closed_module_runner_namespace(
                     recipe,
                     &probe,
                     &coverage,

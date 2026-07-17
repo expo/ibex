@@ -1126,10 +1126,23 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           return Object.keys({safe: values.join(',')});
         }
         function dynamicReceiver() { return service.run(); }
+        var intrinsicRegistry = typeof WeakMap === 'function'
+          ? new WeakMap()
+          : null;
+        var mutableRegistry = new Map();
+        mutableRegistry = service;
+        function intrinsicRegistryRead() {
+          if (intrinsicRegistry) intrinsicRegistry.get(service);
+          return globalThis.__exactReadFile('/tmp/input');
+        }
+        function mutableRegistryRead() {
+          mutableRegistry.get('unsafe');
+          return globalThis.__exactReadFile('/tmp/input');
+        }
         module.exports = {
           shadowed, dynamicTerminal, computed, aliased,
           Reader, Writer, staticObject, mutableObject, intrinsic,
-          dynamicReceiver
+          dynamicReceiver, intrinsicRegistryRead, mutableRegistryRead
         };
       `,
       {
@@ -1160,6 +1173,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "dynamic-call-receiver:read",
     );
     expect(evidence("intrinsic").ambiguousCallees).toEqual([]);
+    expect(evidence("intrinsicRegistryRead")).toMatchObject({
+      ambiguousCallees: [],
+      terminals: ["__exactReadFile"],
+    });
+    expect(evidence("mutableRegistryRead").ambiguousCallees).toContain(
+      "dynamic-call-receiver:get",
+    );
   });
 
   test("builtin routes follow only immutable constructor and callable provenance", () => {
