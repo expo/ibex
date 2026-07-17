@@ -82,6 +82,22 @@ const TAMED_EVALUATOR_ACCESS = new Map([
   ["global:GeneratorFunction", "generator-function-constructor"],
 ]);
 
+const TERMINAL_BUILTIN_SPECIFIERS = new Map([
+  ["node_async_hooks", ["async_hooks", "node:async_hooks"]],
+  [
+    "node_inspector",
+    [
+      "inspector",
+      "inspector/promises",
+      "node:inspector",
+      "node:inspector/promises",
+    ],
+  ],
+  ["node_vm", ["node:vm", "vm"]],
+  ["node_wasi", ["node:wasi", "wasi"]],
+  ["node_worker_threads", ["node:worker_threads", "worker_threads"]],
+]);
+
 const EXACT_OPERATION_MANIFEST_DIGEST =
   "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
 const EXACT_APP_OPERATION_IDS = Object.freeze([7, 11]);
@@ -663,6 +679,87 @@ function loaderExecutableKindProbe({
   };
 }
 
+function terminalBuiltinImportProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length > 1
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (!surfaceObservedKey.startsWith("builtin:")) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const moduleSpecifiers = TERMINAL_BUILTIN_SPECIFIERS.get(
+    metadata?.sourceKey,
+  );
+  if (!moduleSpecifiers) return null;
+  const terminalBuiltinRoot = moduleSpecifiers[0]
+    .replace(/^node:/u, "")
+    .split("/")[0];
+  const exportSurface = metadata.surfaceType === "export";
+  const expectedSurfaceName = exportSurface
+    ? `export:${metadata.sourceKey}:${metadata.exportName}`
+    : terminalBuiltinRoot;
+  if (
+    live.kind !== "builtin" ||
+    live.name !== expectedSurfaceName ||
+    live.observedKey !== `builtin:${expectedSurfaceName}` ||
+    metadata.importReachability !== "public" ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    (exportSurface
+      ? canonicalJson(metadata.publicModuleSpecifiers) !==
+        canonicalJson(moduleSpecifiers)
+      : metadata.moduleBuiltin !== true || metadata.bundleExternal !== true) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    (route.alternatives.length === 1 &&
+      route.alternatives[0].terminalObservedKey !== surfaceObservedKey)
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-terminal-builtin",
+    surfaceObservedKey,
+    sourceKey: metadata.sourceKey,
+    ...(exportSurface ? { exportName: metadata.exportName } : {}),
+    moduleSpecifiers: [...moduleSpecifiers],
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "builtin",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "terminal-builtin-import",
+        terminalBuiltinRoot,
+        moduleSpecifiers: [...moduleSpecifiers],
+        expectedRejectionFragment: "Import denied:",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredClosedPublicProbe(options) {
   const { plan, scenario } = options;
   if (
@@ -680,7 +777,8 @@ export function authoredClosedPublicProbe(options) {
     exactUnendowedOperationProbe(options) ??
     tamedEvaluatorProbe(options) ??
     moduleRunnerNamespaceProbe(options) ??
-    loaderExecutableKindProbe(options)
+    loaderExecutableKindProbe(options) ??
+    terminalBuiltinImportProbe(options)
   );
 }
 

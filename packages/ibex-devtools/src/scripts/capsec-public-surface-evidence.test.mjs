@@ -771,6 +771,46 @@ function completeClosedLoaderCatalog() {
   return catalog;
 }
 
+function completeClosedTerminalBuiltinCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "closed-terminal-builtin",
+    surfaceObservedKey: "builtin:export:node_vm:runInNewContext",
+    sourceKey: "node_vm",
+    exportName: "runInNewContext",
+    moduleSpecifiers: ["node:vm", "vm"],
+    sourceRefs: ["src/builtins/vm.js#exports:runInNewContext"],
+    sourceMetadata: {
+      surfaceType: "export",
+      sourceKey: "node_vm",
+      exportName: "runInNewContext",
+      importReachability: "public",
+      publicModuleSpecifiers: ["node:vm", "vm"],
+    },
+  };
+  recipe.fixtureId = "fixture.builtin.vm.run-in-new-context.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "builtin",
+    surfaceName: "export:node_vm:runInNewContext",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "terminal-builtin-import",
+      terminalBuiltinRoot: "vm",
+      moduleSpecifiers: ["node:vm", "vm"],
+      expectedRejectionFragment: "Import denied:",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedExactCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -905,6 +945,13 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
       ? invocation.operation.expectedRejectionFragments.join("; ")
       : invocation.operation.kind === "loader-executable-file"
         ? invocation.operation.rejectionFragment
+        : invocation.operation.kind === "terminal-builtin-import"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment} '${specifier}'`,
+              )
+              .join("\n")
         : invocation.operation.kind === "exact-unendowed-operation"
           ? invocation.operation.expectedError
           : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
@@ -926,6 +973,7 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         errorMessage,
         engineExecuted:
           invocation.operation.kind === "loader-executable-file" ||
+          invocation.operation.kind === "terminal-builtin-import" ||
           invocation.operation.kind === "exact-unendowed-operation",
         projectCodeExecuted,
       },
@@ -2022,6 +2070,46 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/executed extension guard/);
+  });
+
+  test("accepts terminal builtin closure only when every public alias is denied", () => {
+    const catalog = completeClosedTerminalBuiltinCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "node:vm: Import denied: 'node:vm'";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/aliases did not fail closed/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey =
+      "node_wasi";
+    drifted.publicSurfaceProbe.invocation.sourceDescriptorDigest = taggedDigest(
+      drifted.publicSurfaceProbe.invocation.sourceDescriptor,
+    );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/authenticated import gate/);
   });
 
   test("accepts Exact closure only for the authenticated unendowed operation", () => {

@@ -3093,6 +3093,11 @@ function residualReasons({
     publicSurfaceProbe.invocation.expectedTypedDecisionCount > 0 &&
     Array.isArray(publicSurfaceProbe.invocation.allowedCoverageEdgeIds) &&
     publicSurfaceProbe.invocation.allowedCoverageEdgeIds.length > 0;
+  const terminalBuiltinClosureProbe =
+    publicSurfaceProbe?.invocation?.invocationSchema ===
+      "ibex/capsec-closed-surface-invocation/1" &&
+    publicSurfaceProbe?.invocation?.operation?.kind ===
+      "terminal-builtin-import";
   if (plan.expectedObservation.kind === "target-absence") {
     if (!publicSurfaceProbe) {
       reasons.push("target-absence-probe-not-authored");
@@ -3147,7 +3152,8 @@ function residualReasons({
   if (
     route.alternatives.length === 0 &&
     plan.expectedObservation.kind !== "target-absence" &&
-    !callbackInvariantProbe
+    !callbackInvariantProbe &&
+    !terminalBuiltinClosureProbe
   ) {
     reasons.push("no-static-enforcement-terminal");
   }
@@ -3160,7 +3166,8 @@ function residualReasons({
   if (
     route.ambiguousCallees.length > 0 &&
     !callbackInvariantProbe &&
-    !effectBuiltinProbe
+    !effectBuiltinProbe &&
+    !terminalBuiltinClosureProbe
   ) {
     reasons.push("ambiguous-static-enforcement-route");
   }

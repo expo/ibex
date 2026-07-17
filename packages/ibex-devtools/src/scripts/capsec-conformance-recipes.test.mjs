@@ -1376,6 +1376,88 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("binds every terminal builtin source facet to the authenticated import denial", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "terminal-builtin-import",
+    );
+    expect(rows).toHaveLength(99);
+    expect(
+      Object.entries(
+        Object.groupBy(
+          rows,
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.terminalBuiltinRoot,
+        ),
+      )
+        .map(([root, grouped]) => [root, grouped.length])
+        .sort(),
+    ).toEqual([
+      ["async_hooks", 24],
+      ["inspector", 19],
+      ["vm", 10],
+      ["wasi", 6],
+      ["worker_threads", 40],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs
+            .length === 1,
+      ),
+    ).toBe(true);
+    const module = rows.find(
+      (recipe) => recipe.terminalObservedKey === "builtin:async_hooks",
+    );
+    expect(module).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          surfaceKind: "builtin",
+          surfaceName: "async_hooks",
+          sourceDescriptor: {
+            kind: "closed-terminal-builtin",
+            sourceKey: "node_async_hooks",
+            moduleSpecifiers: ["async_hooks", "node:async_hooks"],
+            sourceRefs: ["modules.ts#specifiers:node_async_hooks"],
+          },
+          operation: {
+            kind: "terminal-builtin-import",
+            terminalBuiltinRoot: "async_hooks",
+            moduleSpecifiers: ["async_hooks", "node:async_hooks"],
+            expectedRejectionFragment: "Import denied:",
+          },
+        },
+      },
+    });
+    const exported = rows.find(
+      (recipe) =>
+        recipe.terminalObservedKey ===
+        "builtin:export:node_vm:runInNewContext",
+    );
+    expect(exported).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          surfaceName: "export:node_vm:runInNewContext",
+          sourceDescriptor: {
+            kind: "closed-terminal-builtin",
+            sourceKey: "node_vm",
+            exportName: "runInNewContext",
+            moduleSpecifiers: ["node:vm", "vm"],
+            sourceRefs: ["src/builtins/vm.js#exports:runInNewContext"],
+          },
+        },
+      },
+    });
+  });
+
   test("executes module-runner authority and trusted-access loader surfaces", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>

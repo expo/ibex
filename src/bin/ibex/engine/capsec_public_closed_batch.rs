@@ -82,6 +82,12 @@ struct ClosedSourceDescriptor {
     loader_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     extension: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    export_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    module_specifiers: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -137,6 +143,14 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    TerminalBuiltinImport {
+        #[serde(rename = "terminalBuiltinRoot")]
+        terminal_builtin_root: String,
+        #[serde(rename = "moduleSpecifiers")]
+        module_specifiers: Vec<String>,
+        #[serde(rename = "expectedRejectionFragment")]
+        expected_rejection_fragment: String,
+    },
 }
 
 impl ClosedOperation {
@@ -148,6 +162,7 @@ impl ClosedOperation {
             Self::LoaderExecutableFile { .. } => "loader-executable-file",
             Self::ExactUnendowedOperation { .. } => "exact-unendowed-operation",
             Self::ModuleRunnerNamespace { .. } => "module-runner-namespace",
+            Self::TerminalBuiltinImport { .. } => "terminal-builtin-import",
         }
     }
 
@@ -158,7 +173,8 @@ impl ClosedOperation {
             | Self::TamedEvaluator { .. }
             | Self::LoaderExecutableFile { .. }
             | Self::ExactUnendowedOperation { .. }
-            | Self::ModuleRunnerNamespace { .. } => None,
+            | Self::ModuleRunnerNamespace { .. }
+            | Self::TerminalBuiltinImport { .. } => None,
         }
     }
 }
@@ -1093,6 +1109,222 @@ async fn execute_closed_loader_executable(
     })
 }
 
+fn reviewed_terminal_builtin(source_key: &str) -> Option<(&'static str, &'static [&'static str])> {
+    Some(match source_key {
+        "node_async_hooks" => ("async_hooks", &["async_hooks", "node:async_hooks"]),
+        "node_inspector" => (
+            "inspector",
+            &[
+                "inspector",
+                "inspector/promises",
+                "node:inspector",
+                "node:inspector/promises",
+            ],
+        ),
+        "node_vm" => ("vm", &["node:vm", "vm"]),
+        "node_wasi" => ("wasi", &["node:wasi", "wasi"]),
+        "node_worker_threads" => (
+            "worker_threads",
+            &["node:worker_threads", "worker_threads"],
+        ),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+async fn execute_closed_terminal_builtin_import(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::TerminalBuiltinImport {
+        terminal_builtin_root,
+        module_specifiers,
+        expected_rejection_fragment,
+    } = &invocation.operation
+    else {
+        panic!("terminal builtin probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "builtin");
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(expected_rejection_fragment, "Import denied:");
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-terminal-builtin");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.module_specifiers.as_ref(), Some(module_specifiers));
+    assert_eq!(descriptor.source_refs.len(), 1);
+    let source_key = descriptor
+        .source_key
+        .as_deref()
+        .expect("terminal builtin descriptor has no source key");
+    let (reviewed_root, reviewed_specifiers) =
+        reviewed_terminal_builtin(source_key).expect("unreviewed terminal builtin source");
+    assert_eq!(terminal_builtin_root, reviewed_root);
+    assert_eq!(
+        module_specifiers,
+        &reviewed_specifiers
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(descriptor.source_metadata["sourceKey"], source_key);
+    assert_eq!(
+        descriptor.source_metadata["importReachability"],
+        "public"
+    );
+    if let Some(export_name) = descriptor.export_name.as_deref() {
+        assert_eq!(descriptor.source_metadata["surfaceType"], "export");
+        assert_eq!(descriptor.source_metadata["exportName"], export_name);
+        assert_eq!(
+            descriptor.source_metadata["publicModuleSpecifiers"],
+            serde_json::json!(module_specifiers)
+        );
+        assert_eq!(
+            invocation.surface_name,
+            format!("export:{source_key}:{export_name}")
+        );
+    } else {
+        assert!(descriptor.source_metadata.get("surfaceType").is_none());
+        assert_eq!(descriptor.source_metadata["moduleBuiltin"], true);
+        assert_eq!(descriptor.source_metadata["bundleExternal"], true);
+        assert_eq!(invocation.surface_name, *terminal_builtin_root);
+    }
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed terminal builtin recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let script = format!(
+        r#"JSON.stringify((function(specifiers) {{
+  return specifiers.map(function(specifier) {{
+    var errorName = null;
+    var errorMessage = null;
+    try {{ require(specifier); }}
+    catch (error) {{
+      errorName = String(error && error.name || 'Error');
+      errorMessage = String(error && error.message || error);
+    }}
+    return {{specifier: specifier, errorName: errorName, errorMessage: errorMessage}};
+  }});
+}})({}))"#,
+        serde_json::to_string(module_specifiers).unwrap()
+    );
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute terminal builtin public imports")
+        .expect("terminal builtin imports returned no result");
+    let observed: Vec<serde_json::Value> =
+        serde_json::from_str(&encoded).expect("terminal builtin result must be JSON");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert_eq!(observed.len(), module_specifiers.len());
+    let mut errors = Vec::with_capacity(observed.len());
+    for (row, specifier) in observed.iter().zip(module_specifiers) {
+        assert_eq!(row["specifier"].as_str(), Some(specifier.as_str()));
+        assert_eq!(row["errorName"], "Error");
+        let error = row["errorMessage"]
+            .as_str()
+            .expect("terminal builtin import unexpectedly succeeded");
+        assert!(
+            error.contains(expected_rejection_fragment) && error.contains(specifier),
+            "terminal builtin returned the wrong refusal for {specifier}: {error}"
+        );
+        errors.push(format!("{specifier}: {error}"));
+    }
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": errors.join("\n"),
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 fn clap_command_at_path<'a>(root: &'a clap::Command, path: &str) -> &'a clap::Command {
     let mut components = path.split(' ');
     assert_eq!(components.next(), Some(root.get_name()));
@@ -1964,6 +2196,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let terminal_builtin_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::TerminalBuiltinImport { .. }
+            )
+        })
+        .count();
     assert_eq!(
         recipe_indexes.len(),
         startup_count
@@ -1971,7 +2215,8 @@ async fn capsec_public_closed_recipe_batch() {
             + evaluator_count
             + loader_count
             + exact_unendowed_count
-            + module_runner_namespace_count,
+            + module_runner_namespace_count
+            + terminal_builtin_count,
         "every closed recipe must have an accounted execution family"
     );
     assert_eq!(
@@ -1997,6 +2242,10 @@ async fn capsec_public_closed_recipe_batch() {
         module_runner_namespace_count, 1,
         "expected the armed module namespace inspection closure fixture"
     );
+    assert_eq!(
+        terminal_builtin_count, 99,
+        "expected every source facet of the five terminal builtin modules"
+    );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
     let identity_before = HermesEngine::loaded_engine_identity()
@@ -2004,9 +2253,79 @@ async fn capsec_public_closed_recipe_batch() {
     attest_exact_engine().await;
     let coverage = coverage_terminals();
     let mut executions = Vec::with_capacity(recipe_indexes.len());
+    if terminal_builtin_count > 0 {
+        let terminal_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::TerminalBuiltinImport { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let terminal_imports = terminal_indexes
+            .iter()
+            .flat_map(|index| {
+                let probe = closed_surface_probe(&catalog.recipes[*index]).unwrap();
+                let ClosedOperation::TerminalBuiltinImport {
+                    module_specifiers, ..
+                } = probe.invocation.operation
+                else {
+                    unreachable!()
+                };
+                module_specifiers
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) = build_armed_test_host_custom(
+            None,
+            false,
+            false,
+            false,
+            Vec::new(),
+            None,
+            |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(terminal_imports);
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact terminal builtin closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact terminal builtin closure runtime");
+        for index in terminal_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_terminal_builtin_import(
+                    &engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await,
+            );
+        }
+    }
     for index in recipe_indexes {
         let recipe = &catalog.recipes[index];
         let probe = closed_surface_probe(recipe).unwrap();
+        if matches!(
+            &probe.invocation.operation,
+            ClosedOperation::TerminalBuiltinImport { .. }
+        ) {
+            continue;
+        }
         executions.push(match &probe.invocation.operation {
             ClosedOperation::StartupEnvironment { .. } => {
                 execute_closed_startup_environment(
@@ -2062,6 +2381,7 @@ async fn capsec_public_closed_recipe_batch() {
                 )
                 .await
             }
+            ClosedOperation::TerminalBuiltinImport { .. } => unreachable!(),
         });
     }
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24933 binds all 99 source facets of the terminal `async_hooks`, inspector, VM, WASI, and worker-thread builtins to loaded-engine denial of every public alias under an authenticated overbroad snapshot)
 **Revised:** 2026-07-17 (ENG-24933 completes a source-, tree-, engine-, target-, and catalog-bound physical Apple Release report with 24/24 prerequisite commands passing; the report remains fail-closed with 1 conformant cell, 7,107 incomplete cells, and no advertisement)
 **Revised:** 2026-07-17 (ENG-24933 implements Windows mapped-DLL object identity and a pinned patched no-debugger Release artifact pipeline while retaining the target's unsupported status pending runtime evidence)
 **Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
@@ -588,7 +589,7 @@ must be promoted only from the checked conformance report. Missing artifacts,
 wrong targets, identity or registry mismatches, fixed/stale nonces, replayed
 input, and unadvertised rows all remain startup refusals.
 
-Implementation status (2026-07-16): the dedicated binary app/agent ingress and
+Implementation status (2026-07-17): the dedicated binary app/agent ingress and
 single-use completion path exist and are usable by an armed runtime without
 making `__hostCall` reachable. Its setter publishes an immutable method on the
 stable pre-captured `exact` object and atomically completes the one-shot package
@@ -610,10 +611,11 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalog has 23,126 required
-fixtures, 4,845 fully executable recipes, and 18,281 unresolved
-fixtures. The latest source-bound tranches add four loader/source-acquisition
-recipes, 24 native module-runner ABI lifecycle recipes, one armed
-namespace-inspection closure, 14 asymmetric/EVP crypto recipes, eight
+fixtures, 4,944 fully executable recipes, and 18,182 unresolved
+fixtures. The latest source-bound tranches add 99 terminal-builtin closure
+recipes, four loader/source-acquisition recipes, 24 native module-runner ABI
+lifecycle recipes, one armed namespace-inspection closure, 14 asymmetric/EVP
+crypto recipes, eight
 owner-authenticated timer-control recipes, nine bounded authority-control
 refusals, six retained HTTP/process owner refusals, two owned filesystem-close
 executions, three incomplete/invalid authority-control refusals, one loader-private
@@ -663,9 +665,11 @@ members, and dynamic tables remain rejected.
 The builtin route analyzer now admits module bindings only when their source
 initializer is recursively proven intrinsic and the binding is never
 reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
-7,092 while retaining all 18,281 unresolved fixtures: an opaque reassignment
-still fails closed, and removing false route ambiguity is not itself public
-execution evidence.
+7,092: an opaque reassignment still fails closed, and removing false route
+ambiguity is not itself public execution evidence. The later terminal-builtin
+denial tranche resolves 99 exact source facets before module evaluation,
+including 49 otherwise ambiguous call graphs, so the current residual counts
+are 7,043 ambiguous routes and 18,182 unresolved fixtures.
 
 ### WP0 artifacts and gate
 

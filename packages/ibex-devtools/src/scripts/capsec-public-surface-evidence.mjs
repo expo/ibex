@@ -1206,6 +1206,90 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "terminal-builtin-import") {
+      const terminalBuiltin = new Map([
+        ["node_async_hooks", ["async_hooks", ["async_hooks", "node:async_hooks"]]],
+        [
+          "node_inspector",
+          [
+            "inspector",
+            [
+              "inspector",
+              "inspector/promises",
+              "node:inspector",
+              "node:inspector/promises",
+            ],
+          ],
+        ],
+        ["node_vm", ["vm", ["node:vm", "vm"]]],
+        ["node_wasi", ["wasi", ["node:wasi", "wasi"]]],
+        [
+          "node_worker_threads",
+          ["worker_threads", ["node:worker_threads", "worker_threads"]],
+        ],
+      ]).get(authored.sourceDescriptor?.sourceKey);
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceKey",
+          ...(descriptor.exportName === undefined ? [] : ["exportName"]),
+          "moduleSpecifiers",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed terminal builtin source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        [
+          "kind",
+          "terminalBuiltinRoot",
+          "moduleSpecifiers",
+          "expectedRejectionFragment",
+        ],
+        `${recipe.fixtureId}: closed terminal builtin operation`,
+      );
+      const exportSurface = descriptor.exportName !== undefined;
+      const expectedSurfaceName = exportSurface
+        ? `export:${descriptor.sourceKey}:${descriptor.exportName}`
+        : terminalBuiltin?.[0];
+      if (
+        terminalBuiltin === undefined ||
+        authored.surfaceKind !== "builtin" ||
+        authored.surfaceName !== expectedSurfaceName ||
+        recipe.terminalObservedKey !== `builtin:${expectedSurfaceName}` ||
+        descriptor.kind !== "closed-terminal-builtin" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        canonicalJson(descriptor.moduleSpecifiers) !==
+          canonicalJson(terminalBuiltin[1]) ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length !== 1 ||
+        descriptor.sourceMetadata?.sourceKey !== descriptor.sourceKey ||
+        descriptor.sourceMetadata?.importReachability !== "public" ||
+        authored.operation.terminalBuiltinRoot !== terminalBuiltin[0] ||
+        canonicalJson(authored.operation.moduleSpecifiers) !==
+          canonicalJson(terminalBuiltin[1]) ||
+        authored.operation.expectedRejectionFragment !== "Import denied:" ||
+        (exportSurface
+          ? descriptor.sourceMetadata?.surfaceType !== "export" ||
+            descriptor.sourceMetadata?.exportName !== descriptor.exportName ||
+            canonicalJson(
+              descriptor.sourceMetadata?.publicModuleSpecifiers,
+            ) !== canonicalJson(terminalBuiltin[1])
+          : descriptor.sourceMetadata?.surfaceType !== undefined ||
+            descriptor.sourceMetadata?.moduleBuiltin !== true ||
+            descriptor.sourceMetadata?.bundleExternal !== true ||
+            descriptor.sourceRefs[0] !==
+              `modules.ts#specifiers:${descriptor.sourceKey}`)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: terminal builtin closure is not bound to the authenticated import gate`,
+        );
+      }
+    }
     if (authored.operation?.kind === "exact-unendowed-operation") {
       const descriptor = authored.sourceDescriptor;
       exactKeys(
@@ -1927,6 +2011,27 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: armed module namespace inspection did not fail closed`,
+      );
+    }
+    if (
+      authored.operation?.kind === "terminal-builtin-import" &&
+      (invocation.result.engineExecuted !== true ||
+        !invocation.result.errorMessage.includes(
+          authored.operation.expectedRejectionFragment,
+        ) ||
+        !authored.operation.moduleSpecifiers.every(
+          (specifier) =>
+            invocation.result.errorMessage
+              .split("\n")
+              .some(
+                (line) =>
+                  line.startsWith(`${specifier}: `) &&
+                  line.includes(authored.operation.expectedRejectionFragment),
+              ),
+        ))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: terminal builtin aliases did not fail closed at the authenticated import gate`,
       );
     }
     const loaderExecutableExpectation = new Map([
