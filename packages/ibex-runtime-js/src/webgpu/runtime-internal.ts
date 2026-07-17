@@ -13,8 +13,9 @@ import { installProductionWebGpu } from './production-wrapper';
 /**
  * Register the authenticated construction handoff and bind the app-realm
  * wrapper install to the same native revoker. The current embedded codec
- * authority is intentionally absent, so this is a fail-closed no-op until a
- * reviewed executable codec bundle lands.
+ * authority is intentionally absent, so this is a fail-closed no-op until the
+ * reviewed injection layout has a matching native decoder and every required
+ * authenticated semantic input.
  */
 export function installNativeGpuBridgeCapture(
   globalObject: typeof globalThis,

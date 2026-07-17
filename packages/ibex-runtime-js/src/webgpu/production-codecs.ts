@@ -70,10 +70,11 @@ export interface ProductionGpuServiceEncodingInput {
   readonly sealedLocalTimeline: readonly unknown[];
 }
 
-/**
- * A future generator supplies this exact closed bundle. Conversion runs at the
- * public operation's declared timing, while encoding is allowed only after
- * wrapper-local validation and identity projection have completed.
+/** Conversion runs at the public operation's declared timing, while encoding
+ * is allowed only after wrapper-local validation and identity projection have
+ * completed. The generated injection bundle implements this interface but is
+ * deliberately not the embedded default until a matching native decoder and
+ * every required authenticated semantic field exist.
  */
 export interface ExecutableWebGpuCodecBundle {
   readonly schema: 'ibex/webgpu-executable-codecs/1';
@@ -103,9 +104,10 @@ export interface ExecutableWebGpuCodecBundle {
 }
 
 /**
- * This remains undefined until the operation-selected binary layouts and
- * Web-IDL converters are generated and reviewed. A route table or V2 carrier
- * cannot substitute for it.
+ * This remains undefined until the generated injection layout has a matching
+ * native decoder and the manifest's unavailable semantic-field list is empty.
+ * A route table, V2 carrier, or explicit test injection cannot substitute for
+ * that production-readiness evidence.
  */
 export const EMBEDDED_EXECUTABLE_WEBGPU_CODECS:
   | ExecutableWebGpuCodecBundle
@@ -155,3 +157,5 @@ export function validateExecutableWebGpuCodecs(
     typeof value.decodeDeviceLoss === 'function'
   );
 }
+
+export { WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION } from './production-codecs.generated';

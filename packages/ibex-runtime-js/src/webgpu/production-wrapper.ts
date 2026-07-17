@@ -1,6 +1,5 @@
 // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-// @ref LLP 0367#35-versioned-semantic-validation-program
-// @ref LLP 0367#91-operation-registry
+// Cross-repo design authority: Exact LLP 0367, sections 3.5 and 9.1.
 
 import type {
   NativeGpuBridge,
