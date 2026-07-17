@@ -2615,6 +2615,38 @@ describe("output-shape-sweep-v3 evidence contract", () => {
     }
   });
 
+  test("normalizes structured non-path arrays without hiding nested paths", () => {
+    const hostKey = key(
+      "surface.host.abi.structured.0000101",
+      "out:calls",
+      "host-abi",
+      "host.private-native-call-initialized",
+    );
+    hostKey.alias = "ex_worklet_drain_scheduled_typed";
+    const raw = {
+      kind: "return",
+      rawValueShape: "array",
+      value: [
+        {
+          arguments: [1.5, 2.5],
+          generation: "1",
+          sourceIdentity: "18446744073709551615",
+        },
+      ],
+      errorCode: null,
+    };
+    expect(normalizeExecutorObservation(hostKey, raw)).toEqual({
+      outcome: "return",
+      normalizedValue: "non-path",
+    });
+
+    const pathBearing = structuredClone(raw);
+    pathBearing.value[0].sourceIdentity = "/project/not-an-identity";
+    expect(() => normalizeExecutorObservation(hostKey, pathBearing)).toThrow(
+      /structured array unexpectedly contains virtual-absolute/,
+    );
+  });
+
   test("retains an observed path field from a thrown structured record", () => {
     const value = fixture();
     const batch = executorBatch(value);

@@ -3926,14 +3926,22 @@ export function normalizeExecutorObservation(key, raw) {
           "non-path:runtime-flags-with-no-runtime-originated-host-path",
       };
     }
-    const strings = value.map((item) => {
-      if (typeof item !== "string") {
-        throw new Error(
-          `${key.alias}: path-bearing array contains a non-string`,
-        );
-      }
-      return item;
-    });
+    const pathBearingArray =
+      key.alias === "source-map.sources[]" ||
+      key.alias === "ex_host_fs_readdir[]" ||
+      key.alias === "fs.glob" ||
+      key.alias === "fs.globSync" ||
+      key.alias === "module.paths[]";
+    const strings = pathBearingArray
+      ? value.map((item) => {
+          if (typeof item !== "string") {
+            throw new Error(
+              `${key.alias}: path-bearing array contains a non-string`,
+            );
+          }
+          return item;
+        })
+      : null;
     if (key.alias === "source-map.sources[]") {
       if (strings.length === 0) {
         throw new Error(`${key.alias}: source-map observation is empty`);
@@ -3999,6 +4007,21 @@ export function normalizeExecutorObservation(key, raw) {
       }
       return { outcome: "return", normalizedValue: `array:${expected}` };
     }
+    const assertNestedNonPath = (item) => {
+      if (typeof item === "string") {
+        const normalized = normalizedStringValue(key, item);
+        if (normalized !== "non-path" && normalized !== "empty-string") {
+          throw new Error(
+            `${key.alias}: structured array unexpectedly contains ${normalized}`,
+          );
+        }
+      } else if (Array.isArray(item)) {
+        item.forEach(assertNestedNonPath);
+      } else if (item && typeof item === "object") {
+        Object.values(item).forEach(assertNestedNonPath);
+      }
+    };
+    value.forEach(assertNestedNonPath);
     return { outcome: "return", normalizedValue: "non-path" };
   }
   return { outcome: "return", normalizedValue: "non-path" };

@@ -1175,11 +1175,15 @@ fn returned_number(value: impl Into<Value>) -> Value {
     raw("return", "number", value.into())
 }
 
+fn u64_value(value: u64) -> Value {
+    Value::String(value.to_string())
+}
+
 fn returned_u64(value: u64) -> Value {
     // I-JSON cannot represent every uint64_t exactly. Preserve the ABI's
     // numeric shape while using the same canonical decimal-string projection
     // as a JavaScript BigInt observation.
-    raw("return", "bigint", Value::String(value.to_string()))
+    raw("return", "bigint", u64_value(value))
 }
 
 #[test]
@@ -1363,9 +1367,9 @@ fn evaluation_result_observation(
         "out:result.throw_error_class" => returned_number(result.throw_error_class),
         "out:result.throw_metadata_fields" => returned_number(result.throw_metadata_fields),
         "out:result.throw_metadata_status" => returned_number(result.throw_metadata_status),
-        "out:result.value.handle_id" => returned_number(result.value.handle_id),
-        "out:result.value.runtime_nonce" => returned_number(result.value.runtime_nonce),
-        "out:result.work_target_id" => returned_number(result.work_target_id),
+        "out:result.value.handle_id" => returned_u64(result.value.handle_id),
+        "out:result.value.runtime_nonce" => returned_u64(result.value.runtime_nonce),
+        "out:result.work_target_id" => returned_u64(result.work_target_id),
         other => return Err(format!("unsupported structured result selector {other}")),
     };
     Ok(observation)
@@ -3880,7 +3884,11 @@ impl Drop for OwnedModuleRunnerFixture {
 }
 
 fn native_handle_observation(handle: NativeModuleHandle) -> Value {
-    raw("return", "array", json!(handle.opaque))
+    raw(
+        "return",
+        "array",
+        Value::Array(handle.opaque.into_iter().map(u64_value).collect()),
+    )
 }
 
 fn project_module_call(
@@ -5197,7 +5205,7 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
                     {
                         returned_object()
                     }
-                    "callback:callback/1" => returned_number(observation.call_id),
+                    "callback:callback/1" => returned_u64(observation.call_id),
                     "callback:callback/2" => returned_number(observation.operation_id),
                     "callback:callback/3" => raw("return", "array", json!(observation.payload)),
                     "callback:callback/5"
@@ -5274,7 +5282,7 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
                 {
                     returned_object()
                 }
-                "callback:callback/1" => returned_number(observation.call_id),
+                "callback:callback/1" => returned_u64(observation.call_id),
                 "callback:callback/2" => returned_string(
                     observation
                         .operation
@@ -5303,15 +5311,15 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
             let mut event = NativeAsyncFailureEvent::current();
             let status = unsafe { ex_hermes_take_async_failure_event(runtime.raw, &mut event) };
             match selector {
-                "out:event.associated_evaluation" => returned_number(event.associated_evaluation),
-                "out:event.dropped_count" => returned_number(event.dropped_count),
-                "out:event.event_id" => returned_number(event.event_id),
-                "out:event.host_context_id" => returned_number(event.host_context_id),
+                "out:event.associated_evaluation" => returned_u64(event.associated_evaluation),
+                "out:event.dropped_count" => returned_u64(event.dropped_count),
+                "out:event.event_id" => returned_u64(event.event_id),
+                "out:event.host_context_id" => returned_u64(event.host_context_id),
                 "out:event.kind" => returned_number(event.kind),
-                "out:event.owning_principal_id" => returned_number(event.owning_principal_id),
+                "out:event.owning_principal_id" => returned_u64(event.owning_principal_id),
                 "out:event.principal_status" => returned_number(event.principal_status),
-                "out:event.value.handle_id" => returned_number(event.value_handle_id),
-                "out:event.value.runtime_nonce" => returned_number(event.value_runtime_nonce),
+                "out:event.value.handle_id" => returned_u64(event.value_handle_id),
+                "out:event.value.runtime_nonce" => returned_u64(event.value_runtime_nonce),
                 _ => returned_number(status),
             }
         }
@@ -5320,7 +5328,7 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
             let status = unsafe { ex_hermes_take_cancellation_event(runtime.raw, &mut event) };
             match selector {
                 "out:event.resolution" => returned_number(event.resolution),
-                "out:event.target_id" => returned_number(event.target_id),
+                "out:event.target_id" => returned_u64(event.target_id),
                 _ => returned_number(status),
             }
         }
@@ -5330,8 +5338,8 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
             match selector {
                 "out:event.kind" => returned_number(event.kind),
                 "out:event.phase" => returned_number(event.phase),
-                "out:event.scheduling_id" => returned_number(event.scheduling_id),
-                "out:event.target_id" => returned_number(event.target_id),
+                "out:event.scheduling_id" => returned_u64(event.scheduling_id),
+                "out:event.target_id" => returned_u64(event.target_id),
                 _ => returned_number(status),
             }
         }
@@ -5668,9 +5676,9 @@ fn execute_worklet(function_name: &str, selector: &str) -> Result<Value, String>
                             "argumentCount": call.argument_count,
                             "arguments": &call.arguments[..call.argument_count as usize],
                             "callbackIdentity": call.callback_identity,
-                            "generation": call.generation,
-                            "sourceIdentity": call.source_identity,
-                            "sourceSequence": call.source_sequence,
+                            "generation": u64_value(call.generation),
+                            "sourceIdentity": u64_value(call.source_identity),
+                            "sourceSequence": u64_value(call.source_sequence),
                         }))
                         .collect::<Vec<_>>()),
                 )
@@ -5708,10 +5716,10 @@ fn execute_worklet(function_name: &str, selector: &str) -> Result<Value, String>
                     "return",
                     "object",
                     json!({
-                        "reusedInstallCount": metrics.reused_install_count,
-                        "sourceInstallCount": metrics.source_install_count,
-                        "sourceInstallMaxNs": metrics.source_install_max_ns,
-                        "sourceInstallTotalNs": metrics.source_install_total_ns,
+                        "reusedInstallCount": u64_value(metrics.reused_install_count),
+                        "sourceInstallCount": u64_value(metrics.source_install_count),
+                        "sourceInstallMaxNs": u64_value(metrics.source_install_max_ns),
+                        "sourceInstallTotalNs": u64_value(metrics.source_install_total_ns),
                     }),
                 )
             } else {
@@ -5837,6 +5845,28 @@ fn contract_selected_output_is_u64(
         })
     };
     canonical.is_some_and(canonical_type_is_u64)
+}
+
+fn nested_selected_output_is_u64(function_name: &str, selector: &str) -> bool {
+    matches!(
+        selector,
+        "out:result.value.handle_id"
+            | "out:result.value.runtime_nonce"
+            | "out:result.work_target_id"
+            | "out:event.associated_evaluation"
+            | "out:event.dropped_count"
+            | "out:event.event_id"
+            | "out:event.host_context_id"
+            | "out:event.owning_principal_id"
+            | "out:event.value.handle_id"
+            | "out:event.value.runtime_nonce"
+            | "out:event.scheduling_id"
+            | "out:event.target_id"
+    ) || (selector == "callback:callback/1"
+        && matches!(
+            function_name,
+            "ex_hermes_set_exact_host_call_async" | "ex_hermes_set_host_call_async"
+        ))
 }
 
 fn is_structured_vfs_output_key(
@@ -6171,19 +6201,21 @@ fn validate_row(row: &Value) -> Result<ValidatedRow, String> {
             "{function_name}: selected output contract binding drift"
         ));
     }
-    let selected_output_is_u64 = output_contracts
+    let contract_output_is_u64 = output_contracts
         .first()
         .is_some_and(|contract| {
             contract_selected_output_is_u64(contract, selected_output, selector)
         });
     if output_contracts.iter().any(|contract| {
         contract_selected_output_is_u64(contract, selected_output, selector)
-            != selected_output_is_u64
+            != contract_output_is_u64
     }) {
         return Err(format!(
             "{function_name}: selected output integer-width drift"
         ));
     }
+    let selected_output_is_u64 = contract_output_is_u64
+        || nested_selected_output_is_u64(function_name, selector);
     for (definition, contract) in selected_definitions.iter().zip(output_contracts) {
         let base_drift = contract["schema"] != OUTPUT_CONTRACT_SCHEMA
             || contract["functionName"] != function_name
@@ -6296,7 +6328,17 @@ fn validate_bounded_observation(
     mut raw: Value,
 ) -> Result<Value, String> {
     if validated.selected_output_is_u64 {
-        let value = raw["value"].as_u64().ok_or_else(|| {
+        let value = raw["value"]
+            .as_u64()
+            .or_else(|| {
+                raw["value"].as_str().and_then(|value| {
+                    value
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|parsed| parsed.to_string() == value)
+                })
+            })
+            .ok_or_else(|| {
             format!(
                 "{}: exact uint64_t output was not observed as an unsigned integer",
                 validated.function_name
