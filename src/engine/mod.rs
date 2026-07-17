@@ -539,6 +539,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
+        fn ex_hermes_gc(runtime: *mut HermesRuntimeOpaque);
         fn ex_hermes_get_gc_stats(runtime: *mut HermesRuntimeOpaque) -> *mut c_char;
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
         fn ex_hermes_set_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque, enabled: i32);
@@ -1408,6 +1409,220 @@ mod tests {
             Some(text)
         };
         (status, value)
+    }
+
+    /// Return the exact JavaScript source installed by the production
+    /// `kFsHandleJS` bootstrap. Keeping this extraction test-only avoids a
+    /// production test hook while ensuring the absence test cannot drift into
+    /// a hand-written imitation of FsHandle ownership.
+    fn authored_fs_handle_install_source() -> &'static str {
+        const HERMES_RUNTIME_SOURCE: &str = include_str!("hermes_runtime.cc");
+        const START: &str = "static const char* kFsHandleJS = R\"JS(";
+        const END: &str = "\n)JS\";";
+
+        let (_, after_start) = HERMES_RUNTIME_SOURCE
+            .split_once(START)
+            .expect("hermes_runtime.cc must retain the kFsHandleJS source marker");
+        let (source, _) = after_start
+            .split_once(END)
+            .expect("kFsHandleJS must retain its raw-string terminator");
+        assert!(source.starts_with("(function () {"));
+        assert!(source.contains("function FsHandle(id)"));
+        assert!(source.contains("FsHandle.prototype.revoke = function ()"));
+        source
+    }
+
+    /// The pinned Hermes runtime owns the weak reachability semantics. Dropping
+    /// wrappers must reclaim their native HandleRegistry entries while the
+    /// realm remains alive; destroying the realm would only prove teardown.
+    #[test]
+    fn native_finalization_registry_reclaims_dropped_fs_handles_in_a_persistent_runtime() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::default_legacy();
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let (status, registry_kind) = eval(runtime, "typeof FinalizationRegistry");
+            assert_eq!(status, 0, "FinalizationRegistry capability probe failed");
+            if registry_kind.as_deref() != Some("function") {
+                assert_eq!(
+                    eval(runtime, "'persistent-runtime-without-finalization'")
+                        .1
+                        .as_deref(),
+                    Some("persistent-runtime-without-finalization")
+                );
+                ex_hermes_destroy(runtime);
+                return;
+            }
+
+            let (status, ids_json) = eval(
+                runtime,
+                r#"(function () {
+                  globalThis.__nativeRevokeHandle = __exactRevokeHandle;
+                  globalThis.__finalizationRevokeCount = 0;
+                  globalThis.__exactRevokeHandle = function (id) {
+                    globalThis.__finalizationRevokeCount++;
+                    return globalThis.__nativeRevokeHandle(id);
+                  };
+                  var ids = [];
+                  for (var i = 0; i < 2000; i++) {
+                    var handle = Ibex.fs.readHandle('/tmp');
+                    ids.push(handle._id);
+                  }
+                  handle = null;
+                  globalThis.__finalizationProbeIds = ids;
+                  globalThis.__finalizationPressure = new Uint8Array(8 * 1024 * 1024);
+                  globalThis.__finalizationPressure = null;
+                  return JSON.stringify(ids);
+                })()"#,
+            );
+            assert_eq!(status, 0, "handle allocation failed: {ids_json:?}");
+            let ids: Vec<u64> = serde_json::from_str(
+                ids_json
+                    .as_deref()
+                    .expect("handle allocation must return its numeric ids"),
+            )
+            .expect("handle ids must be valid JSON integers");
+            assert_eq!(ids.len(), 2000);
+
+            for _ in 0..64 {
+                ex_hermes_gc(runtime);
+                assert!(
+                    ex_hermes_poll(runtime, ex_hermes_now_ms()) >= 0,
+                    "FinalizationRegistry cleanup must not make polling fatal"
+                );
+                if ids
+                    .iter()
+                    .all(|id| !host.handles().check(*id, "fs:read:/tmp/finalization-probe"))
+                {
+                    break;
+                }
+            }
+
+            let unreclaimed = ids
+                .iter()
+                .filter(|id| {
+                    host.handles()
+                        .check(**id, "fs:read:/tmp/finalization-probe")
+                })
+                .count();
+            assert_eq!(
+                unreclaimed, 0,
+                "native finalization left {unreclaimed} of 2000 HandleRegistry entries live"
+            );
+            let finalized: usize = eval(runtime, "String(__finalizationRevokeCount)")
+                .1
+                .expect("finalizer count")
+                .parse()
+                .expect("finalizer count must be numeric");
+            assert_eq!(
+                finalized, 2000,
+                "every dropped wrapper must reach the native cleanup callback exactly once"
+            );
+            assert_eq!(
+                eval(
+                    runtime,
+                    "globalThis.__exactRevokeHandle = globalThis.__nativeRevokeHandle; 'restored'",
+                )
+                .1
+                .as_deref(),
+                Some("restored")
+            );
+            assert_eq!(
+                eval(runtime, "'persistent-runtime-still-live'")
+                    .1
+                    .as_deref(),
+                Some("persistent-runtime-still-live"),
+                "reclamation must complete before runtime teardown"
+            );
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// Engines without the primitive stay honest: evaluating the authored
+    /// compatibility source must not manufacture a strong-retaining registry.
+    /// Cleanup in that profile is deterministic explicit disposal, not a fake
+    /// garbage-collection signal.
+    #[test]
+    fn compat_and_fs_handle_sources_leave_finalization_absent_and_explicit_revoke_reclaims() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::default_legacy();
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let (status, forced) = eval(
+                runtime,
+                r#"Object.defineProperty(globalThis, 'FinalizationRegistry', {
+                  value: undefined,
+                  writable: true,
+                  enumerable: false,
+                  configurable: true
+                });
+                typeof FinalizationRegistry"#,
+            );
+            assert_eq!((status, forced.as_deref()), (0, Some("undefined")));
+
+            let compat_source = include_str!("bootstrap/compat-polyfills.js");
+            let (status, error) = eval(runtime, compat_source);
+            assert_eq!(status, 0, "actual compatibility source failed: {error:?}");
+            assert_eq!(
+                eval(runtime, "typeof FinalizationRegistry").1.as_deref(),
+                Some("undefined"),
+                "compatibility bootstrap must leave FinalizationRegistry absent"
+            );
+
+            let fs_handle_source = authored_fs_handle_install_source();
+            let (status, error) = eval(runtime, fs_handle_source);
+            assert_eq!(
+                status, 0,
+                "actual kFsHandleJS source failed with the intrinsic absent: {error:?}"
+            );
+            assert_eq!(
+                eval(runtime, "typeof FinalizationRegistry").1.as_deref(),
+                Some("undefined"),
+                "actual FsHandle installation must not synthesize a finalizer"
+            );
+
+            let (status, handle_id) = eval(
+                runtime,
+                "globalThis.__absentFsHandle = Ibex.fs.readHandle('/tmp'); String(__absentFsHandle._id)",
+            );
+            assert_eq!(
+                status, 0,
+                "actual FsHandle construction failed: {handle_id:?}"
+            );
+            let id: u64 = handle_id
+                .expect("actual FsHandle must expose its numeric native id")
+                .parse()
+                .expect("actual FsHandle id must be numeric");
+            assert!(
+                host.handles().check(id, "fs:read:/tmp/finalization-probe"),
+                "actual FsHandle construction must mint a live native grant"
+            );
+            assert_eq!(
+                eval(
+                    runtime,
+                    "__absentFsHandle.revoke(); __absentFsHandle = null; 'revoked'",
+                )
+                .1
+                .as_deref(),
+                Some("revoked"),
+                "actual FsHandle.prototype.revoke must remain the absence fallback"
+            );
+            assert!(
+                !host.handles().check(id, "fs:read:/tmp/finalization-probe"),
+                "explicit revoke must reclaim the native HandleRegistry entry"
+            );
+            assert_eq!(
+                eval(runtime, "'absence-runtime-still-live'").1.as_deref(),
+                Some("absence-runtime-still-live")
+            );
+            ex_hermes_destroy(runtime);
+        }
     }
 
     /// Restricted worklets must cross the SharedValue boundary with the full

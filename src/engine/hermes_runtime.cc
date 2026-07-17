@@ -3032,9 +3032,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // than an explicit revoke() no longer leaks one native HandleGrant per request
   // until OOM (ENG-23010). Revoking an already-revoked/missing id is a no-op, so
   // a finalizer that races an explicit revoke (or an ancestor's subtree
-  // eviction) is harmless. Guarded on the primitive: with only the
-  // compat-polyfill FinalizationRegistry (which never fires) this degrades to the
-  // prior explicit-revoke-only behavior.
+  // eviction) is harmless. Guarded on the native primitive: runtimes without
+  // FinalizationRegistry retain the explicit-revoke-only behavior rather than
+  // installing a strong-reference compatibility shim that cannot finalize.
   var handleFinalizer = (typeof FinalizationRegistry === 'function')
     ? new FinalizationRegistry(function (id) { g.__exactRevokeHandle(id); })
     : null;
