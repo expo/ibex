@@ -17,11 +17,11 @@ import crypto from "node:crypto";
 import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  projection: "898c83cc892eee5857c994e78f675fc17fd842e0140e018a02a6f3e0996dbe00",
+  projection: "07e4d1f245c0c1023f1d259f0e36dd14d7dbb950fa202f163d67871dea468fc1",
   operationSet: "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
   semanticProgramSet: "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
   runtimeRouting: "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-  webgpuCVocabulary: "ec2c7d628ea6c1a6c668b4ee7590ab85b9d17f55b9bf3222fd53a2695f26b6dc",
+  webgpuCVocabulary: "20d2b55496eaf46647efcf758430590ef57f4007ef178a9f5f8211d9ef1d1ff3",
 });
 
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
@@ -101,7 +101,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -437,8 +437,8 @@ function validateNativeCodecPrograms(payload) {
     "native requestDevice completion body type",
   );
 
-  assert(Array.isArray(program.routes) && program.routes.length === 2,
-    "native codec program must contain exactly requestAdapter and requestDevice routes");
+  assert(Array.isArray(program.routes) && program.routes.length === 3,
+    "native codec program must contain exactly requestAdapter, requestDevice, and device destroy routes");
   const route = program.routes.find(
     (candidate) => candidate.operationId === "GPU.requestAdapter",
   );
@@ -1098,6 +1098,284 @@ function validateNativeCodecPrograms(payload) {
   }
   assert(requestDeviceRoute.completion.noTrailingBytes === true,
     "native requestDevice completion must reject trailing bytes");
+
+  const deviceDestroyRoute = program.routes.find(
+    (candidate) => candidate.operationId === "GPUDevice.destroy",
+  );
+  const deviceDestroyOperation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPUDevice.destroy",
+  );
+  assert(
+    deviceDestroyRoute && deviceDestroyOperation &&
+      deviceDestroyRoute.wireId === deviceDestroyOperation.wireId,
+    "native device destroy operation identity drifted",
+  );
+  const deviceDestroyRequestCatalogIndex =
+    payload.codecCatalog.serviceArguments.findIndex(
+      (codec) => codec.tag === deviceDestroyOperation.serviceArgumentCodec,
+    );
+  const deviceDestroyCompletionCatalogIndex =
+    payload.codecCatalog.serviceCompletions.findIndex(
+      (codec) => codec.tag === deviceDestroyOperation.serviceCompletionCodec,
+    );
+  assertCanonical(
+    deviceDestroyRoute.request.catalog,
+    {
+      name: "serviceArguments",
+      tag: "gpu-device-cleanup-service-request-v1",
+      wireTag: deviceDestroyRequestCatalogIndex + 1,
+    },
+    "native device destroy request catalog selection",
+  );
+  assertCanonical(
+    deviceDestroyRoute.request.payload,
+    {
+      kind: "struct",
+      fields: [
+        {
+          name: "header",
+          type: "headerV1",
+          constants: {
+            magic: envelope.codecLayout.requestMagic,
+            version: envelope.codecLayout.version,
+            codecTag: deviceDestroyRequestCatalogIndex + 1,
+            operationWireId: deviceDestroyOperation.wireId,
+          },
+        },
+        { name: "receiver", type: "objectReferenceV1" },
+        { name: "target", type: "optionalReferenceV1" },
+        { name: "capturedScopeId", type: "u64le" },
+        { name: "adapterOrdinal", type: "u64le" },
+        { name: "deviceIngressOrdinal", type: "u64le" },
+        { name: "queueIngressOrdinal", type: "u64le" },
+        { name: "sealedLocalTimeline", type: "canonicalValueV1" },
+        { name: "convertedArguments", type: "canonicalValueV1" },
+      ],
+    },
+    "native device destroy request layout",
+  );
+  assertCanonical(
+    deviceDestroyRoute.request.carrierJoins,
+    [
+      ["header.operationWireId", "operation_id", "equal"],
+      ["receiver.kind", "receiver.kind", "equal"],
+      ["receiver.objectId", "receiver.object_id", "equal"],
+      ["receiver.objectGeneration", "receiver.object_generation", "equal"],
+      ["receiver.logicalDeviceId", "ingress_device.logical_device_id", "equal"],
+      ["receiver.logicalDeviceGeneration", "ingress_device.logical_device_generation", "equal"],
+      ["receiver.providerGeneration", "ingress_device.provider_generation", "equal"],
+      ["receiver.providerGeneration", "provider_generation", "equal"],
+      ["target", "target", "absent-iff-all-zero-reference"],
+      ["capturedScopeId", "captured_scope_id", "equal"],
+      ["adapterOrdinal", "adapter_ordinal", "equal"],
+      ["deviceIngressOrdinal", "device_ingress_ordinal", "equal"],
+      ["queueIngressOrdinal", "queue_ingress_ordinal", "equal"],
+    ].map(([payloadPath, carrierPath, operator]) => ({
+      payloadPath, carrierPath, operator,
+    })),
+    "native device destroy carrier joins",
+  );
+  assertCanonical(
+    deviceDestroyRoute.request.carrierConstraints,
+    [
+      {
+        carrierPath: "operation_id",
+        operator: "equal",
+        value: deviceDestroyOperation.wireId,
+      },
+      { carrierPath: "flags", operator: "equal", value: 0 },
+      {
+        carrierPath: "topology_id",
+        operator: "equal",
+        valueFrom: "constants.providerTopologyId",
+      },
+      { carrierPath: "ingress_device", operator: "positive" },
+      { carrierPath: "provider_generation", operator: "positive" },
+      { carrierPath: "operation_instance_id", operator: "positive" },
+      { carrierPath: "promise_id", operator: "equal", value: "0" },
+      {
+        carrierPath: "receiver.kind",
+        operator: "equal",
+        valueFrom: "objectKindTags.GPUDevice",
+      },
+      { carrierPath: "receiver.flags", operator: "equal", value: 0 },
+      { carrierPath: "receiver.object_id", operator: "positive" },
+      { carrierPath: "receiver.object_generation", operator: "positive" },
+      { carrierPath: "target", operator: "all-zero" },
+      { carrierPath: "adapter_ordinal", operator: "equal", value: "0" },
+      { carrierPath: "device_ingress_ordinal", operator: "positive" },
+      { carrierPath: "queue_ingress_ordinal", operator: "equal", value: "0" },
+    ],
+    "native device destroy carrier constraints",
+  );
+  assertCanonical(
+    deviceDestroyRoute.request.valueConstraints,
+    [
+      {
+        payloadPath: "sealedLocalTimeline",
+        operator: "canonical-sequence-within-layout-bounds",
+      },
+      {
+        payloadPath: "sealedLocalTimeline",
+        operator: "untrusted-wrapper-record-prefix-join-only-never-authority",
+      },
+      {
+        payloadPath: "convertedArguments",
+        operator: "exact-null",
+      },
+    ],
+    "native device destroy value constraints",
+  );
+  assertCanonical(
+    deviceDestroyRoute.request.semanticServiceBoundary,
+    {
+      stateAuthority:
+        "authenticated-device-lifecycle-operation-and-provider-tables",
+      payloadRole: "comparison-input-only-never-authority",
+      requiredAfterDecode: [
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-idempotent-device-terminal-state",
+        "validate-cleanup-predicates",
+        "select-provider-admission-and-physical-sequence",
+      ],
+      completionEncodingRequires: [
+        "authenticated-retained-call",
+        "service-owned-operation-result",
+      ],
+    },
+    "native device destroy semantic-service boundary",
+  );
+  assertCanonical(
+    deviceDestroyRoute.request.executablePrerequisites,
+    [],
+    "native device destroy executable prerequisites",
+  );
+  assert(deviceDestroyRoute.request.noTrailingBytes === true,
+    "native device destroy request must reject trailing bytes");
+
+  assertCanonical(
+    deviceDestroyRoute.completion.catalog,
+    {
+      name: "serviceCompletions",
+      tag: "terminal-receipt-service-completion-v1",
+      wireTag: deviceDestroyCompletionCatalogIndex + 1,
+    },
+    "native device destroy completion catalog selection",
+  );
+  assertCanonical(
+    deviceDestroyRoute.completion.commonCarrierConstraints,
+    [
+      {
+        carrierPath: "kind",
+        operator: "equal",
+        value: 1,
+        symbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+      },
+      { carrierPath: "record.operation_result.status", operator: "equal", value: 0 },
+      {
+        carrierPath: "record.operation_result.operation.operation_id",
+        operator: "equal",
+        value: deviceDestroyOperation.wireId,
+      },
+      {
+        carrierPath: "record.operation_result.operation.device_transition",
+        operator: "equal",
+        value: 0,
+        symbol: "EXACT_GPU_DEVICE_UNCHANGED_V2",
+      },
+      {
+        carrierPath: "record.operation_result.operation.ingress_device",
+        operator: "positive",
+      },
+      {
+        carrierPath: "record.operation_result.operation.result_device",
+        operator: "positive",
+      },
+      {
+        carrierPath: "record.operation_result.operation.provider_generation",
+        operator: "positive",
+      },
+      {
+        carrierPath: "record.operation_result.operation.promise_id",
+        operator: "equal",
+        value: "0",
+      },
+      {
+        carrierPath: "record.operation_result.operation.receiver.kind",
+        operator: "equal",
+        valueFrom: "objectKindTags.GPUDevice",
+      },
+      {
+        carrierPath: "record.operation_result.operation.target",
+        operator: "all-zero",
+      },
+      {
+        carrierPath: "record.operation_result.operation.adapter_ordinal",
+        operator: "equal",
+        value: "0",
+      },
+      {
+        carrierPath: "record.operation_result.operation.device_ingress_ordinal",
+        operator: "positive",
+      },
+      {
+        carrierPath: "record.operation_result.operation.queue_ingress_ordinal",
+        operator: "equal",
+        value: "0",
+      },
+      {
+        carrierPath: "record.operation_result.result_kind",
+        operator: "equal",
+        value: 0,
+        symbol: "EXACT_GPU_RESULT_NONE_V2",
+      },
+    ],
+    "native device destroy completion carrier constraints",
+  );
+  assertCanonical(
+    deviceDestroyRoute.completion.payload,
+    { kind: "empty", exactLengthBytes: 0 },
+    "native device destroy completion payload",
+  );
+  assertCanonical(
+    deviceDestroyRoute.completion.variants,
+    [
+      {
+        name: "repeat-cleanup-noop",
+        carrierConstraints: [
+          {
+            carrierPath: "record.operation_result.operation.provider_admission",
+            operator: "equal",
+            value: 0,
+            symbol: "EXACT_GPU_PROVIDER_NOT_ADMITTED_V2",
+          },
+          {
+            carrierPath: "record.operation_result.operation.physical_sequence",
+            operator: "equal",
+            value: "0",
+          },
+        ],
+      },
+      {
+        name: "admitted-cleanup",
+        carrierConstraints: [
+          {
+            carrierPath: "record.operation_result.operation.provider_admission",
+            operator: "equal",
+            value: 1,
+            symbol: "EXACT_GPU_PROVIDER_ADMITTED_V2",
+          },
+          {
+            carrierPath: "record.operation_result.operation.physical_sequence",
+            operator: "positive",
+          },
+        ],
+      },
+    ],
+    "native device destroy completion variants",
+  );
+  assert(deviceDestroyRoute.completion.noTrailingBytes === true,
+    "native device destroy completion must reject trailing bytes");
 }
 
 export function validateWebGpuWrapperAuthority(authority) {
@@ -1132,7 +1410,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-device-destroy-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

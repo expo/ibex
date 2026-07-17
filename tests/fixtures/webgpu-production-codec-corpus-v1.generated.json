@@ -1,11 +1,11 @@
 {
   "schema": "ibex/webgpu-production-codec-corpus/2",
-  "disposition": "generated-language-neutral-request-adapter-request-device-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
+  "disposition": "generated-language-neutral-request-adapter-request-device-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
   "supportClaim": "none",
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "bc590d98caa89397cae6ae6a13bbbbc8bcf2e0282e47acaab2990dbe16aea809"
+    "manifestSha256": "e0af6fda05db84ad13664b5faf4020cb7ad1d336e0d6c98d0ae7b42fc42c5205"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
@@ -13,8 +13,8 @@
     "operationSet": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
     "semanticProgramSet": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
     "runtimeRouting": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-    "webgpuCVocabulary": "ec2c7d628ea6c1a6c668b4ee7590ab85b9d17f55b9bf3222fd53a2695f26b6dc",
-    "projection": "898c83cc892eee5857c994e78f675fc17fd842e0140e018a02a6f3e0996dbe00"
+    "webgpuCVocabulary": "20d2b55496eaf46647efcf758430590ef57f4007ef178a9f5f8211d9ef1d1ff3",
+    "projection": "07e4d1f245c0c1023f1d259f0e36dd14d7dbb950fa202f163d67871dea468fc1"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
@@ -50,6 +50,16 @@
         "authenticatedResultSelectionIdentity"
       ],
       "testOnlyPayloadCodegenEvidence": true
+    },
+    {
+      "operationId": "GPUDevice.destroy",
+      "wireId": 206890944,
+      "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
+      "requestCodec": "gpu-device-cleanup-service-request-v1",
+      "requestCodecTag": 12,
+      "completionCodec": "terminal-receipt-service-completion-v1",
+      "completionCodecTag": 2,
+      "productionExecutableFromCurrentAuthenticatedInputs": true
     }
   ],
   "vectors": [
@@ -1066,6 +1076,181 @@
           "𐀀"
         ],
         "rule": "unsigned-utf8-bytes-shorter-prefix-first"
+      }
+    },
+    {
+      "id": "device-destroy-sealed-timeline-request",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 206890944,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "13",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 3,
+          "flags": 0,
+          "object_id": "55",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "untrusted-wrapper-record-prefix-join-only-never-authority",
+      "semanticOwner": "native-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101000c00c0e7540c0337000000000000000100000000000000370000000000000001000000000000000900000000000000000200000000000000000000000000000003000000000000000000000000000000060100000007060000000f000000636170747572656453636f7065496405010000003212000000636f6e766572746564417267756d656e74730014000000646576696365496e67726573734f7264696e616c0501000000320b0000006f7065726174696f6e496405120000004750554465766963652e66656174757265730800000072656365697665720706000000040000006b696e640509000000475055446576696365170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a6563744964050200000035351200000070726f766964657247656e65726174696f6e050100000039060000007769726549640373831ee300",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "55",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [
+          {
+            "operationId": "GPUDevice.features",
+            "wireId": 3810427763,
+            "receiver": {
+              "kind": "GPUDevice",
+              "objectId": "55",
+              "objectGeneration": "1",
+              "logicalDeviceId": "55",
+              "logicalDeviceGeneration": "1",
+              "providerGeneration": "9"
+            },
+            "deviceIngressOrdinal": "2",
+            "capturedScopeId": "2",
+            "convertedArguments": null
+          }
+        ],
+        "convertedArguments": null
+      }
+    },
+    {
+      "id": "device-destroy-repeat-cleanup-noop-result",
+      "kind": "result",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 206890944,
+              "operation_instance_id": "13",
+              "promise_id": "0",
+              "provider_admission": 0,
+              "physical_sequence": "0",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 3,
+                "flags": 0,
+                "object_id": "55",
+                "object_generation": "1"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "device-destroy-admitted-cleanup-result",
+      "kind": "result",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 206890944,
+              "operation_instance_id": "13",
+              "promise_id": "0",
+              "provider_admission": 1,
+              "physical_sequence": "8",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 3,
+                "flags": 0,
+                "object_id": "55",
+                "object_generation": "1"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
       }
     }
   ]

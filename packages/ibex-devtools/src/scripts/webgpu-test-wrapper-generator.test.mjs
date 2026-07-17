@@ -58,6 +58,7 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(nativePrograms.routes.map((route) => route.operationId)).toEqual([
       "GPU.requestAdapter",
       "GPUAdapter.requestDevice",
+      "GPUDevice.destroy",
     ]);
     expect(nativePrograms.routes[0].request.catalog.wireTag).toBe(2);
     expect(nativePrograms.routes[0].completion.catalog.wireTag).toBe(6);
@@ -100,6 +101,22 @@ describe("test-only WebGPU wrapper generator", () => {
       serviceResultPath: "nativeSemanticServiceResult.diagnosticMessage",
       operator: "equal-never-caller-selected",
     });
+    const deviceDestroy = nativePrograms.routes[2];
+    expect(deviceDestroy.request.catalog.wireTag).toBe(12);
+    expect(deviceDestroy.completion.catalog.wireTag).toBe(2);
+    expect(deviceDestroy.request.executablePrerequisites).toEqual([]);
+    expect(deviceDestroy.request.valueConstraints.at(-1)).toEqual({
+      payloadPath: "convertedArguments",
+      operator: "exact-null",
+    });
+    expect(deviceDestroy.completion.payload).toEqual({
+      kind: "empty",
+      exactLengthBytes: 0,
+    });
+    expect(deviceDestroy.completion.variants.map((variant) => variant.name)).toEqual([
+      "repeat-cleanup-noop",
+      "admitted-cleanup",
+    ]);
   });
 
   test("carries every authenticated operation field into one bijective wrapper route", () => {
@@ -360,6 +377,16 @@ describe("test-only WebGPU wrapper generator", () => {
     nativeRequestDeviceTransition.payload.wireEnvelope.nativeCodecPrograms.routes[1]
       .completion.variants[2].carrierConstraints[0].value = 1;
     mutations.push(nativeRequestDeviceTransition);
+
+    const nativeDeviceDestroyTimeline = clone(authority);
+    nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+      .request.valueConstraints[0].operator = "exact-empty-sequence";
+    mutations.push(nativeDeviceDestroyTimeline);
+
+    const nativeDeviceDestroyAdmission = clone(authority);
+    nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+      .completion.variants[1].carrierConstraints[1].operator = "equal";
+    mutations.push(nativeDeviceDestroyAdmission);
 
     for (const mutation of mutations) {
       expect(() => validateWebGpuWrapperAuthority(mutation)).toThrow();

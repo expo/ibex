@@ -38,6 +38,7 @@ const outputPath =
   "tests/fixtures/webgpu-production-codec-corpus-v1.generated.json";
 const operationId = "GPU.requestAdapter";
 const requestDeviceOperationId = "GPUAdapter.requestDevice";
+const deviceDestroyOperationId = "GPUDevice.destroy";
 
 function fail(message) {
   throw new Error(message);
@@ -741,6 +742,165 @@ function buildCorpus() {
       },
     },
   });
+
+  const deviceDestroyRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === deviceDestroyOperationId,
+  );
+  if (!deviceDestroyRoute) {
+    fail(`${deviceDestroyOperationId} is absent from the generated production plan`);
+  }
+  const deviceDestroyRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) => candidate.tag === deviceDestroyRoute.serviceArgumentCodec,
+    );
+  const deviceDestroyCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) => candidate.tag === deviceDestroyRoute.serviceCompletionCodec,
+    );
+  const deviceDestroyNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === deviceDestroyOperationId,
+    );
+  if (
+    !deviceDestroyRequestCodec?.executableFromCurrentAuthenticatedInputs ||
+    !deviceDestroyRequestCodec.nativeProgramPrerequisitesRepresented ||
+    deviceDestroyRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !deviceDestroyCompletionCodec ||
+    !deviceDestroyNativeRoute ||
+    deviceDestroyNativeRoute.request.catalog.wireTag !==
+      deviceDestroyRequestCodec.wireTag ||
+    deviceDestroyNativeRoute.completion.catalog.wireTag !==
+      deviceDestroyCompletionCodec.wireTag
+  ) {
+    fail("GPUDevice.destroy native codegen program is not executable from authenticated inputs");
+  }
+  const deviceDestroyReceiver = Object.freeze({
+    kind: "GPUDevice",
+    objectId: "55",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const deviceDestroyTimeline = Object.freeze([
+    Object.freeze({
+      operationId: "GPUDevice.features",
+      wireId: 3810427763,
+      receiver: deviceDestroyReceiver,
+      deviceIngressOrdinal: "2",
+      capturedScopeId: "2",
+      convertedArguments: null,
+    }),
+  ]);
+  const convertedDeviceDestroyArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      deviceDestroyOperationId,
+      [],
+      wrapperAccess,
+    );
+  if (convertedDeviceDestroyArguments !== null) {
+    fail("GPUDevice.destroy none-v1 argument projection drifted");
+  }
+  const deviceDestroyBytes =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      Object.freeze({
+        operationId: deviceDestroyOperationId,
+        wireId: deviceDestroyRoute.wireId,
+        convertedArguments: convertedDeviceDestroyArguments,
+        receiver: deviceDestroyReceiver,
+        capturedScopeId: "2",
+        adapterOrdinal: "0",
+        deviceIngressOrdinal: "3",
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline: deviceDestroyTimeline,
+      }),
+    );
+  const expectedDeviceDestroyRequest = {
+    receiver: deviceDestroyReceiver,
+    target: null,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: deviceDestroyTimeline,
+    convertedArguments: null,
+  };
+  const inspectedDeviceDestroy =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      deviceDestroyBytes,
+    );
+  if (
+    canonicalJson(inspectedDeviceDestroy) !== canonicalJson({
+      operationId: deviceDestroyOperationId,
+      codec: deviceDestroyRequestCodec.tag,
+      ...expectedDeviceDestroyRequest,
+    })
+  ) {
+    fail("GPUDevice.destroy generated request does not round-trip through inspection");
+  }
+  const deviceDestroyCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      deviceDestroyOperationId,
+      { kind: "none" },
+    );
+  if (deviceDestroyCompletion.byteLength !== 0) {
+    fail("GPUDevice.destroy terminal receipt must have an empty completion payload");
+  }
+  const deviceDestroyRequestCarrier = Object.freeze({
+    operation_id: deviceDestroyRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: "13",
+    promise_id: "0",
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: "3",
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+      flags: 0,
+      object_id: "55",
+      object_generation: "1",
+    }),
+    target: requestCarrier.target,
+  });
+  const deviceDestroyCompletionCarrier = (
+    providerAdmission,
+    physicalSequence,
+  ) => ({
+    kind: 1,
+    record: {
+      operation_result: {
+        result_kind: 0,
+        status: 0,
+        operation: {
+          operation_id: deviceDestroyRoute.wireId,
+          operation_instance_id: "13",
+          promise_id: "0",
+          provider_admission: providerAdmission,
+          physical_sequence: physicalSequence,
+          captured_scope_id: "2",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "3",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: deviceDestroyRequestCarrier.ingress_device,
+          result_device: deviceDestroyRequestCarrier.ingress_device,
+          provider_generation: "9",
+          receiver: deviceDestroyRequestCarrier.receiver,
+          target: requestCarrier.target,
+        },
+      },
+    },
+  });
   const canonicalUtf8Dictionary =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
       Object.freeze({
@@ -759,7 +919,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -805,6 +965,17 @@ function buildCorpus() {
         unavailableSemanticFields:
           requestDeviceRequestCodec.unavailableSemanticFields,
         testOnlyPayloadCodegenEvidence: true,
+      },
+      {
+        operationId: deviceDestroyOperationId,
+        wireId: deviceDestroyRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: deviceDestroyRequestCodec.tag,
+        requestCodecTag: deviceDestroyRequestCodec.wireTag,
+        completionCodec: deviceDestroyCompletionCodec.tag,
+        completionCodecTag: deviceDestroyCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
       },
     ],
     vectors: [
@@ -1006,6 +1177,31 @@ function buildCorpus() {
           rule: "unsigned-utf8-bytes-shorter-prefix-first",
         },
       },
+      {
+        id: "device-destroy-sealed-timeline-request",
+        kind: "request",
+        carrierProjection: deviceDestroyRequestCarrier,
+        trust:
+          "untrusted-wrapper-record-prefix-join-only-never-authority",
+        semanticOwner:
+          "native-semantic-service-before-provider-admission",
+        bytesHex: toHex(deviceDestroyBytes),
+        expected: expectedDeviceDestroyRequest,
+      },
+      {
+        id: "device-destroy-repeat-cleanup-noop-result",
+        kind: "result",
+        carrierProjection: deviceDestroyCompletionCarrier(0, "0"),
+        bytesHex: toHex(deviceDestroyCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      {
+        id: "device-destroy-admitted-cleanup-result",
+        kind: "result",
+        carrierProjection: deviceDestroyCompletionCarrier(1, "8"),
+        bytesHex: toHex(deviceDestroyCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
     ],
   };
 }
@@ -1024,7 +1220,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter plus requestDevice unknown-limit/live/detached payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }

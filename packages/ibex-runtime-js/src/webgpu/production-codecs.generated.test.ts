@@ -129,6 +129,8 @@ function serviceInput(
       requiredLimits: Object.freeze({ maxBindGroups: 4 }),
       defaultQueue: Object.freeze({ label: 'queue' }),
     })
+    : operationId === 'GPUDevice.destroy'
+    ? null
     : Object.freeze({ sample: true }),
 ): ProductionGpuServiceEncodingInput {
   const route = WEBGPU_PRODUCTION_PLAN.routes.find(
@@ -275,7 +277,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -292,6 +294,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       routes: [
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
+        { operationId: 'GPUDevice.destroy', wireId: 206890944 },
       ],
     });
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.carrierConstants).toEqual({
@@ -303,6 +306,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       EXACT_GPU_PROVIDER_ADMITTED_V2: 1,
       EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2: 1,
       EXACT_GPU_BACKEND_NONE_V2: 0,
+      EXACT_GPU_RESULT_NONE_V2: 0,
       EXACT_GPU_RESULT_NULL_V2: 2,
       EXACT_GPU_RESULT_OBJECT_V2: 3,
     });
@@ -416,6 +420,28 @@ describe('generated injection-only WebGPU executable codecs', () => {
     } as unknown as ExecutableWebGpuCodecManifest;
     expect(() => createExecutableWebGpuCodecs(
       changedResultKind,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('native codec program');
+
+    const changedDestroyPayload = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      nativeCodecPrograms: {
+        ...program,
+        routes: program.routes.map((candidate) =>
+          candidate.operationId === 'GPUDevice.destroy'
+            ? {
+              ...candidate,
+              completion: {
+                ...candidate.completion,
+                payload: { kind: 'empty', exactLengthBytes: 1 },
+              },
+            }
+            : candidate
+        ),
+      },
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      changedDestroyPayload,
       WEBGPU_OBJECT_KIND_TAGS,
     )).toThrow('native codec program');
 
@@ -791,6 +817,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
               forceFallbackAdapter: false,
               xrCompatible: false,
             }
+            : route.operationId === 'GPUDevice.destroy'
+            ? null
             : { sample: true },
         });
       }
@@ -1034,6 +1062,66 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
       .encodeNativeCodegenRequest(serviceInput('GPUDevice.createCommandEncoder'))
     ).toThrow('no reviewed native codegen request program');
+  });
+
+  test('executes the private GPUDevice.destroy request program and empty terminal receipt', () => {
+    const input = serviceInput('GPUDevice.destroy', null);
+    const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) => candidate.tag === 'gpu-device-cleanup-service-request-v1',
+    )!;
+    expect(codec.nativeProgramPrerequisitesRepresented).toBe(true);
+    expect(codec.executableFromCurrentAuthenticatedInputs).toBe(true);
+    expect(codec.unavailableSemanticFields).toEqual([]);
+
+    const payload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(input);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      payload,
+    )).toMatchObject({
+      operationId: 'GPUDevice.destroy',
+      codec: 'gpu-device-cleanup-service-request-v1',
+      receiver: {
+        kind: 'GPUDevice',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      target: null,
+      adapterOrdinal: '0',
+      deviceIngressOrdinal: '3',
+      queueIngressOrdinal: '0',
+      convertedArguments: null,
+    });
+
+    for (const length of [0, 1, 4, 11, 12, payload.byteLength - 1]) {
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        payload.slice(0, length),
+      )).toThrow();
+    }
+    const wrongTag = payload.slice();
+    wrongTag[6] = wrongTag[6]! ^ 1;
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      wrongTag,
+    )).toThrow();
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      withTrailingByte(payload),
+    )).toThrow();
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...input,
+      convertedArguments: [],
+    })).toThrow('exactly null');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...input,
+      target: reference('GPUTexture'),
+    })).toThrow('must not carry a target');
+
+    const completion = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeServiceResult('GPUDevice.destroy', { kind: 'none' });
+    expect(completion.byteLength).toBe(0);
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUDevice.destroy',
+      { kind: 'null' },
+    )).toThrow('wrong shape');
   });
 
   test('decodes nullable adapter results with authenticated operation/result tags', () => {

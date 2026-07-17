@@ -226,7 +226,7 @@ function renderPlan(authority, workloadStaging) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-device-destroy-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     activeRouteSubset: {
       scopeId: payload.scopeId,
@@ -309,6 +309,7 @@ function exactGpuHeaderVocabulary() {
     "EXACT_GPU_PROVIDER_ADMITTED_V2",
     "EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2",
     "EXACT_GPU_BACKEND_NONE_V2",
+    "EXACT_GPU_RESULT_NONE_V2",
     "EXACT_GPU_RESULT_NULL_V2",
     "EXACT_GPU_RESULT_OBJECT_V2",
   ];
@@ -343,6 +344,9 @@ function buildCodecManifest(authority, semantics) {
   const requestDeviceProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUAdapter.requestDevice",
   );
+  const deviceDestroyProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUDevice.destroy",
+  );
   const objectCompletion = requestAdapterProgram?.completion.variants.find(
     (variant) => variant.name === "object",
   );
@@ -352,8 +356,10 @@ function buildCodecManifest(authority, semantics) {
   if (
     !requestAdapterProgram ||
     !requestDeviceProgram ||
+    !deviceDestroyProgram ||
     headerVocabulary.tags.GPU !== 1 ||
     headerVocabulary.tags.GPUAdapter !== 2 ||
+    headerVocabulary.tags.GPUDevice !== 3 ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 !==
       requestAdapterProgram.completion.commonCarrierConstraints[0].value ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_UNCHANGED_V2 !==
@@ -362,6 +368,8 @@ function buildCodecManifest(authority, semantics) {
       nullCompletion?.resultKind ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_OBJECT_V2 !==
       objectCompletion?.resultKind ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      deviceDestroyProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_V2 !== 1 ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 !== 2 ||
     headerVocabulary.carrierConstants.EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 !== 0 ||
@@ -369,14 +377,15 @@ function buildCodecManifest(authority, semantics) {
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2 !== 1 ||
     headerVocabulary.carrierConstants.EXACT_GPU_BACKEND_NONE_V2 !== 0 ||
     requestDeviceProgram.request.executablePrerequisites.join(",") !==
-      "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity"
+      "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity" ||
+    deviceDestroyProgram.request.executablePrerequisites.length !== 0
   ) {
     throw new Error("native WebGPU codec program C vocabulary drifted");
   }
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
