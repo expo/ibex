@@ -451,6 +451,22 @@ fn native_public_probe_serialization_preserves_omitted_optional_fields() {
     assert!(serialized.get("expectedCleanup").is_none());
 }
 
+#[test]
+fn native_async_harness_fields_are_not_published_as_runtime_results() {
+    let mut result = serde_json::json!({
+        "kind": "return",
+        "globalName": "__exactFsPathAsync",
+        "valueType": "undefined",
+        "resultString": null,
+        "cleanup": "removed-owned-file",
+    });
+
+    remove_native_async_harness_fields(&mut result);
+
+    assert!(result.get("resultString").is_none());
+    assert_eq!(result["cleanup"], "removed-owned-file");
+}
+
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
     let mut selectors = BTreeMap::new();
     for selector in catalog
@@ -1123,6 +1139,15 @@ fn native_async_invocation_script(
     )
 }
 
+fn remove_native_async_harness_fields(invocation_result: &mut serde_json::Value) {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // resultString transports an owned cleanup path inside the harness; it is
+    // not part of the exact public runtime-result evidence schema.
+    if let Some(result) = invocation_result.as_object_mut() {
+        result.remove("resultString");
+    }
+}
+
 struct NativeRuntimeValidation {
     terminal_observed_key: String,
     execution_proof: serde_json::Value,
@@ -1780,6 +1805,7 @@ async fn execute_native_public_recipe(
         }
         std::fs::remove_file(path).expect("remove owned retained-file fixture");
     }
+    remove_native_async_harness_fields(&mut invocation_result);
     let typed_decisions = observed_typed_values(&session_id, typed);
     let validation = validate_native_runtime_observation(
         recipe,

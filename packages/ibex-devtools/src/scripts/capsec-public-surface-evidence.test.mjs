@@ -38,6 +38,10 @@ const coverage = {
       surface: { kind: "native-op", name: "__exactPublic" },
     },
     {
+      id: "edge.mkdir-worker",
+      surface: { kind: "native-op", name: "__exactMkdir" },
+    },
+    {
       id: "edge.callback-terminal",
       classification: "effects",
       surface: { kind: "native-op", name: "__exactGetEnv" },
@@ -2240,6 +2244,125 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/unknown or missing fields/);
+  });
+
+  test("binds the native async dispatcher to its exact worker terminal", () => {
+    const recipe = completeCatalog().recipes[0];
+    recipe.terminalObservedKey = "native-op:__exactFsPathAsync";
+    recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+    recipe.route.alternatives = [
+      {
+        terminalObservedKey: recipe.terminalObservedKey,
+        proofPaths: [recipe.terminalObservedKey],
+      },
+    ];
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactFsPathAsync",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactFsPathAsync",
+        arity: 6,
+        sourceRef:
+          "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsPathAsync",
+      },
+      arguments: [
+        { kind: "json-literal", value: "mkdir" },
+        { kind: "json-literal", value: "target/owned-directory" },
+        { kind: "json-literal", value: null },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+      ],
+      requiredFloor: [],
+      setup: [],
+      expectedCleanup: "none",
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+      allowedCoverageEdgeIds: ["edge.mkdir-worker"],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = runtimeObservation(recipe);
+    delete observation.invocation.moduleSpecifier;
+    delete observation.invocation.exportName;
+    Object.assign(observation.invocation, {
+      kind: invocation.kind,
+      globalName: invocation.globalName,
+      result: {
+        kind: "return",
+        globalName: invocation.globalName,
+        valueType: "undefined",
+        cleanup: "none",
+      },
+      executionProof: { kind: "native-return", bodyEntered: true },
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+        status: "quiescent",
+      },
+    });
+    observation.typedDecisions[0].decisionSet.atomicityGroup =
+      "edge.mkdir-worker.decision";
+    observation.typedDecisions[0].gates[0].coverageEdgeId =
+      "edge.mkdir-worker";
+
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const deniedRecipe = structuredClone(recipe);
+    deniedRecipe.publicSurfaceProbe.invocation.expectedResult =
+      "permission-denied";
+    const denied = structuredClone(observation);
+    denied.invocation.result = {
+      kind: "throw",
+      globalName: invocation.globalName,
+      errorName: "Error",
+      errorMessage: "EACCES: permission denied, mkdir 'target/owned-directory'",
+    };
+    denied.invocation.executionProof.kind = "typed-permission-denial";
+    denied.typedDecisions[0].evidence.outcome = "deny";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: deniedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: denied,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const wrongWorker = structuredClone(observation);
+    wrongWorker.typedDecisions[0].decisionSet.atomicityGroup =
+      "edge.terminal.decision";
+    wrongWorker.typedDecisions[0].gates[0].coverageEdgeId = "edge.terminal";
+    const wrongWorkerRecipe = structuredClone(recipe);
+    wrongWorkerRecipe.publicSurfaceProbe.invocation.allowedCoverageEdgeIds = [
+      "edge.mkdir-worker",
+      "edge.terminal",
+    ];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongWorkerRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongWorker,
+        coverage,
+      }),
+    ).toThrow(/source-selected worker/);
   });
 
   test("accepts a source-bound zero-effect host ABI branch with cleanup", () => {

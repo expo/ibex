@@ -45,6 +45,30 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["stream-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
 ]);
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
+// dispatcher remains the public surface, while typed evidence must select its
+// exact source-chosen worker rather than any allowed auxiliary edge.
+const NATIVE_ASYNC_WORKER_TERMINALS = new Map([
+  ["mkdir", "native-op:__exactMkdir"],
+  ["mkdtemp", "native-op:__exactMkdir"],
+  ["readdir", "native-op:__exactReaddir"],
+  ["realpath", "native-op:__exactRealpath"],
+]);
+
+function nativeAsyncWorkerTerminal(authored) {
+  if (
+    authored?.invocationSchema !==
+      "ibex/capsec-native-global-invocation/1" ||
+    authored.kind !== "native-global-function" ||
+    authored.globalName !== "__exactFsPathAsync"
+  ) {
+    return null;
+  }
+  const operation = authored.arguments?.[0];
+  return operation?.kind === "json-literal"
+    ? NATIVE_ASYNC_WORKER_TERMINALS.get(operation.value) ?? null
+    : null;
+}
 
 // Independent verifier authority for the small curated startup family. Keep
 // this separate from recipe authorship so descriptor tampering cannot change
@@ -1552,7 +1576,7 @@ function validateRuntimeInvocation(observation, recipe) {
     if (
       invocation.result.kind !== "throw" ||
       typeof invocation.result.errorMessage !== "string" ||
-      !invocation.result.errorMessage.includes("Permission denied")
+      !invocation.result.errorMessage.toLowerCase().includes("permission denied")
     ) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
     }
@@ -1858,6 +1882,7 @@ export function validatePublicFixtureRuntimeObservation(
     authored.invocationSchema ===
     "ibex/capsec-startup-environment-invocation/1";
   const auxiliaryCarrier = callbackInvariant || startupEnvironment;
+  const nativeWorkerTerminal = nativeAsyncWorkerTerminal(authored);
   if (callbackInvariant) {
     // Callback/control surfaces are non-capabilities, but their invariant can
     // exercise one separately reviewed effect edge. Bind that auxiliary
@@ -2170,6 +2195,16 @@ export function validatePublicFixtureRuntimeObservation(
       : sourceVariantAbsence
       ? `${observation.invocation.result.surfaceKind}:${observation.invocation.result.surfaceName}`
       : observation.invocation.surfaceObservedKey;
+  } else if (nativeWorkerTerminal !== null) {
+    if (
+      terminals.size !== 1 ||
+      !terminals.has(nativeWorkerTerminal)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: async invocation did not remain on its source-selected worker`,
+      );
+    }
+    terminalObservedKey = observation.invocation.surfaceObservedKey;
   } else {
     if (terminals.size !== 1) {
       throw new Error(
