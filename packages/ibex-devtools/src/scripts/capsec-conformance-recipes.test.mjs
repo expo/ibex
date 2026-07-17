@@ -1382,7 +1382,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "terminal-builtin-import",
     );
-    expect(rows).toHaveLength(99);
+    expect(rows).toHaveLength(106);
     expect(
       Object.entries(
         Object.groupBy(
@@ -1394,11 +1394,11 @@ describe("exact-target CapSec executable recipes", () => {
         .map(([root, grouped]) => [root, grouped.length])
         .sort(),
     ).toEqual([
-      ["async_hooks", 24],
-      ["inspector", 19],
-      ["vm", 10],
-      ["wasi", 6],
-      ["worker_threads", 40],
+      ["async_hooks", 25],
+      ["inspector", 22],
+      ["vm", 11],
+      ["wasi", 7],
+      ["worker_threads", 41],
     ]);
     expect(
       rows.every(

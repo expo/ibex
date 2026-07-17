@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-17 (ENG-24933 binds all 99 source facets of the terminal `async_hooks`, inspector, VM, WASI, and worker-thread builtins to loaded-engine denial of every public alias under an authenticated overbroad snapshot)
+**Revised:** 2026-07-17 (ENG-24933 binds all 106 source and alias facets of the terminal `async_hooks`, inspector, VM, WASI, and worker-thread builtins to loaded-engine denial of every public alias under an authenticated overbroad snapshot)
 **Revised:** 2026-07-17 (ENG-24933 completes a source-, tree-, engine-, target-, and catalog-bound physical Apple Release report with 24/24 prerequisite commands passing; the report remains fail-closed with 1 conformant cell, 7,107 incomplete cells, and no advertisement)
 **Revised:** 2026-07-17 (ENG-24933 implements Windows mapped-DLL object identity and a pinned patched no-debugger Release artifact pipeline while retaining the target's unsupported status pending runtime evidence)
 **Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
@@ -611,8 +611,8 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalog has 23,126 required
-fixtures, 4,944 fully executable recipes, and 18,182 unresolved
-fixtures. The latest source-bound tranches add 99 terminal-builtin closure
+fixtures, 4,951 fully executable recipes, and 18,175 unresolved
+fixtures. The latest source-bound tranches add 106 terminal-builtin closure
 recipes, four loader/source-acquisition recipes, 24 native module-runner ABI
 lifecycle recipes, one armed namespace-inspection closure, 14 asymmetric/EVP
 crypto recipes, eight
@@ -667,9 +667,9 @@ initializer is recursively proven intrinsic and the binding is never
 reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 7,092: an opaque reassignment still fails closed, and removing false route
 ambiguity is not itself public execution evidence. The later terminal-builtin
-denial tranche resolves 99 exact source facets before module evaluation,
+denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes and 18,182 unresolved fixtures.
+are 7,043 ambiguous routes and 18,175 unresolved fixtures.
 
 ### WP0 artifacts and gate
 

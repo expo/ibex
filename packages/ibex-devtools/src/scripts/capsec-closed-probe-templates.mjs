@@ -706,7 +706,7 @@ function terminalBuiltinImportProbe({
   const exportSurface = metadata.surfaceType === "export";
   const expectedSurfaceName = exportSurface
     ? `export:${metadata.sourceKey}:${metadata.exportName}`
-    : terminalBuiltinRoot;
+    : live.name;
   if (
     live.kind !== "builtin" ||
     live.name !== expectedSurfaceName ||
@@ -717,7 +717,9 @@ function terminalBuiltinImportProbe({
     (exportSurface
       ? canonicalJson(metadata.publicModuleSpecifiers) !==
         canonicalJson(moduleSpecifiers)
-      : metadata.moduleBuiltin !== true || metadata.bundleExternal !== true) ||
+      : metadata.moduleBuiltin !== true ||
+        metadata.bundleExternal !== true ||
+        !moduleSpecifiers.includes(live.name)) ||
     edge?.id !== plan.edgeIds[0] ||
     edge.classification !== "closed" ||
     (route.alternatives.length === 1 &&

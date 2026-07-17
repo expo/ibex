@@ -1255,7 +1255,7 @@ function validateRuntimeInvocation(observation, recipe) {
       const exportSurface = descriptor.exportName !== undefined;
       const expectedSurfaceName = exportSurface
         ? `export:${descriptor.sourceKey}:${descriptor.exportName}`
-        : terminalBuiltin?.[0];
+        : descriptor.surfaceObservedKey?.slice("builtin:".length);
       if (
         terminalBuiltin === undefined ||
         authored.surfaceKind !== "builtin" ||
@@ -1282,6 +1282,7 @@ function validateRuntimeInvocation(observation, recipe) {
           : descriptor.sourceMetadata?.surfaceType !== undefined ||
             descriptor.sourceMetadata?.moduleBuiltin !== true ||
             descriptor.sourceMetadata?.bundleExternal !== true ||
+            !terminalBuiltin[1].includes(expectedSurfaceName) ||
             descriptor.sourceRefs[0] !==
               `modules.ts#specifiers:${descriptor.sourceKey}`)
       ) {

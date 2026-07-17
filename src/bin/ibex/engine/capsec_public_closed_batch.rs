@@ -1218,7 +1218,11 @@ async fn execute_closed_terminal_builtin_import(
         assert!(descriptor.source_metadata.get("surfaceType").is_none());
         assert_eq!(descriptor.source_metadata["moduleBuiltin"], true);
         assert_eq!(descriptor.source_metadata["bundleExternal"], true);
-        assert_eq!(invocation.surface_name, *terminal_builtin_root);
+        assert!(
+            reviewed_specifiers.contains(&invocation.surface_name.as_str()),
+            "unreviewed terminal builtin alias {}",
+            invocation.surface_name
+        );
     }
     let (surface_kind, surface_name) = coverage
         .get(&recipe.edge_ids[0])
@@ -2243,7 +2247,7 @@ async fn capsec_public_closed_recipe_batch() {
         "expected the armed module namespace inspection closure fixture"
     );
     assert_eq!(
-        terminal_builtin_count, 99,
+        terminal_builtin_count, 106,
         "expected every source facet of the five terminal builtin modules"
     );
     let _lock = hermes_engine_test_lock().lock().await;
