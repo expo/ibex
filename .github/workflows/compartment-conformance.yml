@@ -56,6 +56,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Install Python for linked-reference checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: Install JS dependencies
         run: bun install --frozen-lockfile
 
@@ -96,7 +101,10 @@ jobs:
           fi
 
       - name: Run the complete CapSec matrix and bind evidence
-        run: bun run verify:capsec-conformance -- --expect-incomplete
+        run: >-
+          bun run verify:capsec-conformance --
+          --target aarch64-apple-darwin
+          --expect-incomplete
 
       # This lane owns the reviewed source-patched profile. The runner first
       # learns the mapped Hermes identity/compiled target from Rust, then
@@ -116,12 +124,133 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: capsec-evidence-${{ github.sha }}
+          name: capsec-evidence-macos-arm64-${{ github.sha }}
           path: |
             target/capsec-ci-status.json
             target/capsec-executions.json
             target/capsec-conformance-report.json
             target/capsec-suite-evidence-*/**
             target/capsec-intrinsic-alias-source-patched/**
+          if-no-files-found: error
+          retention-days: 14
+
+  conformance-windows:
+    name: Complete matrix + unadvertised evidence (Windows x64)
+    runs-on: windows-2022
+    timeout-minutes: 240
+    env:
+      HERMES_ENABLE_DEBUGGER: "false"
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Configure MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.93.1 --profile minimal
+          rustup default 1.93.1
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install Node compatibility oracle
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.1
+
+      - name: Bind exact Node compatibility oracle
+        shell: pwsh
+        run: |
+          $node = (Get-Command node).Source
+          "IBEX_NODE_ORACLE_BIN=$node" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install Java for Android bridge behavior tests
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Python for linked-reference checks
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install JS dependencies
+        shell: pwsh
+        run: bun install --frozen-lockfile
+
+      - name: Cache patched Hermes artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/hermes/windows-x64
+            ~/AppData/Local/Exact/hermes-windows
+          key: hermes-patched-no-debugger-v2-${{ runner.os }}-x64-${{ hashFiles('scripts/hermes-version.sh', 'scripts/install-windows-hermes.ps1', 'scripts/build-hermes-windows.ps1', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
+
+      - name: Install patched no-debugger Release Hermes
+        shell: pwsh
+        run: ./scripts/install-windows-hermes.ps1 -Arch x64
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Retain Windows engine-profile preflight state
+        if: always()
+        shell: pwsh
+        run: |
+          $directory = Join-Path $PWD "target\capsec-suite-evidence-engine-preflight"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          @(
+            "sourceRevision=${{ github.sha }}"
+            "target=x86_64-pc-windows-msvc"
+            "stage=windows-engine-profile"
+          ) | Set-Content -LiteralPath (Join-Path $directory "status.txt") -Encoding utf8NoBOM
+
+      - name: Verify cached Hermes is patched and debugger-free
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $install = Join-Path $PWD "tools\hermes\windows-x64"
+          $dll = Join-Path $install "bin\hermesvm.dll"
+          $manifest = Get-Content -LiteralPath (Join-Path $install "artifact.json") -Raw | ConvertFrom-Json
+          $builderDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath "scripts\build-hermes-windows.ps1").Hash.ToLowerInvariant()
+          $dllDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $dll).Hash.ToLowerInvariant()
+          if ($manifest.configuration -ne "Release" -or
+              $manifest.debugger -ne $false -or
+              $manifest.architecture -ne "x64" -or
+              $manifest.sourceBuildAuthorityDigest -ne $builderDigest -or
+              $manifest.binarySha256 -ne $dllDigest) {
+            throw "Windows Hermes artifact is not bound to the current no-debugger Release build authority"
+          }
+          $exports = dumpbin /exports $dll | Out-String
+          if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
+            throw "Hermes DLL lacks the patched attribution export"
+          }
+          if ($exports -match 'CDPAgent|CDPDebugAPI') {
+            throw "Hermes DLL exports debugger symbols"
+          }
+
+      - name: Run the complete CapSec matrix and bind evidence
+        shell: pwsh
+        run: >-
+          bun run verify:capsec-conformance --
+          --target x86_64-pc-windows-msvc
+          --engine-artifact tools/hermes/windows-x64/bin/hermesvm.dll
+          --expect-incomplete
+
+      - name: Retain exact-engine suite and refusal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capsec-evidence-windows-x64-${{ github.sha }}
+          path: |
+            target/capsec-ci-status.json
+            target/capsec-executions.json
+            target/capsec-conformance-report.json
+            target/capsec-suite-evidence-*/**
           if-no-files-found: error
           retention-days: 14

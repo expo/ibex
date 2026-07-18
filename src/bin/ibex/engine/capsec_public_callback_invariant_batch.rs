@@ -26,7 +26,13 @@ const CALLBACK_BATCH_COMMAND: [&str; 9] = [
 struct RecipeCatalog {
     recipe_catalog_schema: String,
     recipe_catalog_digest: String,
+    target: CatalogTarget,
     recipes: Vec<Recipe>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CatalogTarget {
+    triple: String,
 }
 
 #[derive(Debug, Deserialize)]

@@ -13067,12 +13067,12 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchStackDigest:
         "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
       sourceBuildAuthorityDigest:
-        "sha256-5978da60417a8ad3081e9139c8dc677ebe4b5fee46833589ac3d067967646fd4",
+        "sha256-38b23085b000c0341365e66b86a7e2afc488f3058a94b78b27c152a1a298a3fd",
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
       sourceVersion: "260318099.0.0",
       sourceInstallerAuthorityDigest:
-        "sha256-c285aab2ee7a1e5b67aaa1a7881c31cd0f4398ec8b084fc130f0f0e9f3260aed",
+        "sha256-211312de49c19da2b995bc6ed63eae5ab57054861f77b5073638630efc2d88b7",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [

@@ -1361,6 +1361,167 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "sqlite-extension-load") {
+      const descriptor = authored.sourceDescriptor;
+      const constructorExportName = new Map([
+        ["Database.loadExtension", "Database"],
+        ["default.loadExtension", "default"],
+      ]).get(descriptor?.exportName);
+      const moduleSpecifiers = ["bun:sqlite", "exact:sqlite"];
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceKey",
+          "exportName",
+          "constructorExportName",
+          "moduleSpecifiers",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed SQLite extension source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        [
+          "kind",
+          "constructorExportName",
+          "methodName",
+          "moduleSpecifiers",
+          "databasePath",
+          "extensionPath",
+          "expectedRejectionFragment",
+        ],
+        `${recipe.fixtureId}: closed SQLite extension operation`,
+      );
+      const expectedSurfaceName =
+        `export:exact_sqlite:${descriptor.exportName}`;
+      if (
+        constructorExportName === undefined ||
+        authored.surfaceKind !== "builtin" ||
+        authored.surfaceName !== expectedSurfaceName ||
+        recipe.terminalObservedKey !== `builtin:${expectedSurfaceName}` ||
+        descriptor.kind !== "closed-sqlite-extension-load" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.sourceKey !== "exact_sqlite" ||
+        descriptor.constructorExportName !== constructorExportName ||
+        canonicalJson(descriptor.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([
+            `packages/ibex-runtime-js/src/sqlite/module.js#exports:${descriptor.exportName}`,
+          ]) ||
+        descriptor.sourceMetadata?.sourceKey !== "exact_sqlite" ||
+        descriptor.sourceMetadata?.surfaceType !== "export" ||
+        descriptor.sourceMetadata?.exportName !== descriptor.exportName ||
+        descriptor.sourceMetadata?.valueShape !== "callable" ||
+        descriptor.sourceMetadata?.importReachability !== "public" ||
+        canonicalJson(descriptor.sourceMetadata?.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(descriptor.sourceMetadata?.publicModuleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(
+          descriptor.sourceMetadata?.enforcementRouteEvidence?.terminals,
+        ) !== canonicalJson(["__exactSqliteLoadExtension"]) ||
+        authored.operation.constructorExportName !== constructorExportName ||
+        authored.operation.methodName !== "loadExtension" ||
+        canonicalJson(authored.operation.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        authored.operation.databasePath !== ":memory:" ||
+        authored.operation.extensionPath !==
+          "ibex-capsec-closed-extension" ||
+        authored.operation.expectedRejectionFragment !==
+          "Extension loading not supported"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: SQLite extension closure is not bound to the public memory-database call`,
+        );
+      }
+    }
+    if (authored.operation?.kind === "sqlite-cr-sqlite-enable") {
+      const descriptor = authored.sourceDescriptor;
+      const constructorExportName = new Map([
+        ["Database.enableCrSqlite", "Database"],
+        ["default.enableCrSqlite", "default"],
+      ]).get(descriptor?.exportName);
+      const moduleSpecifiers = ["bun:sqlite", "exact:sqlite"];
+      const expectedTerminals = [
+        "__exactCrSqlitePath",
+        "__exactSqliteLoadCrSqlite",
+        "__exactSqliteLoadExtension",
+      ];
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceKey",
+          "exportName",
+          "constructorExportName",
+          "moduleSpecifiers",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed cr-sqlite source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        [
+          "kind",
+          "constructorExportName",
+          "methodName",
+          "moduleSpecifiers",
+          "databasePath",
+          "expectedRejectionFragment",
+        ],
+        `${recipe.fixtureId}: closed cr-sqlite operation`,
+      );
+      const expectedSurfaceName =
+        `export:exact_sqlite:${descriptor.exportName}`;
+      if (
+        constructorExportName === undefined ||
+        authored.surfaceKind !== "builtin" ||
+        authored.surfaceName !== expectedSurfaceName ||
+        recipe.terminalObservedKey !== `builtin:${expectedSurfaceName}` ||
+        descriptor.kind !== "closed-sqlite-crsqlite-enable" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.sourceKey !== "exact_sqlite" ||
+        descriptor.constructorExportName !== constructorExportName ||
+        canonicalJson(descriptor.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([
+            `packages/ibex-runtime-js/src/sqlite/module.js#exports:${descriptor.exportName}`,
+          ]) ||
+        descriptor.sourceMetadata?.sourceKey !== "exact_sqlite" ||
+        descriptor.sourceMetadata?.surfaceType !== "export" ||
+        descriptor.sourceMetadata?.exportName !== descriptor.exportName ||
+        descriptor.sourceMetadata?.valueShape !== "callable" ||
+        descriptor.sourceMetadata?.importReachability !== "public" ||
+        canonicalJson(descriptor.sourceMetadata?.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(descriptor.sourceMetadata?.publicModuleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(
+          [...(
+            descriptor.sourceMetadata?.enforcementRouteEvidence?.terminals ??
+            []
+          )].sort(),
+        ) !== canonicalJson([...expectedTerminals].sort()) ||
+        authored.operation.constructorExportName !== constructorExportName ||
+        authored.operation.methodName !== "enableCrSqlite" ||
+        canonicalJson(authored.operation.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        authored.operation.databasePath !== ":memory:" ||
+        authored.operation.expectedRejectionFragment !==
+          "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support."
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: cr-sqlite closure is not bound to the public memory-database call`,
+        );
+      }
+    }
     if (authored.operation?.kind === "debugger-abi-disabled") {
       const debuggerExpectation = new Map([
         ["enable", ["ex_hermes_debugger_enable", "integer-zero"]],
@@ -1411,6 +1572,13 @@ function validateRuntimeInvocation(observation, recipe) {
         `src/engine/hermes_runtime_debugger.cc#${functionName}`;
       const windowsSourceRef =
         `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+      const selectedSourceRefByTarget = new Map([
+        ["aarch64-apple-darwin", defaultSourceRef],
+        ["x86_64-pc-windows-msvc", windowsSourceRef],
+      ]);
+      const expectedSelectedSourceRef = selectedSourceRefByTarget.get(
+        descriptor.targetTriple,
+      );
       const expectedSurfaceName =
         authored.surfaceKind === "host-abi"
           ? functionName
@@ -1460,8 +1628,8 @@ function validateRuntimeInvocation(observation, recipe) {
         descriptor.kind !== "closed-debugger-abi" ||
         descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
         descriptor.functionName !== functionName ||
-        descriptor.selectedSourceRef !== defaultSourceRef ||
-        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        expectedSelectedSourceRef === undefined ||
+        descriptor.selectedSourceRef !== expectedSelectedSourceRef ||
         canonicalJson(descriptor.sourceRefs) !==
           canonicalJson([defaultSourceRef, windowsSourceRef]) ||
         canonicalJson(descriptor.sourceMetadata) !==
@@ -1509,9 +1677,65 @@ function validateRuntimeInvocation(observation, recipe) {
         "global:CacheStorage.keys",
         "global:CacheStorage.match",
         "global:CacheStorage.open",
+        "global:Bun.accessibility",
+        "global:Bun.accessibility.addEventListener",
+        "global:Bun.accessibility.announce",
+        "global:Bun.accessibility.colorScheme",
+        "global:Bun.accessibility.dynamicTypeSize",
+        "global:Bun.accessibility.fontScale",
+        "global:Bun.accessibility.get",
+        "global:Bun.accessibility.isBoldTextEnabled",
+        "global:Bun.accessibility.isGrayscaleEnabled",
+        "global:Bun.accessibility.isInvertColorsEnabled",
+        "global:Bun.accessibility.isScreenReaderEnabled",
+        "global:Bun.accessibility.prefersHighContrast",
+        "global:Bun.accessibility.prefersReducedMotion",
+        "global:Bun.accessibility.prefersReducedTransparency",
+        "global:Exact.accessibility",
+        "global:Exact.accessibility.addEventListener",
+        "global:Exact.accessibility.announce",
+        "global:Exact.accessibility.colorScheme",
+        "global:Exact.accessibility.dynamicTypeSize",
+        "global:Exact.accessibility.fontScale",
+        "global:Exact.accessibility.get",
+        "global:Exact.accessibility.isBoldTextEnabled",
+        "global:Exact.accessibility.isGrayscaleEnabled",
+        "global:Exact.accessibility.isInvertColorsEnabled",
+        "global:Exact.accessibility.isScreenReaderEnabled",
+        "global:Exact.accessibility.prefersHighContrast",
+        "global:Exact.accessibility.prefersReducedMotion",
+        "global:Exact.accessibility.prefersReducedTransparency",
         "global:Exact.gc",
       ]);
+      const reviewedRoots = new Set([
+        "BroadcastChannel",
+        "caches",
+        "IDBCursor",
+        "IDBCursorWithValue",
+        "IDBDatabase",
+        "IDBIndex",
+        "IDBKeyRange",
+        "IDBObjectStore",
+        "IDBOpenDBRequest",
+        "IDBRequest",
+        "IDBTransaction",
+        "indexedDB",
+        "localStorage",
+        "MessageChannel",
+        "MessagePort",
+        "sessionStorage",
+      ]);
+      const reviewedSurface =
+        reviewedSurfaces.has(authored.surfaceName) ||
+        (authored.surfaceName.startsWith("global:") &&
+          reviewedRoots.has(
+            authored.surfaceName.slice("global:".length).split(".", 1)[0],
+          ));
       const descriptor = authored.sourceDescriptor;
+      const exactTarget = new Set([
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+      ]).has(descriptor.targetTriple);
       exactKeys(
         descriptor,
         [
@@ -1537,8 +1761,41 @@ function validateRuntimeInvocation(observation, recipe) {
           ? authored.operation.globalName
           : `${authored.operation.globalName}.${memberName}`;
       const branches = metadata?.installationBranches;
+      const branch = branches?.[0];
+      const sharedRuntimeInstallation =
+        metadata?.sourceKey === "shared_runtime";
+      const reviewedSharedRuntimeBranch =
+        branch?.route === "shared-runtime" &&
+        branch.targetVariant === "all" &&
+        canonicalJson(branch.routes) === canonicalJson(["shared-runtime"]);
+      const reviewedComposedSharedRuntimeBranch =
+        branch?.route === "composed:legacy-bootstrap+shared-runtime" &&
+        branch.targetVariant === "default" &&
+        canonicalJson(branch.routes) ===
+          canonicalJson(["legacy-bootstrap", "shared-runtime"]);
+      const reviewedLegacySourceKeys = new Set([
+        "global_compat_polyfills",
+        "global_exact_global",
+        "global_ipc_listener",
+        "global_module_loader",
+        "global_process_compat_fix",
+        "global_web_storage",
+      ]);
+      const reviewedLegacyBranch =
+        reviewedLegacySourceKeys.has(metadata?.sourceKey) &&
+        branch?.route === "legacy-bootstrap" &&
+        branch.targetVariant === "default" &&
+        canonicalJson(branch.routes) === canonicalJson(["legacy-bootstrap"]);
+      const reviewedInstallation =
+        Array.isArray(branches) &&
+        branches.length === 1 &&
+        canonicalJson(branch.sourceRefs) === canonicalJson(descriptor.sourceRefs) &&
+        (sharedRuntimeInstallation
+          ? reviewedSharedRuntimeBranch ||
+            reviewedComposedSharedRuntimeBranch
+          : reviewedLegacyBranch);
       if (
-        !reviewedSurfaces.has(authored.surfaceName) ||
+        !reviewedSurface ||
         authored.surfaceKind !== "native-op" ||
         descriptor.kind !== "closed-shared-runtime-global-absence" ||
         descriptor.surfaceObservedKey !==
@@ -1546,7 +1803,153 @@ function validateRuntimeInvocation(observation, recipe) {
         recipe.terminalObservedKey !== descriptor.surfaceObservedKey ||
         descriptor.globalName !== authored.operation.globalName ||
         (descriptor.memberName ?? null) !== memberName ||
-        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        !exactTarget ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.globalName !== authored.operation.globalName ||
+        metadata.memberName !== memberName ||
+        metadata.exportName !== exportName ||
+        !reviewedInstallation ||
+        authored.operation.expectedError !==
+          `armed shared runtime does not expose ${exportName}`
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: shared-runtime global closure is not bound to a reviewed installation path`,
+        );
+      }
+    }
+    if (authored.operation?.kind === "armed-native-global-absence") {
+      const reviewedDirectGlobals = new Set([
+        "__exactExit",
+        "__exactGetGCStats",
+        "__exactGetHeapInfo",
+        "__exactGetSourceCacheStats",
+        "__exactIpcRecvMsg",
+        "__exactIpcSendMsg",
+        "__exactPollSignal",
+        "__exactResetSignal",
+        "__exactSetCwd",
+      ]);
+      const reviewedWorkletGlobals = new Set([
+        "global:measure",
+        "global:scheduleOnAppRuntime",
+        "global:worklet",
+        "global:worklet.capture",
+        "global:worklet.captureGet",
+        "global:worklet.captureSet",
+        "global:worklet.clamp",
+        "global:worklet.lerp",
+        "global:worklet.output",
+        "global:worklet.runOnJS",
+        "global:worklet.sharedValue",
+      ]);
+      const directArmedGlobal = reviewedDirectGlobals.has(
+        authored.surfaceName,
+      );
+      const appRuntimeAbsentWorkletGlobal = reviewedWorkletGlobals.has(
+        authored.surfaceName,
+      );
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          ...(descriptor.memberName === undefined ? [] : ["memberName"]),
+          "targetTriple",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed armed native global descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        [
+          "kind",
+          "globalName",
+          ...(authored.operation.memberName === undefined
+            ? []
+            : ["memberName"]),
+          "expectedError",
+        ],
+        `${recipe.fixtureId}: closed armed native global operation`,
+      );
+      const metadata = descriptor.sourceMetadata;
+      const branches = metadata?.installationBranches;
+      const publicInvocation = metadata?.publicInvocation;
+      const memberName = authored.operation.memberName ?? null;
+      const exportName =
+        memberName === null
+          ? authored.operation.globalName
+          : `${authored.operation.globalName}.${memberName}`;
+      const defaultBranch = branches?.find(
+        (branch) =>
+          branch.route === "native-jsi-global" &&
+          branch.targetVariant === "default",
+      );
+      const workletBranch = branches?.find(
+        (branch) =>
+          ["evaluated-native-script", "native-jsi-global"].includes(
+            branch.route,
+          ) && branch.targetVariant === "worklet",
+      );
+      const exactTarget = new Set([
+        "aarch64-apple-darwin",
+        "x86_64-pc-windows-msvc",
+      ]).has(descriptor.targetTriple);
+      const reviewedDirectGlobal =
+        directArmedGlobal &&
+        metadata?.sourceKey === "native_jsi_global" &&
+        metadata.globalName === authored.surfaceName &&
+        metadata.memberName === null &&
+        canonicalJson(metadata.memberKinds) ===
+          canonicalJson(["native-root"]) &&
+        publicInvocation?.kind === "native-global-function" &&
+        publicInvocation.globalName === metadata.globalName &&
+        Number.isSafeInteger(publicInvocation.arity) &&
+        publicInvocation.arity >= 0 &&
+        typeof publicInvocation.sourceRef === "string" &&
+        descriptor.sourceRefs.includes(publicInvocation.sourceRef) &&
+        defaultBranch?.sourceRefs.includes(publicInvocation.sourceRef);
+      const reviewedWorkletGlobal =
+        appRuntimeAbsentWorkletGlobal &&
+        authored.surfaceName === `global:${exportName}` &&
+        Array.isArray(branches) &&
+        branches.length === 1 &&
+        canonicalJson(workletBranch?.sourceRefs) ===
+          canonicalJson(descriptor.sourceRefs) &&
+        (metadata?.sourceKey === "native_jsi_global"
+          ? workletBranch?.route === "native-jsi-global" &&
+            canonicalJson(workletBranch.routes) ===
+              canonicalJson(["native-jsi-global"]) &&
+            canonicalJson(metadata.memberKinds) ===
+              canonicalJson([
+                memberName === null ? "native-root" : "native-object-member",
+              ]) &&
+            publicInvocation?.kind === "native-global-function" &&
+            publicInvocation.globalName === metadata.globalName &&
+            Number.isSafeInteger(publicInvocation.arity) &&
+            publicInvocation.arity >= 0 &&
+            typeof publicInvocation.sourceRef === "string" &&
+            descriptor.sourceRefs.includes(publicInvocation.sourceRef)
+          : metadata?.sourceKey === "evaluated_native_script" &&
+            workletBranch?.route === "evaluated-native-script" &&
+            canonicalJson(workletBranch.routes) ===
+              canonicalJson(["evaluated-native-script"]) &&
+            metadata.evaluatedScript === "kPrelude" &&
+            canonicalJson(metadata.sourceUrls) ===
+              canonicalJson(["worklet-prelude.js"]));
+      if (
+        (!directArmedGlobal && !appRuntimeAbsentWorkletGlobal) ||
+        authored.surfaceKind !== "native-op" ||
+        descriptor.kind !== "closed-armed-native-global-absence" ||
+        descriptor.surfaceObservedKey !== `native-op:${authored.surfaceName}` ||
+        recipe.terminalObservedKey !== descriptor.surfaceObservedKey ||
+        descriptor.globalName !== authored.operation.globalName ||
+        (descriptor.memberName ?? null) !== memberName ||
+        !exactTarget ||
         !Array.isArray(descriptor.sourceRefs) ||
         descriptor.sourceRefs.length === 0 ||
         metadata?.surfaceType !== "global-api" ||
@@ -1554,16 +1957,12 @@ function validateRuntimeInvocation(observation, recipe) {
         metadata.memberName !== memberName ||
         metadata.exportName !== exportName ||
         !Array.isArray(branches) ||
-        branches.length !== 1 ||
-        branches[0].route !== "legacy-bootstrap" ||
-        branches[0].targetVariant !== "default" ||
-        canonicalJson(branches[0].sourceRefs) !==
-          canonicalJson(descriptor.sourceRefs) ||
+        (!reviewedDirectGlobal && !reviewedWorkletGlobal) ||
         authored.operation.expectedError !==
-          `armed shared runtime does not expose ${exportName}`
+          `armed runtime does not expose ${exportName}`
       ) {
         throw new Error(
-          `${recipe.fixtureId}: shared-runtime global closure is not bound to the reviewed legacy-only path`,
+          `${recipe.fixtureId}: armed native global closure is not bound to the reviewed source-derived JSI path`,
         );
       }
     }
@@ -1864,15 +2263,27 @@ function validateRuntimeInvocation(observation, recipe) {
       authored.invocationSchema === "ibex/capsec-native-global-invocation/1" &&
       authored.kind === "native-global-function"
     ) {
+      const armedEnvironmentEnumeration =
+        authored.globalName === "__exactGetAllEnv";
       exactKeys(
         invocation.result,
-        ["kind", "globalName", "valueType", "cleanup"],
+        [
+          "kind",
+          "globalName",
+          "valueType",
+          "cleanup",
+          ...(armedEnvironmentEnumeration ? ["valuePropertyCount"] : []),
+        ],
         `${recipe.fixtureId}: native call result`,
       );
       if (
         invocation.result.globalName !== authored.globalName ||
         typeof invocation.result.valueType !== "string" ||
         typeof invocation.result.cleanup !== "string" ||
+        (armedEnvironmentEnumeration &&
+          (invocation.result.valueType !== "object" ||
+            invocation.result.valuePropertyCount !== 0 ||
+            invocation.result.cleanup !== "none")) ||
         (authored.expectedCleanup !== undefined &&
           invocation.result.cleanup !== authored.expectedCleanup)
       ) {
@@ -2324,6 +2735,46 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
     if (
+      authored.operation?.kind === "sqlite-extension-load" &&
+      (invocation.result.engineExecuted !== true ||
+        !authored.operation.moduleSpecifiers.every(
+          (specifier) =>
+            invocation.result.errorMessage
+              .split("\n")
+              .some(
+                (line) =>
+                  line.startsWith(`${specifier}: `) &&
+                  line.includes(
+                    authored.operation.expectedRejectionFragment,
+                  ),
+              ),
+        ))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: SQLite extension loading did not fail closed through every public alias`,
+      );
+    }
+    if (
+      authored.operation?.kind === "sqlite-cr-sqlite-enable" &&
+      (invocation.result.engineExecuted !== true ||
+        !authored.operation.moduleSpecifiers.every(
+          (specifier) =>
+            invocation.result.errorMessage
+              .split("\n")
+              .some(
+                (line) =>
+                  line.startsWith(`${specifier}: `) &&
+                  line.includes(
+                    authored.operation.expectedRejectionFragment,
+                  ),
+              ),
+        ))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: cr-sqlite enablement did not fail closed through every public alias`,
+      );
+    }
+    if (
       authored.operation?.kind === "debugger-abi-disabled" &&
       (invocation.result.engineExecuted !== true ||
         invocation.result.errorMessage !== authored.operation.expectedError)
@@ -2339,6 +2790,15 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: armed shared-runtime global was not physically absent`,
+      );
+    }
+    if (
+      authored.operation?.kind === "armed-native-global-absence" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed native global was not physically absent`,
       );
     }
     const loaderExecutableExpectation = new Map([
@@ -2390,13 +2850,22 @@ function validateRuntimeInvocation(observation, recipe) {
   if (
     invocation.invocationSchema === "ibex/capsec-native-global-invocation/1"
   ) {
+    const armedEnvironmentEnumeration =
+      authored.globalName === "__exactGetAllEnv" &&
+      authored.expectedResult === "return";
     exactKeys(
       invocation.executionProof,
-      ["kind", "bodyEntered"],
+      [
+        "kind",
+        "bodyEntered",
+        ...(armedEnvironmentEnumeration ? ["propertyCount"] : []),
+      ],
       `${recipe.fixtureId}: native execution proof`,
     );
     const expectedProof =
-      authored.expectedResult === "return"
+      armedEnvironmentEnumeration
+        ? ["armed-empty-environment-enumeration", true]
+        : authored.expectedResult === "return"
         ? [
             authored.kind === "global-property-read"
               ? "global-property-read"
@@ -2410,7 +2879,9 @@ function validateRuntimeInvocation(observation, recipe) {
           : ["exact-global-absence", false];
     if (
       invocation.executionProof.kind !== expectedProof[0] ||
-      invocation.executionProof.bodyEntered !== expectedProof[1]
+      invocation.executionProof.bodyEntered !== expectedProof[1] ||
+      (armedEnvironmentEnumeration &&
+        invocation.executionProof.propertyCount !== 0)
     ) {
       throw new Error(
         `${recipe.fixtureId}: native execution proof disagrees with result`,
@@ -2809,11 +3280,20 @@ export function validatePublicFixtureRuntimeObservation(
     }
     terminalObservedKey = [...terminals][0];
   }
+  const directTerminalBuiltinClosure =
+    recipe.classification === "closed" &&
+    recipe.scenario === "closed" &&
+    authored.operation?.kind === "terminal-builtin-import" &&
+    recipe.route?.alternatives?.length === 0 &&
+    canonicalJson(recipe.route?.surfaceObservedKeys) ===
+      canonicalJson([terminalObservedKey]);
   const allowed = auxiliaryCarrier
     ? [recipe.publicSurfaceProbe.surfaceObservedKey]
-    : recipe.route?.alternatives?.map(
-        (alternative) => alternative.terminalObservedKey,
-      );
+    : directTerminalBuiltinClosure
+      ? [terminalObservedKey]
+      : recipe.route?.alternatives?.map(
+          (alternative) => alternative.terminalObservedKey,
+        );
   const exactTargetAbsence =
     authored.expectedResult === "absent" &&
     recipe.expectedObservation?.kind === "target-absence";

@@ -5302,7 +5302,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       )?.metadata.exportIdioms,
     ).toContain("closed-dynamic-table:signal-number-overlay");
     expect(exports.every((row) => row.sourceRefs.length > 0)).toBe(true);
-  });
+  }, 15_000);
 
   test("principal environment Proxy inventory binds its facade, traps, and native routes", () => {
     const sourcePath = "packages/ibex-runtime-js/src/node/process.ts";

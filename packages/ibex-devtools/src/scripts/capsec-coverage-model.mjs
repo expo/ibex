@@ -2884,7 +2884,7 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.c73e7e4a835ef3cfe86cfd5aa9c0fe9301f35ea48d61b89f7c2d3fc8f45f3d9c";
+  "hermes-evaluators.5410185e70f99d05265b6375a885af058dd826996d2e453453bff28c1cb58bae";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -7455,7 +7455,6 @@ function filesystemDescriptorDispatcherEffectSpec() {
   });
   return conditionalBranchEffectSpec(
     [
-      branch("durability-read", ["fs:read"]),
       branch("durability-write", ["fs:write"]),
       branch("metadata-write", ["fs:write"]),
     ],
@@ -11446,14 +11445,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     if (/^(?:stdout|stderr)$/u.test(member)) {
       return effectSpec(["stdio:write"], "stdio", "WP7");
     }
-    if (/^accessibility\.addeventlistener$/u.test(member)) {
-      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
-    }
     if (/^accessibility(?:\.|$)/u.test(member)) {
       return closedSpec(
         "ipc:channel",
         "WP7",
-        "Accessibility reads and announcements cross the shared embedder application-state channel.",
+        "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel.",
       );
     }
     if (member === "locale.addlistener") {
@@ -11788,7 +11784,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (globalName === "indexeddb") {
     if (member === "cmp") {
-      return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB helpers are closed with the ambient database factory until its namespace is principal-isolated.",
+      );
     }
     if (member === "databases") {
       return closedSpec(
@@ -11807,10 +11807,18 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     return null;
   }
   if (globalName === "idbkeyrange") {
-    return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+    return closedSpec(
+      "storage:persist",
+      "WP7",
+      "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph.",
+    );
   }
   if (/^(?:idbrequest|idbopendbrequest)$/u.test(globalName)) {
-    return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    return closedSpec(
+      "storage:persist",
+      "WP7",
+      "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects.",
+    );
   }
   if (
     /^(?:idbcursor|idbcursorwithvalue|idbdatabase|idbindex|idbobjectstore|idbtransaction)$/u.test(
@@ -11822,10 +11830,18 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
         member,
       )
     ) {
-      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB callbacks are closed with the ambient retained object that would produce them.",
+      );
     }
     if (/^(?:close|abort|_abortwith|_release)$/u.test(member)) {
-      return nonCapabilitySpec("authority-release", "WP8");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB release operations are closed because the armed profile cannot mint the ambient retained object.",
+      );
     }
     if (
       /(?:add|put|update|delete|clear|create|commit|exec|save|rollback|backfill|migrate|ensuretable|ensureindex|transactionfinished|upgradetransaction|noteexplicitkey|nextautoincrement|beforecommit|enqueueop|start)$/u.test(
@@ -11976,7 +11992,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (globalName === "worklet") {
     if (member === "clamp" || member === "lerp") {
-      return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+      return closedSpec(
+        "worker:create",
+        "WP7",
+        "Worklet-only helpers are closed with the absent worklet namespace on the application runtime.",
+      );
     }
     if (
       /^(?:capture|captureget|captureset|output|runonjs|sharedvalue)$/u.test(
@@ -12073,8 +12093,15 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   }
   if (
     member === "[[symbol.tostringtag]]" &&
-    /^(?:caches|localstorage|process|sessionstorage)$/u.test(globalName)
+    /^(?:caches|localstorage|sessionstorage)$/u.test(globalName)
   ) {
+    return closedSpec(
+      globalName === "caches" ? "storage:persist" : "storage:read",
+      "WP7",
+      "The armed profile closes the ambient storage namespace together with every member exposed through it.",
+    );
+  }
+  if (member === "[[symbol.tostringtag]]" && globalName === "process") {
     return nonCapabilitySpec("module-reachability-only", "WP7");
   }
 

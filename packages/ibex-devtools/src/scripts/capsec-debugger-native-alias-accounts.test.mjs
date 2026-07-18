@@ -192,7 +192,7 @@ describe("source-bound debugger native alias accounts", () => {
     expect(
       sourceAudit.surfaces["inspector.debugger-get-scripts"]
         .implementationBranches[2].returnSentinel,
-    ).toBe("allocated-empty-json-array");
+    ).toBe("null");
     for (const nativeName of [
       "inspector.debugger-eval",
       "inspector.debugger-get-script-source",
@@ -467,10 +467,11 @@ fn debugger_backend_escape(
     ).toThrow(/source-Hermes branches/u);
 
     const windowsSources = { ...sourceFiles };
-    windowsSources[WINDOWS_PATH] = replaceExact(
+    windowsSources[WINDOWS_PATH] = replaceAfter(
       windowsSources[WINDOWS_PATH],
-      'return copyMallocString("[]");',
+      "ex_hermes_debugger_get_scripts",
       "return nullptr;",
+      'return copyMallocString("[]");',
       "Windows get-scripts sentinel",
     );
     expect(() =>

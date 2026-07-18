@@ -162,7 +162,7 @@ const DEBUGGER_ALIAS_SPECS = deepFreeze(
       returnKind: "pointer",
       parameters: [["runtime", "ExactHermesRuntime *"]],
       disabledSentinel: "null",
-      windowsSentinel: "allocated-empty-json-array",
+      windowsSentinel: "null",
       sourceEnabledTokens: [
         "auto json = withDebuggerOnRuntimeThread(",
         "debugger.getLoadedScripts()",
@@ -170,7 +170,7 @@ const DEBUGGER_ALIAS_SPECS = deepFreeze(
         "memcpy(heap, json.data(), json.size());",
         "return heap;",
       ],
-      windowsTokens: ["(void)runtime;", 'return copyMallocString("[]");'],
+      windowsTokens: ["(void)runtime;", "return nullptr;"],
     },
     {
       nativeName: "inspector.debugger-next-event",

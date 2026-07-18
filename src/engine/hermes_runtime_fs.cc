@@ -6090,6 +6090,12 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           len = static_cast<off_t>(args[1].asNumber());
         }
         if (ex_host_is_armed() == 1) {
+          // The direct path shares the retained-object implementation with the
+          // worker-backed alias: resolve the authenticated VFS spelling, commit
+          // the actual descriptor, then repeat-authorize immediately before
+          // ftruncate. This preserves direct truncate evidence without
+          // reopening the replaceable path.
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
           auto resolvedPath = exactResolveVfsPath(runtime, path);
           auto descriptors = openArmedWriteTarget(
               runtime, resolvedPath.backing, resolvedPath.virtualPath,

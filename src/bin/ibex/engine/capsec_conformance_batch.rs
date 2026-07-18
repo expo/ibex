@@ -291,6 +291,15 @@ enum NativeProbeSetup {
         #[serde(rename = "sourceDescriptorDigest")]
         source_descriptor_digest: String,
     },
+    FsWriteFile {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        path: String,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
     InvokeNativeGlobal {
         #[serde(rename = "globalName")]
         global_name: String,
@@ -980,6 +989,7 @@ fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
 #[derive(Default)]
 struct NativeSetupState {
     fs_file_descriptor: Option<f64>,
+    fs_file_path: Option<String>,
     tcp_loopback_client_handle: Option<f64>,
     sqlite_database_handle: Option<f64>,
     sqlite_statement_handle: Option<f64>,
@@ -1155,6 +1165,56 @@ async fn run_native_setup(
                         .as_f64()
                         .expect("native filesystem setup must return a numeric descriptor"),
                 );
+            }
+            NativeProbeSetup::FsWriteFile {
+                global_name,
+                path,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+                // retained write controls receive a harness-owned file and
+                // descriptor before their decision observation begins.
+                assert_eq!(global_name, "__exactFsOpen");
+                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 4);
+                assert!(state.fs_file_descriptor.is_none());
+                assert!(state.fs_file_path.is_none());
+                assert!(
+                    matches!(
+                        path.as_str(),
+                        "target/ibex-capsec-fsync"
+                            | "target/ibex-capsec-fdatasync"
+                            | "target/ibex-capsec-ftruncate"
+                            | "target/ibex-capsec-fdasync-durability"
+                    ),
+                    "retained write setup escaped its exact owned paths"
+                );
+                let _ = std::fs::remove_file(path);
+                std::fs::write(path, b"ibex-capsec-retained-sync")
+                    .expect("create retained write setup fixture");
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[serde_json::json!(path), serde_json::json!("a")],
+                    ))
+                    .await
+                    .expect("execute native writable descriptor setup")
+                    .expect("native writable descriptor setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("native writable descriptor setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.fs_file_descriptor = Some(
+                    result["value"]
+                        .as_f64()
+                        .expect("native writable setup must return a numeric descriptor"),
+                );
+                state.fs_file_path = Some(path.clone());
             }
             NativeProbeSetup::InvokeNativeGlobal {
                 global_name,
@@ -1479,7 +1539,7 @@ fn native_invocation_script(
     );
     script.replacen(
         cleanup_marker,
-        "else if(n===\"__exactFsClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-fs-file-descriptor\";}else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
+        "else if(n===\"__exactFsOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}else if(n===\"__exactFsClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-fs-file-descriptor\";}else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
         1,
     )
 }
@@ -1507,7 +1567,7 @@ fn native_async_invocation_script(
         .iter()
         .all(|argument| argument["kind"] == "json-literal"));
     format!(
-        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\"}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{var cleanup=n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\";if(n===\"__exactFsOpenAsync\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){{globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:cleanup}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
         serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
         serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
         serde_json::to_string(arguments).expect("serialize async native arguments"),
@@ -1805,9 +1865,26 @@ fn validate_native_runtime_observation(
         }
     }
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
-    // an async dispatcher may observe its source-selected worker edge, but no
-    // unrelated edge may be admitted by the authored recipe.
-    let auxiliary_worker_terminal = native_async_worker_terminal(invocation);
+    // an async dispatcher or retained-object operation may observe its
+    // source-selected worker, cleanup, or object-gate edge, but no unrelated
+    // edge may be admitted by the authored recipe. FsPathAsync remains bound
+    // to the exact reviewed five-operation worker map above; in particular,
+    // mkdtemp cannot inherit mkdir's worker evidence.
+    let auxiliary_worker_terminal = if matches!(
+        invocation.global_name.as_str(),
+        "__exactFsOpenAsync"
+            | "__exactFsFdAsync"
+            | "__exactFsFstatSync"
+            | "__exactFsFsyncSync"
+            | "__exactFsFdatasyncSync"
+            | "__exactFsFtruncateSync"
+            | "__exactFsFchmodSync"
+            | "__exactFsFutimesSync"
+    ) {
+        Some("native-op:__exactFsOpen")
+    } else {
+        native_async_worker_terminal(invocation)
+    };
     let mut expected_allowed_coverage_edge_ids = recipe.edge_ids.clone();
     if let Some(worker_terminal) = auxiliary_worker_terminal {
         let worker_edges = coverage_terminals
@@ -1894,14 +1971,31 @@ fn validate_native_runtime_observation(
                     recipe.fixture_id
                 );
             }
-            serde_json::json!({
-                "kind": if invocation.kind == "global-property-read" {
-                    "global-property-read"
-                } else {
-                    "native-return"
-                },
-                "bodyEntered": true,
-            })
+            if invocation.global_name == "__exactGetAllEnv" {
+                assert_eq!(invocation_result["valueType"], "object");
+                assert_eq!(
+                    invocation_result["valuePropertyCount"], 0,
+                    "{}: armed whole-environment enumeration was not empty",
+                    recipe.fixture_id
+                );
+                assert_eq!(invocation_result["cleanup"], "none");
+            }
+            if invocation.global_name == "__exactGetAllEnv" {
+                serde_json::json!({
+                    "kind": "armed-empty-environment-enumeration",
+                    "bodyEntered": true,
+                    "propertyCount": 0,
+                })
+            } else {
+                serde_json::json!({
+                    "kind": if invocation.kind == "global-property-read" {
+                        "global-property-read"
+                    } else {
+                        "native-return"
+                    },
+                    "bodyEntered": true,
+                })
+            }
         }
         "permission-denied" => {
             assert_eq!(
@@ -2055,13 +2149,6 @@ fn validate_native_runtime_observation(
         let authority_evidence = decision["evidence"]["evidence"]
             .as_array()
             .expect("observed typed decision has no authority evidence");
-        assert_eq!(
-            authority_evidence.len(),
-            1,
-            "{}: public native probe must have one decisive root authority row: {authority_evidence:?}",
-            recipe.fixture_id
-        );
-        let authority = &authority_evidence[0];
         let public_denial = invocation.expected_result == "permission-denied";
         let ambient_project_prefix =
             !public_denial && uses_ambient_project_prefix_authority(invocation, effects);
@@ -2072,23 +2159,48 @@ fn validate_native_runtime_observation(
         } else {
             ("static-floor", Some("principal.000000.floor."))
         };
-        assert_eq!(authority["stratum"], expected_stratum);
-        assert_eq!(authority["reason"], expected_stratum);
         assert_eq!(
-            authority["principal"],
-            serde_json::json!({"kind": "root", "identity": "project-root"})
+            authority_evidence.len(),
+            effects.len(),
+            "{}: public native decision must have one decisive authority row per effect: {authority_evidence:?}",
+            recipe.fixture_id
         );
-        if let Some(expected_source_prefix) = expected_source_prefix {
+        let mut authority_effect_indexes = BTreeSet::new();
+        for authority in authority_evidence {
+            let effect_index = authority["effectIndex"]
+                .as_u64()
+                .and_then(|index| usize::try_from(index).ok())
+                .filter(|index| *index < effects.len())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{}: public native authority row has an invalid effect index: {authority}",
+                        recipe.fixture_id
+                    )
+                });
             assert!(
-                authority["sourceId"]
-                    .as_str()
-                    .is_some_and(|source| source.starts_with(expected_source_prefix)),
-                "{}: public native decision used the wrong authority source: {authority}",
+                authority_effect_indexes.insert(effect_index),
+                "{}: public native authority rows duplicate effect {effect_index}",
                 recipe.fixture_id
             );
-        } else {
-            assert_eq!(authority["sourceId"], serde_json::Value::Null);
+            assert_eq!(
+                authority["principal"],
+                serde_json::json!({ "kind": "root", "identity": "project-root" })
+            );
+            assert_eq!(authority["stratum"], expected_stratum);
+            assert_eq!(authority["reason"], expected_stratum);
+            if let Some(expected_source_prefix) = expected_source_prefix {
+                assert!(
+                    authority["sourceId"]
+                        .as_str()
+                        .is_some_and(|source| source.starts_with(expected_source_prefix)),
+                    "{}: public native decision used the wrong authority source: {authority}",
+                    recipe.fixture_id
+                );
+            } else {
+                assert_eq!(authority["sourceId"], serde_json::Value::Null);
+            }
         }
+        assert_eq!(authority_effect_indexes.len(), effects.len());
     }
     if invocation.expected_result == "absent" {
         assert!(
@@ -2267,6 +2379,118 @@ async fn execute_native_public_recipe(
             );
         }
     }
+    let direct_mkdir_fixture = if invocation.global_name == "__exactMkdir" {
+        match (invocation.arguments.first(), invocation.arguments.get(1)) {
+            (
+                Some(NativeProbeArgument::JsonLiteral { value: path }),
+                Some(NativeProbeArgument::JsonLiteral { value: recursive }),
+            ) if recursive == &serde_json::Value::Bool(false) => Some(
+                path.as_str()
+                    .expect("direct mkdir fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_mkdir_fixture {
+        assert_eq!(path, "target/ibex-capsec-mkdir");
+        let _ = std::fs::remove_dir(path);
+    }
+    let direct_write_file_fixture = if invocation.global_name == "__exactWriteFile" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+                path.as_str()
+                    .expect("direct write-file fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_write_file_fixture {
+        assert_eq!(path, "target/ibex-capsec-write-file");
+        let _ = std::fs::remove_file(path);
+    }
+    let direct_append_file_fixture = if invocation.global_name == "__exactAppendFile" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+                path.as_str()
+                    .expect("direct append-file fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_append_file_fixture {
+        assert_eq!(path, "target/ibex-capsec-append-file");
+        std::fs::write(path, b"ibex-capsec-append-prefix:")
+            .expect("create direct append-file fixture");
+    }
+    let direct_truncate_fixture = if invocation.global_name == "__exactTruncate" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+                path.as_str()
+                    .expect("direct truncate fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_truncate_fixture {
+        assert_eq!(path, "target/ibex-capsec-truncate");
+        std::fs::write(path, b"ibex-capsec-truncate-owned")
+            .expect("create direct truncate fixture");
+    }
+    let direct_fs_open_fixture = if matches!(
+        invocation.global_name.as_str(),
+        "__exactFsOpen" | "__exactFsOpenAsync"
+    ) {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+                path.as_str()
+                    .expect("direct fs-open fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_fs_open_fixture {
+        assert!(
+            path.starts_with("target/ibex-capsec-fsopen-"),
+            "direct fs-open fixture escaped its owned target prefix"
+        );
+        std::fs::write(path, b"ibex-capsec-fsopen-owned")
+            .expect("create direct fs-open fixture");
+    }
+    let direct_readdir_fixture = if invocation.global_name == "__exactReaddir" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+                path.as_str()
+                    .expect("direct readdir fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_readdir_fixture {
+        assert_eq!(path, "target/ibex-capsec-readdir");
+        let _ = std::fs::remove_file(format!("{path}/entry.txt"));
+        let _ = std::fs::remove_dir(path);
+        std::fs::create_dir(path).expect("create direct readdir fixture");
+        std::fs::write(format!("{path}/entry.txt"), b"ibex-capsec-readdir")
+            .expect("create direct readdir fixture entry");
+    }
     let fs_path_async_file_fixture = if invocation.global_name == "__exactFsPathAsync" {
         match (invocation.arguments.first(), invocation.arguments.get(1)) {
             (
@@ -2332,6 +2556,20 @@ async fn execute_native_public_recipe(
             ))
             .await
     };
+    let empty_environment_property_count = if invocation.global_name == "__exactGetAllEnv" {
+        let encoded = engine
+            .eval_immediate("String(Object.keys(__exactGetAllEnv()).length)")
+            .await
+            .expect("inspect armed environment enumeration result")
+            .expect("armed environment enumeration inspection returned no result");
+        Some(
+            encoded
+                .parse::<usize>()
+                .expect("armed environment property count must be numeric"),
+        )
+    } else {
+        None
+    };
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     observation_guard.disarm();
     let encoded = result
@@ -2339,12 +2577,136 @@ async fn execute_native_public_recipe(
         .expect("native public invocation returned no result");
     let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
+    if matches!(
+        invocation.global_name.as_str(),
+        "__exactFsFstatSync"
+            | "__exactFsFsyncSync"
+            | "__exactFsFdatasyncSync"
+            | "__exactFsFtruncateSync"
+            | "__exactFsFdAsync"
+    ) {
+        let descriptor = setup_state
+            .fs_file_descriptor
+            .expect("retained descriptor operation requires an owned setup descriptor");
+        let cleanup = engine
+            .eval_immediate(&format!(
+                "JSON.stringify((function(){{try{{globalThis.__exactFsClose({});return {{kind:\"return\"}};}}catch(e){{return {{kind:\"throw\",errorMessage:String(e&&e.message||e)}};}}}})())",
+                serde_json::to_string(&descriptor).expect("serialize setup descriptor")
+            ))
+            .await
+            .expect("close retained setup descriptor")
+            .expect("retained descriptor cleanup returned no result");
+        let cleanup: serde_json::Value = serde_json::from_str(&cleanup)
+            .expect("retained descriptor cleanup returned invalid JSON");
+        assert_eq!(cleanup["kind"], "return", "retained descriptor cleanup failed");
+        if let Some(path) = &setup_state.fs_file_path {
+            let expected_bytes = if invocation.global_name == "__exactFsFtruncateSync" {
+                b"ib".as_slice()
+            } else {
+                b"ibex-capsec-retained-sync".as_slice()
+            };
+            assert_eq!(
+                std::fs::read(path).expect("read retained sync fixture"),
+                expected_bytes
+            );
+            std::fs::remove_file(path).expect("remove retained sync fixture");
+            if invocation_result["kind"] == "return" {
+                invocation_result["cleanup"] = serde_json::Value::String(
+                    "closed-fs-file-descriptor-removed-owned-file".into(),
+                );
+            }
+        } else if invocation_result["kind"] == "return" {
+            invocation_result["cleanup"] =
+                serde_json::Value::String("closed-fs-file-descriptor".into());
+        }
+    }
+    if let Some(property_count) = empty_environment_property_count {
+        invocation_result
+            .as_object_mut()
+            .expect("native environment result must be an object")
+            .insert(
+                "valuePropertyCount".into(),
+                serde_json::Value::from(property_count),
+            );
+    }
     if let Some(path) = &fs_path_async_directory_fixture {
         if invocation_result["kind"] == "return" {
             std::fs::remove_dir(path)
                 .expect("remove directory created by async filesystem fixture");
             invocation_result["cleanup"] =
                 serde_json::Value::String("removed-created-directory".into());
+        }
+    }
+    if let Some(path) = &direct_mkdir_fixture {
+        if invocation_result["kind"] == "return" {
+            std::fs::remove_dir(path).expect("remove directory created by direct mkdir fixture");
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-created-directory".into());
+        }
+    }
+    if let Some(path) = &direct_write_file_fixture {
+        if invocation_result["kind"] == "return" {
+            assert_eq!(
+                std::fs::read(path).expect("read direct write-file fixture"),
+                b"ibex-capsec-write-file"
+            );
+            std::fs::remove_file(path).expect("remove direct write-file fixture");
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-owned-file".into());
+        }
+    }
+    if let Some(path) = &direct_append_file_fixture {
+        let expected = if invocation_result["kind"] == "return" {
+            b"ibex-capsec-append-prefix:ibex-capsec-append-suffix".as_slice()
+        } else {
+            b"ibex-capsec-append-prefix:".as_slice()
+        };
+        assert_eq!(
+            std::fs::read(path).expect("read direct append-file fixture"),
+            expected
+        );
+        std::fs::remove_file(path).expect("remove direct append-file fixture");
+        if invocation_result["kind"] == "return" {
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-owned-file".into());
+        }
+    }
+    if let Some(path) = &direct_truncate_fixture {
+        let expected = if invocation_result["kind"] == "return" {
+            b"ib".as_slice()
+        } else {
+            b"ibex-capsec-truncate-owned".as_slice()
+        };
+        assert_eq!(
+            std::fs::read(path).expect("read direct truncate fixture"),
+            expected
+        );
+        std::fs::remove_file(path).expect("remove direct truncate fixture");
+        if invocation_result["kind"] == "return" {
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-owned-file".into());
+        }
+    }
+    if let Some(path) = &direct_fs_open_fixture {
+        assert_eq!(
+            std::fs::read(path).expect("read direct fs-open fixture"),
+            b"ibex-capsec-fsopen-owned"
+        );
+        std::fs::remove_file(path).expect("remove direct fs-open fixture");
+        if invocation_result["kind"] == "return" {
+            assert_eq!(invocation_result["cleanup"], "closed-fs-file-descriptor");
+            invocation_result["cleanup"] = serde_json::Value::String(
+                "closed-fs-file-descriptor-removed-owned-file".into(),
+            );
+        }
+    }
+    if let Some(path) = &direct_readdir_fixture {
+        std::fs::remove_file(format!("{path}/entry.txt"))
+            .expect("remove direct readdir fixture entry");
+        std::fs::remove_dir(path).expect("remove direct readdir fixture");
+        if invocation_result["kind"] == "return" {
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-owned-directory".into());
         }
     }
     if let Some((operation, path)) = &fs_path_async_file_fixture {

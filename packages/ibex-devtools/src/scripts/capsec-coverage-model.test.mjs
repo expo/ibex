@@ -411,6 +411,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["ipc:channel"],
     ],
     [
+      "application-runtime worklet helper closed",
+      globalApi("worklet", "clamp"),
+      "closed",
+      ["worker:create"],
+    ],
+    [
       "heap inspection closed",
       surface("native-op", "__exactGetHeapInfo"),
       "closed",
@@ -1554,13 +1560,13 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(fdDispatcher.edge.logicalBranches).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "durability-read",
+          id: "durability-write",
           effectOwnerSource: "descriptor-owner",
         }),
-        expect.objectContaining({ id: "durability-write" }),
         expect.objectContaining({ id: "metadata-write" }),
       ]),
     );
+    expect(fdDispatcher.edge.logicalBranches).toHaveLength(2);
 
     for (const name of [
       "__exactFsReadFileAsync",
@@ -2945,6 +2951,19 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       cap: "ipc:channel",
     });
 
+    for (const namespace of ["Exact", "Bun"]) {
+      for (const member of [
+        "accessibility",
+        "accessibility.addEventListener",
+        "accessibility.prefersReducedMotion",
+      ]) {
+        expect(
+          classifyObservedSurface(globalApi(namespace, member), context).edge,
+          `${namespace}.${member}`,
+        ).toMatchObject({ classification: "closed", cap: "ipc:channel" });
+      }
+    }
+
     for (const [globalName, memberName, expectedAction] of [
       ["Cache", null, "storage:persist"],
       ["Cache", "add", "storage:write"],
@@ -2966,6 +2985,30 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["caches", "has", "storage:read"],
       ["caches", "keys", "storage:read"],
       ["caches", "match", "storage:read"],
+    ]) {
+      const classified = classifyObservedSurface(
+        globalApi(globalName, memberName),
+        context,
+      );
+      expect(
+        classified.edge.classification,
+        `${globalName}.${memberName}`,
+      ).toBe("closed");
+      expect(edgeActions(classified), `${globalName}.${memberName}`).toEqual([
+        expectedAction,
+      ]);
+    }
+
+    for (const [globalName, memberName, expectedAction] of [
+      ["caches", "[[Symbol.toStringTag]]", "storage:persist"],
+      ["localStorage", "[[Symbol.toStringTag]]", "storage:read"],
+      ["sessionStorage", "[[Symbol.toStringTag]]", "storage:read"],
+      ["indexedDB", "cmp", "storage:persist"],
+      ["IDBKeyRange", null, "storage:persist"],
+      ["IDBRequest", "onsuccess", "storage:persist"],
+      ["IDBOpenDBRequest", "onupgradeneeded", "storage:persist"],
+      ["IDBDatabase", "close", "storage:persist"],
+      ["IDBTransaction", "abort", "storage:persist"],
     ]) {
       const classified = classifyObservedSurface(
         globalApi(globalName, memberName),

@@ -49620,6 +49620,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactGetGCStats",
         "src/engine/hermes_runtime_process_setup.cc#__exactGetGCStats",
         "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetGCStats"
       ],
@@ -49632,6 +49633,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactGetHeapInfo",
         "src/engine/hermes_runtime_process_setup.cc#__exactGetHeapInfo",
         "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetHeapInfo"
       ],
@@ -49710,6 +49712,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactGetSourceCacheStats",
         "src/engine/hermes_runtime_process_setup.cc#__exactGetSourceCacheStats",
         "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetSourceCacheStats"
       ],
@@ -50212,6 +50215,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactIpcRecvMsg",
         "src/engine/hermes_runtime_fs.cc#__exactIpcRecvMsg",
         "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcRecvMsg"
       ],
@@ -50224,6 +50228,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactIpcSendMsg",
         "src/engine/hermes_runtime_fs.cc#__exactIpcSendMsg",
         "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcSendMsg"
       ],
@@ -50960,6 +50965,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactPollSignal",
         "src/engine/hermes_runtime_crypto.cc#__exactPollSignal",
         "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPollSignal"
       ],
@@ -51145,6 +51151,7 @@
       "status": "output-bearing",
       "reasonCode": "source-derived-public-output",
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactResetSignal",
         "src/engine/hermes_runtime_crypto.cc#__exactResetSignal",
         "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactResetSignal",
         "src/engine/hermes_runtime_crypto_windows.cc#__exactResetSignal",
@@ -52964,7 +52971,7 @@
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -58925,7 +58932,7 @@
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -62681,7 +62688,7 @@
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -62734,7 +62741,7 @@
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
         "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -159057,6 +159064,7 @@
           "native-op:__exactGetGCStats"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetGCStats",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetGCStats",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetGCStats"
         ]
@@ -159079,6 +159087,7 @@
           "native-op:__exactGetHeapInfo"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetHeapInfo",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetHeapInfo",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetHeapInfo"
         ]
@@ -159217,6 +159226,7 @@
           "native-op:__exactGetSourceCacheStats"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetSourceCacheStats",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetSourceCacheStats",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetSourceCacheStats"
         ]
@@ -160089,6 +160099,7 @@
           "native-op:__exactIpcRecvMsg"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactIpcRecvMsg",
           "src/engine/hermes_runtime_fs.cc#__exactIpcRecvMsg",
           "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcRecvMsg"
         ]
@@ -160111,6 +160122,7 @@
           "native-op:__exactIpcSendMsg"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactIpcSendMsg",
           "src/engine/hermes_runtime_fs.cc#__exactIpcSendMsg",
           "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcSendMsg"
         ]
@@ -165976,6 +165988,7 @@
           "native-op:__exactPollSignal"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactPollSignal",
           "src/engine/hermes_runtime_crypto.cc#__exactPollSignal",
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPollSignal"
         ]
@@ -166311,6 +166324,7 @@
           "native-op:__exactResetSignal"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactResetSignal",
           "src/engine/hermes_runtime_crypto.cc#__exactResetSignal",
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactResetSignal",
           "src/engine/hermes_runtime_crypto_windows.cc#__exactResetSignal",
@@ -169731,7 +169745,7 @@
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -180808,7 +180822,7 @@
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -187884,7 +187898,7 @@
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",
@@ -187957,7 +187971,7 @@
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_DEBUG_AAR_SHA256",
           "scripts/hermes-version.sh#IBEX_HERMES_ANDROID_VERSION",

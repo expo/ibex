@@ -264,7 +264,7 @@ function Test-ArtifactDirectoryComplete {
       return $false
     }
     $reviewed = $receipt.origin.reviewedProfileIdentity
-    return $manifest.schema -eq "ibex/hermes-build/1" -and
+    $profileMatches = $manifest.schema -eq "ibex/hermes-build/1" -and
       $manifest.sourceCommit -eq $reviewedSourceCommit -and
       $manifest.patchDigest -eq $identity.Substring($identity.Length - 12) -and
       $manifest.sourceBuildAuthorityDigest -eq $builderDigest -and
@@ -294,6 +294,16 @@ function Test-ArtifactDirectoryComplete {
       $reviewed.sourceInstallerAuthorityDigest -eq "sha256-$installerDigest" -and
       $reviewed.sourceRef -eq $reviewedSourceRef -and
       $reviewed.sourceVersion -eq $reviewedSourceVersion
+    if (-not $profileMatches) {
+      return $false
+    }
+    if (Get-Command dumpbin -ErrorAction SilentlyContinue) {
+      $exports = dumpbin /exports $dllPath | Out-String
+      if ($exports -match 'CDPAgent|CDPDebugAPI') {
+        return $false
+      }
+    }
+    return $true
   }
   catch {
     return $false
@@ -403,6 +413,9 @@ try {
     $exports = dumpbin /exports $dllPath | Out-String
     if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
       throw "Downloaded Windows Hermes DLL lacks the patched attribution export"
+    }
+    if ($exports -match 'CDPAgent|CDPDebugAPI') {
+      throw "Downloaded Windows Hermes DLL is not a no-debugger build"
     }
   }
 

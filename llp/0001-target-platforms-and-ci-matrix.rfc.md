@@ -6,6 +6,7 @@
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
 **Revised:** 2026-07-17 (ENG-24933 adds a pinned patched no-debugger Windows Hermes source build/release bundle pipeline; Windows remains compatibility-only with pathname-reopen identity explicitly insufficient for mapped-image attestation)
+**Revised:** 2026-07-17 (ENG-24933 adds Windows x64 as an explicit unadvertised CapSec candidate and runs the complete exact-target report against the pinned patched no-debugger DLL; Windows remains compatibility-only while that report is incomplete)
 **Revised:** 2026-07-15 (ENG-25066 advertises the native module runner on exact macOS arm64 and Linux x64 targets while retaining Windows as an explicit compatibility-only row until a matching patched Hermes artifact exists); 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
 
@@ -176,16 +177,17 @@ The checked CI now has three concrete layers. Hermetic Ubuntu preflight runs
 the semantic core, generated/drift gates, the platform-neutral Windows staging
 tests, and the production Android WebSocket flow-controller tests on a host
 JVM. A Windows runner repeats the staging suite and adds the real exclusive
-locked-DLL case. The arm64 macOS CapSec workflow installs the exact patched
-Hermes artifact and executes every command in `CONFORMANCE_COMMANDS`, including
-the complete default/all-feature Rust matrix, JS/runtime corpora, Android Java
-behavior, and artifact-bound report generation. Because the candidate still
-has unresolved fixture recipes, that job requires an incomplete report and no
-committed target attestation; it uploads the execution/report/refusal evidence
-and fails if the target either promotes or is advertised. This is a complete
-CapSec prerequisite/evidence gate, not a claim that the remaining Android
-cross-compile/emulator, iOS/tvOS, Linux, or full Windows runtime matrix rows
-have landed `[observed]` (`.github/workflows/ci.yml`;
+locked-DLL case. The CapSec workflow installs exact patched artifacts on arm64
+macOS and x64 Windows and executes every command in `CONFORMANCE_COMMANDS`
+against each physical loaded engine, including the complete default/all-feature
+Rust matrix, JS/runtime corpora, Android Java behavior, and artifact-bound
+report generation. Because both candidates still have unresolved fixture
+recipes, each job requires an incomplete report and no committed target
+attestation; it uploads distinct execution/report/refusal evidence and fails if
+its target either promotes or is advertised. This is a complete CapSec
+prerequisite/evidence gate, not a claim that the remaining Android
+cross-compile/emulator, iOS/tvOS, or Linux runtime matrix rows have landed
+`[observed]` (`.github/workflows/ci.yml`;
 `.github/workflows/compartment-conformance.yml`).
 
 The module-runner workflow separately installs one patched Hermes artifact
@@ -203,13 +205,18 @@ that pathname, and compares its current Windows volume serial/file index with
 the pinned file handle used for hashing. That detects ordinary named-file
 substitution but does not authenticate the image section that supplied already
 mapped code: a replacement after load can make both reopened handles name the
-same different file. The conformance ledger therefore retains an explicit
-Windows mapped-image blocker. The target remains compatibility-only until a
-Windows runner produces the bundle and completes exact-target conformance; no
-advertisement follows from the implementation alone `[observed]`
+same different file. This closes ordinary pathname-only and mismatched-file
+substitution but not mapped-image provenance, so the conformance ledger retains
+that explicit Windows blocker. Windows x64 is nevertheless an explicit CapSec
+candidate, and the complete-matrix workflow consumes the pinned bundle to
+produce target-, source-, catalog-, and loaded-DLL-bound evidence. The target
+remains compatibility-only while the report is incomplete and mapped-image
+provenance is unresolved; no advertisement follows from the implementation,
+candidate declaration, or report execution alone `[observed]`
 (`scripts/build-hermes-windows.ps1`;
 `scripts/install-windows-hermes.ps1`; `.github/workflows/hermes-artifacts.yml`;
-`.github/workflows/module-loader-baselines.yml`).
+`.github/workflows/module-loader-baselines.yml`;
+`.github/workflows/compartment-conformance.yml`).
 
 ## 5. Sequencing
 

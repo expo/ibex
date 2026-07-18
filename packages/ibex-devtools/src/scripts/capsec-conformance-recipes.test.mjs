@@ -35,6 +35,8 @@ describe("exact-target CapSec executable recipes", () => {
   let occurrenceExamples;
   let rules;
   let selectorExamples;
+  let windowsRecipes;
+  let windowsExpectedFixtureIds;
 
   beforeAll(async () => {
     const coverage = readJson("capsec/registry/coverage-edges.json");
@@ -42,11 +44,24 @@ describe("exact-target CapSec executable recipes", () => {
       "capsec/generated/implementation-manifest.json",
     );
     rules = readJson("capsec/registry/policy-rules.json");
-    const target = rules.initialProfile.candidateTargets[0];
+    const target = rules.initialProfile.candidateTargets.find(
+      (candidate) => candidate.triple === "aarch64-apple-darwin",
+    );
+    const windowsTarget = rules.initialProfile.candidateTargets.find(
+      (candidate) => candidate.triple === "x86_64-pc-windows-msvc",
+    );
+    if (!target || !windowsTarget) {
+      throw new Error("expected both exact candidates");
+    }
     const catalog = fixtureCatalogForTarget({
       coverage,
       implementation,
       target,
+    });
+    const windowsCatalog = fixtureCatalogForTarget({
+      coverage,
+      implementation,
+      target: windowsTarget,
     });
     expectedFixtureIds = fixtureExecutionPlans(catalog).map(
       (plan) => plan.fixtureId,
@@ -60,15 +75,29 @@ describe("exact-target CapSec executable recipes", () => {
     selectorExamples = readJson(
       "capsec/examples/authority-selectors.canonical.json",
     );
+    const inventory = await discoverRepositorySurfaces(repoRoot);
     recipes = buildConformanceRecipeCatalog({
       catalog,
       coverage,
       implementation,
-      inventory: await discoverRepositorySurfaces(repoRoot),
+      inventory,
       occurrenceExamples,
       selectorExamples,
       capabilityDefinitions,
       target,
+    });
+    windowsExpectedFixtureIds = fixtureExecutionPlans(windowsCatalog).map(
+      (plan) => plan.fixtureId,
+    );
+    windowsRecipes = buildConformanceRecipeCatalog({
+      catalog: windowsCatalog,
+      coverage,
+      implementation,
+      inventory,
+      occurrenceExamples,
+      selectorExamples,
+      capabilityDefinitions,
+      target: windowsTarget,
     });
   }, 60_000);
 
@@ -114,6 +143,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
+    expect(recipes.summary.requiredFixtures).toBe(23_665);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_469);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_196);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -137,8 +169,10 @@ describe("exact-target CapSec executable recipes", () => {
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally. The three
     // armed mkdtemp scenarios remain residual until their generated paths can
-    // be authenticated strongly enough for safe cleanup.
-    expect(nativePublicFixtures).toHaveLength(433);
+    // be authenticated strongly enough for safe cleanup. ENG-24933 adds the
+    // reviewed direct-operation and retained-descriptor probes without
+    // widening that mkdtemp boundary.
+    expect(nativePublicFixtures).toHaveLength(517);
     expect(
       nativePublicFixtures
         .filter(
@@ -200,6 +234,67 @@ describe("exact-target CapSec executable recipes", () => {
     expect(() => assertRecipeCatalogComplete(recipes)).toThrow(
       /executable recipe catalog is incomplete/,
     );
+  });
+
+  test("accounts for the Windows candidate without borrowing Apple probes", () => {
+    expect(windowsRecipes.target.triple).toBe("x86_64-pc-windows-msvc");
+    expect(windowsRecipes.summary.requiredFixtures).toBe(
+      windowsExpectedFixtureIds.length,
+    );
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_550);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_327);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_223);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsOpenAsync",
+      ),
+    ).toHaveLength(0);
+    const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
+      (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
+    );
+    expect(windowsAbsenceRecipes).toHaveLength(22);
+    expect(
+      windowsAbsenceRecipes.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.expectedResult === "absent" &&
+          recipe.publicSurfaceProbe.command.includes(
+            "capsec_public_native_recipe_batch",
+          ) &&
+          !recipe.publicSurfaceProbe.command.includes(
+            "capsec_public_target_absence_batch",
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      windowsRecipes.recipes.filter((recipe) =>
+        recipe.publicSurfaceProbe?.command?.includes(
+          "capsec_public_closed_recipe_batch",
+        ),
+      ),
+    ).toHaveLength(608);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "debugger-abi-disabled",
+      ),
+    ).toHaveLength(18);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "shared-runtime-global-absence",
+      ),
+    ).toHaveLength(322);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "armed-native-global-absence",
+      ),
+    ).toHaveLength(18);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {
@@ -408,7 +503,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_018);
+    expect(rationaleOnly).toHaveLength(2_830);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -417,10 +512,10 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 557,
-      "generation-recheck": 557,
-      "principal-restore": 557,
-      "snapshot-mismatch-deny": 557,
+      "attribution-missing-deny": 510,
+      "generation-recheck": 510,
+      "principal-restore": 510,
+      "snapshot-mismatch-deny": 510,
       "cannot-widen-authority": 395,
       "post-lockdown-invariant": 395,
     });
@@ -929,6 +1024,511 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedTypedDecisionCount).toBe(
         recipe.scenario === "deny" ? 1 : 6,
       );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("truncates a direct native path through a retained object", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactTruncate",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "target/ibex-capsec-truncate" },
+        { kind: "json-literal", value: 2 },
+      ]);
+      expect(invocation.expectedActionIds).toEqual(
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "discovery", "commit", "repeat"],
+      );
+      expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactTruncate",
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("creates a direct native directory only under an exact owned floor", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactMkdir",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        {
+          kind: "json-literal",
+          value: "target/ibex-capsec-mkdir",
+        },
+        { kind: "json-literal", value: false },
+        { kind: "json-literal", value: -1 },
+      ]);
+      expect(invocation.expectedCleanup).toBe("removed-created-directory");
+      expect(invocation.expectedActionIds).toEqual(
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "discovery", "commit"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 4,
+      );
+      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
+        "fs:list",
+        "fs:write",
+      ]);
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("writes a direct native file only under an exact owned floor", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactWriteFile",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments[0]).toEqual({
+        kind: "json-literal",
+        value: "target/ibex-capsec-write-file",
+      });
+      expect(invocation.arguments[1]).toMatchObject({
+        kind: "native-global-result",
+        globalName: "__exactStringToUtf8Bytes",
+        sourceDescriptor: {
+          arity: 1,
+          globalName: "__exactStringToUtf8Bytes",
+        },
+      });
+      expect(invocation.arguments[2]).toEqual({
+        kind: "json-literal",
+        value: null,
+      });
+      expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(invocation.expectedActionIds).toEqual(
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "discovery", "commit", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 5,
+      );
+      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
+        "fs:list",
+        "fs:write",
+      ]);
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("appends a direct native file only under an exact owned floor", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactAppendFile",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments[0]).toEqual({
+        kind: "json-literal",
+        value: "target/ibex-capsec-append-file",
+      });
+      expect(invocation.arguments[1]).toMatchObject({
+        kind: "native-global-result",
+        globalName: "__exactStringToUtf8Bytes",
+        sourceDescriptor: {
+          arity: 1,
+          globalName: "__exactStringToUtf8Bytes",
+        },
+      });
+      expect(invocation.arguments[2]).toEqual({
+        kind: "json-literal",
+        value: null,
+      });
+      expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(invocation.expectedActionIds).toEqual(
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "discovery", "commit", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 5,
+      );
+      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
+        "fs:list",
+        "fs:write",
+      ]);
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("opens and closes exact owned files for every sync and async access branch", () => {
+    const branches = new Map([
+      [
+        "read",
+        {
+          actionIds: ["fs:list", "fs:read"],
+          flags: "r",
+          fixture: "ibex-capsec-fsopen-read",
+        },
+      ],
+      [
+        "read-write",
+        {
+          actionIds: ["fs:list", "fs:read", "fs:write"],
+          flags: "r+",
+          fixture: "ibex-capsec-fsopen-read-write",
+        },
+      ],
+      [
+        "write",
+        {
+          actionIds: ["fs:list", "fs:write"],
+          flags: "a",
+          fixture: "ibex-capsec-fsopen-write",
+        },
+      ],
+    ]);
+    for (const [globalName, async] of [
+      ["__exactFsOpen", false],
+      ["__exactFsOpenAsync", true],
+    ]) {
+      const rows = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(rows).toHaveLength(18);
+      for (const recipe of rows) {
+        const branchEntry = [...branches.entries()].find(([branchId]) =>
+          recipe.fixtureId.includes(`.logical.${branchId}.${recipe.scenario}`),
+        );
+        expect(branchEntry).toBeDefined();
+        const [branchId, branch] = branchEntry;
+        const fixture = async
+          ? branch.fixture.replace("fsopen-", "fsopen-async-")
+          : branch.fixture;
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          {
+            kind: "json-literal",
+            value: `target/${fixture}`,
+          },
+          { kind: "json-literal", value: branch.flags },
+          { kind: "json-literal", value: 0o666 },
+          { kind: "json-literal", value: null },
+        ]);
+        expect(invocation.completion ?? null).toEqual(
+          async
+            ? {
+                kind: "event-loop-quiescence",
+                timeoutMilliseconds: 1_000,
+              }
+            : null,
+        );
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(async ? 2 : 1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor-removed-owned-file",
+        );
+        expect(invocation.expectedActionIds).toEqual(
+          recipe.scenario === "deny" ? ["fs:list"] : branch.actionIds,
+        );
+        expect(invocation.expectedTypedStages).toEqual(
+          recipe.scenario === "deny"
+            ? ["requested"]
+            : ["requested", "discovery", "discovery", "commit"],
+        );
+        expect(invocation.expectedTypedDecisionCount).toBe(
+          recipe.scenario === "deny" ? 1 : 4,
+        );
+        expect(
+          invocation.requiredFloor.map((selector) => selector.cap),
+        ).toEqual(branch.actionIds);
+        expect(recipe.fixtureId).toContain(`.logical.${branchId}.`);
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+    }
+  });
+
+  test("reads retained descriptor metadata and closes its source-bound setup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactFsFstatSync",
+    );
+    expect(rows).toHaveLength(4);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "harness-fs-file-descriptor" },
+      ]);
+      expect(invocation.setup).toHaveLength(1);
+      expect(invocation.setup[0].globalName).toBe("__exactFsOpen");
+      expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
+        "fs:list",
+        "fs:read",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+      expect(invocation.expectedTypedDecisionCount).toBe(1);
+      expect(invocation.expectedCleanup).toBe("closed-fs-file-descriptor");
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsFstatSync",
+      ),
+    ).toHaveLength(0);
+    const denied = recipes.recipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactFsFstatSync" &&
+        recipe.scenario === "deny",
+    );
+    expect(denied.publicSurfaceProbe).toBeNull();
+    expect(denied.residualReasons).toContain(
+      "native-public-deny-scenario-not-authored",
+    );
+    const windowsResiduals = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactFsFstatSync" &&
+        recipe.scenario === "allow",
+    ).residualReasons;
+    expect(windowsResiduals).toContain(
+      "native-public-operation-not-typed-on-target",
+    );
+    expect(windowsResiduals).not.toContain(
+      "native-public-operation-not-installed-on-target",
+    );
+  });
+
+  test("executes async retained durability without overclaiming metadata", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactFsFdAsync",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      expect(recipe.fixtureId).toContain(".logical.durability-write.");
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation).toMatchObject({
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        globalName: "__exactFsFdAsync",
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+        expectedActionIds: ["fs:write"],
+        expectedTypedStages: ["repeat"],
+        expectedTypedDecisionCount: 1,
+      });
+      expect(invocation.arguments).toEqual([
+        {
+          kind: "json-literal",
+          value: "fsync",
+        },
+        { kind: "harness-fs-file-descriptor" },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+      ]);
+      expect(invocation.setup).toHaveLength(1);
+      expect(invocation.setup[0]).toMatchObject({
+        kind: "fs-write-file",
+        globalName: "__exactFsOpen",
+        path: "target/ibex-capsec-fdasync-durability",
+      });
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    const denyRows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.fixtureId.includes(".exactfsfdasync.") &&
+        recipe.scenario === "deny",
+    );
+    expect(denyRows).toHaveLength(2);
+    expect(denyRows.every((recipe) => recipe.status === "unresolved")).toBe(
+      true,
+    );
+    const metadataRows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.fixtureId.includes(".exactfsfdasync.") &&
+        recipe.fixtureId.includes(".logical.metadata-write."),
+    );
+    expect(metadataRows).toHaveLength(6);
+    expect(metadataRows.every((recipe) => recipe.status === "unresolved")).toBe(
+      true,
+    );
+  });
+
+  test("flushes retained writable descriptors and removes their owned files", () => {
+    for (const [globalName, path] of [
+      ["__exactFsFsyncSync", "target/ibex-capsec-fsync"],
+      ["__exactFsFdatasyncSync", "target/ibex-capsec-fdatasync"],
+    ]) {
+      for (const catalog of [recipes, windowsRecipes]) {
+        const rows = catalog.recipes.filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+        );
+        expect(rows).toHaveLength(4);
+        for (const recipe of rows) {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          expect(invocation.arguments).toEqual([
+            { kind: "harness-fs-file-descriptor" },
+          ]);
+          expect(invocation.setup).toHaveLength(1);
+          expect(invocation.setup[0]).toMatchObject({
+            kind: "fs-write-file",
+            globalName: "__exactFsOpen",
+            path,
+          });
+          expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+          expect(
+            invocation.requiredFloor.map((selector) => selector.cap),
+          ).toEqual(["fs:list", "fs:write"]);
+          expect(invocation.expectedActionIds).toEqual(["fs:write"]);
+          expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+          expect(invocation.expectedTypedDecisionCount).toBe(1);
+          expect(invocation.expectedCleanup).toBe(
+            "closed-fs-file-descriptor-removed-owned-file",
+          );
+          expect(recipe.residualReasons).toEqual([]);
+          expect(recipe.status).toBe("fully-executable");
+        }
+        const denied = catalog.recipes.find(
+          (recipe) =>
+            recipe.terminalObservedKey === `native-op:${globalName}` &&
+            recipe.scenario === "deny",
+        );
+        expect(denied.publicSurfaceProbe).toBeNull();
+        expect(denied.residualReasons).toContain(
+          "native-public-deny-scenario-not-authored",
+        );
+      }
+    }
+  });
+
+  test("truncates only an exact owned retained file on typed Apple descriptors", () => {
+    for (const [globalName, path, extraArguments] of [
+      ["__exactFsFtruncateSync", "target/ibex-capsec-ftruncate", [2]],
+    ]) {
+      const rows = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(rows).toHaveLength(4);
+      for (const recipe of rows) {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          { kind: "harness-fs-file-descriptor" },
+          ...extraArguments.map((value) => ({ kind: "json-literal", value })),
+        ]);
+        expect(invocation.setup[0]).toMatchObject({
+          kind: "fs-write-file",
+          globalName: "__exactFsOpen",
+          path,
+        });
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(invocation.expectedActionIds).toEqual(["fs:write"]);
+        expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+        expect(invocation.expectedTypedDecisionCount).toBe(1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor-removed-owned-file",
+        );
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+      const denied = recipes.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey === `native-op:${globalName}` &&
+          recipe.scenario === "deny",
+      );
+      expect(denied.publicSurfaceProbe).toBeNull();
+      expect(denied.residualReasons).toContain(
+        "native-public-deny-scenario-not-authored",
+      );
+      const windowsRows = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(windowsRows).toHaveLength(0);
+      expect(
+        windowsRecipes.recipes.find(
+          (recipe) =>
+            recipe.terminalObservedKey === `native-op:${globalName}` &&
+            recipe.scenario === "allow",
+        ).residualReasons,
+      ).toContain("native-public-operation-not-installed-on-target");
+    }
+    for (const globalName of ["__exactFsFchmodSync", "__exactFsFutimesSync"]) {
+      expect(
+        recipes.recipes.filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+        ),
+      ).toHaveLength(0);
+    }
+  });
+
+  test("enumerates a direct native directory with retained repeat evidence", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactReaddir",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        {
+          kind: "json-literal",
+          value: "target/ibex-capsec-readdir",
+        },
+        { kind: "json-literal", value: null },
+      ]);
+      expect(invocation.expectedCleanup).toBe("removed-owned-directory");
+      expect(invocation.expectedActionIds).toEqual(["fs:list"]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "repeat", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 4,
+      );
+      expect(invocation.requiredFloor).toHaveLength(1);
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
     }
@@ -1620,8 +2220,7 @@ describe("exact-target CapSec executable recipes", () => {
     });
     const exported = rows.find(
       (recipe) =>
-        recipe.terminalObservedKey ===
-        "builtin:export:node_vm:runInNewContext",
+        recipe.terminalObservedKey === "builtin:export:node_vm:runInNewContext",
     );
     expect(exported).toMatchObject({
       publicSurfaceProbe: {
@@ -1637,6 +2236,91 @@ describe("exact-target CapSec executable recipes", () => {
         },
       },
     });
+  });
+
+  test("closes both public SQLite extension-loading exports in memory", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "sqlite-extension-load",
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((recipe) => recipe.terminalObservedKey).sort()).toEqual([
+      "builtin:export:exact_sqlite:Database.loadExtension",
+      "builtin:export:exact_sqlite:default.loadExtension",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+            "exact_sqlite" &&
+          recipe.publicSurfaceProbe.invocation.operation.methodName ===
+            "loadExtension" &&
+          recipe.publicSurfaceProbe.invocation.operation.databasePath ===
+            ":memory:" &&
+          recipe.publicSurfaceProbe.invocation.operation
+            .expectedRejectionFragment === "Extension loading not supported",
+      ),
+    ).toBe(true);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.exportName,
+        recipe.publicSurfaceProbe.invocation.operation.constructorExportName,
+      ]),
+    ).toEqual([
+      ["Database.loadExtension", "Database"],
+      ["default.loadExtension", "default"],
+    ]);
+  });
+
+  test("closes both public cr-sqlite enablement exports in memory", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "sqlite-cr-sqlite-enable",
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((recipe) => recipe.terminalObservedKey).sort()).toEqual([
+      "builtin:export:exact_sqlite:Database.enableCrSqlite",
+      "builtin:export:exact_sqlite:default.enableCrSqlite",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+            "exact_sqlite" &&
+          recipe.publicSurfaceProbe.invocation.operation.methodName ===
+            "enableCrSqlite" &&
+          recipe.publicSurfaceProbe.invocation.operation.databasePath ===
+            ":memory:" &&
+          recipe.publicSurfaceProbe.invocation.operation
+            .expectedRejectionFragment ===
+            "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.",
+      ),
+    ).toBe(true);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.exportName,
+        recipe.publicSurfaceProbe.invocation.operation.constructorExportName,
+      ]),
+    ).toEqual([
+      ["Database.enableCrSqlite", "Database"],
+      ["default.enableCrSqlite", "default"],
+    ]);
   });
 
   test("binds every debugger ABI facet to the physical no-debugger Apple target", () => {
@@ -1718,13 +2402,32 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 
-  test("binds reviewed legacy globals to armed shared-runtime absence", () => {
+  test("binds every debugger ABI facet to the physical Windows stubs", () => {
+    const rows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "debugger-abi-disabled",
+    );
+    expect(rows).toHaveLength(18);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
+            "x86_64-pc-windows-msvc" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.selectedSourceRef.startsWith(
+            "src/engine/hermes_runtime_platform_windows.cc#",
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  test("binds reviewed globals to armed shared-runtime absence", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "shared-runtime-global-absence",
     );
-    expect(rows).toHaveLength(33);
+    expect(rows).toHaveLength(322);
     expect(
       rows.every(
         (recipe) =>
@@ -1738,15 +2441,17 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
             "aarch64-apple-darwin" &&
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches.every(
-            (branch) => branch.route === "legacy-bootstrap",
+            (branch) =>
+              branch.route === "legacy-bootstrap" ||
+              branch.route === "shared-runtime" ||
+              branch.route === "composed:legacy-bootstrap+shared-runtime",
           ),
       ),
     ).toBe(true);
     expect(
       rows.find(
         (recipe) =>
-          recipe.terminalObservedKey ===
-          "native-op:__exactAllowNativesSyntax",
+          recipe.terminalObservedKey === "native-op:__exactAllowNativesSyntax",
       ),
     ).toMatchObject({
       publicSurfaceProbe: {
@@ -1759,6 +2464,85 @@ describe("exact-target CapSec executable recipes", () => {
             kind: "shared-runtime-global-absence",
             globalName: "__exactAllowNativesSyntax",
             memberName: null,
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:global:BroadcastChannel.postMessage",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "BroadcastChannel",
+            memberName: "postMessage",
+            sourceMetadata: {
+              sourceKey: "shared_runtime",
+              installationBranches: [
+                { route: "shared-runtime", targetVariant: "all" },
+              ],
+            },
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "BroadcastChannel",
+            memberName: "postMessage",
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:global:IDBTransaction.abort",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "IDBTransaction",
+            memberName: "abort",
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "IDBTransaction",
+            memberName: "abort",
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:global:localStorage.getItem",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "localStorage",
+            memberName: "getItem",
+            sourceMetadata: {
+              sourceKey: "shared_runtime",
+              installationBranches: [
+                {
+                  route: "composed:legacy-bootstrap+shared-runtime",
+                  routes: ["legacy-bootstrap", "shared-runtime"],
+                  targetVariant: "default",
+                },
+              ],
+            },
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "localStorage",
+            memberName: "getItem",
           },
         },
       },
@@ -1783,6 +2567,106 @@ describe("exact-target CapSec executable recipes", () => {
         },
       },
     });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:global:Exact.accessibility.prefersReducedMotion",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "Exact",
+            memberName: "accessibility.prefersReducedMotion",
+            sourceMetadata: {
+              sourceKey: "shared_runtime",
+            },
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "Exact",
+            memberName: "accessibility.prefersReducedMotion",
+          },
+        },
+      },
+    });
+  });
+
+  test("binds reviewed direct native globals to armed runtime absence", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "armed-native-global-absence",
+    );
+    expect(rows).toHaveLength(18);
+    const directRows = rows.filter(
+      (recipe) =>
+        !recipe.publicSurfaceProbe.invocation.surfaceName.startsWith("global:"),
+    );
+    expect(
+      directRows.map(
+        (recipe) => recipe.publicSurfaceProbe.invocation.operation.globalName,
+      ),
+    ).toEqual([
+      "__exactGetGCStats",
+      "__exactGetHeapInfo",
+      "__exactGetSourceCacheStats",
+      "__exactIpcRecvMsg",
+      "__exactIpcSendMsg",
+      "__exactPollSignal",
+      "__exactResetSignal",
+    ]);
+    const workletRows = rows.filter((recipe) =>
+      recipe.publicSurfaceProbe.invocation.surfaceName.startsWith("global:"),
+    );
+    expect(workletRows.map((recipe) => recipe.terminalObservedKey)).toEqual([
+      "native-op:global:measure",
+      "native-op:global:scheduleOnAppRuntime",
+      "native-op:global:worklet",
+      "native-op:global:worklet.capture",
+      "native-op:global:worklet.captureGet",
+      "native-op:global:worklet.captureSet",
+      "native-op:global:worklet.clamp",
+      "native-op:global:worklet.lerp",
+      "native-op:global:worklet.output",
+      "native-op:global:worklet.runOnJS",
+      "native-op:global:worklet.sharedValue",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
+            "closed-armed-native-global-absence",
+      ),
+    ).toBe(true);
+    expect(
+      directRows.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+            .publicInvocation.kind === "native-global-function",
+      ),
+    ).toBe(true);
+    expect(
+      workletRows.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+            .installationBranches.length === 1 &&
+          ["evaluated-native-script", "native-jsi-global"].includes(
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+              .installationBranches[0].route,
+          ) &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+            .installationBranches[0].targetVariant === "worklet",
+      ),
+    ).toBe(true);
   });
 
   test("executes module-runner authority and trusted-access loader surfaces", () => {
@@ -2815,6 +3699,34 @@ describe("exact-target CapSec executable recipes", () => {
         });
       }
     }
+  });
+
+  test("executes armed environment enumeration closure without authority", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactGetAllEnv" &&
+        ["branch-selection", "no-effect"].includes(recipe.scenario) &&
+        recipe.actionIds.length === 0,
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((recipe) => recipe.scenario).sort()).toEqual([
+      "branch-selection",
+      "no-effect",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "effects" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.arguments.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedResult === "return" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages.length === 0,
+      ),
+    ).toBe(true);
   });
 
   test("executes exact in-memory SQLite conditional branches without authority", () => {
