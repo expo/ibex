@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24933 restamps the reviewed Hermes evaluator identity after the Release artifact builder changed, preserving fail-closed source-authority drift detection)
 **Revised:** 2026-07-17 (ENG-24578 binds native-public async completion to event-loop quiescence, reconciles retained-path live traces with the source-bound internal observer-stage contract, and keeps armed `mkdtemp` residual because its public entry point remains closed)
 **Revised:** 2026-07-17 (ENG-25062 was reopened after merge-prep review confirmed that graph-link receipts are produced and retained, but production source/cache/prepared-carrier reads do not yet enter the receipt-revalidated access closures; the existing Host edge authentication and exact prepared-byte comparison remain in force without claiming the stronger closure-gated boundary)
 **Revised:** 2026-07-16 (the module-runner safety review classifies exact generated manifest-builtin fan-out as closed private runtime linkage that may be eagerly materialized without a package/filesystem probe, but activation is confined to the exact builtin record's synchronous evaluation and cannot escape or re-enter through a retained `require` closure)
