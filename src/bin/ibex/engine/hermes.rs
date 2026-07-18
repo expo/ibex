@@ -3931,11 +3931,18 @@ cp \"$input\" \"$out\"\n";
             let components = project_root
                 .components()
                 .filter_map(|component| match component {
-                    std::path::Component::Normal(value) => Some(serde_json::json!({
+                    std::path::Component::Prefix(prefix) => Some(prefix.as_os_str()),
+                    std::path::Component::RootDir | std::path::Component::CurDir => None,
+                    std::path::Component::ParentDir => {
+                        panic!("canonical test project root contains a parent component")
+                    }
+                    std::path::Component::Normal(value) => Some(value),
+                })
+                .map(|value| {
+                    serde_json::json!({
                         "encoding": "utf8",
                         "value": value.to_str().expect("test path must be UTF-8"),
-                    })),
-                    _ => None,
+                    })
                 })
                 .collect::<Vec<_>>();
             value["rootBindings"][1]["hostPath"] = serde_json::json!({
@@ -3944,9 +3951,10 @@ cp \"$input\" \"$out\"\n";
                 "hostBound": true,
             });
             // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
-            // physical path selectors bind both the target-local path and the
-            // actual target-local root object. Leaving the canonical fixture's
-            // Unix object identity in a Windows snapshot would make every exact
+            // physical path selectors bind both the complete target-local path
+            // (including a Windows prefix) and the actual target-local root
+            // object. Leaving either the prefix or the canonical fixture's Unix
+            // object identity out of a Windows snapshot would make every exact
             // project path fail closed before its public operation executes.
             value["rootBindings"][1]["object"] = serde_json::to_value(
                 ibex_runtime::host::object_identity_for_host_path(project_root)
