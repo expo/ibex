@@ -1578,9 +1578,15 @@ LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
 consume an authoritative matrix run before refusing the report.
 Its current catalog has 5,005 executable and 17,933 unresolved fixtures. The
-first authoritative Windows report must still finish and be inspected before
-any Windows target cell or advertisement can change; incomplete evidence is
-retained as a refusal artifact, not promotion authority.
+first authoritative Windows attempt physically rejected the published DLL:
+although its manifest claimed the no-debugger Release profile, its PE export
+table still contained the full `AsyncDebuggerAPI`/CDP implementation. The
+Windows builder now checks the configured CMake cache and the completed DLL
+before writing a manifest, and install/publication paths independently reject
+that export mismatch. A rebuilt physical artifact and complete report must
+still finish and be inspected before any Windows target cell or advertisement
+can change; incomplete evidence is retained as a refusal artifact, not
+promotion authority.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

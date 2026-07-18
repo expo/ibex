@@ -120,14 +120,25 @@ if ($LASTEXITCODE -ne 0) { throw "Failed to apply the checked Hermes patch stack
 Remove-Item -LiteralPath $buildDir, $installDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $buildDir, $installDir | Out-Null
 $cmakeArch = if ($Arch -eq "arm64") { "ARM64" } else { "x64" }
-$debugger = if ($Debug) { "ON" } else { "OFF" }
+$debuggerFlag = if ($Debug) { "ON" } else { "OFF" }
 cmake -S $sourceDir -B $buildDir -G "Visual Studio 17 2022" -A $cmakeArch `
-  -DHERMES_ENABLE_DEBUGGER=$debugger `
+  "-DHERMES_ENABLE_DEBUGGER:BOOL=$debuggerFlag" `
   -DHERMES_ENABLE_INTL=OFF `
   -DHERMES_ENABLE_WIN10_ICU_FALLBACK=ON `
   -DHERMES_BUILD_APPLE_FRAMEWORK=OFF `
   -DHERMES_BUILD_SHARED_JSI=OFF
 if ($LASTEXITCODE -ne 0) { throw "Hermes CMake configuration failed" }
+$cmakeCache = Join-Path $buildDir "CMakeCache.txt"
+$expectedDebuggerCache = "HERMES_ENABLE_DEBUGGER:BOOL=$debuggerFlag"
+$debuggerCacheEntries = @(
+  Get-Content -LiteralPath $cmakeCache | Where-Object {
+    $_ -match '^HERMES_ENABLE_DEBUGGER:'
+  }
+)
+if ($debuggerCacheEntries.Count -ne 1 -or
+    $debuggerCacheEntries[0] -ne $expectedDebuggerCache) {
+  throw "Hermes CMake debugger profile drifted (expected $expectedDebuggerCache, got $($debuggerCacheEntries -join ', '))"
+}
 cmake --build $buildDir --config Release --target hermesvm hermes hermesc -- /m
 if ($LASTEXITCODE -ne 0) { throw "Hermes Windows build failed" }
 
@@ -135,6 +146,15 @@ $hermesDll = Find-OneFile $buildDir "hermesvm.dll" "Hermes runtime DLL"
 $hermesLib = Find-OneFile $buildDir "hermesvm.lib" "Hermes import library"
 $hermesExe = Find-OneFile $buildDir "hermes.exe" "Hermes CLI"
 $hermescExe = Find-OneFile $buildDir "hermesc.exe" "Hermes compiler"
+if (-not $Debug) {
+  if (-not (Get-Command dumpbin -ErrorAction SilentlyContinue)) {
+    throw "dumpbin is required to attest the no-debugger Windows Hermes profile"
+  }
+  $hermesExports = dumpbin /exports $hermesDll.FullName | Out-String
+  if ($hermesExports -match 'AsyncDebuggerAPI') {
+    throw "No-debugger Windows Hermes build still exports AsyncDebuggerAPI"
+  }
+}
 
 $includeDir = Join-Path $installDir "include"
 $libDir = Join-Path $installDir "lib"

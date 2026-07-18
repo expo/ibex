@@ -322,6 +322,9 @@ jobs:
           if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
             throw "Patched Windows Hermes DLL lacks ex_hermes_vm_current_package_id"
           }
+          if ($exports -match 'AsyncDebuggerAPI') {
+            throw "Patched Windows Hermes DLL exports debugger symbols"
+          }
           & (Join-Path $install "bin\hermes.exe") --help | Out-Null
           & (Join-Path $install "bin\hermesc.exe") --help | Out-Null
           Write-Host "Bundle verified: patched export present and Release host tools run."

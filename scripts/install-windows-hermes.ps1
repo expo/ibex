@@ -41,12 +41,22 @@ function Test-InstallComplete {
   }
   $manifest = Get-Content -LiteralPath (Join-Path $targetRoot "artifact.json") -Raw |
     ConvertFrom-Json
-  return $manifest.sourceCommit.StartsWith($identity.Substring(0, 12)) -and
+  $manifestMatches = $manifest.sourceCommit.StartsWith($identity.Substring(0, 12)) -and
     $manifest.patchDigest -eq $identity.Substring($identity.Length - 12) -and
     $manifest.sourceBuildAuthorityDigest -eq $builderDigest -and
     $manifest.architecture -eq $Arch -and
     $manifest.configuration -eq "Release" -and
     $manifest.debugger -eq $false
+  if (-not $manifestMatches) {
+    return $false
+  }
+  if (Get-Command dumpbin -ErrorAction SilentlyContinue) {
+    $exports = dumpbin /exports (Join-Path $targetRoot "bin\hermesvm.dll") | Out-String
+    if ($exports -match 'AsyncDebuggerAPI') {
+      return $false
+    }
+  }
+  return $true
 }
 
 function Invoke-SourceBuild {
@@ -128,6 +138,9 @@ try {
     $exports = dumpbin /exports $dllPath | Out-String
     if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
       throw "Downloaded Windows Hermes DLL lacks the patched attribution export"
+    }
+    if ($exports -match 'AsyncDebuggerAPI') {
+      throw "Downloaded Windows Hermes DLL is not a no-debugger build"
     }
   }
 

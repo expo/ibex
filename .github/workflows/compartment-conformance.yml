@@ -182,6 +182,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      - name: Retain Windows engine-profile preflight state
+        if: always()
+        shell: pwsh
+        run: |
+          $directory = Join-Path $PWD "target\capsec-suite-evidence-engine-preflight"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          @(
+            "sourceRevision=${{ github.sha }}"
+            "target=x86_64-pc-windows-msvc"
+            "stage=windows-engine-profile"
+          ) | Set-Content -LiteralPath (Join-Path $directory "status.txt") -Encoding utf8NoBOM
+
       - name: Verify cached Hermes is patched and debugger-free
         shell: pwsh
         run: |
