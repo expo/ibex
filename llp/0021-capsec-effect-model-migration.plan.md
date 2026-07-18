@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-18 (ENG-24933 derives POSIX-only native-global branches from the build graph so Windows evidence never invokes an unlinked backend)
+**Revised:** 2026-07-18 (ENG-24933 derives POSIX-only native-global branches and target-specific public ABI descriptors from the build graph so Windows evidence neither invokes an unlinked backend nor borrows POSIX arities and arguments)
 **Revised:** 2026-07-18 (ENG-24933 distinguishes the intentional Windows legacy console-layer absence from the forbidden startup-control skip)
 **Revised:** 2026-07-18 (ENG-24933 evaluates the embedded Windows runtime bundle before structural lockdown so reviewed intrinsic polyfills exist before prototypes freeze)
 **Revised:** 2026-07-18 (ENG-24933 binds Windows conformance to the actual Cargo-staged mapped DLL identity and independently requires its bytes to equal the selected Release artifact)
@@ -649,6 +649,10 @@ implementations. Windows executes 85 source-bound native target-absence probes;
 69 additional target-absence source invocations remain unavailable, alongside
 11 operations absent from the target and 11 not yet typed there. None of those
 differences is borrowed from Apple or credited without target-local evidence.
+Merged native globals retain every target variant's public source descriptor,
+and recipe production selects the descriptor attached to the built branch.
+Windows filesystem evidence therefore binds the Windows source refs and arities,
+uses numeric Node open flags, and omits POSIX-only typed-context arguments.
 The latest source-bound tranches add 322 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106

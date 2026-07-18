@@ -9581,7 +9581,15 @@ export function scanCppGlobalPropertySurfaces(
             memberSegments.length === 0 ? null : memberSegments.join("."),
           moduleSpecifiers: [],
           ...(publicInvocations.has(exportName)
-            ? { publicInvocation: publicInvocations.get(exportName) }
+            ? {
+                publicInvocation: publicInvocations.get(exportName),
+                publicInvocations: [
+                  {
+                    invocation: publicInvocations.get(exportName),
+                    targetVariant,
+                  },
+                ],
+              }
             : {}),
           sourceKey: "native_jsi_global",
           surfaceType: "global-api",
@@ -11506,6 +11514,24 @@ function mergeSurfaceEvidence(rows, label) {
       existing.metadata ??= {};
       existing.metadata.installationBranches = installationBranches;
       existing.metadata.branches = installationBranches;
+    }
+    const publicInvocations = [
+      ...(existing.metadata?.publicInvocations ?? []),
+      ...(row.metadata?.publicInvocations ?? []),
+    ];
+    if (publicInvocations.length > 0) {
+      const uniqueInvocations = new Map(
+        publicInvocations.map((entry) => [
+          `${entry.targetVariant}\0${entry.invocation.sourceRef}`,
+          structuredClone(entry),
+        ]),
+      );
+      existing.metadata ??= {};
+      existing.metadata.publicInvocations = [...uniqueInvocations.values()].sort(
+        (left, right) =>
+          left.targetVariant.localeCompare(right.targetVariant) ||
+          left.invocation.sourceRef.localeCompare(right.invocation.sourceRef),
+      );
     }
     // @ref LLP 0013#mechanism-1-lockdown — a compatibility shim may also
     // install `eval`; merging its route must not erase pin-bound taming proof.

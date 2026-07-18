@@ -892,12 +892,20 @@ async fn run_native_setup(
                 assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
                 assert_eq!(source_descriptor["kind"], "native-global-function");
                 assert_eq!(source_descriptor["globalName"], global_name.as_str());
-                assert_eq!(source_descriptor["arity"], 4);
+                let source_arity = source_descriptor["arity"]
+                    .as_u64()
+                    .expect("filesystem setup source arity must be numeric");
+                assert!(matches!(source_arity, 3 | 4));
                 assert!(state.fs_file_descriptor.is_none());
+                let flags = if source_arity == 3 {
+                    serde_json::json!(0)
+                } else {
+                    serde_json::json!("r")
+                };
                 let encoded = engine
                     .eval_immediate(&setup_script(
                         global_name,
-                        &[serde_json::json!("Cargo.toml"), serde_json::json!("r")],
+                        &[serde_json::json!("Cargo.toml"), flags],
                     ))
                     .await
                     .expect("execute native filesystem descriptor setup")
@@ -927,7 +935,10 @@ async fn run_native_setup(
                 assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
                 assert_eq!(source_descriptor["kind"], "native-global-function");
                 assert_eq!(source_descriptor["globalName"], global_name.as_str());
-                assert_eq!(source_descriptor["arity"], 4);
+                let source_arity = source_descriptor["arity"]
+                    .as_u64()
+                    .expect("filesystem setup source arity must be numeric");
+                assert!(matches!(source_arity, 3 | 4));
                 assert!(state.fs_file_descriptor.is_none());
                 assert!(state.fs_file_path.is_none());
                 assert!(
@@ -943,10 +954,15 @@ async fn run_native_setup(
                 let _ = std::fs::remove_file(path);
                 std::fs::write(path, b"ibex-capsec-retained-sync")
                     .expect("create retained write setup fixture");
+                let flags = if source_arity == 3 {
+                    serde_json::json!(1 | 8 | 512)
+                } else {
+                    serde_json::json!("a")
+                };
                 let encoded = engine
                     .eval_immediate(&setup_script(
                         global_name,
-                        &[serde_json::json!(path), serde_json::json!("a")],
+                        &[serde_json::json!(path), flags],
                     ))
                     .await
                     .expect("execute native writable descriptor setup")

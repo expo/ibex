@@ -264,6 +264,55 @@ describe("exact-target CapSec executable recipes", () => {
     ).toHaveLength(13);
   });
 
+  test("binds Windows filesystem probes to the installed Windows ABI", () => {
+    const openFlags = new Map([
+      ["read", 0],
+      ["read-write", 2],
+      ["write", 521],
+    ]);
+    for (const [logicalBranch, flags] of openFlags) {
+      const recipe = windowsRecipes.recipes.find(
+        (candidate) =>
+          candidate.scenario === "allow" &&
+          candidate.fixtureId.includes(`.logical.${logicalBranch}.`) &&
+          candidate.publicSurfaceProbe?.invocation?.globalName ===
+            "__exactFsOpen",
+      );
+      expect(recipe).toBeDefined();
+      expect(recipe.publicSurfaceProbe.invocation).toMatchObject({
+        sourceDescriptor: {
+          arity: 3,
+          sourceRef:
+            "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpen",
+        },
+        arguments: [
+          { kind: "json-literal" },
+          { kind: "json-literal", value: flags },
+          { kind: "json-literal", value: 0o666 },
+        ],
+      });
+    }
+    for (const [globalName, arity, argumentCount] of [
+      ["__exactReadFile", 1, 1],
+      ["__exactWriteFile", 2, 2],
+    ]) {
+      const recipe = windowsRecipes.recipes.find(
+        (candidate) =>
+          candidate.scenario === "allow" &&
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(recipe).toBeDefined();
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.sourceDescriptor).toEqual({
+        arity,
+        globalName,
+        kind: "native-global-function",
+        sourceRef: `src/engine/hermes_runtime_fs_windows.cc#jsi-global:${globalName}`,
+      });
+      expect(invocation.arguments).toHaveLength(argumentCount);
+    }
+  });
+
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {
     const osRecipes = recipes.recipes.filter((recipe) =>
       recipe.route.surfaceObservedKeys.includes("builtin:export:node_os:cpus"),

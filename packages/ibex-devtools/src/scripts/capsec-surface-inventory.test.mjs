@@ -4044,6 +4044,31 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       true,
     );
     expect(
+      first.nativeOps.find((row) => row.name === "__exactFsOpen").metadata
+        .publicInvocations,
+    ).toEqual([
+      {
+        invocation: {
+          arity: 4,
+          globalName: "__exactFsOpen",
+          kind: "native-global-function",
+          sourceRef:
+            "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsOpen",
+        },
+        targetVariant: "posix",
+      },
+      {
+        invocation: {
+          arity: 3,
+          globalName: "__exactFsOpen",
+          kind: "native-global-function",
+          sourceRef:
+            "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpen",
+        },
+        targetVariant: "windows",
+      },
+    ]);
+    expect(
       first.nativeOps
         .filter((row) => row.metadata?.surfaceType === "native-network-backend")
         .map((row) => row.name),

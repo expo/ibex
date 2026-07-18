@@ -3205,17 +3205,35 @@ function nativePublicReadDescriptor(surface) {
   };
 }
 
-function bindNativeArgumentSources(argument, liveByObservedKey) {
+function targetNativeVariants(target) {
+  return target.triple.includes("-windows-")
+    ? ["windows", "default"]
+    : ["macos", "apple", "posix", "default"];
+}
+
+function nativePublicInvocationForTarget(live, target) {
+  const metadata = live?.metadata;
+  for (const targetVariant of targetNativeVariants(target)) {
+    const entry = metadata?.publicInvocations?.find(
+      (candidate) => candidate.targetVariant === targetVariant,
+    );
+    if (entry) return entry.invocation;
+  }
+  return metadata?.publicInvocation ?? null;
+}
+
+function bindNativeArgumentSources(argument, liveByObservedKey, target) {
   if (
     argument.kind !== "native-global-result" &&
     argument.kind !== "native-global-result-property"
   ) {
     return clone(argument);
   }
-  const producer = (
+  const producer = nativePublicInvocationForTarget(
     liveByObservedKey.get(`native-op:${argument.globalName}`) ??
-    liveByObservedKey.get(`native-op:global:${argument.globalName}`)
-  )?.metadata?.publicInvocation;
+      liveByObservedKey.get(`native-op:global:${argument.globalName}`),
+    target,
+  );
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -3233,14 +3251,14 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
       : {}),
     globalName: argument.globalName,
     arguments: argument.arguments.map((nested) =>
-      bindNativeArgumentSources(nested, liveByObservedKey),
+      bindNativeArgumentSources(nested, liveByObservedKey, target),
     ),
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
   };
 }
 
-function bindNativeSetupSources(setup, liveByObservedKey) {
+function bindNativeSetupSources(setup, liveByObservedKey, target) {
   if (
     !new Set([
       "fs-read-file",
@@ -3252,12 +3270,19 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
   ) {
     return clone(setup);
   }
-  const producer = liveByObservedKey.get(`native-op:${setup.globalName}`)
-    ?.metadata?.publicInvocation;
+  const producer = nativePublicInvocationForTarget(
+    liveByObservedKey.get(`native-op:${setup.globalName}`),
+    target,
+  );
+  const requiredSourceArity =
+    target.triple.includes("-windows-") &&
+    setup.globalName === "__exactFsOpen"
+      ? 3
+      : setup.requiredSourceArity;
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
-    producer.arity !== setup.requiredSourceArity
+    producer.arity !== requiredSourceArity
   ) {
     throw new Error(
       `native public setup producer descriptor drift: ${setup.globalName}`,
@@ -3270,6 +3295,46 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
     ...boundSetup,
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+  };
+}
+
+function nativePublicTemplateForTarget(template, invocation, target) {
+  if (!target.triple.includes("-windows-")) {
+    return template;
+  }
+  if (invocation.globalName === "__exactReadFile") {
+    return {
+      ...template,
+      arguments: [clone(template.arguments[0])],
+      requiredSourceArity: 1,
+    };
+  }
+  if (invocation.globalName === "__exactWriteFile") {
+    return {
+      ...template,
+      arguments: [
+        clone(template.arguments[0]),
+        clone(template.arguments[1]),
+      ],
+      requiredSourceArity: 2,
+    };
+  }
+  if (invocation.globalName !== "__exactFsOpen") return template;
+  const nodeFlags = new Map([
+    ["r", 0],
+    ["r+", 2],
+    ["a", 1 | 8 | 512],
+  ]);
+  const flags = template.arguments?.[1]?.value;
+  if (!nodeFlags.has(flags)) return template;
+  return {
+    ...template,
+    arguments: [
+      clone(template.arguments[0]),
+      literalArgument(nodeFlags.get(flags)),
+      clone(template.arguments[2]),
+    ],
+    requiredSourceArity: 3,
   };
 }
 
@@ -3292,7 +3357,7 @@ function nativePublicProbeForPlan({
     return { probe: null, unavailableReason: null };
   }
   const live = liveByObservedKey.get(surfaceObservedKey);
-  const invocation = live?.metadata?.publicInvocation;
+  const invocation = nativePublicInvocationForTarget(live, target);
   const readDescriptor = targetAbsence
     ? null
     : nativePublicReadDescriptor(live);
@@ -3369,7 +3434,7 @@ function nativePublicProbeForPlan({
       unavailableReason: "native-public-source-descriptor-drift",
     };
   }
-  const template =
+  const authoredTemplate =
     targetAbsence || structuralAbsence
       ? {
           actionIds: plan.actionIds,
@@ -3388,12 +3453,17 @@ function nativePublicProbeForPlan({
         new Set(["branch-selection", "no-effect"]).has(scenario)
           ? NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES.get(invocation.globalName)
           : null));
-  if (!template) {
+  if (!authoredTemplate) {
     return {
       probe: null,
       unavailableReason: "native-public-arguments-not-authored",
     };
   }
+  const template = nativePublicTemplateForTarget(
+    authoredTemplate,
+    invocation,
+    target,
+  );
   if (template.unsupportedTargetTriples?.includes(target.triple)) {
     return {
       probe: null,
@@ -3480,14 +3550,14 @@ function nativePublicProbeForPlan({
         sourceDescriptor,
         sourceDescriptorDigest: taggedDigest(sourceDescriptor),
         arguments: template.arguments.map((argument) =>
-          bindNativeArgumentSources(argument, liveByObservedKey),
+          bindNativeArgumentSources(argument, liveByObservedKey, target),
         ),
         ...(template.completion
           ? { completion: clone(template.completion) }
           : {}),
         requiredFloor: clone(template.requiredFloor ?? []),
         setup: template.setup.map((setup) =>
-          bindNativeSetupSources(setup, liveByObservedKey),
+          bindNativeSetupSources(setup, liveByObservedKey, target),
         ),
         expectedResult: template.expectedResults[scenario],
         ...(template.expectedCleanup

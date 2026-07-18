@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-18 (ENG-24933 makes CapSec native-branch applicability follow the translation units selected by the target build graph)
+**Revised:** 2026-07-18 (ENG-24933 makes CapSec native-branch applicability and public invocation descriptors follow the translation units selected by the target build graph)
 **Revised:** 2026-07-18 (ENG-24933 installs the Windows shared runtime from embedded source before structural lockdown while retaining the compiler-specific HBC exclusion)
 **Revised:** 2026-07-18 (ENG-24933 makes Windows artifact publication reopen an existing bundle and rebuild it when its embedded build-authority/profile identity is stale)
 **Revised:** 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
@@ -239,6 +239,12 @@ probes for reviewed globals supplied solely by another target's translation
 units; an unselected source file is not a default fallback implementation
 `[observed]` (`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`;
 `packages/ibex-devtools/src/scripts/capsec-closed-probe-templates.mjs`).
+When alternatives expose the same global with different host ABIs, the merged
+inventory retains one source-derived public invocation descriptor per target
+variant. Physical recipes select the descriptor for the built branch, including
+its arity, source reference, and target-specific argument representation; they
+must not borrow a compatible-looking descriptor from another translation unit
+`[observed]` (`packages/ibex-devtools/src/scripts/capsec-conformance-recipes.mjs`).
 Crypto-backend selection and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md) and mapped in
 [LLP 0003](./0003-hermes-engine-bridge.explainer.md#crypto-is-platform-dependent-the-fragile-axis).
