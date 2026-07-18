@@ -3943,20 +3943,16 @@ cp \"$input\" \"$out\"\n";
                 "components": components,
                 "hostBound": true,
             });
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::MetadataExt;
-                let metadata = std::fs::metadata(project_root).unwrap();
-                value["rootBindings"][1]["object"] = serde_json::json!({
-                    "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                        "apple"
-                    } else {
-                        "unix"
-                    },
-                    "volume": format!("dev:{}", metadata.dev()),
-                    "file": format!("ino:{}", metadata.ino()),
-                });
-            }
+            // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+            // physical path selectors bind both the target-local path and the
+            // actual target-local root object. Leaving the canonical fixture's
+            // Unix object identity in a Windows snapshot would make every exact
+            // project path fail closed before its public operation executes.
+            value["rootBindings"][1]["object"] = serde_json::to_value(
+                crate::host::object_identity_for_host_path(project_root)
+                    .expect("derive physical test project-root identity"),
+            )
+            .expect("serialize physical test project-root identity");
             let mut floor = Vec::new();
             let mut denials = Vec::new();
             if allow_list {

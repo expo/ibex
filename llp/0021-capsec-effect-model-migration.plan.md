@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 binds physical test-host project roots to the actual target-local object identity on both Unix and Windows)
 **Revised:** 2026-07-18 (ENG-24933 derives POSIX-only native-global branches and target-specific public ABI descriptors from the build graph so Windows evidence neither invokes an unlinked backend nor borrows POSIX arities and arguments)
 **Revised:** 2026-07-18 (ENG-24933 distinguishes the intentional Windows legacy console-layer absence from the forbidden startup-control skip)
 **Revised:** 2026-07-18 (ENG-24933 evaluates the embedded Windows runtime bundle before structural lockdown so reviewed intrinsic polyfills exist before prototypes freeze)
@@ -1752,6 +1753,9 @@ lockdown has frozen intrinsic prototypes.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
 manifest, digest, patched export, and debugger-free profile, then explicitly
 selects `x86_64-pc-windows-msvc` for recipe generation and report execution.
+Its armed physical test host derives the selected project root's stable object
+identity through the production platform helper; it never leaves the canonical
+fixture's Unix object identity attached to a Windows path binding.
 Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
