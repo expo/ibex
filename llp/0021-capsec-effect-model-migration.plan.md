@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
 **Revised:** 2026-07-18 (ENG-24933 removes the stale descriptor durability-read branch under LLP 0023's write-authorized durability contract, physically executes the asynchronous durability-write branch on Apple, and keeps the aggregate metadata-write branch residual pending an exact open/closed split)
-**Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor truncate, mode, and timestamp mutation on exact Apple-owned files while keeping absent Windows surfaces and prerequisite-conflicting denial residual)
+**Revised:** 2026-07-18 (ENG-24933 physically executes open-family retained descriptor truncation on an exact Apple-owned file while keeping closed metadata mutation, absent Windows surfaces, and prerequisite-conflicting denial residual)
 **Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor durability on Apple through typed fsync/fdatasync repeat gates and owned-file cleanup, while prerequisite-conflicting denial remains residual)
 **Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor metadata on Apple, closes the setup descriptor outside observation, and leaves prerequisite-conflicting denial and the legacy Windows path residual)
 **Revised:** 2026-07-18 (ENG-24933 keeps POSIX evidence directories mode-private while treating Windows' synthetic POSIX mode bits as non-authoritative)
@@ -1608,14 +1608,15 @@ to Windows, pending physical Windows evidence. Denial remains residual on both
 targets because denying the descriptor's required `fs:write` authority would
 also prevent the prerequisite writable descriptor from being opened.
 The same owned-descriptor harness now physically executes
-`__exactFsFtruncateSync`, `__exactFsFchmodSync`, and `__exactFsFutimesSync` on
-Apple. Four recipes per surface require one typed `fs:write` repeat decision,
-then independently verify the exact two-byte length, `0600` mode, or epoch-two
-modified timestamp before closing the descriptor and removing the file. These
-three globals are not installed by the Windows filesystem backend, so Windows
-remains explicitly residual; the Apple deny recipes also remain residual
-because their required writable-descriptor setup cannot survive the same
-principal's `fs:write` denial.
+`__exactFsFtruncateSync` on Apple. Four recipes require one typed `fs:write`
+repeat decision, then independently verify the exact two-byte length before
+closing the descriptor and removing the file. The global is not installed by
+the Windows filesystem backend, so Windows remains explicitly residual; the
+Apple deny recipe also remains residual because its required writable-descriptor
+setup cannot survive the same principal's `fs:write` denial. Descriptor mode
+and timestamp mutation remain unresolved: LLP 0023 keeps `fchmod` and `futimes`
+closed pending object-bound mutation work, so physical execution alone would
+overclaim the governing contract.
 The conditional `__exactFsFdAsync` registry now matches that retained-object
 contract instead of claiming an unreachable `durability-read` branch. LLP 0023
 places `fsync`, `fdatasync`, and their `FileHandle` aliases in the open-write

@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_932);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_214);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_718);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_206);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_726);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(515);
+    expect(nativePublicFixtures).toHaveLength(507);
     expect(
       nativePublicFixtures
         .filter(
@@ -230,11 +230,10 @@ describe("exact-target CapSec executable recipes", () => {
       ),
     ).toBe(true);
     expect(
-      windowsRecipes.recipes.filter(
-        (recipe) =>
-          recipe.publicSurfaceProbe?.command?.includes(
-            "capsec_public_closed_recipe_batch",
-          ),
+      windowsRecipes.recipes.filter((recipe) =>
+        recipe.publicSurfaceProbe?.command?.includes(
+          "capsec_public_closed_recipe_batch",
+        ),
       ),
     ).toHaveLength(633);
     expect(
@@ -1131,9 +1130,9 @@ describe("exact-target CapSec executable recipes", () => {
         expect(invocation.expectedTypedDecisionCount).toBe(
           recipe.scenario === "deny" ? 1 : 4,
         );
-        expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual(
-          branch.actionIds,
-        );
+        expect(
+          invocation.requiredFloor.map((selector) => selector.cap),
+        ).toEqual(branch.actionIds);
         expect(recipe.fixtureId).toContain(`.logical.${branchId}.`);
         expect(recipe.residualReasons).toEqual([]);
         expect(recipe.status).toBe("fully-executable");
@@ -1244,14 +1243,15 @@ describe("exact-target CapSec executable recipes", () => {
     expect(denyRows.every((recipe) => recipe.status === "unresolved")).toBe(
       true,
     );
-    const metadataRows = recipes.recipes.filter((recipe) =>
-      recipe.fixtureId.includes(".exactfsfdasync.") &&
-      recipe.fixtureId.includes(".logical.metadata-write."),
+    const metadataRows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.fixtureId.includes(".exactfsfdasync.") &&
+        recipe.fixtureId.includes(".logical.metadata-write."),
     );
     expect(metadataRows).toHaveLength(6);
-    expect(
-      metadataRows.every((recipe) => recipe.status === "unresolved"),
-    ).toBe(true);
+    expect(metadataRows.every((recipe) => recipe.status === "unresolved")).toBe(
+      true,
+    );
   });
 
   test("flushes retained writable descriptors and removes their owned files", () => {
@@ -1302,11 +1302,9 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
-  test("mutates only exact owned retained files on typed Apple descriptors", () => {
+  test("truncates only an exact owned retained file on typed Apple descriptors", () => {
     for (const [globalName, path, extraArguments] of [
       ["__exactFsFtruncateSync", "target/ibex-capsec-ftruncate", [2]],
-      ["__exactFsFchmodSync", "target/ibex-capsec-fchmod", [0o600]],
-      ["__exactFsFutimesSync", "target/ibex-capsec-futimes", [1, 2]],
     ]) {
       const rows = recipes.recipes.filter(
         (recipe) =>
@@ -1355,6 +1353,14 @@ describe("exact-target CapSec executable recipes", () => {
             recipe.scenario === "allow",
         ).residualReasons,
       ).toContain("native-public-operation-not-installed-on-target");
+    }
+    for (const globalName of ["__exactFsFchmodSync", "__exactFsFutimesSync"]) {
+      expect(
+        recipes.recipes.filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+        ),
+      ).toHaveLength(0);
     }
   });
 
@@ -1997,8 +2003,7 @@ describe("exact-target CapSec executable recipes", () => {
     });
     const exported = rows.find(
       (recipe) =>
-        recipe.terminalObservedKey ===
-        "builtin:export:node_vm:runInNewContext",
+        recipe.terminalObservedKey === "builtin:export:node_vm:runInNewContext",
     );
     expect(exported).toMatchObject({
       publicSurfaceProbe: {
@@ -2229,8 +2234,7 @@ describe("exact-target CapSec executable recipes", () => {
     expect(
       rows.find(
         (recipe) =>
-          recipe.terminalObservedKey ===
-          "native-op:__exactAllowNativesSyntax",
+          recipe.terminalObservedKey === "native-op:__exactAllowNativesSyntax",
       ),
     ).toMatchObject({
       publicSurfaceProbe: {
@@ -3481,8 +3485,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.expectedResult === "return" &&
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
             0 &&
-          recipe.publicSurfaceProbe.invocation.expectedTypedStages.length ===
-            0,
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages.length === 0,
       ),
     ).toBe(true);
   });

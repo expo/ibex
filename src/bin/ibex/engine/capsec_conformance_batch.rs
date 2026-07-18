@@ -936,8 +936,6 @@ async fn run_native_setup(
                         "target/ibex-capsec-fsync"
                             | "target/ibex-capsec-fdatasync"
                             | "target/ibex-capsec-ftruncate"
-                            | "target/ibex-capsec-fchmod"
-                            | "target/ibex-capsec-futimes"
                             | "target/ibex-capsec-fdasync-durability"
                     ),
                     "retained write setup escaped its exact owned paths"
@@ -2083,8 +2081,6 @@ async fn execute_native_public_recipe(
             | "__exactFsFsyncSync"
             | "__exactFsFdatasyncSync"
             | "__exactFsFtruncateSync"
-            | "__exactFsFchmodSync"
-            | "__exactFsFutimesSync"
             | "__exactFsFdAsync"
     ) {
         let descriptor = setup_state
@@ -2111,32 +2107,6 @@ async fn execute_native_public_recipe(
                 std::fs::read(path).expect("read retained sync fixture"),
                 expected_bytes
             );
-            #[cfg(unix)]
-            if invocation.global_name == "__exactFsFchmodSync" {
-                use std::os::unix::fs::PermissionsExt;
-                assert_eq!(
-                    std::fs::metadata(path)
-                        .expect("read retained fchmod fixture metadata")
-                        .permissions()
-                        .mode()
-                        & 0o777,
-                    0o600,
-                    "retained fchmod fixture has the wrong final mode"
-                );
-            }
-            if invocation.global_name == "__exactFsFutimesSync" {
-                assert_eq!(
-                    std::fs::metadata(path)
-                        .expect("read retained futimes fixture metadata")
-                        .modified()
-                        .expect("read retained futimes modified time")
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .expect("retained futimes timestamp predates epoch")
-                        .as_secs(),
-                    2,
-                    "retained futimes fixture has the wrong final timestamp"
-                );
-            }
             std::fs::remove_file(path).expect("remove retained sync fixture");
             if invocation_result["kind"] == "return" {
                 invocation_result["cleanup"] = serde_json::Value::String(

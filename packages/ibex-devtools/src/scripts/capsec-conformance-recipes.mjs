@@ -965,18 +965,8 @@ const nativeProjectMkdirTemplate = () =>
       allow: ["requested", "discovery", "discovery", "commit"],
       deny: ["requested"],
       malformed: ["requested", "discovery", "discovery", "commit"],
-      "missing-attribution": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-      ],
-      "wrong-principal": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-      ],
+      "missing-attribution": ["requested", "discovery", "discovery", "commit"],
+      "wrong-principal": ["requested", "discovery", "discovery", "commit"],
     },
     requiredFloor: [
       {
@@ -1041,17 +1031,11 @@ const nativeProjectWriteFileTemplate = () =>
     requiredFloor: [
       {
         cap: "fs:list",
-        resource: projectPathExactResource(
-          "target",
-          "ibex-capsec-write-file",
-        ),
+        resource: projectPathExactResource("target", "ibex-capsec-write-file"),
       },
       {
         cap: "fs:write",
-        resource: projectPathExactResource(
-          "target",
-          "ibex-capsec-write-file",
-        ),
+        resource: projectPathExactResource("target", "ibex-capsec-write-file"),
       },
     ],
     requiredSourceArity: 3,
@@ -1107,17 +1091,11 @@ const nativeProjectAppendFileTemplate = () =>
     requiredFloor: [
       {
         cap: "fs:list",
-        resource: projectPathExactResource(
-          "target",
-          "ibex-capsec-append-file",
-        ),
+        resource: projectPathExactResource("target", "ibex-capsec-append-file"),
       },
       {
         cap: "fs:write",
-        resource: projectPathExactResource(
-          "target",
-          "ibex-capsec-append-file",
-        ),
+        resource: projectPathExactResource("target", "ibex-capsec-append-file"),
       },
     ],
     requiredSourceArity: 3,
@@ -1162,12 +1140,7 @@ const nativeProjectFsOpenTemplate = ({
       "branch-selection": ["requested", "discovery", "discovery", "commit"],
       deny: ["requested"],
       malformed: ["requested", "discovery", "discovery", "commit"],
-      "missing-attribution": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-      ],
+      "missing-attribution": ["requested", "discovery", "discovery", "commit"],
       "wrong-principal": ["requested", "discovery", "discovery", "commit"],
     },
     requiredFloor: actionIds.map((cap) => ({
@@ -1497,10 +1470,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     "__exactTypedPermissionRevoke",
     nativeNoEffectTemplate(1, [literalArgument("unknown-grant")]),
   ],
-  [
-    "__exactTypedHandleMint",
-    nativeNoEffectTemplate(1, [literalArgument({})]),
-  ],
+  ["__exactTypedHandleMint", nativeNoEffectTemplate(1, [literalArgument({})])],
   [
     "__exactTypedHandleRevoke",
     nativeNoEffectTemplate(1, [literalArgument("unknown-handle")]),
@@ -1601,24 +1571,6 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       path: "target/ibex-capsec-ftruncate",
       argumentsList: [literalArgument(2)],
       requiredSourceArity: 2,
-      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
-    }),
-  ],
-  [
-    "__exactFsFchmodSync",
-    nativeRetainedFsWriteTemplate({
-      path: "target/ibex-capsec-fchmod",
-      argumentsList: [literalArgument(0o600)],
-      requiredSourceArity: 2,
-      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
-    }),
-  ],
-  [
-    "__exactFsFutimesSync",
-    nativeRetainedFsWriteTemplate({
-      path: "target/ibex-capsec-futimes",
-      argumentsList: [literalArgument(1), literalArgument(2)],
-      requiredSourceArity: 3,
       unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
     }),
   ],
