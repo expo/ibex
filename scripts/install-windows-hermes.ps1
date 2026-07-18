@@ -124,11 +124,18 @@ try {
   $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
   if (-not $manifest.sourceCommit.StartsWith($identity.Substring(0, 12)) -or
       $manifest.patchDigest -ne $identity.Substring($identity.Length - 12) -or
-      $manifest.sourceBuildAuthorityDigest -ne $builderDigest -or
       $manifest.architecture -ne $Arch -or
       $manifest.configuration -ne "Release" -or
       $manifest.debugger -ne $false) {
     throw "Downloaded Windows Hermes manifest does not match $identity/$Arch/Release"
+  }
+  if ($manifest.sourceBuildAuthorityDigest -ne $builderDigest) {
+    Write-Warning (
+      "Prebuilt Windows Hermes $identity has stale build authority; " +
+      "building the exact current authority from source."
+    )
+    Invoke-SourceBuild
+    exit 0
   }
   $dllDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $dllPath).Hash.ToLowerInvariant()
   if ($dllDigest -ne $manifest.binarySha256) {

@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-18 (ENG-24933 makes Windows artifact publication reopen an existing bundle and rebuild it when its embedded build-authority/profile identity is stale)
 **Revised:** 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
 **Revised:** 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
@@ -305,6 +306,11 @@ no-debugger Darwin Release, and no-debugger Windows Release. Linux
 `HERMES_ENABLE_INTL=true`, other configurations, and
 `IBEX_HERMES_FORCE_BUILD=1` go straight to source `[observed]`
 (`.github/workflows/hermes-artifacts.yml`; `scripts/download-hermes.sh`).
+Because the release tag does not include the Windows builder digest, the
+publisher reopens an existing Windows zip and compares its manifest identity,
+architecture, Release/debugger profile, and source-build-authority digest with
+the current checkout. A stale or unreadable asset is rebuilt and overwritten;
+asset-name presence alone is never a cache hit.
 
 Android remains a separate artifact channel. It consumes Maven/PREFAB artifacts
 through `scripts/install-android-hermes.sh`; Maven Central does not yet publish

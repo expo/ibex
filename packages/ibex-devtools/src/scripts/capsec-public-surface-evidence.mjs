@@ -47,23 +47,40 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
 ]);
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
 // dispatcher remains the public surface, while typed evidence must select its
-// exact source-chosen worker rather than any allowed auxiliary edge.
+// exact source-chosen worker or retained-object gate rather than any allowed
+// auxiliary edge.
 const NATIVE_ASYNC_WORKER_TERMINALS = new Map([
   ["mkdir", "native-op:__exactMkdir"],
   ["mkdtemp", "native-op:__exactMkdir"],
   ["readdir", "native-op:__exactReaddir"],
   ["realpath", "native-op:__exactRealpath"],
 ]);
+const NATIVE_RETAINED_OBJECT_TERMINALS = new Map(
+  [
+    "__exactFsOpenAsync",
+    "__exactFsFdAsync",
+    "__exactFsFstatSync",
+    "__exactFsFsyncSync",
+    "__exactFsFdatasyncSync",
+    "__exactFsFtruncateSync",
+    "__exactFsFchmodSync",
+    "__exactFsFutimesSync",
+  ].map((globalName) => [globalName, "native-op:__exactFsOpen"]),
+);
 
-function nativeAsyncWorkerTerminal(authored) {
+export function nativeAuxiliaryTerminal(authored) {
   if (
     authored?.invocationSchema !==
       "ibex/capsec-native-global-invocation/1" ||
-    authored.kind !== "native-global-function" ||
-    authored.globalName !== "__exactFsPathAsync"
+    authored.kind !== "native-global-function"
   ) {
     return null;
   }
+  const retainedObjectTerminal = NATIVE_RETAINED_OBJECT_TERMINALS.get(
+    authored.globalName,
+  );
+  if (retainedObjectTerminal) return retainedObjectTerminal;
+  if (authored.globalName !== "__exactFsPathAsync") return null;
   const operation = authored.arguments?.[0];
   return operation?.kind === "json-literal"
     ? NATIVE_ASYNC_WORKER_TERMINALS.get(operation.value) ?? null
@@ -2714,7 +2731,7 @@ export function validatePublicFixtureRuntimeObservation(
     authored.invocationSchema ===
     "ibex/capsec-startup-environment-invocation/1";
   const auxiliaryCarrier = callbackInvariant || startupEnvironment;
-  const nativeWorkerTerminal = nativeAsyncWorkerTerminal(authored);
+  const nativeWorkerTerminal = nativeAuxiliaryTerminal(authored);
   if (callbackInvariant) {
     // Callback/control surfaces are non-capabilities, but their invariant can
     // exercise one separately reviewed effect edge. Bind that auxiliary

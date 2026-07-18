@@ -1446,6 +1446,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     for (const [source, sourceKey] of [
       ["module.exports.Public = unknownFactory();", "node_opaque_factory"],
       [
+        "function first() { return second(); } function second() { return first(); } module.exports.Public = first();",
+        "node_recursive_factory",
+      ],
+      [
         "function make() { return /hidden/; } module.exports.Public = make();",
         "node_object_return",
       ],
@@ -3847,13 +3851,20 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       ]),
     );
 
+    const streamSource = fs.readFileSync(
+      path.join(repoRoot, "src/engine/bootstrap/web-streams-polyfill.js"),
+      "utf8",
+    );
     const streamRows = scanStaticGlobalApiSurfaces(
-      fs.readFileSync(
-        path.join(repoRoot, "src/engine/bootstrap/web-streams-polyfill.js"),
-        "utf8",
-      ),
+      streamSource,
       "src/engine/bootstrap/web-streams-polyfill.js",
     );
+    expect(
+      scanStaticGlobalApiSurfaces(
+        streamSource.replaceAll("\n", "\r\n"),
+        "src/engine/bootstrap/web-streams-polyfill.js",
+      ),
+    ).toEqual(streamRows);
     expect(streamRows.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "__exactWebStreamsPolyfillLoaded",

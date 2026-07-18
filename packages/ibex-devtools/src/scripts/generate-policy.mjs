@@ -31,6 +31,7 @@ import {
 import {
   assertTypedAuthority,
   buildCanonicalPolicy,
+  canonicalPolicySourcePath,
   classifyPolicyDrift,
   compareCanonicalBytes,
   packageIntegrity,
@@ -437,7 +438,7 @@ function surfacesFor(pkg) {
 
 rootSiteLists.sort((a, b) => compareCanonicalBytes(a.file, b.file));
 for (const { file, sites } of rootSiteLists) {
-  const rel = path.relative(root, file);
+  const rel = canonicalPolicySourcePath(path.relative(root, file));
   for (const site of sites) {
     const where = `${rel}:${site.line}`;
     if (site.capabilities.length || Object.keys(site.also).length) {
@@ -549,7 +550,7 @@ const artifact = buildCanonicalPolicy(principals);
 const rendered = `${JSON.stringify(artifact, null, 2)}\n`;
 
 for (const ignored of ignoredPackageGrants) {
-  const rel = path.relative(root, ignored.file);
+  const rel = canonicalPolicySourcePath(path.relative(root, ignored.file));
   for (const site of ignored.sites) {
     console.error(
       `warning: grant attribute in package code is not a grant channel and was ignored: ` +

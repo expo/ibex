@@ -29,7 +29,9 @@ on:
       - "scripts/build-hermes.sh"
       - "scripts/build-hermes-linux.sh"
       - "scripts/build-hermes-windows.ps1"
+      - "scripts/install-windows-hermes.ps1"
       - "scripts/apply-hermes-patches.sh"
+      - ".gitattributes"
       - ".github/workflows/hermes-artifacts.yml"
 
 # Serialize runs: two overlapping publishes for the same identity would race
@@ -99,11 +101,48 @@ jobs:
             else echo true
             fi
           }
+          macos_asset="hermes-macos-arm64-$identity.tar.gz"
+          macos_release_asset="hermes-macos-arm64-release-$identity.tar.gz"
+          linux_asset="hermes-linux-x64-$identity.tar.gz"
+          windows_asset="hermes-windows-x64-$identity.zip"
+          need_macos="$(need "$macos_asset")"
+          need_macos_release="$(need "$macos_release_asset")"
+          need_linux="$(need "$linux_asset")"
+          need_windows="$(need "$windows_asset")"
+
+          # The release tag intentionally excludes build-script identity. Reopen
+          # an existing Windows manifest so a reviewed authority change rebuilds
+          # and overwrites the same cache asset instead of preserving stale bytes.
+          if [ "$need_windows" = "false" ]; then
+            tmp="$(mktemp -d)"
+            if gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                --dir "$tmp" --pattern "$windows_asset" &&
+              manifest="$(unzip -p "$tmp/$windows_asset" artifact.json 2>/dev/null)" &&
+              actual_authority="$(printf '%s' "$manifest" | jq -er '.sourceBuildAuthorityDigest')" &&
+              manifest_identity="$(printf '%s' "$manifest" | jq -er '(.sourceCommit[0:12]) + "-" + .patchDigest')" &&
+              architecture="$(printf '%s' "$manifest" | jq -er '.architecture')" &&
+              configuration="$(printf '%s' "$manifest" | jq -er '.configuration')" &&
+              debugger="$(printf '%s' "$manifest" | jq -er '.debugger | tostring')"; then
+              expected_authority="$(sha256sum scripts/build-hermes-windows.ps1 | awk '{print $1}')"
+              if [ "$actual_authority" != "$expected_authority" ] ||
+                [ "$manifest_identity" != "$identity" ] ||
+                [ "$architecture" != "x64" ] ||
+                [ "$configuration" != "Release" ] ||
+                [ "$debugger" != "false" ]; then
+                echo "Existing Windows bundle is stale; scheduling a rebuild."
+                need_windows=true
+              fi
+            else
+              echo "Existing Windows bundle could not be revalidated; scheduling a rebuild."
+              need_windows=true
+            fi
+            rm -rf "$tmp"
+          fi
           {
-            echo "need_macos=$(need "hermes-macos-arm64-$identity.tar.gz")"
-            echo "need_macos_release=$(need "hermes-macos-arm64-release-$identity.tar.gz")"
-            echo "need_linux=$(need "hermes-linux-x64-$identity.tar.gz")"
-            echo "need_windows=$(need "hermes-windows-x64-$identity.zip")"
+            echo "need_macos=$need_macos"
+            echo "need_macos_release=$need_macos_release"
+            echo "need_linux=$need_linux"
+            echo "need_windows=$need_windows"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT" || true
 

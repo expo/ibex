@@ -5,6 +5,7 @@ import {
   buildPublicFixtureEvidence,
   buildPublicSurfaceExecutionArtifact,
   mergePublicBatchExecutions,
+  nativeAuxiliaryTerminal,
   validatePublicSurfaceExecutionArtifact,
 } from "./capsec-public-surface-evidence.mjs";
 import {
@@ -1970,6 +1971,34 @@ function callbackRuntimeObservation(recipe) {
 }
 
 describe("CapSec public-surface promotion evidence", () => {
+  test("binds retained-object operations to their reviewed open gate", () => {
+    for (const globalName of [
+      "__exactFsOpenAsync",
+      "__exactFsFdAsync",
+      "__exactFsFstatSync",
+      "__exactFsFsyncSync",
+      "__exactFsFdatasyncSync",
+      "__exactFsFtruncateSync",
+      "__exactFsFchmodSync",
+      "__exactFsFutimesSync",
+    ]) {
+      expect(
+        nativeAuxiliaryTerminal({
+          invocationSchema: "ibex/capsec-native-global-invocation/1",
+          kind: "native-global-function",
+          globalName,
+        }),
+      ).toBe("native-op:__exactFsOpen");
+    }
+    expect(
+      nativeAuxiliaryTerminal({
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        kind: "native-global-function",
+        globalName: "__exactFsFdAsyncOther",
+      }),
+    ).toBeNull();
+  });
+
   test("merges only exact, engine-bound public fixture batches", () => {
     const catalog = completeCatalog();
     const execution = buildPublicFixtureEvidence({

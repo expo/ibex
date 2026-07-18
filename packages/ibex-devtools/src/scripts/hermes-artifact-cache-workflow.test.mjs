@@ -1,0 +1,60 @@
+import { expect, test } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
+const artifactWorkflow = fs.readFileSync(
+  path.join(repoRoot, ".github/workflows/hermes-artifacts.yml"),
+  "utf8",
+);
+const conformanceWorkflow = fs.readFileSync(
+  path.join(repoRoot, ".github/workflows/compartment-conformance.yml"),
+  "utf8",
+);
+
+// @ref LLP 0005#prebuilt-hermes-artifact-bundles — cache identity excludes
+// build authority, so an existing Windows asset must be reopened before reuse.
+test("Windows Hermes cache hits reopen the reviewed artifact authority", () => {
+  expect(artifactWorkflow).toContain('- ".gitattributes"');
+  expect(artifactWorkflow).toContain('- "scripts/install-windows-hermes.ps1"');
+  expect(artifactWorkflow).toContain(
+    'gh release download "$tag" --repo "$GITHUB_REPOSITORY"',
+  );
+  expect(artifactWorkflow).toContain(
+    'unzip -p "$tmp/$windows_asset" artifact.json',
+  );
+  expect(artifactWorkflow).toContain(".sourceBuildAuthorityDigest");
+  expect(artifactWorkflow).toContain(
+    'sha256sum scripts/build-hermes-windows.ps1',
+  );
+  expect(artifactWorkflow).toContain('[ "$configuration" != "Release" ]');
+  expect(artifactWorkflow).toContain('[ "$debugger" != "false" ]');
+  expect(artifactWorkflow).toContain(
+    "Existing Windows bundle could not be revalidated; scheduling a rebuild.",
+  );
+  expect(artifactWorkflow).toContain("need_windows=true");
+  expect(artifactWorkflow).toContain(
+    'gh release upload $env:TAG $asset "$asset.sha256" --repo $env:GITHUB_REPOSITORY --clobber',
+  );
+});
+
+test("verified Windows source builds survive later matrix failures", () => {
+  const windowsJob = conformanceWorkflow.slice(
+    conformanceWorkflow.indexOf("conformance-windows:"),
+  );
+  expect(windowsJob).toContain("id: windows-hermes-cache");
+  expect(windowsJob).toContain("uses: actions/cache/restore@v4");
+  expect(windowsJob).toContain(
+    "if: steps.windows-hermes-cache.outputs.cache-hit != 'true'",
+  );
+  expect(windowsJob).toContain("uses: actions/cache/save@v4");
+  expect(windowsJob.indexOf("uses: actions/cache/save@v4")).toBeLessThan(
+    windowsJob.indexOf(
+      "name: Run the complete CapSec matrix and bind evidence",
+    ),
+  );
+});

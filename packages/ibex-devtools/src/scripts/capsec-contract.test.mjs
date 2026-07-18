@@ -23,6 +23,7 @@ import {
   canonicalJson,
   compareAuthorityContainment,
   computeDomainDigest,
+  diagnosticMentionsLogicalPath,
   invalidFixtureNames,
   loadAndValidateContract as loadAndValidateContractUncached,
   parseJsonStrict,
@@ -107,6 +108,21 @@ describe("LLP 0021 capsec contract", () => {
     expect(parseJsonStrict(Buffer.from('{"a":1}', "utf8"), "inline")).toEqual({
       a: 1,
     });
+  });
+
+  test("invalid-fixture diagnostics match logical paths across separators", () => {
+    expect(
+      diagnosticMentionsLogicalPath(
+        'capsec\\testdata\\invalid\\duplicate-key.json: duplicate JSON object key "cap"',
+        "testdata/invalid/duplicate-key.json",
+      ),
+    ).toBe(true);
+    expect(
+      diagnosticMentionsLogicalPath(
+        'capsec\\testdata\\invalid\\another-fixture.json: rejected',
+        "testdata/invalid/duplicate-key.json",
+      ),
+    ).toBe(false);
   });
 
   test("schema-declared sets must use canonical order", () => {

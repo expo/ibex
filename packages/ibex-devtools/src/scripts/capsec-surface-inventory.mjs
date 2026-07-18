@@ -3229,6 +3229,7 @@ export function scanStaticBuiltinExports(
     }
   };
   const classExpressionOwners = new WeakMap();
+  const visitingBindingDefinitions = new Set();
   const classExpressionOwner = (classNode) => {
     let owner = classExpressionOwners.get(classNode);
     if (!owner) {
@@ -3315,38 +3316,44 @@ export function scanStaticBuiltinExports(
         return false;
       }
       const definition = definitions[0].node;
-      const localValues = new Map();
-      walkDirectFunctionBody(definition, (node) => {
-        if (
-          node.type === "VariableDeclarator" &&
-          node.id?.type === "Identifier" &&
-          node.init
-        ) {
-          localValues.set(node.id.name, node.init);
-        }
-      });
-      const bindReturnedValue = (value, seen = new Set()) => {
-        if (value?.type === "Identifier" && localValues.has(value.name)) {
-          if (seen.has(value.name)) return false;
-          const nextSeen = new Set(seen);
-          nextSeen.add(value.name);
-          return bindReturnedValue(localValues.get(value.name), nextSeen);
-        }
-        return bindClassExpression(target, exportNames, value, substitutions);
-      };
-      let bound = false;
-      if (
-        definition.type === "ArrowFunctionExpression" &&
-        definition.body?.type !== "BlockStatement"
-      ) {
-        bound = bindReturnedValue(definition.body);
-      } else {
+      if (visitingBindingDefinitions.has(definition)) return false;
+      visitingBindingDefinitions.add(definition);
+      try {
+        const localValues = new Map();
         walkDirectFunctionBody(definition, (node) => {
-          if (node.type !== "ReturnStatement") return;
-          bound = bindReturnedValue(node.argument) || bound;
+          if (
+            node.type === "VariableDeclarator" &&
+            node.id?.type === "Identifier" &&
+            node.init
+          ) {
+            localValues.set(node.id.name, node.init);
+          }
         });
+        const bindReturnedValue = (value, seen = new Set()) => {
+          if (value?.type === "Identifier" && localValues.has(value.name)) {
+            if (seen.has(value.name)) return false;
+            const nextSeen = new Set(seen);
+            nextSeen.add(value.name);
+            return bindReturnedValue(localValues.get(value.name), nextSeen);
+          }
+          return bindClassExpression(target, exportNames, value, substitutions);
+        };
+        let bound = false;
+        if (
+          definition.type === "ArrowFunctionExpression" &&
+          definition.body?.type !== "BlockStatement"
+        ) {
+          bound = bindReturnedValue(definition.body);
+        } else {
+          walkDirectFunctionBody(definition, (node) => {
+            if (node.type !== "ReturnStatement") return;
+            bound = bindReturnedValue(node.argument) || bound;
+          });
+        }
+        return bound;
+      } finally {
+        visitingBindingDefinitions.delete(definition);
       }
-      return bound;
     }
     return false;
   };
@@ -5511,14 +5518,15 @@ export function scanStaticGlobalApiSurfaces(
   options = {},
 ) {
   const fullProgram = parseJavaScript(text, sourcePath);
-  const webStreamsWrapperMarker = "\n(function () {\n  var globalObject = ";
-  const webStreamsWrapperOffset = text.indexOf(webStreamsWrapperMarker);
-  const sourceText =
-    webStreamsWrapperOffset === -1
-      ? text
-      : text.slice(webStreamsWrapperOffset + 1);
+  const webStreamsWrapperBoundary =
+    /\r?\n(?=\(function \(\) \{\r?\n  var globalObject = )/u.exec(text);
+  const sourceText = webStreamsWrapperBoundary
+    ? text.slice(
+        webStreamsWrapperBoundary.index + webStreamsWrapperBoundary[0].length,
+      )
+    : text;
   const program =
-    webStreamsWrapperOffset === -1
+    webStreamsWrapperBoundary === null
       ? fullProgram
       : parseJavaScript(sourceText, sourcePath);
   const {
@@ -5558,7 +5566,7 @@ export function scanStaticGlobalApiSurfaces(
     definitions.push(definition);
   }
 
-  if (webStreamsWrapperOffset !== -1) {
+  if (webStreamsWrapperBoundary !== null) {
     let hasReachableContainer = false;
     walkAst(fullProgram, (node) => {
       if (
@@ -5647,6 +5655,7 @@ export function scanStaticGlobalApiSurfaces(
     substitutions = staticBindings,
   ) => {
     const owners = new Set();
+    const visitingDefinitions = new Set();
     const visit = (candidate) => {
       if (!candidate) return;
       if (candidate.type === "ClassExpression") {
@@ -5709,36 +5718,42 @@ export function scanStaticGlobalApiSurfaces(
           return;
         }
         const definition = definitions[0].node;
-        const localValues = new Map();
-        walkDirectFunctionBody(definition, (node) => {
-          if (
-            node.type === "VariableDeclarator" &&
-            node.id?.type === "Identifier" &&
-            node.init
-          ) {
-            localValues.set(node.id.name, node.init);
-          }
-        });
-        const visitReturnedValue = (value, seen = new Set()) => {
-          if (value?.type === "Identifier" && localValues.has(value.name)) {
-            if (seen.has(value.name)) return;
-            const nextSeen = new Set(seen);
-            nextSeen.add(value.name);
-            visitReturnedValue(localValues.get(value.name), nextSeen);
-            return;
-          }
-          visit(value);
-        };
-        if (
-          definition.type === "ArrowFunctionExpression" &&
-          definition.body?.type !== "BlockStatement"
-        ) {
-          visitReturnedValue(definition.body);
-        } else {
+        if (visitingDefinitions.has(definition)) return;
+        visitingDefinitions.add(definition);
+        try {
+          const localValues = new Map();
           walkDirectFunctionBody(definition, (node) => {
-            if (node.type === "ReturnStatement")
-              visitReturnedValue(node.argument);
+            if (
+              node.type === "VariableDeclarator" &&
+              node.id?.type === "Identifier" &&
+              node.init
+            ) {
+              localValues.set(node.id.name, node.init);
+            }
           });
+          const visitReturnedValue = (value, seen = new Set()) => {
+            if (value?.type === "Identifier" && localValues.has(value.name)) {
+              if (seen.has(value.name)) return;
+              const nextSeen = new Set(seen);
+              nextSeen.add(value.name);
+              visitReturnedValue(localValues.get(value.name), nextSeen);
+              return;
+            }
+            visit(value);
+          };
+          if (
+            definition.type === "ArrowFunctionExpression" &&
+            definition.body?.type !== "BlockStatement"
+          ) {
+            visitReturnedValue(definition.body);
+          } else {
+            walkDirectFunctionBody(definition, (node) => {
+              if (node.type === "ReturnStatement")
+                visitReturnedValue(node.argument);
+            });
+          }
+        } finally {
+          visitingDefinitions.delete(definition);
         }
       }
     };
@@ -9670,7 +9685,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       sourceRef: "260318099.0.0-stable",
       sourceVersion: "260318099.0.0",
       sourceInstallerAuthorityDigest:
-        "sha256-bf337bc7bba1888050bbb4c8b26f3d02517508f846c3275933246ff25dec0047",
+        "sha256-2e9e92d49c05615882a7c28381dc8dac243a47e7f67b2c2b0ce0d16d9731839c",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [

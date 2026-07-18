@@ -1,3 +1,8 @@
+# Source inventory, generated drift, and reviewed build-authority digests must
+# observe the same bytes on every host. Git still detects binary files through
+# `text=auto`; every tracked text checkout is canonical LF.
+* text=auto eol=lf
+
 # CapSec digests and generated drift checks are byte-sensitive. Pin every
 # contract artifact and cross-language generated binding to LF so a Windows
 # checkout cannot be clean in Git while differing from the canonical bytes.

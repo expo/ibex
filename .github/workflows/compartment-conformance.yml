@@ -169,7 +169,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Cache patched Hermes artifacts
-        uses: actions/cache@v4
+        id: windows-hermes-cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             tools/hermes/windows-x64
@@ -217,6 +218,18 @@ jobs:
           if ($exports -match 'CDPAgent|CDPDebugAPI') {
             throw "Hermes DLL exports debugger symbols"
           }
+
+      # A later matrix failure must not discard a verified 25-minute source
+      # build. Save it before the suites so the next diagnostic run reuses the
+      # exact Release authority instead of rebuilding it.
+      - name: Save verified Windows Hermes artifacts
+        if: steps.windows-hermes-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            tools/hermes/windows-x64
+            ~/AppData/Local/Exact/hermes-windows
+          key: hermes-patched-no-debugger-v2-${{ runner.os }}-x64-${{ hashFiles('scripts/hermes-version.sh', 'scripts/install-windows-hermes.ps1', 'scripts/build-hermes-windows.ps1', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
 
       - name: Run the complete CapSec matrix and bind evidence
         shell: pwsh

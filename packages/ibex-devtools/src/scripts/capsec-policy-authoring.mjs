@@ -19,6 +19,10 @@ export function compareCanonicalBytes(left, right) {
   return leftBytes.compare(rightBytes);
 }
 
+export function canonicalPolicySourcePath(value) {
+  return String(value).replaceAll('\\', '/');
+}
+
 function canonicalStringSet(values) {
   return [...new Set(values)].sort(compareCanonicalBytes);
 }
@@ -57,7 +61,13 @@ export function canonicalAuthorityRows(rows, label = 'authority rows') {
     const key = canonicalJson(row.authority);
     const current = byAuthority.get(key) || { authority: row.authority, provenance: [] };
     const provenance = new Map(current.provenance.map((entry) => [canonicalJson(entry), entry]));
-    for (const entry of row.provenance) provenance.set(canonicalJson(entry), entry);
+    for (const entry of row.provenance) {
+      const canonicalEntry =
+        entry?.kind === 'import-site' && typeof entry.source === 'string'
+          ? { ...entry, source: canonicalPolicySourcePath(entry.source) }
+          : entry;
+      provenance.set(canonicalJson(canonicalEntry), canonicalEntry);
+    }
     current.provenance = [...provenance.values()].sort(compareCanonicalBytes);
     byAuthority.set(key, current);
   }

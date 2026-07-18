@@ -335,6 +335,13 @@ export function parseJsonStrict(bytes, label = "<json>") {
   return value;
 }
 
+export function diagnosticMentionsLogicalPath(diagnostic, logicalPath) {
+  const normalizeSeparators = (value) => String(value).replaceAll("\\", "/");
+  return normalizeSeparators(diagnostic).includes(
+    normalizeSeparators(logicalPath),
+  );
+}
+
 export function readJsonStrict(filePath) {
   const label = path.relative(repoRoot, filePath);
   return parseJsonStrict(fs.readFileSync(filePath), label);
@@ -3801,7 +3808,10 @@ export function loadAndValidateContract() {
     try {
       validateInvalidFixtureEntry(entry, contract);
     } catch (error) {
-      if (error?.code || !String(error?.message ?? error).includes(entry.path)) {
+      if (
+        error?.code ||
+        !diagnosticMentionsLogicalPath(error?.message ?? error, entry.path)
+      ) {
         throw new Error(
           `${entry.path}: invalid fixture failed for an unrelated reason: ${error?.message ?? error}`,
           { cause: error },

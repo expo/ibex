@@ -1,12 +1,33 @@
 import { expect, test } from 'bun:test';
 import {
   buildCanonicalPolicy,
+  canonicalPolicySourcePath,
   classifyPolicyDrift,
   compareCanonicalBytes,
   intersectAuthorities,
   packageIntegrity,
   resolveTypedDelegations,
 } from './capsec-policy-authoring.mjs';
+
+test('policy provenance paths are platform-independent', () => {
+  expect(canonicalPolicySourcePath('src\\nested\\app.mjs')).toBe(
+    'src/nested/app.mjs',
+  );
+  expect(canonicalPolicySourcePath('src/nested/app.mjs')).toBe(
+    'src/nested/app.mjs',
+  );
+  const windows = buildCanonicalPolicy([
+    principal([
+      {
+        authority,
+        provenance: [{ kind: 'import-site', source: 'src\\nested\\app.mjs:1' }],
+      },
+    ]),
+  ]);
+  expect(windows.principals[0].floor[0].provenance).toEqual([
+    { kind: 'import-site', source: 'src/nested/app.mjs:1' },
+  ]);
+}, 30_000);
 
 const authority = {
   cap: 'fs:read',

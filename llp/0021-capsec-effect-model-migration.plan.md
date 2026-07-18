@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 rebuilds a Windows Release bundle from source when its commit/patch/profile match but its reviewed build-authority digest is stale)
+**Revised:** 2026-07-18 (ENG-24933 pins tracked text to canonical LF and makes the appended web-streams bootstrap boundary CRLF-tolerant after Windows reached different public-surface and Hermes-identity graphs)
+**Revised:** 2026-07-18 (ENG-24933 makes source-derived class-factory traversal cycle-safe after a Windows-only factory chain exhausted the conformance preflight stack)
 **Revised:** 2026-07-18 (ENG-24933 physically proves direct directory opening and async path/descriptor metadata on Apple, hardens cross-platform runners, and refreshes exact Apple/Windows catalog counts)
 **Revised:** 2026-07-18 (ENG-24933 binds direct path truncation to retained-object typed authorization and physically proves five Apple scenarios)
 **Revised:** 2026-07-18 (ENG-24933 removes the stale descriptor durability-read branch under LLP 0023's write-authorized durability contract, physically executes the asynchronous durability-write branch on Apple, and keeps the aggregate metadata-write branch residual pending an exact open/closed split)
@@ -1735,6 +1738,14 @@ LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
 consume an authoritative matrix run before refusing the report.
 Its current catalog has 5,057 executable and 17,875 unresolved fixtures. The
+source-derived class-factory traversal is path-cycle safe: a uniquely resolved
+factory may be revisited after its current return chain unwinds, but a mutually
+recursive return chain cannot recurse forever or invent a class shape. The
+appended web-streams bootstrap boundary accepts both LF and CRLF source
+checkouts, so platform line-ending conversion cannot expose the bundled UMD
+implementation as a different public graph. Repository attributes additionally
+pin all tracked text to LF, keeping source-inventory and reviewed build-authority
+digests byte-identical on every host. The
 first authoritative Windows attempt physically rejected the published DLL:
 although its manifest claimed the no-debugger Release profile, its PE export
 table still contained the full `AsyncDebuggerAPI`/CDP implementation. The
@@ -1743,6 +1754,10 @@ argument (the prior unquoted PowerShell token preserved `$debugger` literally),
 checks the configured CMake cache, and rejects the implementation-only
 `CDPAgent`/`CDPDebugAPI` exports before writing a manifest. Install and
 publication paths independently enforce the same implementation-symbol check.
+A downloaded bundle whose commit, patch, architecture, and Release profile
+match but whose source-build-authority digest is stale is treated as a cache
+miss and rebuilt from the exact current source authority; other identity or
+profile mismatches remain hard failures.
 A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not
