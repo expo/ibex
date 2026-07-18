@@ -1244,7 +1244,9 @@ if (path.resolve(process.argv[1] ?? "") === __filename) {
       `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.enforcementBranches} enforcement branches, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.outputs} outputs.`,
     );
   } catch (error) {
-    console.error(`error: ${error.message}`);
+    const detail =
+      error instanceof Error ? (error.stack ?? error.message) : String(error);
+    console.error(`error: ${detail}`);
     process.exit(1);
   }
 }
