@@ -13,6 +13,12 @@ use std::time::{Duration, Instant};
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
+// `capsec audit` authenticates and hashes the complete lowering/bundling
+// toolchain before the process bridge runs. Shared-host full-matrix load can
+// exhaust shorter deadlines before this security probe executes. This is a
+// deadlock bound, not a startup-performance assertion.
+const DIAGNOSTIC_AUDIT_TIMEOUT: Duration = Duration::from_secs(120);
+
 struct AppRun {
     stdout: String,
     stderr: String,
@@ -140,7 +146,7 @@ console.log('RESULT|status=' + result.status + '|stdout=' + result.stdout);
     );
     write_text(&dir.join("app.js"), &app);
 
-    let run = run_audit_app_in(&dir, Duration::from_secs(20));
+    let run = run_audit_app_in(&dir, DIAGNOSTIC_AUDIT_TIMEOUT);
     let _line = result_line(&run);
     assert!(
         !marker.exists(),
