@@ -1539,7 +1539,9 @@ export function createProductionWebGpuPrivateBinding(
       view,
       Object.freeze({
         converted,
-        currentOrigin: texture.currentOrigin,
+        ...(texture.currentOrigin === undefined
+          ? {}
+          : { currentOrigin: texture.currentOrigin }),
       }),
       false,
     );

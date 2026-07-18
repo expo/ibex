@@ -62,12 +62,13 @@ interface NativeCodecField {
     | 'pipelineLayoutDescriptorV1'
     | 'samplerDescriptorV1'
     | 'textureDescriptorV1'
+    | 'textureViewRequestV1'
     | 'commandEncoderDescriptorV1'
     | 'shaderModuleDescriptorV1';
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15 | 16 | 17 | 18 | 19;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19;
     operationWireId:
       | 1660448199
       | 194635792
@@ -77,6 +78,7 @@ interface NativeCodecField {
       | 3373402978
       | 3285037552
       | 159202366
+      | 1853125118
       | 599085487
       | 4055478657;
   }>;
@@ -149,6 +151,7 @@ interface NativeCodecCarrierConstraint {
     | 'objectKindTags.GPUBuffer'
     | 'objectKindTags.GPUSampler'
     | 'objectKindTags.GPUTexture'
+    | 'objectKindTags.GPUTextureView'
     | 'objectKindTags.GPUBindGroupLayout'
     | 'objectKindTags.GPUPipelineLayout'
     | 'objectKindTags.GPUCommandEncoder'
@@ -178,12 +181,13 @@ interface NativeCodecCatalogReference {
     | 'gpu-create-buffer-service-request-v1'
     | 'gpu-create-sampler-service-request-v1'
     | 'gpu-create-texture-service-request-v1'
+    | 'gpu-create-texture-view-service-request-v1'
     | 'gpu-create-pipeline-layout-service-request-v1'
     | 'gpu-create-command-encoder-service-request-v1'
     | 'gpu-create-shader-module-service-request-v1'
     | 'gpu-device-cleanup-service-request-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15 | 16 | 17 | 18 | 19;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19;
 }
 
 interface NativeCodecCompletionVariant {
@@ -369,6 +373,13 @@ interface NativeCodecCreateTextureRoute {
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
 
+interface NativeCodecCreateTextureViewRoute {
+  readonly operationId: 'GPUTexture.createView';
+  readonly wireId: 1853125118;
+  readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
+  readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
+}
+
 interface NativeCodecCreateShaderModuleRoute {
   readonly operationId: 'GPUDevice.createShaderModule';
   readonly wireId: 599085487;
@@ -438,7 +449,7 @@ interface NativeCodecDeviceDestroyRoute {
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -517,6 +528,7 @@ export interface NativeCodecProgramsV2 {
     pipelineLayoutDescriptorV1: Readonly<Record<string, unknown>>;
     samplerDescriptorV1: Readonly<Record<string, unknown>>;
     textureDescriptorV1: Readonly<Record<string, unknown>>;
+    textureViewRequestV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
     shaderModuleDescriptorV1: Readonly<Record<string, unknown>>;
     sortedUniqueFeatureSequenceV1: Readonly<Record<string, unknown>>;
@@ -534,6 +546,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecCreatePipelineLayoutRoute
     | NativeCodecCreateSamplerRoute
     | NativeCodecCreateTextureRoute
+    | NativeCodecCreateTextureViewRoute
     | NativeCodecCreateCommandEncoderRoute
     | NativeCodecCreateShaderModuleRoute
     | NativeCodecDeviceDestroyRoute
@@ -686,6 +699,12 @@ const CREATE_TEXTURE_WIRE_ID = 159202366;
 const CREATE_TEXTURE_REQUEST_CODEC = 'gpu-create-texture-service-request-v1';
 const CREATE_TEXTURE_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
+const CREATE_TEXTURE_VIEW_OPERATION_ID = 'GPUTexture.createView';
+const CREATE_TEXTURE_VIEW_WIRE_ID = 1853125118;
+const CREATE_TEXTURE_VIEW_REQUEST_CODEC =
+  'gpu-create-texture-view-service-request-v1';
+const CREATE_TEXTURE_VIEW_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
 const CREATE_PIPELINE_LAYOUT_OPERATION_ID =
   'GPUDevice.createPipelineLayout';
 const CREATE_PIPELINE_LAYOUT_WIRE_ID = 3373402978;
@@ -777,7 +796,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -1298,6 +1317,72 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
             kind: 'sequence',
             maxCountFrom: 'codecLayout.sequenceMaxCount',
             element: { kind: 'string-enum', valuesFrom: 'webIdlVocabulary.gpuTextureFormats' },
+          },
+        },
+      ],
+    },
+    textureViewRequestV1: {
+      kind: 'closed-dictionary',
+      encodingType: 'canonicalValueV1',
+      trust: 'untrusted-webidl-converted-semantic-service-ingress-only',
+      providerBoundary: 'forbidden-raw-descriptor-or-origin-must-not-reach-provider',
+      unknownFields: 'reject',
+      fields: [
+        {
+          name: 'converted',
+          required: true,
+          value: {
+            kind: 'closed-dictionary',
+            unknownFields: 'reject',
+            fields: [
+              { name: 'arrayLayerCount', required: false, value: { kind: 'u32' } },
+              { name: 'aspect', required: true, value: { kind: 'string-enum', values: ['all', 'stencil-only', 'depth-only'] } },
+              { name: 'baseArrayLayer', required: true, value: { kind: 'u32' } },
+              { name: 'baseMipLevel', required: true, value: { kind: 'u32' } },
+              { name: 'dimension', required: false, value: { kind: 'string-enum', valuesFrom: 'webIdlVocabulary.gpuTextureViewDimensions' } },
+              { name: 'format', required: false, value: { kind: 'string-enum', valuesFrom: 'webIdlVocabulary.gpuTextureFormats' } },
+              { name: 'label', required: true, value: { kind: 'string' } },
+              { name: 'mipLevelCount', required: false, value: { kind: 'u32' } },
+              { name: 'swizzle', required: true, value: { kind: 'string', constraints: ['texture-component-swizzle-syntax'] } },
+              { name: 'usage', required: true, value: { kind: 'u32' } },
+            ],
+          },
+        },
+        {
+          name: 'currentOrigin',
+          required: false,
+          value: {
+            kind: 'closed-dictionary',
+            unknownFields: 'reject',
+            fields: [
+              { name: 'originClass', required: true, value: { kind: 'string-enum', values: ['canvas-current'] } },
+              { name: 'contextRef', required: true, value: { kind: 'full-object-reference' } },
+              { name: 'attachmentGeneration', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+              { name: 'contextGeneration', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+              { name: 'configurationGeneration', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+              { name: 'currentEpoch', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+              {
+                name: 'mintOperationProvenance',
+                required: true,
+                value: {
+                  kind: 'closed-dictionary',
+                  unknownFields: 'reject',
+                  fields: [
+                    { name: 'operationInstanceId', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+                    { name: 'deviceIngressOrdinal', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+                  ],
+                },
+              },
+              { name: 'textureOriginDigest', required: true, value: { kind: 'string', constraints: ['sha256-hex'] } },
+              { name: 'configuredDeviceRef', required: true, value: { kind: 'full-object-reference' } },
+              { name: 'format', required: true, value: { kind: 'string-enum', valuesFrom: 'webIdlVocabulary.gpuTextureFormats' } },
+              { name: 'usage', required: true, value: { kind: 'u32' } },
+              { name: 'alphaMode', required: true, value: { kind: 'string-enum', values: ['opaque', 'premultiplied'] } },
+              { name: 'colorSpace', required: true, value: { kind: 'string-enum', values: ['srgb', 'display-p3'] } },
+              { name: 'targetAuthorityDigest', required: true, value: { kind: 'string', constraints: ['sha256-hex'] } },
+              { name: 'surfaceAccountToken', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+              { name: 'surfaceAccountGeneration', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+            ],
           },
         },
       ],
@@ -2573,6 +2658,7 @@ interface ValidatedNativeCodecProgram {
   readonly createPipelineLayoutRoute: NativeCodecCreatePipelineLayoutRoute;
   readonly createSamplerRoute: NativeCodecCreateSamplerRoute;
   readonly createTextureRoute: NativeCodecCreateTextureRoute;
+  readonly createTextureViewRoute: NativeCodecCreateTextureViewRoute;
   readonly createCommandEncoderRoute: NativeCodecCreateCommandEncoderRoute;
   readonly createShaderModuleRoute: NativeCodecCreateShaderModuleRoute;
   readonly deviceDestroyRoute: NativeCodecDeviceDestroyRoute;
@@ -2600,6 +2686,7 @@ function validateNativeCodecProgram(
         candidate.operationId !== CREATE_PIPELINE_LAYOUT_OPERATION_ID &&
         candidate.operationId !== CREATE_SAMPLER_OPERATION_ID &&
         candidate.operationId !== CREATE_TEXTURE_OPERATION_ID &&
+        candidate.operationId !== CREATE_TEXTURE_VIEW_OPERATION_ID &&
         candidate.operationId !== CREATE_COMMAND_ENCODER_OPERATION_ID &&
         candidate.operationId !== CREATE_SHADER_MODULE_OPERATION_ID,
     ),
@@ -2639,6 +2726,10 @@ function validateNativeCodecProgram(
   const createTextureRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreateTextureRoute =>
       candidate.operationId === CREATE_TEXTURE_OPERATION_ID,
+  );
+  const createTextureViewRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCreateTextureViewRoute =>
+      candidate.operationId === CREATE_TEXTURE_VIEW_OPERATION_ID,
   );
   const createCommandEncoderRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreateCommandEncoderRoute =>
@@ -2714,6 +2805,15 @@ function validateNativeCodecProgram(
   );
   const createTextureCompletionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === CREATE_TEXTURE_COMPLETION_CODEC,
+  );
+  const createTextureViewPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === CREATE_TEXTURE_VIEW_OPERATION_ID,
+  );
+  const createTextureViewRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === CREATE_TEXTURE_VIEW_REQUEST_CODEC,
+  );
+  const createTextureViewCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === CREATE_TEXTURE_VIEW_COMPLETION_CODEC,
   );
   const createCommandEncoderPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === CREATE_COMMAND_ENCODER_OPERATION_ID,
@@ -3381,11 +3481,25 @@ function validateNativeCodecProgram(
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","validate-buffer-mapped-at-creation-alignment","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
       '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-texture-extent-under-logical-limits-and-structural-bounds","validate-texture-format-under-logical-capabilities","validate-texture-usage-closed-bits-and-format-compatibility","validate-texture-mip-level-and-sample-count-bounds","validate-texture-view-formats-compatibility","validate-texture-binding-view-dimension-compatibility","validate-texture-label-under-reviewed-workload","validate-texture-descriptor-under-reviewed-workload","authenticate-wrapper-allocated-texture-target-provenance","validate-wrapper-allocated-texture-target-generation","compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity","reserve-texture-provider-request-completion-and-physical-sequence"]',
     );
+  const expectedCreateTextureViewCanonical = expectedCreateTextureCanonical
+    .replaceAll(CREATE_TEXTURE_OPERATION_ID, '__CREATE_TEXTURE_VIEW_OPERATION__')
+    .replaceAll(CREATE_TEXTURE_REQUEST_CODEC, CREATE_TEXTURE_VIEW_REQUEST_CODEC)
+    .replaceAll('GPUTexture', 'GPUTextureView')
+    .replaceAll('GPUDevice', 'GPUTexture')
+    .replaceAll('textureDescriptorV1', 'textureViewRequestV1')
+    .replaceAll(String(CREATE_TEXTURE_WIRE_ID), String(CREATE_TEXTURE_VIEW_WIRE_ID))
+    .replaceAll('"codecTag":19', '"codecTag":9')
+    .replaceAll('"wireTag":19', '"wireTag":9')
+    .replaceAll('__CREATE_TEXTURE_VIEW_OPERATION__', CREATE_TEXTURE_VIEW_OPERATION_ID)
+    .replace(
+      '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-texture-extent-under-logical-limits-and-structural-bounds","validate-texture-format-under-logical-capabilities","validate-texture-usage-closed-bits-and-format-compatibility","validate-texture-mip-level-and-sample-count-bounds","validate-texture-view-formats-compatibility","validate-texture-binding-view-dimension-compatibility","validate-texture-label-under-reviewed-workload","validate-texture-descriptor-under-reviewed-workload","authenticate-wrapper-allocated-texture-target-provenance","validate-wrapper-allocated-texture-target-generation","compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity","reserve-texture-provider-request-completion-and-physical-sequence"]',
+      '"requiredAfterDecode":["authenticate-source-affine-texture-receiver-and-reconstruct-authority-from-texture-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-undestroyed-texture-device-and-provider-generation","authenticate-current-texture-origin-provenance-and-epoch","validate-operation-coverage","validate-authorized-live-source-account-and-aggregate-envelope-with-alias-accounting","validate-texture-view-format-and-aspect-compatibility","validate-texture-view-dimension-compatibility","validate-texture-view-subresource-range","validate-texture-view-usage-and-swizzle-capability","validate-texture-view-label-under-reviewed-workload","validate-exact-texture-view-descriptor-parent-origin-workload-tuples","authenticate-wrapper-allocated-texture-view-target-provenance","validate-wrapper-allocated-texture-view-target-generation","reserve-texture-view-table-and-independent-cost-without-backing-double-charge","reserve-texture-view-provider-request-completion-and-physical-sequence"]',
+    );
   if (
-    manifest.nativeCodecPrograms.routes.length !== 10 ||
+    manifest.nativeCodecPrograms.routes.length !== 11 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 10 ||
+    ).size !== 11 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupLayoutRoute ||
@@ -3393,6 +3507,7 @@ function validateNativeCodecProgram(
     !createPipelineLayoutRoute ||
     !createSamplerRoute ||
     !createTextureRoute ||
+    !createTextureViewRoute ||
     !createCommandEncoderRoute ||
     !createShaderModuleRoute ||
     !deviceDestroyRoute ||
@@ -3410,6 +3525,8 @@ function validateNativeCodecProgram(
       expectedCreateSamplerCanonical ||
     canonicalManifestJson(createTextureRoute) !==
       expectedCreateTextureCanonical ||
+    canonicalManifestJson(createTextureViewRoute) !==
+      expectedCreateTextureViewCanonical ||
     !planRoute ||
     planRoute.wireId !== REQUEST_ADAPTER_WIRE_ID ||
     planRoute.serviceArgumentCodec !== REQUEST_ADAPTER_REQUEST_CODEC ||
@@ -3493,6 +3610,19 @@ function validateNativeCodecProgram(
     createTextureRequestCodec.unavailableSemanticFields.length !== 0 ||
     createTextureCompletionCodec?.wireTag !==
       createTextureRoute.completion.catalog.wireTag ||
+    !createTextureViewPlanRoute ||
+    createTextureViewPlanRoute.wireId !== CREATE_TEXTURE_VIEW_WIRE_ID ||
+    createTextureViewPlanRoute.serviceArgumentCodec !==
+      CREATE_TEXTURE_VIEW_REQUEST_CODEC ||
+    createTextureViewPlanRoute.serviceCompletionCodec !==
+      CREATE_TEXTURE_VIEW_COMPLETION_CODEC ||
+    createTextureViewRequestCodec?.wireTag !==
+      createTextureViewRoute.request.catalog.wireTag ||
+    createTextureViewRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    createTextureViewRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    createTextureViewRequestCodec.unavailableSemanticFields.length !== 0 ||
+    createTextureViewCompletionCodec?.wireTag !==
+      createTextureViewRoute.completion.catalog.wireTag ||
     !createCommandEncoderPlanRoute ||
     createCommandEncoderPlanRoute.wireId !== CREATE_COMMAND_ENCODER_WIRE_ID ||
     createCommandEncoderPlanRoute.serviceArgumentCodec !==
@@ -3540,6 +3670,7 @@ function validateNativeCodecProgram(
     manifest.objectKindTags.GPUDevice !== 3 ||
     manifest.objectKindTags.GPUBuffer !== 5 ||
     manifest.objectKindTags.GPUTexture !== 6 ||
+    manifest.objectKindTags.GPUTextureView !== 7 ||
     manifest.objectKindTags.GPUSampler !== 8 ||
     manifest.objectKindTags.GPUBindGroupLayout !== 9 ||
     manifest.objectKindTags.GPUPipelineLayout !== 11 ||
@@ -3550,6 +3681,7 @@ function validateNativeCodecProgram(
     expectedObjectKindTags.GPUDevice !== 3 ||
     expectedObjectKindTags.GPUBuffer !== 5 ||
     expectedObjectKindTags.GPUTexture !== 6 ||
+    expectedObjectKindTags.GPUTextureView !== 7 ||
     expectedObjectKindTags.GPUSampler !== 8 ||
     expectedObjectKindTags.GPUBindGroupLayout !== 9 ||
     expectedObjectKindTags.GPUPipelineLayout !== 11 ||
@@ -3573,6 +3705,8 @@ function validateNativeCodecProgram(
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createTextureRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    createTextureViewRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createShaderModuleRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
@@ -3586,6 +3720,7 @@ function validateNativeCodecProgram(
     createPipelineLayoutRoute,
     createSamplerRoute,
     createTextureRoute,
+    createTextureViewRoute,
     createCommandEncoderRoute,
     createShaderModuleRoute,
     deviceDestroyRoute,
@@ -4583,52 +4718,84 @@ function convertTextureViewDescriptor(
   textureFormats: readonly string[],
 ): unknown {
   const source = dictionary(value, 'GPUTextureViewDescriptor');
-  const result: Record<string, unknown> = {
-    label: optionalLabel(source),
-    aspect: source.aspect === undefined
-      ? 'all'
-      : enumValue(
-        source.aspect,
-        ['all', 'stencil-only', 'depth-only'],
-        'GPUTextureViewDescriptor.aspect',
-      ),
-    baseMipLevel: u32(source.baseMipLevel, 'GPUTextureViewDescriptor.baseMipLevel', 0),
-    baseArrayLayer: u32(
-      source.baseArrayLayer,
-      'GPUTextureViewDescriptor.baseArrayLayer',
-      0,
-    ),
-  };
-  if (source.format !== undefined) {
-    result.format = enumValue(
-      source.format,
-      textureFormats,
-      'GPUTextureViewDescriptor.format',
+  // Web IDL dictionary members, including inherited GPUObjectDescriptor.label,
+  // are observed and converted once in lexicographic order. Keep each Get
+  // adjacent to its conversion so a throwing conversion prevents every later
+  // getter from running.
+  const arrayLayerCountValue = source.arrayLayerCount;
+  const arrayLayerCount = arrayLayerCountValue === undefined
+    ? undefined
+    : u32(arrayLayerCountValue, 'GPUTextureViewDescriptor.arrayLayerCount');
+  const aspectValue = source.aspect;
+  const aspect = aspectValue === undefined
+    ? 'all'
+    : enumValue(
+      aspectValue,
+      ['all', 'stencil-only', 'depth-only'],
+      'GPUTextureViewDescriptor.aspect',
     );
-  }
-  if (source.dimension !== undefined) {
-    result.dimension = enumValue(
-      source.dimension,
+  const baseArrayLayerValue = source.baseArrayLayer;
+  const baseArrayLayer = u32(
+    baseArrayLayerValue,
+    'GPUTextureViewDescriptor.baseArrayLayer',
+    0,
+  );
+  const baseMipLevelValue = source.baseMipLevel;
+  const baseMipLevel = u32(
+    baseMipLevelValue,
+    'GPUTextureViewDescriptor.baseMipLevel',
+    0,
+  );
+  const dimensionValue = source.dimension;
+  const dimension = dimensionValue === undefined
+    ? undefined
+    : enumValue(
+      dimensionValue,
       ['1d', '2d', '2d-array', 'cube', 'cube-array', '3d'],
       'GPUTextureViewDescriptor.dimension',
     );
-  }
-  if (source.mipLevelCount !== undefined) {
-    result.mipLevelCount = u32(
-      source.mipLevelCount,
+  const formatValue = source.format;
+  const format = formatValue === undefined
+    ? undefined
+    : enumValue(
+      formatValue,
+      textureFormats,
+      'GPUTextureViewDescriptor.format',
+    );
+  const labelValue = source.label;
+  const label = labelValue === undefined
+    ? ''
+    : webIdlString(labelValue, 'GPUTextureViewDescriptor.label');
+  const mipLevelCountValue = source.mipLevelCount;
+  const mipLevelCount = mipLevelCountValue === undefined
+    ? undefined
+    : u32(
+      mipLevelCountValue,
       'GPUTextureViewDescriptor.mipLevelCount',
     );
-  }
-  if (source.arrayLayerCount !== undefined) {
-    result.arrayLayerCount = u32(
-      source.arrayLayerCount,
-      'GPUTextureViewDescriptor.arrayLayerCount',
+  const swizzleValue = source.swizzle;
+  const swizzle = swizzleValue === undefined
+    ? 'rgba'
+    : webIdlString(swizzleValue, 'GPUTextureViewDescriptor.swizzle');
+  if (!/^[rgba01]{4}$/.test(swizzle)) {
+    throw new TypeError(
+      'GPUTextureViewDescriptor.swizzle must contain exactly four r, g, b, a, 0, or 1 components',
     );
   }
-  if (source.usage !== undefined) {
-    result.usage = u32(source.usage, 'GPUTextureViewDescriptor.usage');
-  }
-  return frozenRecord(result);
+  const usageValue = source.usage;
+  const usage = u32(usageValue, 'GPUTextureViewDescriptor.usage', 0);
+  return frozenRecord({
+    ...(arrayLayerCount === undefined ? {} : { arrayLayerCount }),
+    aspect,
+    baseArrayLayer,
+    baseMipLevel,
+    ...(dimension === undefined ? {} : { dimension }),
+    ...(format === undefined ? {} : { format }),
+    label,
+    ...(mipLevelCount === undefined ? {} : { mipLevelCount }),
+    swizzle,
+    usage,
+  });
 }
 
 function encodeUtf8(value: string): Uint8Array {
@@ -5790,6 +5957,218 @@ function validateCreateTextureDescriptorForService(
   }
 }
 
+function validateTextureViewFullReference(
+  value: unknown,
+  expectedKind: 'GPUCanvasContext' | 'GPUDevice',
+  label: string,
+): void {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    !hasExactOwnProperties(
+      value as Readonly<Record<string, unknown>>,
+      [
+        'kind',
+        'objectId',
+        'objectGeneration',
+        'logicalDeviceId',
+        'logicalDeviceGeneration',
+        'providerGeneration',
+      ],
+    )
+  ) {
+    throw new TypeError(`${label} must be a full object reference`);
+  }
+  const reference = value as RequestAdapterReferenceLike;
+  if (
+    reference.kind !== expectedKind ||
+    typeof reference.objectId !== 'string' ||
+    typeof reference.objectGeneration !== 'string' ||
+    typeof reference.logicalDeviceId !== 'string' ||
+    typeof reference.logicalDeviceGeneration !== 'string' ||
+    typeof reference.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(`${label} has an invalid object-reference shape`);
+  }
+  for (const [identity, field] of [
+    [reference.objectId, 'objectId'],
+    [reference.objectGeneration, 'objectGeneration'],
+    [reference.logicalDeviceId, 'logicalDeviceId'],
+    [reference.logicalDeviceGeneration, 'logicalDeviceGeneration'],
+    [reference.providerGeneration, 'providerGeneration'],
+  ] as const) {
+    positiveIdentity(identity, `${label}.${field}`);
+  }
+}
+
+function validateCreateTextureViewRequestForService(
+  value: unknown,
+  vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
+): void {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView converted request must be a canonical dictionary',
+    );
+  }
+  const request = value as Readonly<Record<string, unknown>>;
+  const hasCurrentOrigin = Object.prototype.hasOwnProperty.call(
+    request,
+    'currentOrigin',
+  );
+  if (
+    !hasExactOwnProperties(
+      request,
+      hasCurrentOrigin ? ['converted', 'currentOrigin'] : ['converted'],
+    ) ||
+    typeof request.converted !== 'object' ||
+    request.converted === null ||
+    Array.isArray(request.converted)
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView request must contain only converted descriptor and optional origin',
+    );
+  }
+
+  const descriptor = request.converted as Readonly<Record<string, unknown>>;
+  const descriptorFields = [
+    'aspect',
+    'baseArrayLayer',
+    'baseMipLevel',
+    'label',
+    'swizzle',
+    'usage',
+  ];
+  const optionalDescriptorFields = [
+    'arrayLayerCount',
+    'dimension',
+    'format',
+    'mipLevelCount',
+  ];
+  const expectedDescriptorFields = [
+    ...descriptorFields,
+    ...optionalDescriptorFields.filter((field) =>
+      Object.prototype.hasOwnProperty.call(descriptor, field)
+    ),
+  ];
+  if (
+    !hasExactOwnProperties(descriptor, expectedDescriptorFields) ||
+    typeof descriptor.aspect !== 'string' ||
+    !['all', 'stencil-only', 'depth-only'].includes(descriptor.aspect) ||
+    !isConvertedU32(descriptor.baseArrayLayer) ||
+    !isConvertedU32(descriptor.baseMipLevel) ||
+    typeof descriptor.label !== 'string' ||
+    typeof descriptor.swizzle !== 'string' ||
+    !/^[rgba01]{4}$/u.test(descriptor.swizzle) ||
+    !isConvertedU32(descriptor.usage) ||
+    (Object.prototype.hasOwnProperty.call(descriptor, 'arrayLayerCount') &&
+      !isConvertedU32(descriptor.arrayLayerCount)) ||
+    (Object.prototype.hasOwnProperty.call(descriptor, 'dimension') &&
+      (typeof descriptor.dimension !== 'string' ||
+        !vocabulary.gpuTextureViewDimensions.includes(descriptor.dimension))) ||
+    (Object.prototype.hasOwnProperty.call(descriptor, 'format') &&
+      (typeof descriptor.format !== 'string' ||
+        !vocabulary.gpuTextureFormats.includes(descriptor.format))) ||
+    (Object.prototype.hasOwnProperty.call(descriptor, 'mipLevelCount') &&
+      !isConvertedU32(descriptor.mipLevelCount))
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView converted descriptor violates the structural transport contract',
+    );
+  }
+
+  if (!hasCurrentOrigin) return;
+  const origin = request.currentOrigin;
+  if (
+    typeof origin !== 'object' ||
+    origin === null ||
+    Array.isArray(origin) ||
+    !hasExactOwnProperties(
+      origin as Readonly<Record<string, unknown>>,
+      [
+        'originClass',
+        'contextRef',
+        'attachmentGeneration',
+        'contextGeneration',
+        'configurationGeneration',
+        'currentEpoch',
+        'mintOperationProvenance',
+        'textureOriginDigest',
+        'configuredDeviceRef',
+        'format',
+        'usage',
+        'alphaMode',
+        'colorSpace',
+        'targetAuthorityDigest',
+        'surfaceAccountToken',
+        'surfaceAccountGeneration',
+      ],
+    )
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView canvas-current origin must be a complete closed dictionary',
+    );
+  }
+  const currentOrigin = origin as Readonly<Record<string, unknown>>;
+  validateTextureViewFullReference(
+    currentOrigin.contextRef,
+    'GPUCanvasContext',
+    'GPUTexture.createView currentOrigin.contextRef',
+  );
+  validateTextureViewFullReference(
+    currentOrigin.configuredDeviceRef,
+    'GPUDevice',
+    'GPUTexture.createView currentOrigin.configuredDeviceRef',
+  );
+  const mint = currentOrigin.mintOperationProvenance;
+  if (
+    typeof mint !== 'object' ||
+    mint === null ||
+    Array.isArray(mint) ||
+    !hasExactOwnProperties(
+      mint as Readonly<Record<string, unknown>>,
+      ['operationInstanceId', 'deviceIngressOrdinal'],
+    )
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView currentOrigin mint provenance is incomplete',
+    );
+  }
+  const mintRecord = mint as Readonly<Record<string, unknown>>;
+  const positiveU64 = (candidate: unknown) =>
+    isConvertedU64(candidate) && candidate > 0;
+  if (
+    currentOrigin.originClass !== 'canvas-current' ||
+    !positiveU64(currentOrigin.attachmentGeneration) ||
+    !positiveU64(currentOrigin.contextGeneration) ||
+    !positiveU64(currentOrigin.configurationGeneration) ||
+    !positiveU64(currentOrigin.currentEpoch) ||
+    !positiveU64(mintRecord.operationInstanceId) ||
+    !positiveU64(mintRecord.deviceIngressOrdinal) ||
+    typeof currentOrigin.textureOriginDigest !== 'string' ||
+    !/^[0-9a-f]{64}$/u.test(currentOrigin.textureOriginDigest) ||
+    typeof currentOrigin.format !== 'string' ||
+    !vocabulary.gpuTextureFormats.includes(currentOrigin.format) ||
+    !isConvertedU32(currentOrigin.usage) ||
+    typeof currentOrigin.alphaMode !== 'string' ||
+    !['opaque', 'premultiplied'].includes(currentOrigin.alphaMode) ||
+    typeof currentOrigin.colorSpace !== 'string' ||
+    !['srgb', 'display-p3'].includes(currentOrigin.colorSpace) ||
+    typeof currentOrigin.targetAuthorityDigest !== 'string' ||
+    !/^[0-9a-f]{64}$/u.test(currentOrigin.targetAuthorityDigest) ||
+    !positiveU64(currentOrigin.surfaceAccountToken) ||
+    !positiveU64(currentOrigin.surfaceAccountGeneration)
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView canvas-current origin violates structural bounds',
+    );
+  }
+}
+
 function validateCreateBindGroupLayoutRequestFields(
   receiver: RequestAdapterReferenceLike,
   target: unknown,
@@ -6147,6 +6526,84 @@ function validateCreateTextureRequestFields(
   );
 }
 
+function validateCreateTextureViewRequestFields(
+  receiver: RequestAdapterReferenceLike,
+  target: unknown,
+  adapterOrdinal: unknown,
+  deviceIngressOrdinal: unknown,
+  queueIngressOrdinal: unknown,
+  sealedLocalTimeline: unknown,
+  convertedArguments: unknown,
+  sequenceMaximum: number,
+  vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
+): void {
+  if (
+    receiver.kind !== 'GPUTexture' ||
+    typeof receiver.objectId !== 'string' ||
+    typeof receiver.objectGeneration !== 'string' ||
+    typeof receiver.logicalDeviceId !== 'string' ||
+    typeof receiver.logicalDeviceGeneration !== 'string' ||
+    typeof receiver.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView requires an authenticated GPUTexture receiver',
+    );
+  }
+  for (const [identity, label] of [
+    [receiver.objectId, 'receiver.objectId'],
+    [receiver.objectGeneration, 'receiver.objectGeneration'],
+    [receiver.logicalDeviceId, 'receiver.logicalDeviceId'],
+    [receiver.logicalDeviceGeneration, 'receiver.logicalDeviceGeneration'],
+    [receiver.providerGeneration, 'receiver.providerGeneration'],
+  ] as const) {
+    positiveIdentity(identity, `GPUTexture.createView ${label}`);
+  }
+  if (typeof target !== 'object' || target === null || Array.isArray(target)) {
+    throw new TypeError(
+      'GPUTexture.createView requires a wrapper-allocated GPUTextureView target',
+    );
+  }
+  const targetReference = target as RequestAdapterReferenceLike;
+  if (
+    targetReference.kind !== 'GPUTextureView' ||
+    typeof targetReference.objectId !== 'string' ||
+    typeof targetReference.objectGeneration !== 'string' ||
+    targetReference.logicalDeviceId !== receiver.logicalDeviceId ||
+    targetReference.logicalDeviceGeneration !== receiver.logicalDeviceGeneration ||
+    targetReference.providerGeneration !== receiver.providerGeneration
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView target must share the source texture device provenance',
+    );
+  }
+  positiveIdentity(
+    targetReference.objectId,
+    'GPUTexture.createView target.objectId',
+  );
+  positiveIdentity(
+    targetReference.objectGeneration,
+    'GPUTexture.createView target.objectGeneration',
+  );
+  if (adapterOrdinal !== '0' || queueIngressOrdinal !== '0') {
+    throw new TypeError(
+      'GPUTexture.createView adapter and queue ingress ordinals must be zero',
+    );
+  }
+  positiveIdentity(
+    String(deviceIngressOrdinal),
+    'GPUTexture.createView deviceIngressOrdinal',
+  );
+  if (
+    !Array.isArray(sealedLocalTimeline) ||
+    sealedLocalTimeline.length > sequenceMaximum
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView sealed local timeline must be a bounded sequence',
+    );
+  }
+  validateCreateTextureViewRequestForService(convertedArguments, vocabulary);
+}
+
 function validateCreateCommandEncoderRequestFields(
   receiver: RequestAdapterReferenceLike,
   target: unknown,
@@ -6479,7 +6936,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -6839,6 +7296,21 @@ export function createExecutableWebGpuCodecs(
       );
     } else if (
       route.operationId ===
+        requestAdapterNativeProgram.createTextureViewRoute.operationId
+    ) {
+      validateCreateTextureViewRequestFields(
+        input.receiver,
+        input.target,
+        input.adapterOrdinal,
+        input.deviceIngressOrdinal,
+        input.queueIngressOrdinal,
+        input.sealedLocalTimeline,
+        input.convertedArguments,
+        manifest.layout.sequenceMaxCount,
+        manifest.webIdlVocabulary,
+      );
+    } else if (
+      route.operationId ===
         requestAdapterNativeProgram.createCommandEncoderRoute.operationId
     ) {
       validateCreateCommandEncoderRequestFields(
@@ -6937,6 +7409,8 @@ export function createExecutableWebGpuCodecs(
         requestAdapterNativeProgram.createSamplerRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createTextureRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.createTextureViewRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createCommandEncoderRoute.operationId &&
       input.operationId !==
@@ -7299,6 +7773,21 @@ export function createExecutableWebGpuCodecs(
       );
     } else if (
       route.operationId ===
+        requestAdapterNativeProgram.createTextureViewRoute.operationId
+    ) {
+      validateCreateTextureViewRequestFields(
+        receiver,
+        target,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
+        manifest.webIdlVocabulary,
+      );
+    } else if (
+      route.operationId ===
         requestAdapterNativeProgram.createCommandEncoderRoute.operationId
     ) {
       validateCreateCommandEncoderRequestFields(
@@ -7383,6 +7872,8 @@ export function createExecutableWebGpuCodecs(
           requestAdapterNativeProgram.createSamplerRoute.operationId ||
         route.operationId ===
           requestAdapterNativeProgram.createTextureRoute.operationId ||
+        route.operationId ===
+          requestAdapterNativeProgram.createTextureViewRoute.operationId ||
         route.operationId ===
           requestAdapterNativeProgram.createCommandEncoderRoute.operationId ||
         route.operationId ===

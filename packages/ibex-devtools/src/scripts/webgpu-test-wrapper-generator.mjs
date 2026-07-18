@@ -271,6 +271,7 @@ function buildExpectedResourceNativeRoute({
   requestCatalogIndex,
   completionCatalogIndex,
   descriptorType,
+  receiverKind = "GPUDevice",
   targetKind,
   semanticSteps,
 }) {
@@ -287,9 +288,17 @@ function buildExpectedResourceNativeRoute({
     (constraint) => constraint.payloadPath === "convertedArguments",
   ).type = descriptorType;
   route.request.carrierConstraints.find(
+    (constraint) => constraint.carrierPath === "receiver.kind",
+  ).valueFrom = `objectKindTags.${receiverKind}`;
+  route.request.carrierConstraints.find(
     (constraint) => constraint.carrierPath === "target.kind",
   ).valueFrom = `objectKindTags.${targetKind}`;
   route.request.semanticServiceBoundary.requiredAfterDecode = semanticSteps;
+  route.completion.commonCarrierConstraints.find(
+    (constraint) =>
+      constraint.carrierPath ===
+      "record.operation_result.operation.receiver.kind",
+  ).valueFrom = `objectKindTags.${receiverKind}`;
   route.completion.commonCarrierConstraints.find(
     (constraint) =>
       constraint.carrierPath ===
@@ -304,7 +313,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -415,6 +424,7 @@ function validateNativeCodecPrograms(payload) {
       "shaderModuleDescriptorV1",
       "sortedUniqueFeatureSequenceV1",
       "textureDescriptorV1",
+      "textureViewRequestV1",
     ],
     "native codec type inventory",
   );
@@ -916,6 +926,76 @@ function validateNativeCodecPrograms(payload) {
       ],
     },
     "native createTexture post-WebIDL structural descriptor type",
+  );
+  assertCanonical(
+    types.textureViewRequestV1,
+    {
+      kind: "closed-dictionary",
+      encodingType: "canonicalValueV1",
+      trust: "untrusted-webidl-converted-semantic-service-ingress-only",
+      providerBoundary: "forbidden-raw-descriptor-or-origin-must-not-reach-provider",
+      unknownFields: "reject",
+      fields: [
+        {
+          name: "converted",
+          required: true,
+          value: {
+            kind: "closed-dictionary",
+            unknownFields: "reject",
+            fields: [
+              { name: "arrayLayerCount", required: false, value: { kind: "u32" } },
+              { name: "aspect", required: true, value: { kind: "string-enum", values: ["all", "stencil-only", "depth-only"] } },
+              { name: "baseArrayLayer", required: true, value: { kind: "u32" } },
+              { name: "baseMipLevel", required: true, value: { kind: "u32" } },
+              { name: "dimension", required: false, value: { kind: "string-enum", valuesFrom: "webIdlVocabulary.gpuTextureViewDimensions" } },
+              { name: "format", required: false, value: { kind: "string-enum", valuesFrom: "webIdlVocabulary.gpuTextureFormats" } },
+              { name: "label", required: true, value: { kind: "string" } },
+              { name: "mipLevelCount", required: false, value: { kind: "u32" } },
+              { name: "swizzle", required: true, value: { kind: "string", constraints: ["texture-component-swizzle-syntax"] } },
+              { name: "usage", required: true, value: { kind: "u32" } },
+            ],
+          },
+        },
+        {
+          name: "currentOrigin",
+          required: false,
+          value: {
+            kind: "closed-dictionary",
+            unknownFields: "reject",
+            fields: [
+              { name: "originClass", required: true, value: { kind: "string-enum", values: ["canvas-current"] } },
+              { name: "contextRef", required: true, value: { kind: "full-object-reference" } },
+              { name: "attachmentGeneration", required: true, value: { kind: "u64", constraints: ["positive"] } },
+              { name: "contextGeneration", required: true, value: { kind: "u64", constraints: ["positive"] } },
+              { name: "configurationGeneration", required: true, value: { kind: "u64", constraints: ["positive"] } },
+              { name: "currentEpoch", required: true, value: { kind: "u64", constraints: ["positive"] } },
+              {
+                name: "mintOperationProvenance",
+                required: true,
+                value: {
+                  kind: "closed-dictionary",
+                  unknownFields: "reject",
+                  fields: [
+                    { name: "operationInstanceId", required: true, value: { kind: "u64", constraints: ["positive"] } },
+                    { name: "deviceIngressOrdinal", required: true, value: { kind: "u64", constraints: ["positive"] } },
+                  ],
+                },
+              },
+              { name: "textureOriginDigest", required: true, value: { kind: "string", constraints: ["sha256-hex"] } },
+              { name: "configuredDeviceRef", required: true, value: { kind: "full-object-reference" } },
+              { name: "format", required: true, value: { kind: "string-enum", valuesFrom: "webIdlVocabulary.gpuTextureFormats" } },
+              { name: "usage", required: true, value: { kind: "u32" } },
+              { name: "alphaMode", required: true, value: { kind: "string-enum", values: ["opaque", "premultiplied"] } },
+              { name: "colorSpace", required: true, value: { kind: "string-enum", values: ["srgb", "display-p3"] } },
+              { name: "targetAuthorityDigest", required: true, value: { kind: "string", constraints: ["sha256-hex"] } },
+              { name: "surfaceAccountToken", required: true, value: { kind: "u64", constraints: ["positive"] } },
+              { name: "surfaceAccountGeneration", required: true, value: { kind: "u64", constraints: ["positive"] } },
+            ],
+          },
+        },
+      ],
+    },
+    "native createTextureView post-WebIDL structural request type",
   );
   assertCanonical(
     types.commandEncoderDescriptorV1,
@@ -2420,6 +2500,30 @@ function validateNativeCodecPrograms(payload) {
         "reserve-texture-provider-request-completion-and-physical-sequence",
       ],
     },
+    {
+      operationId: "GPUTexture.createView",
+      descriptorType: "textureViewRequestV1",
+      receiverKind: "GPUTexture",
+      targetKind: "GPUTextureView",
+      semanticSteps: [
+        "authenticate-source-affine-texture-receiver-and-reconstruct-authority-from-texture-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-undestroyed-texture-device-and-provider-generation",
+        "authenticate-current-texture-origin-provenance-and-epoch",
+        "validate-operation-coverage",
+        "validate-authorized-live-source-account-and-aggregate-envelope-with-alias-accounting",
+        "validate-texture-view-format-and-aspect-compatibility",
+        "validate-texture-view-dimension-compatibility",
+        "validate-texture-view-subresource-range",
+        "validate-texture-view-usage-and-swizzle-capability",
+        "validate-texture-view-label-under-reviewed-workload",
+        "validate-exact-texture-view-descriptor-parent-origin-workload-tuples",
+        "authenticate-wrapper-allocated-texture-view-target-provenance",
+        "validate-wrapper-allocated-texture-view-target-generation",
+        "reserve-texture-view-table-and-independent-cost-without-backing-double-charge",
+        "reserve-texture-view-provider-request-completion-and-physical-sequence",
+      ],
+    },
   ]) {
     const resourceRoute = program.routes.find(
       (candidate) => candidate.operationId === resource.operationId,
@@ -2448,6 +2552,7 @@ function validateNativeCodecPrograms(payload) {
         requestCatalogIndex: resourceRequestCatalogIndex,
         completionCatalogIndex: resourceCompletionCatalogIndex,
         descriptorType: resource.descriptorType,
+        receiverKind: resource.receiverKind,
         targetKind: resource.targetKind,
         semanticSteps: resource.semanticSteps,
       }),
@@ -2822,7 +2927,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

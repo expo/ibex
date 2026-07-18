@@ -370,7 +370,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     webIdlVocabulary,
     activeRouteSubset: {
@@ -393,6 +393,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
 
 function serviceCodecBlockers(codec) {
   if (codec.tag === "none-service-request-v1") return ["no-service-call"];
+  if (codec.tag === "gpu-create-texture-view-service-request-v1") return [];
   const blockers = [...(codec.requiredSemanticFields || [])];
   if (codec.tag === "gpu-request-device-service-request-v1") {
     blockers.push(
@@ -505,6 +506,9 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const createTextureProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createTexture",
   );
+  const createTextureViewProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUTexture.createView",
+  );
   const createCommandEncoderProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createCommandEncoder",
   );
@@ -542,6 +546,10 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createTexture",
     );
+  const createTextureViewSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUTexture.createView",
+    );
   const createShaderModuleSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createShaderModule",
@@ -560,6 +568,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     !createPipelineLayoutProgram ||
     !createSamplerProgram ||
     !createTextureProgram ||
+    !createTextureViewProgram ||
     !createCommandEncoderProgram ||
     !createShaderModuleProgram ||
     !deviceDestroyProgram ||
@@ -568,6 +577,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     !createPipelineLayoutSemanticProgram ||
     !createSamplerSemanticProgram ||
     !createTextureSemanticProgram ||
+    !createTextureViewSemanticProgram ||
     !createCommandEncoderSemanticProgram ||
     !createShaderModuleSemanticProgram ||
     !deviceDestroySemanticProgram ||
@@ -576,6 +586,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     headerVocabulary.tags.GPUDevice !== 3 ||
     headerVocabulary.tags.GPUBuffer !== 5 ||
     headerVocabulary.tags.GPUTexture !== 6 ||
+    headerVocabulary.tags.GPUTextureView !== 7 ||
     headerVocabulary.tags.GPUSampler !== 8 ||
     headerVocabulary.tags.GPUBindGroupLayout !== 9 ||
     headerVocabulary.tags.GPUPipelineLayout !== 11 ||
@@ -605,6 +616,8 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createTextureProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      createTextureViewProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createShaderModuleProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_V2 !== 1 ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 !== 2 ||
@@ -619,6 +632,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     createPipelineLayoutProgram.request.executablePrerequisites.length !== 0 ||
     createSamplerProgram.request.executablePrerequisites.length !== 0 ||
     createTextureProgram.request.executablePrerequisites.length !== 0 ||
+    createTextureViewProgram.request.executablePrerequisites.length !== 0 ||
     createCommandEncoderProgram.request.executablePrerequisites.length !== 0 ||
     createShaderModuleProgram.request.executablePrerequisites.length !== 0 ||
     deviceDestroyProgram.request.executablePrerequisites.length !== 0
@@ -772,6 +786,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   for (const [operationId, nativeProgram, semanticProgram] of [
     ["GPUDevice.createSampler", createSamplerProgram, createSamplerSemanticProgram],
     ["GPUDevice.createTexture", createTextureProgram, createTextureSemanticProgram],
+    ["GPUTexture.createView", createTextureViewProgram, createTextureViewSemanticProgram],
   ]) {
     const expectedTerminalMapping = {
       authorityPath:
@@ -868,7 +883,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,

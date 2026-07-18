@@ -9,6 +9,7 @@ import type {
   ExecutableWebGpuCodecBundle,
   ProductionGpuServiceEncodingInput,
 } from './production-codecs';
+import { WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION } from './production-codecs.generated';
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 import {
   createProductionWebGpuPrivateBinding,
@@ -136,8 +137,15 @@ function createFakeCodecs(
     webgpuCVocabularyDigest: WEBGPU_PRODUCTION_PLAN.digests.webgpuCVocabulary,
     operationIds: WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     encodings,
-    convertPublicArguments(operationId, args) {
+    convertPublicArguments(operationId, args, wrappers) {
       log.push(`convert:${operationId}`);
+      if (operationId === 'GPUTexture.createView') {
+        return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+          operationId,
+          args,
+          wrappers,
+        );
+      }
       if (operationId === 'GPU.requestAdapter') {
         const source = (args[0] ?? {}) as Record<string, unknown>;
         return Object.freeze({
@@ -245,7 +253,7 @@ function isolatedGlobal(): typeof globalThis {
 describe('production-private WebGPU wrapper gate', () => {
   test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
+      'generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {
@@ -363,6 +371,71 @@ describe('production-private WebGPU wrapper factory', () => {
       'GPUAdapter result lacks authenticated detached state',
     );
     missing.revoke();
+  });
+
+  test('does not allocate or enqueue a texture view after an intermediate descriptor conversion throws', async () => {
+    const log: string[] = [];
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs(log);
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const adapter = await (binding.gpu as {
+      requestAdapter(): Promise<unknown>;
+    }).requestAdapter() as { requestDevice(): Promise<unknown> };
+    const device = await adapter.requestDevice() as {
+      createTexture(descriptor: unknown): {
+        createView(descriptor?: unknown): object;
+      };
+    };
+    const texture = device.createTexture({
+      format: 'rgba8unorm',
+      size: [4, 4],
+      usage: 4,
+    });
+    const before = texture.createView();
+    const beforeTarget = codecs.encodings.at(-1)?.target;
+    expect(beforeTarget).toMatchObject({ kind: 'GPUTextureView' });
+
+    let laterGetterCount = 0;
+    const hostile = Object.create({
+      get label() {
+        laterGetterCount += 1;
+        return 'unseen';
+      },
+    }) as Record<string, unknown>;
+    Object.defineProperty(hostile, 'arrayLayerCount', {
+      enumerable: true,
+      get() {
+        return {
+          valueOf() {
+            throw new TypeError('array layer conversion exploded');
+          },
+        };
+      },
+    });
+    Object.defineProperty(hostile, 'aspect', {
+      enumerable: true,
+      get() {
+        laterGetterCount += 1;
+        return 'all';
+      },
+    });
+    const encodingCount = codecs.encodings.length;
+    const submissionCount = bridge.submissions.length;
+    expect(() => texture.createView(hostile)).toThrow(
+      'array layer conversion exploded',
+    );
+    expect(laterGetterCount).toBe(0);
+    expect(codecs.encodings).toHaveLength(encodingCount);
+    expect(bridge.submissions).toHaveLength(submissionCount);
+
+    const after = texture.createView();
+    const afterTarget = codecs.encodings.at(-1)?.target;
+    expect(after).not.toBe(before);
+    expect(afterTarget).toMatchObject({ kind: 'GPUTextureView' });
+    expect(
+      BigInt((afterTarget as { objectId: string }).objectId),
+    ).toBe(BigInt((beforeTarget as { objectId: string }).objectId) + 1n);
+    binding.revoke();
   });
 
   test('keeps the unauthorised TypeGPU delta absent after resource graduation', () => {

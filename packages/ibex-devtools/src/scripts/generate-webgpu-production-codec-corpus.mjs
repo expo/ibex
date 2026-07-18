@@ -43,6 +43,7 @@ const createBufferOperationId = "GPUDevice.createBuffer";
 const createPipelineLayoutOperationId = "GPUDevice.createPipelineLayout";
 const createSamplerOperationId = "GPUDevice.createSampler";
 const createTextureOperationId = "GPUDevice.createTexture";
+const createTextureViewOperationId = "GPUTexture.createView";
 const createCommandEncoderOperationId = "GPUDevice.createCommandEncoder";
 const createShaderModuleOperationId = "GPUDevice.createShaderModule";
 const deviceDestroyOperationId = "GPUDevice.destroy";
@@ -2007,6 +2008,866 @@ function buildCorpus() {
     fail("GPUDevice.createTexture checked workload byte evidence drifted");
   }
 
+  const createTextureViewRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === createTextureViewOperationId,
+  );
+  const createTextureViewRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === createTextureViewRoute?.serviceArgumentCodec,
+    );
+  const createTextureViewCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === createTextureViewRoute?.serviceCompletionCodec,
+    );
+  const createTextureViewNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === createTextureViewOperationId,
+    );
+  if (
+    !createTextureViewRoute ||
+    !createTextureViewRequestCodec?.nativeProgramPrerequisitesRepresented ||
+    !createTextureViewRequestCodec.executableFromCurrentAuthenticatedInputs ||
+    createTextureViewRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !createTextureViewCompletionCodec ||
+    !createTextureViewNativeRoute ||
+    createTextureViewNativeRoute.request.catalog.wireTag !== 9 ||
+    createTextureViewNativeRoute.request.catalog.wireTag !==
+      createTextureViewRequestCodec.wireTag ||
+    createTextureViewNativeRoute.completion.catalog.wireTag !==
+      createTextureViewCompletionCodec.wireTag
+  ) {
+    fail(
+      "GPUTexture.createView native codegen program is not executable from authenticated inputs",
+    );
+  }
+
+  const textureViewDefaults = Object.freeze({
+    aspect: "all",
+    baseArrayLayer: 0,
+    baseMipLevel: 0,
+    label: "",
+    swizzle: "rgba",
+    usage: 0,
+  });
+  const geneticCanvasSequences = Object.freeze([
+    200, 224, 305, 317, 396, 408, 487, 499, 578,
+    590, 669, 681, 760, 772, 940, 952, 1065, 1077,
+  ]);
+  const geneticCanvasCalls = geneticCanvasSequences.map(
+    (traceSequence, epochIndex) => Object.freeze({
+      sourceWorkload: "typegpu-genetic-racing",
+      traceSequence,
+      nonCartesianClassId: "genetic-canvas-premultiplied-default",
+      rawDescriptor: Object.freeze({}),
+      receiverTexture: Object.freeze({
+        dimension: "2d",
+        extentSource: "canvas-current-runtime-size-not-recorded",
+        format: "bgra8unorm",
+        label: "",
+        mipLevelCount: 1,
+        sampleCount: 1,
+        usage: 16,
+        viewFormats: Object.freeze([]),
+      }),
+      originClass: "canvas-current",
+      alphaMode: "premultiplied",
+      currentEpoch: epochIndex + 1,
+    }),
+  );
+  const textureViewWorkloadCalls = Object.freeze([
+    Object.freeze({
+      sourceWorkload: "typegpu-genetic-racing",
+      traceSequence: 16,
+      nonCartesianClassId: "genetic-device-default-64-usage22",
+      rawDescriptor: Object.freeze({}),
+      receiverTexture: Object.freeze({
+        depthOrArrayLayers: 1,
+        dimension: "2d",
+        format: "rgba8unorm",
+        height: 64,
+        label: "",
+        mipLevelCount: 1,
+        sampleCount: 1,
+        usage: 22,
+        viewFormats: Object.freeze([]),
+        width: 64,
+      }),
+      originClass: "device-created",
+      creationSequence: 8,
+    }),
+    Object.freeze({
+      sourceWorkload: "typegpu-genetic-racing",
+      traceSequence: 17,
+      nonCartesianClassId: "genetic-device-default-32-usage17",
+      rawDescriptor: Object.freeze({}),
+      receiverTexture: Object.freeze({
+        depthOrArrayLayers: 1,
+        dimension: "2d",
+        format: "rgba8unorm",
+        height: 32,
+        label: "",
+        mipLevelCount: 1,
+        sampleCount: 1,
+        usage: 17,
+        viewFormats: Object.freeze([]),
+        width: 32,
+      }),
+      originClass: "device-created",
+      creationSequence: 14,
+    }),
+    Object.freeze({
+      sourceWorkload: "typegpu-genetic-racing",
+      traceSequence: 128,
+      nonCartesianClassId: "genetic-device-track-explicit",
+      rawDescriptor: Object.freeze({
+        dimension: "2d",
+        format: "rgba8unorm",
+        label: "trackView",
+      }),
+      receiverTexture: Object.freeze({
+        depthOrArrayLayers: 1,
+        dimension: "2d",
+        format: "rgba8unorm",
+        height: 512,
+        label: "trackTexture",
+        mipLevelCount: 1,
+        sampleCount: 1,
+        usage: 23,
+        viewFormats: Object.freeze([]),
+        width: 512,
+      }),
+      originClass: "device-created",
+      creationSequence: 50,
+    }),
+    ...geneticCanvasCalls.slice(0, 2),
+    Object.freeze({
+      sourceWorkload: "typegpu-genetic-racing",
+      traceSequence: 228,
+      nonCartesianClassId: "genetic-device-car-sprite-explicit",
+      rawDescriptor: Object.freeze({
+        dimension: "2d",
+        format: "rgba8unorm",
+        label: "carSpriteView",
+      }),
+      receiverTexture: Object.freeze({
+        depthOrArrayLayers: 1,
+        dimension: "2d",
+        format: "rgba8unorm",
+        height: 32,
+        label: "texture",
+        mipLevelCount: 1,
+        sampleCount: 1,
+        usage: 23,
+        viewFormats: Object.freeze([]),
+        width: 32,
+      }),
+      originClass: "device-created",
+      creationSequence: 5,
+    }),
+    ...geneticCanvasCalls.slice(2),
+    Object.freeze({
+      sourceWorkload: "typegpu-jelly-slider",
+      traceSequence: 55,
+      nonCartesianClassId: "jelly-device-bezier-write-explicit",
+      rawDescriptor: Object.freeze({
+        dimension: "2d",
+        format: "rgba16float",
+        label: "bezierWriteView",
+      }),
+      receiverTexture: Object.freeze({
+        depthOrArrayLayers: 1,
+        dimension: "2d",
+        format: "rgba16float",
+        height: 128,
+        label: "bezierTexture",
+        mipLevelCount: 1,
+        sampleCount: 1,
+        usage: 31,
+        viewFormats: Object.freeze([]),
+        width: 256,
+      }),
+      originClass: "device-created",
+      creationSequence: 54,
+    }),
+    Object.freeze({
+      sourceWorkload: "typegpu-jelly-slider",
+      traceSequence: 60,
+      nonCartesianClassId: "jelly-canvas-opaque-default",
+      rawDescriptor: Object.freeze({}),
+      receiverTexture: Object.freeze({
+        dimension: "2d",
+        extentSource: "canvas-current-runtime-size-not-recorded",
+        format: "bgra8unorm",
+        label: "",
+        mipLevelCount: 1,
+        sampleCount: 1,
+        usage: 16,
+        viewFormats: Object.freeze([]),
+      }),
+      originClass: "canvas-current",
+      alphaMode: "opaque",
+      currentEpoch: 1,
+    }),
+    Object.freeze({
+      sourceWorkload: "typegpu-jelly-slider",
+      traceSequence: 73,
+      nonCartesianClassId: "jelly-device-bezier-texture-explicit",
+      rawDescriptor: Object.freeze({
+        dimension: "2d",
+        format: "rgba16float",
+        label: "bezierTexture",
+      }),
+      receiverTexture: Object.freeze({
+        depthOrArrayLayers: 1,
+        dimension: "2d",
+        format: "rgba16float",
+        height: 128,
+        label: "bezierTexture",
+        mipLevelCount: 1,
+        sampleCount: 1,
+        usage: 31,
+        viewFormats: Object.freeze([]),
+        width: 256,
+      }),
+      originClass: "device-created",
+      creationSequence: 54,
+    }),
+  ]);
+  const textureViewClassMultiplicity = Object.freeze([
+    Object.freeze({ classId: "genetic-device-default-64-usage22", count: 1 }),
+    Object.freeze({ classId: "genetic-device-default-32-usage17", count: 1 }),
+    Object.freeze({ classId: "genetic-device-track-explicit", count: 1 }),
+    Object.freeze({ classId: "genetic-canvas-premultiplied-default", count: 18 }),
+    Object.freeze({ classId: "genetic-device-car-sprite-explicit", count: 1 }),
+    Object.freeze({ classId: "jelly-device-bezier-write-explicit", count: 1 }),
+    Object.freeze({ classId: "jelly-canvas-opaque-default", count: 1 }),
+    Object.freeze({ classId: "jelly-device-bezier-texture-explicit", count: 1 }),
+  ]);
+  if (
+    textureViewWorkloadCalls.length !== 25 ||
+    textureViewClassMultiplicity.length !== 8 ||
+    textureViewClassMultiplicity.reduce((sum, entry) => sum + entry.count, 0) !== 25 ||
+    textureViewWorkloadCalls.filter(
+      (entry) => entry.sourceWorkload === "typegpu-genetic-racing",
+    ).length !== 22 ||
+    textureViewWorkloadCalls.filter(
+      (entry) => entry.sourceWorkload === "typegpu-jelly-slider",
+    ).length !== 3
+  ) {
+    fail("GPUTexture.createView reviewed 25-call/8-class workload evidence drifted");
+  }
+
+  const textureViewReceiver = (index) => Object.freeze({
+    kind: "GPUTexture",
+    objectId: String(300 + index),
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const textureViewTarget = (index) => Object.freeze({
+    kind: "GPUTextureView",
+    objectId: String(400 + index),
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const textureViewConfiguredDeviceRef = Object.freeze({
+    kind: "GPUDevice",
+    objectId: "80",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const canvasCurrentOrigin = (spec, index) => {
+    const contextId = spec.sourceWorkload === "typegpu-genetic-racing"
+      ? "190"
+      : "191";
+    const contextRef = Object.freeze({
+      kind: "GPUCanvasContext",
+      objectId: contextId,
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    });
+    const digestInput = Object.freeze({
+      contextRef,
+      currentEpoch: spec.currentEpoch,
+      format: "bgra8unorm",
+      usage: 16,
+      alphaMode: spec.alphaMode,
+      colorSpace: "srgb",
+      receiverObjectId: textureViewReceiver(index).objectId,
+    });
+    return Object.freeze({
+      originClass: "canvas-current",
+      contextRef,
+      attachmentGeneration: 1,
+      contextGeneration: 1,
+      configurationGeneration: 1,
+      currentEpoch: spec.currentEpoch,
+      mintOperationProvenance: Object.freeze({
+        operationInstanceId: 1_000 + spec.traceSequence,
+        deviceIngressOrdinal: 100 + index,
+      }),
+      textureOriginDigest: sha256(canonicalJson(digestInput)),
+      configuredDeviceRef: textureViewConfiguredDeviceRef,
+      format: "bgra8unorm",
+      usage: 16,
+      alphaMode: spec.alphaMode,
+      colorSpace: "srgb",
+      targetAuthorityDigest: sha256(canonicalJson({
+        contextId,
+        configuredDeviceRef: textureViewConfiguredDeviceRef,
+        configurationGeneration: 1,
+      })),
+      surfaceAccountToken:
+        spec.sourceWorkload === "typegpu-genetic-racing" ? 700 : 701,
+      surfaceAccountGeneration: 1,
+    });
+  };
+  const expectedTextureViewDescriptor = (rawDescriptor) => Object.freeze({
+    ...textureViewDefaults,
+    ...rawDescriptor,
+  });
+  const textureViewConvertedArguments = (spec, index) => {
+    const converted =
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        createTextureViewOperationId,
+        [spec.rawDescriptor],
+        wrapperAccess,
+      );
+    const expected = expectedTextureViewDescriptor(spec.rawDescriptor);
+    if (canonicalJson(converted) !== canonicalJson(expected)) {
+      fail(
+        `GPUTexture.createView reviewed call ${index + 1} conversion drifted`,
+      );
+    }
+    return Object.freeze({
+      converted,
+      ...(spec.originClass === "canvas-current"
+        ? { currentOrigin: canvasCurrentOrigin(spec, index) }
+        : {}),
+    });
+  };
+  const textureViewInput = (spec, index) => Object.freeze({
+    operationId: createTextureViewOperationId,
+    wireId: createTextureViewRoute.wireId,
+    convertedArguments: textureViewConvertedArguments(spec, index),
+    receiver: textureViewReceiver(index),
+    target: textureViewTarget(index),
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: String(100 + index),
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+  });
+  const textureViewCarrier = (index) => Object.freeze({
+    operation_id: createTextureViewRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: String(200 + index),
+    promise_id: "0",
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: String(100 + index),
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUTexture,
+      flags: 0,
+      object_id: textureViewReceiver(index).objectId,
+      object_generation: "1",
+    }),
+    target: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUTextureView,
+      flags: 0,
+      object_id: textureViewTarget(index).objectId,
+      object_generation: "1",
+    }),
+  });
+  const textureViewWorkloadVectors = Object.freeze(
+    textureViewWorkloadCalls.map((spec, index) => {
+      const input = textureViewInput(spec, index);
+      const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .encodeNativeCodegenRequest(input);
+      const expected = Object.freeze({
+        receiver: input.receiver,
+        target: input.target,
+        capturedScopeId: "2",
+        adapterOrdinal: "0",
+        deviceIngressOrdinal: String(100 + index),
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline: Object.freeze([]),
+        convertedArguments: input.convertedArguments,
+      });
+      const inspected = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .inspectServiceRequest(bytes);
+      if (canonicalJson(inspected) !== canonicalJson({
+        operationId: createTextureViewOperationId,
+        codec: createTextureViewRequestCodec.tag,
+        ...expected,
+      })) {
+        fail(
+          `GPUTexture.createView reviewed call ${index + 1} round-trip drifted`,
+        );
+      }
+      return Object.freeze({
+        id: `create-texture-view-workload-call-${String(index + 1).padStart(2, "0")}`,
+        kind: "request",
+        carrierProjection: textureViewCarrier(index),
+        trust:
+          "untrusted-wrapper-record-prefix-descriptor-origin-and-source-affine-join-only-never-authority",
+        semanticOwner: "native-semantic-service-before-provider-admission",
+        bytesHex: toHex(bytes),
+        expected,
+        workloadEvidence: Object.freeze({
+          sourceWorkload: spec.sourceWorkload,
+          traceSequence: spec.traceSequence,
+          nonCartesianClassId: spec.nonCartesianClassId,
+          receiverTexture: spec.receiverTexture,
+          originClass: spec.originClass,
+          ...(spec.originClass === "canvas-current"
+            ? { currentEpoch: spec.currentEpoch, alphaMode: spec.alphaMode }
+            : { creationSequence: spec.creationSequence }),
+        }),
+        accountingEvidence: Object.freeze({
+          resourceBytes: 0,
+          mappedExtentBytes: 0,
+          stagingBytes: 0,
+          independentViewUnitCharge: 1,
+          backingChargeRule:
+            "view-aliases-parent-backing-and-must-not-double-charge-texture-bytes",
+        }),
+      });
+    }),
+  );
+  if (
+    textureViewWorkloadVectors.filter(
+      (vector) => vector.expected.convertedArguments.currentOrigin === undefined,
+    ).length !== 6 ||
+    textureViewWorkloadVectors.filter(
+      (vector) => vector.expected.convertedArguments.currentOrigin !== undefined,
+    ).length !== 19
+  ) {
+    fail("GPUTexture.createView device-created/canvas-current split drifted");
+  }
+
+  function textureViewStructuralRejection(
+    suffix,
+    description,
+    mutate,
+  ) {
+    const canvasIndex = 3;
+    const malformedInput = structuredClone(
+      textureViewInput(textureViewWorkloadCalls[canvasIndex], canvasIndex),
+    );
+    mutate(malformedInput);
+    let rejection = null;
+    try {
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+        malformedInput,
+      );
+    } catch (error) {
+      rejection = error;
+    }
+    if (!(rejection instanceof TypeError)) {
+      fail(
+        `GPUTexture.createView structural case ${suffix} did not reject before encoding`,
+      );
+    }
+    return Object.freeze({
+      id: `create-texture-view-${suffix}-structurally-rejected`,
+      kind: "structural-rejection",
+      operationId: createTextureViewOperationId,
+      structuralBoundary: "generated-native-request-encoder-before-bytes",
+      description,
+      malformedInput,
+      expected: Object.freeze({
+        errorName: "TypeError",
+        errorMessage: rejection.message,
+        encodedByteCount: 0,
+        providerTokenCount: 0,
+        physicalSequenceCount: 0,
+      }),
+    });
+  }
+  const textureViewStructuralRejections = Object.freeze([
+    textureViewStructuralRejection(
+      "missing-swizzle-default",
+      "converted descriptors must materialize the swizzle default",
+      (input) => { delete input.convertedArguments.converted.swizzle; },
+    ),
+    textureViewStructuralRejection(
+      "unknown-descriptor-member",
+      "converted descriptors are closed dictionaries",
+      (input) => { input.convertedArguments.converted.unknown = 1; },
+    ),
+    textureViewStructuralRejection(
+      "invalid-swizzle-syntax",
+      "swizzle syntax is checked synchronously before semantic features",
+      (input) => { input.convertedArguments.converted.swizzle = "rgbx"; },
+    ),
+    textureViewStructuralRejection(
+      "null-current-origin",
+      "a present canvas-current origin must be a complete dictionary",
+      (input) => { input.convertedArguments.currentOrigin = null; },
+    ),
+    textureViewStructuralRejection(
+      "incomplete-current-origin",
+      "canvas-current origin generations cannot be omitted",
+      (input) => {
+        delete input.convertedArguments.currentOrigin.contextGeneration;
+      },
+    ),
+    textureViewStructuralRejection(
+      "unknown-current-origin-member",
+      "canvas-current origin is a closed authenticated comparison tuple",
+      (input) => { input.convertedArguments.currentOrigin.unknown = true; },
+    ),
+    textureViewStructuralRejection(
+      "invalid-origin-digest",
+      "texture-origin digest must be lowercase SHA-256 hex",
+      (input) => {
+        input.convertedArguments.currentOrigin.textureOriginDigest = "forged";
+      },
+    ),
+    textureViewStructuralRejection(
+      "non-current-origin-class",
+      "a carried origin tuple is valid only for canvas-current textures",
+      (input) => {
+        input.convertedArguments.currentOrigin.originClass = "device-created";
+      },
+    ),
+    textureViewStructuralRejection(
+      "wrong-context-reference-kind",
+      "canvas origin contextRef must be a full GPUCanvasContext reference",
+      (input) => {
+        input.convertedArguments.currentOrigin.contextRef.kind = "GPUDevice";
+      },
+    ),
+    textureViewStructuralRejection(
+      "foreign-target-device",
+      "wrapper target and source texture must share device provenance",
+      (input) => { input.target.logicalDeviceId = "56"; },
+    ),
+    textureViewStructuralRejection(
+      "wrong-receiver-kind",
+      "source-affine receiver must be a full GPUTexture reference",
+      (input) => { input.receiver.kind = "GPUDevice"; },
+    ),
+  ]);
+
+  const textureViewSemanticSteps = Object.freeze(
+    createTextureViewNativeRoute.request.semanticServiceBoundary
+      .requiredAfterDecode,
+  );
+  const expectedTextureViewSemanticSteps = Object.freeze([
+    "authenticate-source-affine-texture-receiver-and-reconstruct-authority-from-texture-table",
+    "authenticate-contiguous-sealed-local-timeline-prefix",
+    "validate-current-live-undestroyed-texture-device-and-provider-generation",
+    "authenticate-current-texture-origin-provenance-and-epoch",
+    "validate-operation-coverage",
+    "validate-authorized-live-source-account-and-aggregate-envelope-with-alias-accounting",
+    "validate-texture-view-format-and-aspect-compatibility",
+    "validate-texture-view-dimension-compatibility",
+    "validate-texture-view-subresource-range",
+    "validate-texture-view-usage-and-swizzle-capability",
+    "validate-texture-view-label-under-reviewed-workload",
+    "validate-exact-texture-view-descriptor-parent-origin-workload-tuples",
+    "authenticate-wrapper-allocated-texture-view-target-provenance",
+    "validate-wrapper-allocated-texture-view-target-generation",
+    "reserve-texture-view-table-and-independent-cost-without-backing-double-charge",
+    "reserve-texture-view-provider-request-completion-and-physical-sequence",
+  ]);
+  if (
+    canonicalJson(textureViewSemanticSteps) !==
+      canonicalJson(expectedTextureViewSemanticSteps)
+  ) {
+    fail("GPUTexture.createView semantic step order drifted");
+  }
+
+  function textureViewSemanticStepPasses(step, state) {
+    switch (step) {
+      case expectedTextureViewSemanticSteps[0]:
+        return state.sourceTextureTableEntryPresent === true &&
+          state.receiverSourceAffinityMatches === true;
+      case expectedTextureViewSemanticSteps[1]:
+        return state.sealedLocalTimelinePrefixContiguous === true;
+      case expectedTextureViewSemanticSteps[2]:
+        return state.receiverLifecycleState === "LIVE" &&
+          state.deviceGeneration === "current" &&
+          state.providerGeneration === "current";
+      case expectedTextureViewSemanticSteps[3]:
+        return state.currentOriginAuthenticated === true &&
+          state.currentOriginEpoch === "current";
+      case expectedTextureViewSemanticSteps[4]:
+        return state.operationCoverageInstalled === true;
+      case expectedTextureViewSemanticSteps[5]:
+        return state.sourceAccountState === "LIVE" &&
+          state.aggregateEnvelopeState === "LIVE";
+      case expectedTextureViewSemanticSteps[6]:
+        return state.formatAspectCompatible === true;
+      case expectedTextureViewSemanticSteps[7]:
+        return state.dimensionCompatible === true;
+      case expectedTextureViewSemanticSteps[8]:
+        return state.subresourceRangeValid === true;
+      case expectedTextureViewSemanticSteps[9]:
+        return state.usageAndSwizzleCapabilityValid === true;
+      case expectedTextureViewSemanticSteps[10]:
+        return state.labelWithinReviewedWorkload === true;
+      case expectedTextureViewSemanticSteps[11]:
+        return state.reviewedDescriptorParentOriginTuplePresent === true;
+      case expectedTextureViewSemanticSteps[12]:
+        return state.targetProvenanceMatchesSource === true;
+      case expectedTextureViewSemanticSteps[13]:
+        return state.targetGeneration === "current";
+      case expectedTextureViewSemanticSteps[14]:
+        return state.viewTableCredit > 0 &&
+          state.independentViewCostCredit > 0 &&
+          state.parentBackingByteCharge === 0;
+      case expectedTextureViewSemanticSteps[15]:
+        return state.providerRequestCredit > 0 &&
+          state.completionCredit > 0 &&
+          state.physicalSequenceReservationCredit > 0;
+      default:
+        fail(
+          `GPUTexture.createView has no executable semantic oracle for ${step}`,
+        );
+    }
+  }
+
+  const textureViewBaseSemanticState = Object.freeze({
+    sourceTextureTableEntryPresent: true,
+    receiverSourceAffinityMatches: true,
+    sealedLocalTimelinePrefixContiguous: true,
+    receiverLifecycleState: "LIVE",
+    deviceGeneration: "current",
+    providerGeneration: "current",
+    currentOriginAuthenticated: true,
+    currentOriginEpoch: "current",
+    operationCoverageInstalled: true,
+    sourceAccountState: "LIVE",
+    aggregateEnvelopeState: "LIVE",
+    formatAspectCompatible: true,
+    dimensionCompatible: true,
+    subresourceRangeValid: true,
+    usageAndSwizzleCapabilityValid: true,
+    labelWithinReviewedWorkload: true,
+    reviewedDescriptorParentOriginTuplePresent: true,
+    targetProvenanceMatchesSource: true,
+    targetGeneration: "current",
+    viewTableCredit: 1,
+    independentViewCostCredit: 1,
+    parentBackingByteCharge: 0,
+    providerRequestCredit: 1,
+    completionCredit: 1,
+    physicalSequenceReservationCredit: 1,
+  });
+  const textureViewSemanticMutations = Object.freeze([
+    Object.freeze([
+      "source-receiver-table-entry-missing",
+      Object.freeze({
+        sourceTextureTableEntryPresent: false,
+        receiverSourceAffinityMatches: false,
+      }),
+    ]),
+    Object.freeze([
+      "sealed-timeline-gap",
+      Object.freeze({ sealedLocalTimelinePrefixContiguous: false }),
+    ]),
+    Object.freeze([
+      "destroyed-receiver-current-origin-stale-collision",
+      Object.freeze({
+        receiverLifecycleState: "DESTROYED",
+        currentOriginAuthenticated: false,
+        currentOriginEpoch: "stale",
+      }),
+    ]),
+    Object.freeze([
+      "stale-current-origin-coverage-account-collision",
+      Object.freeze({
+        currentOriginAuthenticated: false,
+        currentOriginEpoch: "stale",
+        operationCoverageInstalled: false,
+        sourceAccountState: "CLOSED",
+        aggregateEnvelopeState: "CLOSED",
+      }),
+    ]),
+    Object.freeze([
+      "coverage-absent",
+      Object.freeze({ operationCoverageInstalled: false }),
+    ]),
+    Object.freeze([
+      "source-account-not-live",
+      Object.freeze({ sourceAccountState: "CLOSED" }),
+    ]),
+    Object.freeze([
+      "format-aspect-incompatible",
+      Object.freeze({ formatAspectCompatible: false }),
+    ]),
+    Object.freeze([
+      "dimension-incompatible",
+      Object.freeze({ dimensionCompatible: false }),
+    ]),
+    Object.freeze([
+      "subresource-range-invalid",
+      Object.freeze({ subresourceRangeValid: false }),
+    ]),
+    Object.freeze([
+      "usage-swizzle-capability-missing",
+      Object.freeze({ usageAndSwizzleCapabilityValid: false }),
+    ]),
+    Object.freeze([
+      "overlong-label",
+      Object.freeze({ labelWithinReviewedWorkload: false }),
+    ]),
+    Object.freeze([
+      "unreviewed-workload-tuple",
+      Object.freeze({ reviewedDescriptorParentOriginTuplePresent: false }),
+    ]),
+    Object.freeze([
+      "foreign-target-provenance",
+      Object.freeze({ targetProvenanceMatchesSource: false }),
+    ]),
+    Object.freeze([
+      "stale-target-generation",
+      Object.freeze({ targetGeneration: "stale" }),
+    ]),
+    Object.freeze([
+      "view-capacity-exhausted",
+      Object.freeze({ viewTableCredit: 0 }),
+    ]),
+    Object.freeze([
+      "provider-completion-credit-exhausted",
+      Object.freeze({ completionCredit: 0 }),
+    ]),
+  ]);
+  const textureViewPositiveCanvasVector = textureViewWorkloadVectors[3];
+  const textureViewSemanticRejections = Object.freeze(
+    textureViewSemanticMutations.map(([suffix, mutation], expectedIndex) => {
+      const semanticState = Object.freeze({
+        ...textureViewBaseSemanticState,
+        ...mutation,
+      });
+      const predicateResults = Object.freeze(
+        textureViewSemanticSteps.map((step) => Object.freeze({
+          step,
+          passed: textureViewSemanticStepPasses(step, semanticState),
+        })),
+      );
+      const firstFailureIndex = predicateResults.findIndex(
+        (result) => !result.passed,
+      );
+      if (firstFailureIndex !== expectedIndex) {
+        fail(
+          `GPUTexture.createView semantic mutation ${suffix} expected first failure ` +
+            `${expectedIndex + 1} but executable oracle found ${firstFailureIndex + 1}`,
+        );
+      }
+      const failedSemanticSteps = predicateResults
+        .filter((result) => !result.passed)
+        .map((result) => result.step);
+      return Object.freeze({
+        id: `create-texture-view-${suffix}-rejected`,
+        kind: "semantic-rejection",
+        operationId: createTextureViewOperationId,
+        semanticTerminalId: "later-predicate-rejection",
+        semanticStepIndex: expectedIndex + 1,
+        firstFailingSemanticStep: textureViewSemanticSteps[expectedIndex],
+        earlierSemanticStepsMustPass:
+          textureViewSemanticSteps.slice(0, expectedIndex),
+        mutation,
+        collisionWitness: Object.freeze({
+          failedSemanticSteps,
+          firstFailureWins: textureViewSemanticSteps[expectedIndex],
+          stateBeforeOrigin:
+            suffix === "destroyed-receiver-current-origin-stale-collision",
+          originBeforeCoverageAndAccount:
+            suffix === "stale-current-origin-coverage-account-collision",
+        }),
+        reachabilityEvidence: Object.freeze({
+          oracle: "texture-view-semantic-first-failure-v1",
+          evaluatedPredicateResults: predicateResults,
+          firstFailingSemanticStep:
+            textureViewSemanticSteps[firstFailureIndex],
+          earlierSemanticStepsAllPassed: predicateResults
+            .slice(0, firstFailureIndex)
+            .every((result) => result.passed),
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        }),
+        bytesHex: textureViewPositiveCanvasVector.bytesHex,
+        expected: Object.freeze({
+          codegenDisposition: "encoded-for-post-decode-semantic-validation",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        }),
+      });
+    }),
+  );
+  const createTextureViewCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createTextureViewOperationId,
+      { kind: "none" },
+    );
+  if (createTextureViewCompletion.byteLength !== 0) {
+    fail("GPUTexture.createView terminal receipt must have an empty payload");
+  }
+  const textureViewSuccessCarrier = Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: createTextureViewRoute.wireId,
+          operation_instance_id: "203",
+          promise_id: "0",
+          provider_admission: 1,
+          physical_sequence: "91",
+          captured_scope_id: "2",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "103",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: textureViewCarrier(3).ingress_device,
+          result_device: textureViewCarrier(3).ingress_device,
+          provider_generation: "9",
+          receiver: textureViewCarrier(3).receiver,
+          target: textureViewCarrier(3).target,
+        }),
+      }),
+    }),
+  });
+  const textureViewSuccessVector = Object.freeze({
+    id: "create-texture-view-operation-success-result",
+    kind: "result",
+    semanticTerminalId: "operation-success",
+    carrierProjection: textureViewSuccessCarrier,
+    bytesHex: toHex(createTextureViewCompletion),
+    semanticAdmissionEvidence: Object.freeze({
+      allPredicatesPassedInOrder: textureViewSemanticSteps,
+      providerTokenCount: 1,
+      physicalSequenceCount: 1,
+      physicalSequenceAllocatedOnlyAfterPredicateIndex:
+        textureViewSemanticSteps.length,
+    }),
+    expected: Object.freeze({ kind: "terminal-receipt", value: "undefined" }),
+  });
+
   const createPipelineLayoutRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === createPipelineLayoutOperationId,
   );
@@ -2898,7 +3759,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -3041,6 +3902,51 @@ function buildCorpus() {
           maximumLabelUtf8Bytes: 13,
         },
         semanticStepOrder: textureCorpus.semanticSteps,
+      },
+      {
+        operationId: createTextureViewOperationId,
+        wireId: createTextureViewRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createTextureViewRequestCodec.tag,
+        requestCodecTag: createTextureViewRequestCodec.wireTag,
+        completionCodec: createTextureViewCompletionCodec.tag,
+        completionCodecTag: createTextureViewCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createTextureViewNativeRoute.completion.semanticTerminalMapping,
+        reviewedWorkloadEvidence: {
+          callCount: 25,
+          sourceCallCounts: {
+            "typegpu-genetic-racing": 22,
+            "typegpu-jelly-slider": 3,
+          },
+          nonCartesianDescriptorParentOriginClassCount: 8,
+          classMultiplicity: textureViewClassMultiplicity,
+          originClassCallCounts: {
+            "device-created": 6,
+            "canvas-current": 19,
+          },
+          descriptorDefaults: textureViewDefaults,
+          sourceAffineJoins: [
+            "receiver-full-reference-to-authenticated-texture-table-row",
+            "receiver-and-target-device-provider-generation-equality",
+            "target-full-reference-to-wrapper-allocation-provenance",
+            "canvas-context-configured-device-and-surface-account-join",
+          ],
+          viewAccountingRule:
+            "one-independent-view-unit-with-zero-parent-backing-byte-double-charge",
+        },
+        structuralRejectionCount: textureViewStructuralRejections.length,
+        semanticStepOrder: textureViewSemanticSteps,
+        firstFailureRules: {
+          destroyedReceiverBeforeCurrentOrigin:
+            "destroyed-receiver-current-origin-stale-collision",
+          currentOriginBeforeCoverageAndAccount:
+            "stale-current-origin-coverage-account-collision",
+          physicalSequence:
+            "allocated-only-after-all-sixteen-logical-predicates-pass",
+        },
       },
       {
         operationId: createCommandEncoderOperationId,
@@ -3317,6 +4223,10 @@ function buildCorpus() {
       ...textureCorpus.requestVectors,
       textureCorpus.successVector,
       ...textureCorpus.semanticRejections,
+      ...textureViewWorkloadVectors,
+      textureViewSuccessVector,
+      ...textureViewStructuralRejections,
+      ...textureViewSemanticRejections,
       {
         id: "create-pipeline-layout-request",
         kind: "request",
@@ -3420,7 +4330,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }
