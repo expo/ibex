@@ -5,19 +5,9 @@
  * evidence is accepted.
  */
 const pythonCommand = process.platform === "win32" ? "python" : "python3";
-// The registry is runtime-neutral, but its large generated tables can exhaust
-// Bun's Windows stack. Conformance already binds this exact Node oracle.
-const nodeOracleCommand = process.env.IBEX_NODE_ORACLE_BIN ?? "node";
 
 export const CONFORMANCE_PREFLIGHT_COMMANDS = Object.freeze([
-  [
-    "capsec-registry-drift",
-    nodeOracleCommand,
-    [
-      "packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs",
-      "--check",
-    ],
-  ],
+  ["capsec-registry-drift", "bun", ["run", "check:capsec-registry"]],
   ["capsec-contract-drift", "bun", ["run", "check:capsec-contract"]],
   ["generated-policy-drift", "bun", ["run", "check:example-policy"]],
   ["all-generated-drift", "bash", ["./scripts/check-generated-drift.sh"]],
