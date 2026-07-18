@@ -10,6 +10,7 @@
  */
 
 import crypto from "node:crypto";
+import { reviewedArmedRootGlobalSealedSurface } from "./capsec-armed-root-closures.mjs";
 
 export const ROOT_GLOBAL_DISPOSITION_SCHEMA =
   "ibex/root-global-disposition-manifest/1";
@@ -189,7 +190,11 @@ function dispositionFor(surface, edge) {
   const { root } = splitLogicalPath(surface.metadata);
   if (root === "[[dynamic-table:native-global-name]]") return "sealed";
   if (PRIVATE_CONSUMERS.has(root)) return "private";
-  if (SEALED_ROOTS.has(root) || SEALED_PATHS.has(pathText(surface))) {
+  if (
+    SEALED_ROOTS.has(root) ||
+    SEALED_PATHS.has(pathText(surface)) ||
+    reviewedArmedRootGlobalSealedSurface(surface.name)
+  ) {
     return "sealed";
   }
   if (edge.classification === "effects" || edge.classification === "closed") {

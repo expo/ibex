@@ -171,6 +171,67 @@ describe("root-global disposition manifest", () => {
     );
   });
 
+  test("seals reviewed armed roots and accessibility subtrees", () => {
+    const rows = [
+      surface("__exactGetGCStats"),
+      surface("__exactExit"),
+      surface("global:MessagePort", { globalName: "MessagePort" }),
+      surface("global:MessagePort.postMessage", {
+        globalName: "MessagePort",
+        memberName: "postMessage",
+      }),
+      surface("global:Exact.accessibility", {
+        globalName: "Exact",
+        memberName: "accessibility",
+      }),
+      surface("global:Exact.accessibility.announce", {
+        globalName: "Exact",
+        memberName: "accessibility.announce",
+      }),
+      surface("global:Bun.accessibility.get", {
+        globalName: "Bun",
+        memberName: "accessibility.get",
+      }),
+      surface("global:Cache", { globalName: "Cache" }),
+      surface("global:worklet", { globalName: "worklet" }),
+    ];
+    const manifest = buildRootGlobalDispositionManifest({
+      globals: rows,
+      coverage: coverage(rows),
+    });
+    const byObservedKey = new Map(
+      manifest.rows.map((row) => [row.observedKey, row]),
+    );
+    for (const observedKey of [
+      "native-op:__exactGetGCStats",
+      "native-op:global:MessagePort",
+      "native-op:global:MessagePort.postMessage",
+      "native-op:global:Exact.accessibility",
+      "native-op:global:Exact.accessibility.announce",
+      "native-op:global:Bun.accessibility.get",
+    ]) {
+      expect(byObservedKey.get(observedKey)).toMatchObject({
+        disposition: "sealed",
+        liveExpectation: "absent",
+        privateConsumer: null,
+      });
+    }
+    expect(byObservedKey.get("native-op:__exactExit")).toMatchObject({
+      disposition: "private",
+      liveExpectation: "absent",
+      privateConsumer: "runtime-process-lifecycle-adapter",
+    });
+    for (const observedKey of [
+      "native-op:global:Cache",
+      "native-op:global:worklet",
+    ]) {
+      expect(byObservedKey.get(observedKey)).toMatchObject({
+        disposition: "exposed",
+        liveExpectation: "reachable",
+      });
+    }
+  });
+
   test("stable install ids do not depend on evidence path spelling", () => {
     const first = surface("global:process", {
       globalName: "process",

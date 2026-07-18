@@ -9,6 +9,10 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
+import {
+  reviewedArmedNativeAbsentSurface,
+  reviewedArmedSharedRuntimeSealedSurface,
+} from "./capsec-armed-root-closures.mjs";
 
 const CLOSED_BATCH_COMMAND = Object.freeze([
   "cargo",
@@ -150,19 +154,6 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "__exactStreamWrapState",
   "__exactSyncTrackedIpcListenersAfterDispatch",
   "global:Bun.gc",
-  "global:BroadcastChannel",
-  "global:BroadcastChannel.[[Symbol.toStringTag]]",
-  "global:BroadcastChannel._deliverMessage",
-  "global:BroadcastChannel._getChannelCount",
-  "global:BroadcastChannel._getChannelNames",
-  "global:BroadcastChannel.addEventListener",
-  "global:BroadcastChannel.close",
-  "global:BroadcastChannel.dispatchEvent",
-  "global:BroadcastChannel.name",
-  "global:BroadcastChannel.onmessage",
-  "global:BroadcastChannel.onmessageerror",
-  "global:BroadcastChannel.postMessage",
-  "global:BroadcastChannel.removeEventListener",
   "global:Cache",
   "global:Cache.add",
   "global:Cache.addAll",
@@ -177,51 +168,7 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "global:CacheStorage.keys",
   "global:CacheStorage.match",
   "global:CacheStorage.open",
-  "global:Bun.accessibility",
-  "global:Bun.accessibility.addEventListener",
-  "global:Bun.accessibility.announce",
-  "global:Bun.accessibility.colorScheme",
-  "global:Bun.accessibility.dynamicTypeSize",
-  "global:Bun.accessibility.fontScale",
-  "global:Bun.accessibility.get",
-  "global:Bun.accessibility.isBoldTextEnabled",
-  "global:Bun.accessibility.isGrayscaleEnabled",
-  "global:Bun.accessibility.isInvertColorsEnabled",
-  "global:Bun.accessibility.isScreenReaderEnabled",
-  "global:Bun.accessibility.prefersHighContrast",
-  "global:Bun.accessibility.prefersReducedMotion",
-  "global:Bun.accessibility.prefersReducedTransparency",
-  "global:Exact.accessibility",
-  "global:Exact.accessibility.addEventListener",
-  "global:Exact.accessibility.announce",
-  "global:Exact.accessibility.colorScheme",
-  "global:Exact.accessibility.dynamicTypeSize",
-  "global:Exact.accessibility.fontScale",
-  "global:Exact.accessibility.get",
-  "global:Exact.accessibility.isBoldTextEnabled",
-  "global:Exact.accessibility.isGrayscaleEnabled",
-  "global:Exact.accessibility.isInvertColorsEnabled",
-  "global:Exact.accessibility.isScreenReaderEnabled",
-  "global:Exact.accessibility.prefersHighContrast",
-  "global:Exact.accessibility.prefersReducedMotion",
-  "global:Exact.accessibility.prefersReducedTransparency",
   "global:Exact.gc",
-  "global:MessageChannel",
-  "global:MessageChannel.[[Symbol.toStringTag]]",
-  "global:MessageChannel.port1",
-  "global:MessageChannel.port2",
-  "global:MessagePort",
-  "global:MessagePort.[[Symbol.toStringTag]]",
-  "global:MessagePort.[[symbol-binding:structuredCloneTransferSymbol]]",
-  "global:MessagePort._setRemotePort",
-  "global:MessagePort.addEventListener",
-  "global:MessagePort.close",
-  "global:MessagePort.dispatchEvent",
-  "global:MessagePort.onmessage",
-  "global:MessagePort.onmessageerror",
-  "global:MessagePort.postMessage",
-  "global:MessagePort.removeEventListener",
-  "global:MessagePort.start",
 ]);
 
 const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
@@ -229,44 +176,12 @@ const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
   "x86_64-pc-windows-msvc",
 ]);
 
-const CLOSED_SHARED_RUNTIME_ROOTS = new Set([
-  "BroadcastChannel",
-  "caches",
-  "IDBCursor",
-  "IDBCursorWithValue",
-  "IDBDatabase",
-  "IDBIndex",
-  "IDBKeyRange",
-  "IDBObjectStore",
-  "IDBOpenDBRequest",
-  "IDBRequest",
-  "IDBTransaction",
-  "indexedDB",
-  "localStorage",
-  "MessageChannel",
-  "MessagePort",
-  "sessionStorage",
-]);
-
 function reviewedSharedRuntimeAbsentSurface(surfaceName) {
-  if (SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName)) return true;
-  const globalPrefix = "global:";
-  if (!surfaceName.startsWith(globalPrefix)) return false;
-  const root = surfaceName.slice(globalPrefix.length).split(".", 1)[0];
-  return CLOSED_SHARED_RUNTIME_ROOTS.has(root);
+  return (
+    SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName) ||
+    reviewedArmedSharedRuntimeSealedSurface(surfaceName)
+  );
 }
-
-const ARMED_NATIVE_ABSENT_GLOBALS = new Set([
-  "__exactExit",
-  "__exactGetGCStats",
-  "__exactGetHeapInfo",
-  "__exactGetSourceCacheStats",
-  "__exactIpcRecvMsg",
-  "__exactIpcSendMsg",
-  "__exactPollSignal",
-  "__exactResetSignal",
-  "__exactSetCwd",
-]);
 
 const APP_RUNTIME_ABSENT_WORKLET_GLOBALS = new Set([
   "global:measure",
@@ -1290,7 +1205,7 @@ function armedNativeGlobalAbsenceProbe({
   const prefix = "native-op:";
   if (!surfaceObservedKey.startsWith(prefix)) return null;
   const surfaceName = surfaceObservedKey.slice(prefix.length);
-  const directArmedGlobal = ARMED_NATIVE_ABSENT_GLOBALS.has(surfaceName);
+  const directArmedGlobal = reviewedArmedNativeAbsentSurface(surfaceName);
   const appRuntimeAbsentWorkletGlobal =
     APP_RUNTIME_ABSENT_WORKLET_GLOBALS.has(surfaceName);
   if (!directArmedGlobal && !appRuntimeAbsentWorkletGlobal) return null;

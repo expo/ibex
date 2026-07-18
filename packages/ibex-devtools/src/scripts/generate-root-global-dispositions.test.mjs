@@ -4,6 +4,12 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import {
+  ARMED_NATIVE_SEALED_ROOTS,
+  ARMED_SHARED_RUNTIME_SEALED_PATH_PREFIXES,
+  ARMED_SHARED_RUNTIME_SEALED_ROOTS,
+  reviewedArmedRootGlobalSealedSurface,
+} from "./capsec-armed-root-closures.mjs";
+import {
   checkRootGlobalDispositionArtifacts,
   generatedRootGlobalDispositionPaths,
   renderRootGlobalDispositionArtifacts,
@@ -61,6 +67,44 @@ describe("generated root-global disposition artifacts", () => {
     expect(
       renderRootGlobalDispositionHeader(rendered.manifest, rendered.json),
     ).toBe(rendered.cxx);
+  }, 30_000);
+
+  test("all reviewed armed closures project to sealed absence", async () => {
+    const { manifest } = await renderedArtifacts;
+    const reviewedRows = manifest.rows.filter((row) =>
+      reviewedArmedRootGlobalSealedSurface(
+        row.observedKey.replace(/^native-op:/u, ""),
+      ),
+    );
+    expect(reviewedRows).toHaveLength(297);
+    expect(
+      reviewedRows.every(
+        (row) =>
+          row.disposition === "sealed" &&
+          row.liveExpectation === "absent" &&
+          row.privateConsumer === null,
+      ),
+    ).toBe(true);
+    for (const root of [
+      ...ARMED_NATIVE_SEALED_ROOTS,
+      ...ARMED_SHARED_RUNTIME_SEALED_ROOTS,
+    ]) {
+      expect(
+        reviewedRows.some((row) => row.property.root.value === root),
+      ).toBe(true);
+    }
+    for (const prefix of ARMED_SHARED_RUNTIME_SEALED_PATH_PREFIXES) {
+      expect(
+        reviewedRows.some((row) =>
+          row.observedKey.startsWith(`native-op:${prefix}`),
+        ),
+      ).toBe(true);
+    }
+    expect(manifest.counts).toMatchObject({
+      installBranches: 2_721,
+      sealedOrPrivate: 346,
+      permittedReachable: 2_375,
+    });
   }, 30_000);
 
   test("committed generated artifacts are current", async () => {
