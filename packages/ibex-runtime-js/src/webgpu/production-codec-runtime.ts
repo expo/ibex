@@ -4406,20 +4406,6 @@ export function createExecutableWebGpuCodecs(
       );
     } else if (
       route.operationId ===
-        requestAdapterNativeProgram.createCommandEncoderRoute.operationId
-    ) {
-      validateCreateCommandEncoderRequestFields(
-        receiver,
-        target,
-        adapterOrdinal,
-        deviceIngressOrdinal,
-        queueIngressOrdinal,
-        sealedLocalTimeline,
-        convertedArguments,
-        manifest.layout.sequenceMaxCount,
-      );
-    } else if (
-      route.operationId ===
         requestAdapterNativeProgram.deviceDestroyRoute.operationId
     ) {
       validateDeviceDestroyRequestFields(
@@ -4766,6 +4752,20 @@ export function createExecutableWebGpuCodecs(
         convertedArguments,
         manifest.layout.sequenceMaxCount,
         manifest.layout.dictionaryMaxFields,
+      );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.createCommandEncoderRoute.operationId
+    ) {
+      validateCreateCommandEncoderRequestFields(
+        receiver,
+        target,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
       );
     } else if (
       route.operationId ===

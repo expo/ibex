@@ -25,6 +25,13 @@ type LossEvent = Extract<NativeGpuEventV2, { kind: 3 | 4 | 5 | 6 }>;
 
 const wrapperKinds = new WeakMap<object, ProductionGpuWrapperKind>();
 
+function bytesHex(bytes: Uint8Array): string {
+  return Array.from(
+    bytes,
+    (byte) => byte.toString(16).padStart(2, '0'),
+  ).join('');
+}
+
 function wrapper(kind: ProductionGpuWrapperKind): object {
   const value = Object.freeze({ marker: kind });
   wrapperKinds.set(value, kind);
@@ -1209,6 +1216,13 @@ describe('generated injection-only WebGPU executable codecs', () => {
 
     const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
       .encodeNativeCodegenRequest(input);
+    expect(bytesHex(payload)).toBe(
+      '494247510100050081b1b9f1030b000000000000000100000000000000110000000000000001000000000000000700000000000000010f0b00000000000000010000000000000011000000000000000100000000000000070000000000000000000000000000000000000000000000030000000000000000000000000000000601000000070200000014000000646576696365496e67726573734f7264696e616c03020000000b0000006f7065726174696f6e496405050000006c6f63616c0701000000050000006c6162656c0507000000656e636f646572',
+    );
+    expect(Array.from(payload.slice(53, 55))).toEqual([
+      1,
+      WEBGPU_OBJECT_KIND_TAGS.GPUCommandEncoder,
+    ]);
     expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(input))
       .toEqual(payload);
     expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
@@ -1233,6 +1247,11 @@ describe('generated injection-only WebGPU executable codecs', () => {
       queueIngressOrdinal: '0',
       convertedArguments: { label: 'encoder' },
     });
+    const wrongTargetKindPayload = payload.slice();
+    wrongTargetKindPayload[54] = WEBGPU_OBJECT_KIND_TAGS.GPUTexture;
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      wrongTargetKindPayload,
+    )).toThrow('authenticated device provenance');
     for (const length of [0, 1, 4, 11, 12, payload.byteLength - 1]) {
       expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
         payload.slice(0, length),
