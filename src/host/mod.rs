@@ -3518,9 +3518,15 @@ fn authenticated_source_beneath_binding(
     {
         use std::io::Read as _;
         use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_READ_ATTRIBUTES, FILE_TRAVERSE, SYNCHRONIZE,
+        };
 
         let mut options = std::fs::OpenOptions::new();
-        options.read(true).custom_flags(0x0020_0000 | 0x0200_0000); // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
+        options
+            .read(true)
+            .access_mode(FILE_TRAVERSE | FILE_READ_ATTRIBUTES | SYNCHRONIZE)
+            .custom_flags(0x0020_0000 | 0x0200_0000); // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
         let mut current = options
             .open(&root)
             .with_context(|| format!("cannot open authenticated root {}", root.display()))?;
@@ -3611,8 +3617,8 @@ fn open_windows_component_beneath(
         HANDLE, OBJ_CASE_INSENSITIVE, OBJ_DONT_REPARSE, UNICODE_STRING,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ATTRIBUTE_NORMAL, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
-        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, SYNCHRONIZE,
+        FILE_ATTRIBUTE_NORMAL, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, SYNCHRONIZE,
     };
     use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
@@ -3651,7 +3657,7 @@ fn open_windows_component_beneath(
         | if final_file {
             FILE_READ_DATA
         } else {
-            FILE_LIST_DIRECTORY
+            FILE_TRAVERSE
         };
     let create_options = FILE_OPEN_REPARSE_POINT
         | FILE_SYNCHRONOUS_IO_NONALERT
