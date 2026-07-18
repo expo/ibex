@@ -6,6 +6,12 @@ packages/ibex-runtime-js/src/security/capsec-registry.generated.ts text eol=lf
 src/builtins/helpers/capsec-registry.generated.cjs text eol=lf
 src/capsec_registry_generated.rs text eol=lf
 src/engine/capsec_registry_generated.h text eol=lf
+src/capsec_runtime_projection_generated.rs text eol=lf
+src/compiled_environment_profile_generated.rs text eol=lf
+src/identity_generated.rs text eol=lf
+src/module_loader/transform_config_generated.rs text eol=lf
+config/oxc-retirement-manifest.json text eol=lf
+vendored-generated/** text eol=lf
 
 # Checked example policies authenticate their complete source trees and compare
 # the rendered artifact byte-for-byte. Keep those portable-v1 authorities
