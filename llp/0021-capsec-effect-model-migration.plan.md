@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 reads Windows first-party module source through component-relative native handles, rejecting reparse traversal and root substitution before physical evidence can count)
 **Revised:** 2026-07-18 (ENG-24933 preserves authenticated Windows verbatim drive/UNC identity while presenting Oxc only its equivalent ordinary resolver spelling)
 **Revised:** 2026-07-18 (ENG-24933 permits isolated manual physical-target reruns without weakening or canceling the required two-target matrix)
 **Revised:** 2026-07-18 (ENG-24933 binds physical test-host project roots and module resolution to the complete target-local path and actual object identity on both Unix and Windows)
@@ -1786,6 +1787,12 @@ only verbatim drive and UNC paths to their equivalent ordinary Windows
 spelling; unsupported device namespaces refuse. The Host then canonicalizes
 and re-authenticates the resolved object, so this compatibility bridge cannot
 substitute path spelling for filesystem identity.
+The subsequent first-party source read walks each Windows component with
+`NtCreateFile` relative to the previously opened directory handle. Every
+returned handle is checked for reparse metadata and the root handle must still
+match the armed object identity; the final regular-file handle is the handle
+read. This is the Windows counterpart to Unix `openat`/`O_NOFOLLOW`, not a
+path-open followed by a racy metadata comparison.
 Retained public-surface evidence also preserves the authored probe's exact JSON
 shape. In particular, an omitted optional native-global member stays omitted
 rather than being reserialized as `null`; aggregation rejects either shape if

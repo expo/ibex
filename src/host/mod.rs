@@ -3514,13 +3514,188 @@ fn authenticated_source_beneath_binding(
         unreachable!("nonempty authenticated source path returns on its final component")
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::io::Read as _;
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).custom_flags(0x0020_0000 | 0x0200_0000); // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
+        let mut current = options
+            .open(&root)
+            .with_context(|| format!("cannot open authenticated root {}", root.display()))?;
+        if windows_handle_is_reparse_point(&current)? || !current.metadata()?.is_dir() {
+            anyhow::bail!(
+                "authenticated root is not a direct directory object: {}",
+                root.display()
+            );
+        }
+        let actual_root = object_identity_for_open_file(&current)?;
+        if actual_root != binding.object {
+            anyhow::bail!(
+                "authenticated root object changed before module source read: {}",
+                root.display()
+            );
+        }
+
+        for (index, component) in components.iter().enumerate() {
+            let last = index + 1 == components.len();
+            let opened =
+                open_windows_component_beneath(&current, component, last).with_context(|| {
+                    format!(
+                        "cannot open authenticated module source {}",
+                        source_path.display()
+                    )
+                })?;
+            if last {
+                let mut bytes = Vec::new();
+                let mut opened = opened;
+                opened.read_to_end(&mut bytes).with_context(|| {
+                    format!(
+                        "cannot read authenticated module source {}",
+                        source_path.display()
+                    )
+                })?;
+                return Ok(bytes);
+            }
+            current = opened;
+        }
+        unreachable!("nonempty authenticated source path returns on its final component")
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (binding, source_path);
-        anyhow::bail!(
-            "armed module source authentication requires descriptor-relative no-follow opens on this target"
-        )
+        anyhow::bail!("armed module source authentication is unavailable on this target")
     }
+}
+
+#[cfg(windows)]
+fn windows_handle_is_reparse_point(file: &std::fs::File) -> anyhow::Result<bool> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_REPARSE_POINT,
+        FILE_ATTRIBUTE_TAG_INFO,
+    };
+
+    let mut info = FILE_ATTRIBUTE_TAG_INFO::default();
+    if unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle() as _,
+            FileAttributeTagInfo,
+            (&mut info as *mut FILE_ATTRIBUTE_TAG_INFO).cast(),
+            std::mem::size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error())
+            .context("cannot inspect authenticated Windows filesystem object");
+    }
+    Ok(info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+}
+
+#[cfg(windows)]
+fn open_windows_component_beneath(
+    parent: &std::fs::File,
+    component: &std::ffi::OsStr,
+    final_file: bool,
+) -> anyhow::Result<std::fs::File> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
+    use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
+    use windows_sys::Wdk::Storage::FileSystem::{
+        NtCreateFile, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN,
+        FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
+    };
+    use windows_sys::Win32::Foundation::{
+        HANDLE, OBJ_CASE_INSENSITIVE, OBJ_DONT_REPARSE, UNICODE_STRING,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_NORMAL, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, SYNCHRONIZE,
+    };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
+
+    // NtCreateFile interprets a counted name relative to RootDirectory. A
+    // single component therefore cannot escape the already-authenticated
+    // parent handle through path syntax. Reparse traversal is rejected both by
+    // the object-manager flag and by inspecting the returned handle.
+    // @ref LLP 0023#42-authenticated-package-source-is-immutable — authenticated
+    // source reads must retain object identity across filesystem traversal.
+    let mut name = component.encode_wide().collect::<Vec<_>>();
+    if name.is_empty() || name.contains(&0) {
+        anyhow::bail!("authenticated module source has an invalid Windows component");
+    }
+    let byte_len = name
+        .len()
+        .checked_mul(std::mem::size_of::<u16>())
+        .and_then(|length| u16::try_from(length).ok())
+        .ok_or_else(|| anyhow::anyhow!("authenticated module source component is too long"))?;
+    let unicode = UNICODE_STRING {
+        Length: byte_len,
+        MaximumLength: byte_len,
+        Buffer: name.as_mut_ptr(),
+    };
+    let attributes = OBJECT_ATTRIBUTES {
+        Length: std::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+        RootDirectory: parent.as_raw_handle() as HANDLE,
+        ObjectName: &unicode,
+        Attributes: OBJ_CASE_INSENSITIVE | OBJ_DONT_REPARSE,
+        SecurityDescriptor: std::ptr::null(),
+        SecurityQualityOfService: std::ptr::null(),
+    };
+    let mut status_block = IO_STATUS_BLOCK::default();
+    let mut handle: HANDLE = std::ptr::null_mut();
+    let desired_access = FILE_READ_ATTRIBUTES
+        | SYNCHRONIZE
+        | if final_file {
+            FILE_READ_DATA
+        } else {
+            FILE_LIST_DIRECTORY
+        };
+    let create_options = FILE_OPEN_REPARSE_POINT
+        | FILE_SYNCHRONOUS_IO_NONALERT
+        | if final_file {
+            FILE_NON_DIRECTORY_FILE
+        } else {
+            FILE_DIRECTORY_FILE
+        };
+    let status = unsafe {
+        NtCreateFile(
+            &mut handle,
+            desired_access,
+            &attributes,
+            &mut status_block,
+            std::ptr::null(),
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_OPEN,
+            create_options,
+            std::ptr::null(),
+            0,
+        )
+    };
+    if status < 0 {
+        anyhow::bail!(
+            "descriptor-relative Windows open failed with NTSTATUS 0x{:08x}",
+            status as u32
+        );
+    }
+    if handle.is_null() {
+        anyhow::bail!("descriptor-relative Windows open returned no handle");
+    }
+    let opened = unsafe { std::fs::File::from_raw_handle(handle as _) };
+    if windows_handle_is_reparse_point(&opened)? {
+        anyhow::bail!("authenticated module source traverses a Windows reparse point");
+    }
+    let metadata = opened.metadata()?;
+    if final_file && !metadata.is_file() {
+        anyhow::bail!("authenticated module source is not a regular file");
+    }
+    if !final_file && !metadata.is_dir() {
+        anyhow::bail!("authenticated module source parent is not a directory");
+    }
+    Ok(opened)
 }
 
 fn validate_snapshot_root_bindings(
@@ -3875,7 +4050,7 @@ mod tests {
         assert!(!fd_descends_from_object(substituted_parent.as_raw_fd(), &expected).unwrap());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn first_party_source_read_rejects_root_swap_at_open() {
         let temp = tempfile::tempdir().unwrap();
