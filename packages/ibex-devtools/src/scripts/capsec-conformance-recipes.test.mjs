@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_932);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_216);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_716);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_222);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_710);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(517);
+    expect(nativePublicFixtures).toHaveLength(523);
     expect(
       nativePublicFixtures
         .filter(
@@ -1171,6 +1171,59 @@ describe("exact-target CapSec executable recipes", () => {
         expect(recipe.status).toBe("fully-executable");
       }
     }
+  });
+
+  test("reads retained path metadata through the async stat branch", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsStatAsync" &&
+        recipe.fixtureId.includes(".logical.path."),
+    );
+    expect(rows).toHaveLength(6);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "Cargo.toml" },
+        { kind: "json-literal", value: "stat" },
+        { kind: "json-literal", value: null },
+      ]);
+      expect(invocation.completion).toEqual({
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      });
+      expect(invocation.expectedActionIds).toEqual(["fs:list"]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 3,
+      );
+      expect(invocation.requiredFloor).toEqual([
+        {
+          cap: "fs:list",
+          resource: {
+            kind: "path-exact",
+            path: {
+              root: "project",
+              components: [{ encoding: "utf8", value: "Cargo.toml" }],
+            },
+          },
+        },
+      ]);
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+            "__exactFsStatAsync" &&
+          recipe.fixtureId.includes(".logical.path."),
+      ),
+    ).toHaveLength(0);
   });
 
   test("reads retained descriptor metadata and closes its source-bound setup", () => {

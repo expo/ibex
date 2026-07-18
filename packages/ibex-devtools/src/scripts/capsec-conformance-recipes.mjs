@@ -861,6 +861,52 @@ const nativeProjectMetadataTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectStatAsyncPathTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [
+      literalArgument("Cargo.toml"),
+      literalArgument("stat"),
+      literalArgument(null),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedDecisionCounts: {
+      allow: 3,
+      "branch-selection": 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "repeat"],
+      "branch-selection": ["requested", "discovery", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
 const nativeProjectStatfsTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -2363,6 +2409,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
         }),
       ],
     ]),
+  ],
+  [
+    "__exactFsStatAsync",
+    new Map([["path", nativeProjectStatAsyncPathTemplate()]]),
   ],
   [
     "__exactFsPathAsync",
