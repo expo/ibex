@@ -624,6 +624,56 @@ describe("test-only WebGPU wrapper generator", () => {
       .bufferDescriptorV1.fields[2].value.constraints[1] = "maximum-16777216";
     mutations.push(nativeBufferCeiling);
 
+    const nativeSamplerTarget = clone(authority);
+    nativeRoute(nativeSamplerTarget, "GPUDevice.createSampler")
+      .request.carrierConstraints.find(
+        (constraint) => constraint.carrierPath === "target.kind",
+      ).valueFrom = "objectKindTags.GPUTexture";
+    mutations.push(nativeSamplerTarget);
+
+    const nativeSamplerValidationOrder = clone(authority);
+    const nativeSamplerValidationSteps = nativeRoute(
+      nativeSamplerValidationOrder,
+      "GPUDevice.createSampler",
+    ).request.semanticServiceBoundary.requiredAfterDecode;
+    [nativeSamplerValidationSteps[9], nativeSamplerValidationSteps[10]] = [
+      nativeSamplerValidationSteps[10],
+      nativeSamplerValidationSteps[9],
+    ];
+    mutations.push(nativeSamplerValidationOrder);
+
+    const nativeSamplerStructuralBound = clone(authority);
+    nativeSamplerStructuralBound.payload.wireEnvelope.nativeCodecPrograms.types
+      .samplerDescriptorV1.fields.find(
+        (field) => field.name === "maxAnisotropy",
+      ).value.constraints[0] = "maximum-16";
+    mutations.push(nativeSamplerStructuralBound);
+
+    const nativeTextureTarget = clone(authority);
+    nativeRoute(nativeTextureTarget, "GPUDevice.createTexture")
+      .request.carrierConstraints.find(
+        (constraint) => constraint.carrierPath === "target.kind",
+      ).valueFrom = "objectKindTags.GPUSampler";
+    mutations.push(nativeTextureTarget);
+
+    const nativeTextureValidationOrder = clone(authority);
+    const nativeTextureValidationSteps = nativeRoute(
+      nativeTextureValidationOrder,
+      "GPUDevice.createTexture",
+    ).request.semanticServiceBoundary.requiredAfterDecode;
+    [nativeTextureValidationSteps[13], nativeTextureValidationSteps[14]] = [
+      nativeTextureValidationSteps[14],
+      nativeTextureValidationSteps[13],
+    ];
+    mutations.push(nativeTextureValidationOrder);
+
+    const nativeTextureSequenceBound = clone(authority);
+    nativeTextureSequenceBound.payload.wireEnvelope.nativeCodecPrograms.types
+      .textureDescriptorV1.fields.find(
+        (field) => field.name === "viewFormats",
+      ).value.maxCountFrom = "semanticProjection.typeGpuTextureMaximum";
+    mutations.push(nativeTextureSequenceBound);
+
     const nativeShaderDescriptor = clone(authority);
     nativeShaderDescriptor.payload.wireEnvelope.nativeCodecPrograms.types
       .shaderModuleDescriptorV1.unknownFields = "ignore";

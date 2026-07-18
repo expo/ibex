@@ -434,7 +434,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -454,6 +454,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
         { operationId: 'GPUDevice.createBuffer', wireId: 3212558232 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
+        { operationId: 'GPUDevice.createSampler', wireId: 258698389 },
+        { operationId: 'GPUDevice.createTexture', wireId: 2925687091 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
         { operationId: 'GPUDevice.destroy', wireId: 206890944 },
@@ -2311,7 +2313,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       });
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.some(
       (route) => route.operationId === operationId,
-    )).toBe(false);
+    )).toBe(true);
   });
 
   test('converts createTexture in exact descriptor and extent order with one-shot iterables', () => {
@@ -2535,7 +2537,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       });
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.some(
       (route) => route.operationId === operationId,
-    )).toBe(false);
+    )).toBe(true);
   });
 
   test('converts createBindGroupLayout dictionaries in observable WebIDL order with one Get each', () => {

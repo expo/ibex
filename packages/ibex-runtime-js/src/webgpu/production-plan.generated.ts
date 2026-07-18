@@ -6,13 +6,13 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
+  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
   "digests": {
     "operationSet": "7cf1c424acb706fd6ac063e7366de85a3b8c9f6bb9943890e7fc7bd9156b8f12",
     "semanticProgramSet": "bf30192724ca32b59ea215219e3716c2a62d7354d725ed1276e23cb2ed0127c1",
     "runtimeRouting": "5c182e06e4bc82cc5b5da299aa029ef6f9f1d8a76fb7ab9685c1b123ac55510a",
-    "webgpuCVocabulary": "acef6a0609e716dd04b7e9dd36fb645a4b18dc38a63f87bda74d88ea24a9611d",
-    "projection": "5e4f8467d2c56f9645b76912d799c4129812ae9455a3c7e5b7cce51ab5cef427"
+    "webgpuCVocabulary": "86bc31bf5008ce49d38f6e5af9eec65554082afa225beab258900cf924f7e227",
+    "projection": "1b06a611c591a8f67e8ef351b309146aa60dc857dd35506a4571daa1119f2766"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
