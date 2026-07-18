@@ -226,6 +226,123 @@ const EXACT_APP_OPERATION_IDS: [u32; 2] = [7, 11];
 const EXACT_UNENDOWED_OPERATION_ID: u32 = 8;
 const EXACT_UNENDOWED_ERROR: &str = "exact.invokeHostAsync operation is not endowed";
 
+/// Test-only armed engine facade for closed terminal-builtin imports. Even a
+/// refusal probe must enter through an authenticated submission and consume
+/// the runtime's bounded work-unit publication stream.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+/// @ref LLP 0025#11-delegated-obligations — OBL-UNIT-PUBLICATION requires every authenticated unit to reach its controller.
+struct AuthenticatedClosedEngine {
+    host: crate::host::Host,
+    engine: HermesEngine,
+    publications: AuthenticatedPublicationTracker,
+}
+
+impl std::ops::Deref for AuthenticatedClosedEngine {
+    type Target = HermesEngine;
+
+    fn deref(&self) -> &Self::Target {
+        &self.engine
+    }
+}
+
+impl AuthenticatedClosedEngine {
+    async fn eval_immediate(&mut self, source: &str) -> anyhow::Result<Option<String>> {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+        self.drain_publications("before authenticated closed-builtin evaluation")?;
+        let session = self.host.mint_armed_session_token()?;
+        let mut sequence =
+            ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
+        let request = sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })?
+            .authorize_inline()
+            .bind_bytes(source.as_bytes().to_vec())
+            .into_request()?;
+        let ordinal = request.submission_ordinal();
+        let evaluation = self
+            .engine
+            .evaluate_authenticated(&session, request)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "authenticated closed-builtin submission {ordinal} failed: {error:#}"
+                )
+            });
+        let publications =
+            self.drain_publications("after authenticated closed-builtin evaluation");
+        let evaluation = match (evaluation, publications) {
+            (Err(evaluation_error), Err(publication_error)) => anyhow::bail!(
+                "authenticated closed-builtin submission {ordinal} failed ({evaluation_error:#}) and its publication stream failed ({publication_error:#})"
+            ),
+            (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
+            (Ok(evaluation), Ok(())) => evaluation,
+        };
+        match evaluation {
+            AuthenticatedEvaluation::Empty => Ok(None),
+            AuthenticatedEvaluation::Value { display, receipt } => {
+                let release = match receipt {
+                    Some(receipt) => self.engine.release_undisplayed_value(receipt).await,
+                    None => Err(anyhow::anyhow!(
+                        "authenticated closed-builtin submission {ordinal} lost its value receipt"
+                    )),
+                };
+                let publications = self
+                    .drain_publications("after authenticated closed-builtin value release");
+                match (release, publications) {
+                    (Err(release_error), Err(publication_error)) => anyhow::bail!(
+                        "authenticated closed-builtin submission {ordinal} failed to release its value ({release_error:#}) and its publication stream ({publication_error:#})"
+                    ),
+                    (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
+                    (Ok(()), Ok(())) => {}
+                }
+                match display.kind {
+                    AuthenticatedDisplayKind::Undefined => Ok(None),
+                    AuthenticatedDisplayKind::String => serde_json::from_str(&display.text)
+                        .map(Some)
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "authenticated closed-builtin submission {ordinal} returned an invalid string display: {error}"
+                            )
+                        }),
+                    _ => Ok(Some(display.text)),
+                }
+            }
+            AuthenticatedEvaluation::Throw(thrown) => anyhow::bail!(
+                "authenticated closed-builtin submission {ordinal} threw: {thrown:?}"
+            ),
+            AuthenticatedEvaluation::Cancelled => anyhow::bail!(
+                "authenticated closed-builtin submission {ordinal} was cancelled"
+            ),
+            AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
+                "authenticated closed-builtin submission {ordinal} exited with lifecycle code {code}"
+            ),
+        }
+    }
+
+    fn drain_publications(&mut self, context: &str) -> anyhow::Result<()> {
+        self.publications.drain(&self.engine, context)
+    }
+
+    fn finish(&mut self) -> anyhow::Result<()> {
+        let publications =
+            self.drain_publications("authenticated closed-builtin engine finish");
+        let due = self
+            .publications
+            .require_no_due_schedules("authenticated closed-builtin engine finish");
+        match (publications, due) {
+            (Err(publication_error), Err(due_error)) => anyhow::bail!(
+                "authenticated closed-builtin engine publication stream failed ({publication_error:#}) and retained due schedules ({due_error:#})"
+            ),
+            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
+    }
+}
+
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
         .expect("closed-surface evidence must have canonical JSON bytes");
@@ -958,7 +1075,7 @@ fn reviewed_terminal_builtin(source_key: &str) -> Option<(&'static str, &'static
 
 #[cfg(test)]
 async fn execute_closed_terminal_builtin_import(
-    engine: &HermesEngine,
+    engine: &mut AuthenticatedClosedEngine,
     recipe: &Recipe,
     probe: &ClosedSurfaceProbe,
     coverage: &BTreeMap<String, (String, String)>,
@@ -1179,7 +1296,7 @@ unsafe fn assert_null_debugger_string(value: *mut std::os::raw::c_char, function
 
 #[cfg(test)]
 async fn execute_closed_debugger_abi(
-    engine: &HermesEngine,
+    engine: &mut AuthenticatedClosedEngine,
     recipe: &Recipe,
     probe: &ClosedSurfaceProbe,
     coverage: &BTreeMap<String, (String, String)>,
@@ -1270,30 +1387,56 @@ async fn execute_closed_debugger_abi(
                 "targetVariant": "windows",
             },
         ]);
+        let metadata = descriptor
+            .source_metadata
+            .as_object()
+            .expect("debugger Host ABI source metadata must be an object");
+        assert_eq!(metadata.len(), 5);
+        assert_eq!(metadata["alternatives"], alternatives);
+        assert_eq!(metadata["branches"], metadata["alternatives"]);
         assert_eq!(
-            descriptor.source_metadata,
-            serde_json::json!({
-                "alternatives": alternatives.clone(),
-                "branches": alternatives,
-                "definitions": [
-                    {
-                        "language": "c++",
-                        "sourceRef": default_source_ref,
-                        "targetVariant": "default",
-                        "unsafe": false,
-                        "weak": false,
-                    },
-                    {
-                        "language": "c++",
-                        "sourceRef": windows_source_ref,
-                        "targetVariant": "windows",
-                        "unsafe": false,
-                        "weak": false,
-                    },
-                ],
-                "provenanceLimitation": "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
-            })
+            metadata["provenanceLimitation"],
+            "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures."
         );
+        let definitions = metadata["definitions"]
+            .as_array()
+            .expect("debugger Host ABI metadata has no definitions");
+        let output_contracts = metadata["outputContracts"]
+            .as_array()
+            .expect("debugger Host ABI metadata has no output contracts");
+        assert_eq!(definitions.len(), 2);
+        assert_eq!(output_contracts.len(), 2);
+        for (index, (target_variant, source_ref)) in [
+            ("default", default_source_ref.as_str()),
+            ("windows", windows_source_ref.as_str()),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let definition = definitions[index]
+                .as_object()
+                .expect("debugger Host ABI definition must be an object");
+            assert_eq!(definition.len(), 6);
+            assert_eq!(definition["language"], "c++");
+            assert_eq!(definition["sourceRef"], source_ref);
+            assert_eq!(definition["targetVariant"], target_variant);
+            assert_eq!(definition["unsafe"], false);
+            assert_eq!(definition["weak"], false);
+            assert_eq!(definition["outputContract"], output_contracts[index]);
+            let contract = output_contracts[index]
+                .as_object()
+                .expect("debugger Host ABI output contract must be an object");
+            assert_eq!(contract["schema"], "ibex/host-abi-output-contract/1");
+            assert_eq!(contract["language"], "c++");
+            assert_eq!(contract["functionName"], function_name.as_str());
+            assert_eq!(contract["sourceRef"], source_ref);
+            assert_eq!(contract["status"], "resolved");
+            assert!(contract["bufferLengthPairs"].is_array());
+            assert!(contract["outputChannels"].is_array());
+            assert!(contract["parameters"].is_array());
+            assert!(contract["return"].is_object());
+            assert_eq!(contract["unresolved"], serde_json::json!([]));
+        }
     } else {
         assert_eq!(
             invocation.surface_name,
@@ -1489,7 +1632,7 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
 
 #[cfg(test)]
 async fn execute_closed_shared_runtime_global_absence(
-    engine: &HermesEngine,
+    engine: &mut AuthenticatedClosedEngine,
     recipe: &Recipe,
     probe: &ClosedSurfaceProbe,
     coverage: &BTreeMap<String, (String, String)>,
@@ -2668,7 +2811,7 @@ async fn capsec_public_closed_recipe_batch() {
                 snapshot["principals"][0]["imports"]["builtins"] =
                     serde_json::json!(terminal_imports);
             });
-        assert_ne!(crate::host::abi::install_host(host), 0);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
         let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
             .expect("create exact terminal builtin closure engine");
@@ -2676,12 +2819,17 @@ async fn capsec_public_closed_recipe_batch() {
             .load_runtime()
             .await
             .expect("load exact terminal builtin closure runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
         for index in terminal_indexes {
             let recipe = &catalog.recipes[index];
             let probe = closed_surface_probe(recipe).unwrap();
             executions.push(
                 execute_closed_terminal_builtin_import(
-                    &engine,
+                    &mut engine,
                     recipe,
                     &probe,
                     &coverage,
@@ -2690,6 +2838,9 @@ async fn capsec_public_closed_recipe_batch() {
                 .await,
             );
         }
+        engine
+            .finish()
+            .expect("finish authenticated closed-builtin publications");
     }
     if debugger_abi_count > 0 {
         let debugger_indexes = recipe_indexes
@@ -2707,7 +2858,7 @@ async fn capsec_public_closed_recipe_batch() {
             .collect::<Vec<_>>();
         let (host, snapshot_digest) =
             build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
-        assert_ne!(crate::host::abi::install_host(host), 0);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
         let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
             .expect("create exact no-debugger ABI closure engine");
@@ -2715,12 +2866,17 @@ async fn capsec_public_closed_recipe_batch() {
             .load_runtime()
             .await
             .expect("load exact no-debugger ABI closure runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
         for index in debugger_indexes {
             let recipe = &catalog.recipes[index];
             let probe = closed_surface_probe(recipe).unwrap();
             executions.push(
                 execute_closed_debugger_abi(
-                    &engine,
+                    &mut engine,
                     recipe,
                     &probe,
                     &coverage,
@@ -2729,6 +2885,9 @@ async fn capsec_public_closed_recipe_batch() {
                 .await,
             );
         }
+        engine
+            .finish()
+            .expect("finish authenticated debugger-closure publications");
     }
     if shared_runtime_global_absence_count > 0 {
         let absence_indexes = recipe_indexes
@@ -2746,7 +2905,7 @@ async fn capsec_public_closed_recipe_batch() {
             .collect::<Vec<_>>();
         let (host, snapshot_digest) =
             build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
-        assert_ne!(crate::host::abi::install_host(host), 0);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
         let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
             .expect("create exact shared-runtime global absence engine");
@@ -2754,12 +2913,17 @@ async fn capsec_public_closed_recipe_batch() {
             .load_runtime()
             .await
             .expect("load exact shared-runtime global absence runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
         for index in absence_indexes {
             let recipe = &catalog.recipes[index];
             let probe = closed_surface_probe(recipe).unwrap();
             executions.push(
                 execute_closed_shared_runtime_global_absence(
-                    &engine,
+                    &mut engine,
                     recipe,
                     &probe,
                     &coverage,
@@ -2768,6 +2932,9 @@ async fn capsec_public_closed_recipe_batch() {
                 .await,
             );
         }
+        engine
+            .finish()
+            .expect("finish authenticated shared-runtime-closure publications");
     }
     for index in recipe_indexes {
         let recipe = &catalog.recipes[index];
