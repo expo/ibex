@@ -37,9 +37,9 @@
 **Revised:** 2026-07-15 (ENG-25062 registered the module-runner factory, record, CJS-to-ESM edge, generation-lease, and compatibility-marker surfaces as closed non-capability control-plane operations)
 **Revised:** 2026-07-15 (ENG-25066 made the authenticated graph decision set and process-stable principal projection the ordinary-ESM execution path)
 **Revised:** 2026-07-15 (LLP 0026 adoption defines the module-initialization task boundary and trusted-loader source-acquisition classification)
-**Revised:** 2026-07-16 (ENG-24578 residualizes 2,976 rationale-only
+**Revised:** 2026-07-16 (ENG-24578 residualizes 3,018 rationale-only
 callback/control-plane rows because a generic invariant run cannot prove an
-arbitrary carrier's selected branch; it retains nine exact embedder-mechanism
+arbitrary carrier's selected branch; it retains eight exact embedder-mechanism
 executions and requires every authenticated work-unit publication to be
 consumed before teardown.)
 **Revised:** 2026-07-15 (ENG-24578 residualizes raw resolver-output rows:
