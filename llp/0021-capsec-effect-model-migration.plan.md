@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 keeps target-absence evidence free of callable-only argument setup, worker, and cleanup terminals)
 **Revised:** 2026-07-18 (ENG-24933 removes callable Windows error placeholders for branchless target-absent DNS/Unix/UDP globals so feature detection and physical absence evidence agree)
 **Revised:** 2026-07-18 (ENG-24933 reads Windows first-party module source through component-relative native handles, rejecting reparse traversal and root substitution before physical evidence can count)
 **Revised:** 2026-07-18 (ENG-24933 preserves authenticated Windows verbatim drive/UNC identity while presenting Oxc only its equivalent ordinary resolver spelling)
@@ -1799,6 +1800,9 @@ genuinely absent. A callable that only throws an unsupported-platform error is
 still a public implementation for feature detection and therefore cannot count
 as branchless `absent` evidence; the legacy reverse-DNS, Unix-socket, and UDP
 error placeholders are not installed.
+The physical public-probe validator likewise does not attach argument setup,
+worker, or cleanup terminals to a target-absence recipe: reading a missing
+global cannot execute any of those callable-only paths.
 Retained public-surface evidence also preserves the authored probe's exact JSON
 shape. In particular, an omitted optional native-global member stays omitted
 rather than being reserialized as `null`; aggregation rejects either shape if

@@ -521,6 +521,33 @@ fn native_harness_fields_are_not_published_as_runtime_results() {
     assert_eq!(result["cleanup"], "removed-owned-file");
 }
 
+#[test]
+fn target_absence_does_not_inherit_callable_setup_terminals() {
+    let mut invocation = NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: "__exactFsFchmodSync".into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        arguments: Vec::new(),
+        completion: None,
+        required_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: "absent".into(),
+        expected_cleanup: None,
+        expected_typed_stages: Vec::new(),
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: Vec::new(),
+    };
+
+    assert_eq!(native_auxiliary_worker_terminal(&invocation), None);
+    invocation.expected_result = "return".into();
+    assert_eq!(
+        native_auxiliary_worker_terminal(&invocation),
+        Some("native-op:__exactFsOpen")
+    );
+}
+
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
     let mut selectors = BTreeMap::new();
     for selector in catalog
@@ -1313,6 +1340,51 @@ struct NativeRuntimeValidation {
     execution_proof: serde_json::Value,
 }
 
+fn native_auxiliary_worker_terminal(
+    invocation: &NativePublicInvocation,
+) -> Option<&'static str> {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // an absent global cannot execute argument setup, a worker, or cleanup.
+    // Setup terminals belong only to callable public probes.
+    if invocation.expected_result == "absent" {
+        return None;
+    }
+    if matches!(
+        invocation.global_name.as_str(),
+        "__exactFsOpenAsync"
+            | "__exactFsFdAsync"
+            | "__exactFsFstatSync"
+            | "__exactFsFsyncSync"
+            | "__exactFsFdatasyncSync"
+            | "__exactFsFtruncateSync"
+            | "__exactFsFchmodSync"
+            | "__exactFsFutimesSync"
+    ) {
+        Some("native-op:__exactFsOpen")
+    } else if invocation.global_name == "__exactFsPathAsync" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if value.as_str() == Some("readdir") =>
+            {
+                Some("native-op:__exactReaddir")
+            }
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if value.as_str() == Some("realpath") =>
+            {
+                Some("native-op:__exactRealpath")
+            }
+            Some(NativeProbeArgument::JsonLiteral { value })
+                if matches!(value.as_str(), Some("mkdir" | "mkdtemp")) =>
+            {
+                Some("native-op:__exactMkdir")
+            }
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
 fn observed_typed_values(
     session_id: &str,
     observed: Vec<ibex_runtime::host::ObservedTypedDecision>,
@@ -1455,40 +1527,7 @@ fn validate_native_runtime_observation(
     // an async dispatcher or retained-object operation may observe its
     // source-selected worker, cleanup, or object-gate edge, but no unrelated
     // edge may be admitted by the authored recipe.
-    let auxiliary_worker_terminal = if matches!(
-        invocation.global_name.as_str(),
-        "__exactFsOpenAsync"
-            | "__exactFsFdAsync"
-            | "__exactFsFstatSync"
-            | "__exactFsFsyncSync"
-            | "__exactFsFdatasyncSync"
-            | "__exactFsFtruncateSync"
-            | "__exactFsFchmodSync"
-            | "__exactFsFutimesSync"
-    ) {
-        Some("native-op:__exactFsOpen")
-    } else if invocation.global_name == "__exactFsPathAsync" {
-        match invocation.arguments.first() {
-            Some(NativeProbeArgument::JsonLiteral { value })
-                if value.as_str() == Some("readdir") =>
-            {
-                Some("native-op:__exactReaddir")
-            }
-            Some(NativeProbeArgument::JsonLiteral { value })
-                if value.as_str() == Some("realpath") =>
-            {
-                Some("native-op:__exactRealpath")
-            }
-            Some(NativeProbeArgument::JsonLiteral { value })
-                if matches!(value.as_str(), Some("mkdir" | "mkdtemp")) =>
-            {
-                Some("native-op:__exactMkdir")
-            }
-            _ => None,
-        }
-    } else {
-        None
-    };
+    let auxiliary_worker_terminal = native_auxiliary_worker_terminal(invocation);
     let mut expected_allowed_coverage_edge_ids = recipe.edge_ids.clone();
     if let Some(worker_terminal) = auxiliary_worker_terminal {
         let worker_edges = coverage_terminals
