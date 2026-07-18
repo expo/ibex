@@ -3069,9 +3069,33 @@ export function validatePublicFixtureRuntimeObservation(
     recipe.route?.alternatives?.length === 0 &&
     canonicalJson(recipe.route?.surfaceObservedKeys) ===
       canonicalJson([terminalObservedKey]);
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // authenticated SQLite refusal can close at the public surface before any
+  // source-derived native alternative is entered, but only for the exact
+  // descriptor-bound alternative set.
+  const authenticatedSqliteClosureTerminals = new Set([
+    "sqlite-extension-load",
+    "sqlite-cr-sqlite-enable",
+  ]).has(authored.operation?.kind)
+    ? authored.sourceDescriptor.sourceMetadata.enforcementRouteEvidence.terminals
+        .map((name) => `native-op:${name}`)
+        .sort(compareText)
+    : null;
+  const directAuthenticatedSqliteClosure =
+    recipe.classification === "closed" &&
+    recipe.scenario === "closed" &&
+    authenticatedSqliteClosureTerminals !== null &&
+    canonicalJson(recipe.route?.surfaceObservedKeys) ===
+      canonicalJson([terminalObservedKey]) &&
+    canonicalJson(
+      (recipe.route?.alternatives ?? [])
+        .map((alternative) => alternative.terminalObservedKey)
+        .sort(compareText),
+    ) === canonicalJson(authenticatedSqliteClosureTerminals) &&
+    recipe.route?.ambiguousCallees?.length === 0;
   const allowed = auxiliaryCarrier
     ? [recipe.publicSurfaceProbe.surfaceObservedKey]
-    : directTerminalBuiltinClosure
+    : directTerminalBuiltinClosure || directAuthenticatedSqliteClosure
       ? [terminalObservedKey]
       : recipe.route?.alternatives?.map(
           (alternative) => alternative.terminalObservedKey,

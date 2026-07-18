@@ -844,8 +844,14 @@ function completeClosedSqliteExtensionCatalog() {
   recipe.fixtureId = "fixture.builtin.sqlite.load-extension.closed";
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: "native-op:__exactSqliteLoadExtension",
+      proofPaths: [
+        "export:Database.loadExtension -> Database.loadExtension -> __exactSqliteLoadExtension",
+      ],
+    },
+  ];
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "builtin",
@@ -893,8 +899,14 @@ function completeClosedSqliteCrSqliteCatalog() {
   recipe.fixtureId = "fixture.builtin.sqlite.enable-crsqlite.closed";
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives = [
+    "__exactCrSqlitePath",
+    "__exactSqliteLoadCrSqlite",
+    "__exactSqliteLoadExtension",
+  ].map((name) => ({
+    terminalObservedKey: `native-op:${name}`,
+    proofPaths: [`export:Database.enableCrSqlite -> ${name}`],
+  }));
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceName: "export:exact_sqlite:Database.enableCrSqlite",
@@ -2537,6 +2549,31 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/public memory-database call/);
+
+    const unboundRoute = structuredClone(recipe);
+    unboundRoute.route.surfaceObservedKeys = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: unboundRoute,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(unboundRoute),
+        coverage,
+      }),
+    ).toThrow(/outside the bound route/);
+
+    const inventedTerminal = structuredClone(recipe);
+    inventedTerminal.route.alternatives.push({
+      terminalObservedKey: "native-op:__inventedSqliteTerminal",
+      proofPaths: ["invented"],
+    });
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inventedTerminal,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(inventedTerminal),
+        coverage,
+      }),
+    ).toThrow(/outside the bound route/);
   });
 
   test("accepts cr-sqlite closure only through both public aliases", () => {

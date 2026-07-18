@@ -27,6 +27,7 @@
 **Revised:** 2026-07-18 (ENG-24933 binds direct whole-file creation to source-derived bytes, an exact harness-owned floor, and verified content cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct non-recursive directory creation to an exact harness-owned floor and proves post-operation cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct terminal-builtin import-gate closure when the static route has no downstream alternative, after the complete Apple run exposed the validator mismatch)
+**Revised:** 2026-07-18 (ENG-24933 binds authenticated SQLite early-closure evidence to the exact public surface and descriptor-derived native alternative set after physical Apple validation exposed a route mismatch)
 **Revised:** 2026-07-17 (ENG-24933 closes the armed Exact/Bun accessibility application-state namespace after trusted bootstrap and binds its source-derived cells to physical absence)
 **Revised:** 2026-07-17 (ENG-24933 restamps the reviewed Hermes evaluator identity after the Release artifact builder changed, preserving fail-closed source-authority drift detection)
 **Revised:** 2026-07-17 (ENG-24933 versions the conformance cache by the no-debugger build profile and reattests every restored framework before execution)
@@ -685,7 +686,11 @@ connect scenarios, plus five zlib stream lifecycle recipes, eleven TLS lifecycle
 recipes, and a principal-owned network stamp recipe. Ten internal locale and
 accessibility state-object surfaces no longer exist: normalized mutable state is
 held in module singletons while host snapshot inputs and update hooks remain
-explicit globals. Thirteen memory-debug implementation surfaces likewise no
+explicit globals. SQLite extension-load and cr-sqlite enablement closure may
+bind the authenticated public surface before any native alternative is entered,
+but only when the route's complete native alternative set exactly equals the
+source descriptor's reviewed terminal set and the route has no ambiguous
+callees. Thirteen memory-debug implementation surfaces likewise no
 longer exist: the timer, samples, counters, and options are captured behind the
 deliberate `__exactMemoryDebug` diagnostic API. Six `__OriginalPromise`
 surfaces likewise no longer exist: rejection tracking
