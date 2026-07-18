@@ -594,7 +594,7 @@ describe("source-bound global callable recipes", () => {
 
     for (const [globalName, memberName, classification] of [
       ["WebSocket", "_handleOpen", "non-capability"],
-      ["IDBDatabase", "close", "non-capability"],
+      ["IDBDatabase", "close", "closed"],
       ["IDBObjectStore", "get", "closed"],
       ["caches", "keys", "closed"],
     ]) {
@@ -650,12 +650,17 @@ describe("source-bound global callable recipes", () => {
     // Timer cancellation is exercised through its owner-authenticated native
     // route; the generic callable partition keeps both global aliases explicit
     // but unexercisable so it cannot double-claim that evidence.
-    expect(recipes).toHaveLength(882);
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // the frozen 882-row baseline preceded the deliberate closure of two
+    // accessibility callbacks, thirty IndexedDB callables, and two worklet
+    // helpers. Those rows remain covered by the closed-surface batches rather
+    // than borrowing non-capability execution evidence.
+    expect(recipes).toHaveLength(848);
     expect(counts).toEqual({
-      call: 633,
+      call: 601,
       construct: 9,
       get: 4,
-      unexercisable: 236,
+      unexercisable: 234,
     });
   }, 30_000);
 });

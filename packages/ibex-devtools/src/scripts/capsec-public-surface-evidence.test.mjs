@@ -7,6 +7,7 @@ import {
   mergePublicBatchExecutions,
   nativeAsyncWorkerTerminal,
   validatePublicSurfaceExecutionArtifact,
+  validateStartupEnvironmentRecipeDescriptor,
 } from "./capsec-public-surface-evidence.mjs";
 import {
   computeRecipeCatalogDigest,
@@ -3976,6 +3977,16 @@ describe("CapSec public-surface promotion evidence", () => {
     const catalog = completeStartupEnvironmentCatalog("allow");
     const recipe = catalog.recipes[0];
     const observed = startupEnvironmentRuntimeObservation(recipe);
+
+    const incompleteSourceSet = structuredClone(recipe);
+    incompleteSourceSet.publicSurfaceProbe.invocation.sourceDescriptor.liveSourceRefs.pop();
+    incompleteSourceSet.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        incompleteSourceSet.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      validateStartupEnvironmentRecipeDescriptor(incompleteSourceSet),
+    ).toThrow(/startup environment runtime invocation descriptor drift/);
 
     const wrongResource = structuredClone(observed);
     wrongResource.typedDecisions[0].decisionSet.effects[0].resource.requested.name =

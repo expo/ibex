@@ -1514,11 +1514,13 @@ struct SessionWorkerRuntimeMaterial {
 
 /// Closed source-ingress state for one armed REPL session.
 ///
-/// The four security-bearing objects stay together: the exact Host that
-/// authenticated the armed snapshot, its session-local VFS, the Host's cached
-/// opaque session token, and the one exclusive ordinal allocator for that
-/// token. REPL code can ask this adapter to evaluate fixed ingress forms, but
-/// cannot select a principal, source shape, referrer, or session credential.
+/// The security-bearing objects stay together: the exact Host that
+/// authenticated the armed snapshot, the Host's cached opaque session token,
+/// the one exclusive ordinal allocator for that token, and the captured
+/// session-I/O route. Each operation separately rejoins that Host to the exact
+/// live engine generation before it derives the runtime VFS and cwd. REPL code
+/// can ask this adapter to evaluate fixed ingress forms, but cannot select a
+/// principal, source shape, referrer, or session credential.
 /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
 /// @ref LLP 0024#1-the-in-memory-source-api
 pub(crate) struct ReplSessionIngress {

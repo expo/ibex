@@ -15,6 +15,7 @@ import {
 } from "./capsec-conformance.mjs";
 import { validateOccurrenceSemantics } from "./capsec-contract.mjs";
 import { canonicalOutputDispositionKey } from "./capsec-output-dispositions.mjs";
+import { validateStartupEnvironmentRecipeDescriptor } from "./capsec-public-surface-evidence.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 import {
   authoredTargetAbsenceOutputBindings,
@@ -2143,6 +2144,9 @@ describe("exact-target CapSec executable recipes", () => {
       ],
     ]);
     for (const recipe of authored) {
+      expect(() =>
+        validateStartupEnvironmentRecipeDescriptor(recipe),
+      ).not.toThrow();
       const invocation = recipe.publicSurfaceProbe.invocation;
       const name = invocation.operation.environment.name;
       const expected = expectedSources.get(name);

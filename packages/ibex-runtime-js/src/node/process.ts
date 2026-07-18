@@ -2122,6 +2122,15 @@ class Process {
     arrayBuffers: number;
   } {
     const exactGlobal = globalThis as any;
+    // The heap-inspection bridge is deliberately absent after armed startup,
+    // but RSS remains a public system-info effect. Authorize that read
+    // independently so closing runtime introspection cannot turn memoryUsage()
+    // into an ungated performance-memory fallback.
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+    const nativeRss =
+      typeof exactGlobal.__exactGetProcessRSS === 'function'
+        ? exactGlobal.__exactGetProcessRSS()
+        : null;
     const nativeHeapInfo =
       typeof exactGlobal.__exactGetHeapInfo === 'function'
         ? exactGlobal.__exactGetHeapInfo(false)
@@ -2151,10 +2160,6 @@ class Process {
           : typeof nativeHeapInfo.arrayBufferBytes === 'number'
             ? nativeHeapInfo.arrayBufferBytes
             : 0;
-      const nativeRss =
-        typeof exactGlobal.__exactGetProcessRSS === 'function'
-          ? exactGlobal.__exactGetProcessRSS()
-          : null;
       const rss =
         typeof nativeRss === 'number' && nativeRss > 0
           ? nativeRss
@@ -2173,9 +2178,12 @@ class Process {
     const heapTotal = typeof perfMemory?.totalJSHeapSize === 'number' ? perfMemory.totalJSHeapSize : 0;
     const heapUsed = typeof perfMemory?.usedJSHeapSize === 'number' ? perfMemory.usedJSHeapSize : 0;
     const arrayBuffers = typeof perfMemory?.arrayBuffers === 'number' ? perfMemory.arrayBuffers : 0;
-    const rss = typeof perfMemory?.jsHeapSizeLimit === 'number'
-      ? Math.max(perfMemory.jsHeapSizeLimit, heapTotal, heapUsed)
-      : Math.max(heapTotal, heapUsed, 1024 * 1024);
+    const rss =
+      typeof nativeRss === 'number' && nativeRss > 0
+        ? nativeRss
+        : typeof perfMemory?.jsHeapSizeLimit === 'number'
+          ? Math.max(perfMemory.jsHeapSizeLimit, heapTotal, heapUsed)
+          : Math.max(heapTotal, heapUsed, 1024 * 1024);
 
     return {
       rss,

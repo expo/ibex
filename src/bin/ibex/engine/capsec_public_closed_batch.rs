@@ -274,7 +274,7 @@ const EXACT_APP_OPERATION_IDS: [u32; 2] = [7, 11];
 const EXACT_UNENDOWED_OPERATION_ID: u32 = 8;
 const EXACT_UNENDOWED_ERROR: &str = "exact.invokeHostAsync operation is not endowed";
 
-/// Test-only armed engine facade for closed terminal-builtin imports. Even a
+/// Test-only armed engine facade for closed-surface probes. Even a
 /// refusal probe must enter through an authenticated submission and consume
 /// the runtime's bounded work-unit publication stream.
 /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
@@ -297,7 +297,7 @@ impl AuthenticatedClosedEngine {
     async fn eval_immediate(&mut self, source: &str) -> anyhow::Result<Option<String>> {
         use capsec_semantics::model::{LogicalPath, LogicalRoot};
 
-        self.drain_publications("before authenticated closed-builtin evaluation")?;
+        self.drain_publications("before authenticated closed-surface evaluation")?;
         let session = self.host.mint_armed_session_token()?;
         let mut sequence =
             ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())?;
@@ -317,14 +317,14 @@ impl AuthenticatedClosedEngine {
             .await
             .map_err(|error| {
                 anyhow::anyhow!(
-                    "authenticated closed-builtin submission {ordinal} failed: {error:#}"
+                    "authenticated closed-surface submission {ordinal} failed: {error:#}"
                 )
             });
         let publications =
-            self.drain_publications("after authenticated closed-builtin evaluation");
+            self.drain_publications("after authenticated closed-surface evaluation");
         let evaluation = match (evaluation, publications) {
             (Err(evaluation_error), Err(publication_error)) => anyhow::bail!(
-                "authenticated closed-builtin submission {ordinal} failed ({evaluation_error:#}) and its publication stream failed ({publication_error:#})"
+                "authenticated closed-surface submission {ordinal} failed ({evaluation_error:#}) and its publication stream failed ({publication_error:#})"
             ),
             (Err(error), Ok(())) | (Ok(_), Err(error)) => return Err(error),
             (Ok(evaluation), Ok(())) => evaluation,
@@ -335,14 +335,14 @@ impl AuthenticatedClosedEngine {
                 let release = match receipt {
                     Some(receipt) => self.engine.release_undisplayed_value(receipt).await,
                     None => Err(anyhow::anyhow!(
-                        "authenticated closed-builtin submission {ordinal} lost its value receipt"
+                        "authenticated closed-surface submission {ordinal} lost its value receipt"
                     )),
                 };
                 let publications = self
-                    .drain_publications("after authenticated closed-builtin value release");
+                    .drain_publications("after authenticated closed-surface value release");
                 match (release, publications) {
                     (Err(release_error), Err(publication_error)) => anyhow::bail!(
-                        "authenticated closed-builtin submission {ordinal} failed to release its value ({release_error:#}) and its publication stream ({publication_error:#})"
+                        "authenticated closed-surface submission {ordinal} failed to release its value ({release_error:#}) and its publication stream ({publication_error:#})"
                     ),
                     (Err(error), Ok(())) | (Ok(()), Err(error)) => return Err(error),
                     (Ok(()), Ok(())) => {}
@@ -353,20 +353,20 @@ impl AuthenticatedClosedEngine {
                         .map(Some)
                         .map_err(|error| {
                             anyhow::anyhow!(
-                                "authenticated closed-builtin submission {ordinal} returned an invalid string display: {error}"
+                                "authenticated closed-surface submission {ordinal} returned an invalid string display: {error}"
                             )
                         }),
                     _ => Ok(Some(display.text)),
                 }
             }
             AuthenticatedEvaluation::Throw(thrown) => anyhow::bail!(
-                "authenticated closed-builtin submission {ordinal} threw: {thrown:?}"
+                "authenticated closed-surface submission {ordinal} threw: {thrown:?}"
             ),
             AuthenticatedEvaluation::Cancelled => anyhow::bail!(
-                "authenticated closed-builtin submission {ordinal} was cancelled"
+                "authenticated closed-surface submission {ordinal} was cancelled"
             ),
             AuthenticatedEvaluation::Lifecycle(code) => anyhow::bail!(
-                "authenticated closed-builtin submission {ordinal} exited with lifecycle code {code}"
+                "authenticated closed-surface submission {ordinal} exited with lifecycle code {code}"
             ),
         }
     }
@@ -377,13 +377,13 @@ impl AuthenticatedClosedEngine {
 
     fn finish(&mut self) -> anyhow::Result<()> {
         let publications =
-            self.drain_publications("authenticated closed-builtin engine finish");
+            self.drain_publications("authenticated closed-surface engine finish");
         let due = self
             .publications
-            .require_no_due_schedules("authenticated closed-builtin engine finish");
+            .require_no_due_schedules("authenticated closed-surface engine finish");
         match (publications, due) {
             (Err(publication_error), Err(due_error)) => anyhow::bail!(
-                "authenticated closed-builtin engine publication stream failed ({publication_error:#}) and retained due schedules ({due_error:#})"
+                "authenticated closed-surface engine publication stream failed ({publication_error:#}) and retained due schedules ({due_error:#})"
             ),
             (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
             (Ok(()), Ok(())) => Ok(()),
@@ -522,6 +522,9 @@ async fn attest_exact_engine() {
             .await,
         "IBEX_CAPSEC_CLOSED_BATCH_ENGINE_EXECUTED"
     );
+    evaluator
+        .finish(&engine, "exact closed-surface engine attestation")
+        .expect("finish authenticated engine-attestation publications");
 }
 
 #[cfg(test)]
@@ -894,6 +897,11 @@ if (
         .expect("construct tamed-evaluator source request");
 
     let graph_host = host.clone();
+    let mut engine = AuthenticatedClosedEngine {
+        host,
+        engine,
+        publications: AuthenticatedPublicationTracker::default(),
+    };
     let graph_entry = entry.clone();
     // Oxc executes inside the mapped Ibex image, not the separately loaded
     // Hermes image.
@@ -906,6 +914,9 @@ if (
         &format!("{session_id}:admission")
     ));
     let execution_session_id = session_id.clone();
+    engine
+        .drain_publications("before authenticated tamed-evaluator module graph")
+        .expect("drain tamed-evaluator publications before evaluation");
     let evaluation = engine
         .evaluate_authenticated_module_graph(
             &session,
@@ -946,6 +957,9 @@ if (
         matches!(evaluation, AuthenticatedEvaluation::Empty),
         "authenticated tamed-evaluator module did not complete its self-check: {evaluation:?}"
     );
+    engine
+        .finish()
+        .expect("finish authenticated tamed-evaluator publications");
     vfs.close();
 
     let result = serde_json::json!({
@@ -1140,6 +1154,9 @@ async fn execute_closed_exact_unendowed_operation(
     );
     let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
     let encoded = evaluator.eval_string(&engine, &script).await;
+    evaluator
+        .finish(&engine, "closed Exact unendowed operation")
+        .expect("finish authenticated Exact-closure publications");
     let observed: serde_json::Value =
         serde_json::from_str(&encoded).expect("unendowed Exact result must be JSON");
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
@@ -1451,7 +1468,7 @@ async fn execute_closed_terminal_builtin_import(
 
 #[cfg(test)]
 async fn execute_closed_sqlite_extension_refusal(
-    engine: &HermesEngine,
+    engine: &mut AuthenticatedClosedEngine,
     recipe: &Recipe,
     probe: &ClosedSurfaceProbe,
     coverage: &BTreeMap<String, (String, String)>,
@@ -3571,8 +3588,8 @@ async fn capsec_public_closed_recipe_batch() {
     );
     let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
         match catalog.target.triple.as_str() {
-            "aarch64-apple-darwin" => (18, 322, 20),
-            "x86_64-pc-windows-msvc" => (18, 322, 20),
+            "aarch64-apple-darwin" => (18, 322, 18),
+            "x86_64-pc-windows-msvc" => (18, 322, 18),
             target => panic!("closed public batch has no reviewed target shape for {target}"),
         };
     assert_eq!(
@@ -3686,7 +3703,7 @@ async fn capsec_public_closed_recipe_batch() {
                     serde_json::json!(["bun:sqlite", "exact:sqlite"]);
             },
         );
-        assert_ne!(crate::host::abi::install_host(host), 0);
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
         let _reset = HostResetGuard;
         let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
             .expect("create exact SQLite extension closure engine");
@@ -3694,12 +3711,17 @@ async fn capsec_public_closed_recipe_batch() {
             .load_runtime()
             .await
             .expect("load exact SQLite extension closure runtime");
+        let mut engine = AuthenticatedClosedEngine {
+            host,
+            engine,
+            publications: AuthenticatedPublicationTracker::default(),
+        };
         for index in sqlite_indexes {
             let recipe = &catalog.recipes[index];
             let probe = closed_surface_probe(recipe).unwrap();
             executions.push(
                 execute_closed_sqlite_extension_refusal(
-                    &engine,
+                    &mut engine,
                     recipe,
                     &probe,
                     &coverage,
@@ -3708,6 +3730,9 @@ async fn capsec_public_closed_recipe_batch() {
                 .await,
             );
         }
+        engine
+            .finish()
+            .expect("finish authenticated SQLite-closure publications");
     }
     if debugger_abi_count > 0 {
         let debugger_indexes = recipe_indexes

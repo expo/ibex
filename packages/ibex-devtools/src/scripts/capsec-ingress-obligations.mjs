@@ -710,7 +710,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "repl-authenticated-evaluation",
       "pub(crate) enum ReplEvaluationSession {",
       "pub async fn start_worker(",
-      "sha256-G9cz5K_aTH_UNiSAPkHo-DpODHXVOj8ZDk_gRfmE4Aw",
+      "sha256-fKtJ2lRO490s_1zdxpHDBDrEuePVlVDVbR6-guZ-Kdc",
     ),
   ]),
   "src/bin/ibex/runtime.rs": Object.freeze([
@@ -718,7 +718,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "closed-ingress-types",
       "pub(crate) struct ReplSessionIngress {",
       "impl AuthenticatedFileIngress {",
-      "sha256-HBzPnc-EROisdl1yfmqp1z6O8EWCiU_Pa1yi-UJ93aU",
+      "sha256-eIcEuViyjAfgr3RbNXpQpW_ppLVjcRcHgTi60VBluPo",
     ),
     freezeReviewedRange(
       "runtime-ingress-constructors",
@@ -730,7 +730,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      "sha256-6YyCV9VeT_SjPvcrgSdlGFAsLyxKys-IfnYb-v2NT18",
+      "sha256-34TG8qsLMKVHeS3eBWFdFRhFphFttu_yKi8PkxX1rKw",
     ),
     freezeReviewedRange(
       "runtime-file-execution",
@@ -798,7 +798,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "structured-session-ingress",
       'extern "C" uint32_t ex_hermes_structured_session_bind(',
       'extern "C" int ex_hermes_resume_structured_session(',
-      "sha256-tlmkKTPZ5v2sADoOGp-IQ4vbw62Q2a5ZsyZ2f-spoCE",
+      "sha256-8PkiqqixfxIe_neGw62No1g2DB34ExNKm8sMUwEm0SM",
     ),
     freezeReviewedRange(
       "sealed-bare-evaluator",

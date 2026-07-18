@@ -205,6 +205,9 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
         "packages/ibex-runtime-js/src/node/process.ts#process.env:TZ:read",
       liveSourceRefs: [
         "packages/ibex-runtime-js/src/node/process.ts#process.env:TZ:read",
+        "src/bin/ibex/engine/hermes.rs#Command::env:TZ:write",
+        "src/bin/ibex/runtime.rs#Command::env:TZ:write",
+        "src/module_loader/mod.rs#Command::env:TZ:write",
       ],
       mechanism: "date-to-string",
       moduleSpecifier: null,
@@ -795,6 +798,103 @@ function validateCallbackInvariantResult(result, authored, fixtureId) {
   throw new Error(`${fixtureId}: unsupported callback invariant scenario`);
 }
 
+/**
+ * Check a source-derived startup-environment recipe against verifier-owned
+ * carrier authority. Keeping this callable independently of runtime evidence
+ * lets the fast recipe suite catch inventory/authority drift before a full
+ * physical conformance run reaches final artifact validation.
+ */
+export function validateStartupEnvironmentRecipeDescriptor(recipe) {
+  const authored = recipe?.publicSurfaceProbe?.invocation;
+  if (
+    authored?.invocationSchema !==
+    "ibex/capsec-startup-environment-invocation/1"
+  ) {
+    throw new Error(
+      `${recipe?.fixtureId ?? "unknown fixture"}: not a startup environment recipe`,
+    );
+  }
+  const descriptor = authored.sourceDescriptor;
+  const operation = authored.operation;
+  exactKeys(
+    descriptor,
+    [
+      "kind",
+      "surfaceObservedKey",
+      "environmentName",
+      "sourceRef",
+      "liveSourceRefs",
+      "carrierEdgeId",
+      "implementationBranchIds",
+      "enforcementBranchIds",
+      "selectedBranch",
+      "executionMechanism",
+      "moduleSpecifier",
+      "preloadModuleSpecifiers",
+      "principalMode",
+      "auxiliaryDecisionEdgeId",
+    ],
+    `${recipe.fixtureId}: startup environment source descriptor`,
+  );
+  exactKeys(
+    operation,
+    [
+      "kind",
+      "moduleSpecifier",
+      "preloadModuleSpecifiers",
+      "environment",
+      "principalMode",
+    ],
+    `${recipe.fixtureId}: startup environment operation`,
+  );
+  exactKeys(
+    operation.environment,
+    ["name", "presence"],
+    `${recipe.fixtureId}: startup environment setup`,
+  );
+  const environmentName = operation.environment.name;
+  const sourceExpectation =
+    STARTUP_ENVIRONMENT_EXPECTATIONS.get(environmentName);
+  const expectedPrincipalMode =
+    authored.scenario === "deny" ? "package-denied" : "root-authorized";
+  if (
+    authored.kind !== "startup-environment-source" ||
+    authored.surfaceKind !== "startup" ||
+    authored.surfaceName !== `env:${environmentName}` ||
+    !["allow", "deny", "branch-selection"].includes(authored.scenario) ||
+    descriptor.kind !== "startup-environment-source" ||
+    descriptor.surfaceObservedKey !== `startup:env:${environmentName}` ||
+    descriptor.environmentName !== environmentName ||
+    sourceExpectation === undefined ||
+    descriptor.sourceRef !== sourceExpectation?.sourceRef ||
+    canonicalJson(descriptor.liveSourceRefs) !==
+      canonicalJson(sourceExpectation?.liveSourceRefs) ||
+    descriptor.carrierEdgeId !== recipe.edgeIds?.[0] ||
+    canonicalJson(descriptor.implementationBranchIds) !==
+      canonicalJson(recipe.implementationBranchIds) ||
+    canonicalJson(descriptor.enforcementBranchIds) !==
+      canonicalJson(recipe.enforcementBranchIds) ||
+    descriptor.selectedBranch?.id !== "absent" ||
+    descriptor.executionMechanism !== sourceExpectation?.mechanism ||
+    operation.kind !== sourceExpectation?.mechanism ||
+    descriptor.moduleSpecifier !== sourceExpectation?.moduleSpecifier ||
+    operation.moduleSpecifier !== sourceExpectation?.moduleSpecifier ||
+    canonicalJson(descriptor.preloadModuleSpecifiers) !==
+      canonicalJson(sourceExpectation?.preloadModuleSpecifiers) ||
+    canonicalJson(operation.preloadModuleSpecifiers) !==
+      canonicalJson(sourceExpectation?.preloadModuleSpecifiers) ||
+    descriptor.principalMode !== expectedPrincipalMode ||
+    operation.principalMode !== expectedPrincipalMode ||
+    operation.environment.presence !== "absent" ||
+    !Array.isArray(operation.preloadModuleSpecifiers)
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: startup environment runtime invocation descriptor drift`,
+    );
+  }
+  return recipe;
+}
+
 function validateRuntimeInvocation(observation, recipe) {
   const invocation = observation.invocation;
   const authored = recipe.publicSurfaceProbe?.invocation;
@@ -1118,80 +1218,14 @@ function validateRuntimeInvocation(observation, recipe) {
       [...commonKeys, "surfaceKind", "surfaceName", "scenario"],
       `${recipe.fixtureId}: startup environment runtime invocation`,
     );
-    const descriptor = authored.sourceDescriptor;
+    validateStartupEnvironmentRecipeDescriptor(recipe);
     const operation = authored.operation;
-    exactKeys(
-      descriptor,
-      [
-        "kind",
-        "surfaceObservedKey",
-        "environmentName",
-        "sourceRef",
-        "liveSourceRefs",
-        "carrierEdgeId",
-        "implementationBranchIds",
-        "enforcementBranchIds",
-        "selectedBranch",
-        "executionMechanism",
-        "moduleSpecifier",
-        "preloadModuleSpecifiers",
-        "principalMode",
-        "auxiliaryDecisionEdgeId",
-      ],
-      `${recipe.fixtureId}: startup environment source descriptor`,
-    );
-    exactKeys(
-      operation,
-      [
-        "kind",
-        "moduleSpecifier",
-        "preloadModuleSpecifiers",
-        "environment",
-        "principalMode",
-      ],
-      `${recipe.fixtureId}: startup environment operation`,
-    );
-    exactKeys(
-      operation.environment,
-      ["name", "presence"],
-      `${recipe.fixtureId}: startup environment setup`,
-    );
     const environmentName = operation.environment.name;
-    const sourceExpectation =
-      STARTUP_ENVIRONMENT_EXPECTATIONS.get(environmentName);
-    const expectedPrincipalMode =
-      authored.scenario === "deny" ? "package-denied" : "root-authorized";
     if (
       invocation.kind !== "startup-environment-source" ||
       invocation.surfaceKind !== "startup" ||
       invocation.surfaceName !== `env:${environmentName}` ||
-      invocation.scenario !== authored.scenario ||
-      !["allow", "deny", "branch-selection"].includes(authored.scenario) ||
-      descriptor.kind !== "startup-environment-source" ||
-      descriptor.surfaceObservedKey !== `startup:env:${environmentName}` ||
-      descriptor.environmentName !== environmentName ||
-      sourceExpectation === undefined ||
-      descriptor.sourceRef !== sourceExpectation?.sourceRef ||
-      canonicalJson(descriptor.liveSourceRefs) !==
-        canonicalJson(sourceExpectation?.liveSourceRefs) ||
-      descriptor.carrierEdgeId !== recipe.edgeIds?.[0] ||
-      canonicalJson(descriptor.implementationBranchIds) !==
-        canonicalJson(recipe.implementationBranchIds) ||
-      canonicalJson(descriptor.enforcementBranchIds) !==
-        canonicalJson(recipe.enforcementBranchIds) ||
-      descriptor.selectedBranch?.id !== "absent" ||
-      descriptor.executionMechanism !== sourceExpectation?.mechanism ||
-      operation.kind !== sourceExpectation?.mechanism ||
-      descriptor.moduleSpecifier !== sourceExpectation?.moduleSpecifier ||
-      operation.moduleSpecifier !== sourceExpectation?.moduleSpecifier ||
-      canonicalJson(descriptor.preloadModuleSpecifiers) !==
-        canonicalJson(sourceExpectation?.preloadModuleSpecifiers) ||
-      canonicalJson(operation.preloadModuleSpecifiers) !==
-        canonicalJson(sourceExpectation?.preloadModuleSpecifiers) ||
-      descriptor.principalMode !== expectedPrincipalMode ||
-      operation.principalMode !== expectedPrincipalMode ||
-      operation.environment.presence !== "absent" ||
-      !Array.isArray(operation.preloadModuleSpecifiers)
+      invocation.scenario !== authored.scenario
     ) {
       throw new Error(
         `${recipe.fixtureId}: startup environment runtime invocation descriptor drift`,
