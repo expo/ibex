@@ -1487,6 +1487,198 @@ function buildCorpus() {
       })),
   );
 
+  const RESOURCE_SOURCE_AFFINITY_STEP =
+    "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table";
+
+  function applyResourceSemanticMutation(baseDescriptor, mutation) {
+    const descriptor = structuredClone(baseDescriptor);
+    const semanticState = {
+      sourceReceiverTableEntryPresent: true,
+      sealedLocalTimelinePrefixContiguous: true,
+      deviceGeneration: "current",
+      operationCoverageInstalled: true,
+      aggregateEnvelopeState: "LIVE",
+      logicalMaxSamplerAnisotropy: 16,
+      maxTextureDimension2D: 8192,
+      allowedFormats: ["rgba8unorm", "rgba16float"],
+      allowedTextureUsageMask: 0x3f,
+      targetLogicalDeviceId: "55",
+      targetSlotGeneration: "1",
+      resourceUnitCredit: 1,
+      deviceObjectTableCredit: 1,
+      aggregateEnvelopeResourceCredit: Number.MAX_SAFE_INTEGER,
+      providerRequestCredit: 1,
+      completionCredit: 1,
+    };
+    const descriptorKeys = new Set([
+      ...Object.keys(descriptor),
+      "textureBindingViewDimension",
+    ]);
+    if (mutation.descriptor) Object.assign(descriptor, mutation.descriptor);
+    for (const [key, value] of Object.entries(mutation)) {
+      if (key === "descriptor") continue;
+      if (descriptorKeys.has(key)) descriptor[key] = structuredClone(value);
+      else semanticState[key] = structuredClone(value);
+    }
+    return { descriptor, semanticState };
+  }
+
+  function exactReviewedDescriptor(descriptor, reviewedDescriptors) {
+    const encoded = canonicalJson(descriptor);
+    return reviewedDescriptors.some((candidate) => canonicalJson(candidate) === encoded);
+  }
+
+  function samplerSemanticStepPasses(step, descriptor, state, reviewedDescriptors) {
+    switch (step) {
+      case RESOURCE_SOURCE_AFFINITY_STEP:
+        return state.sourceReceiverTableEntryPresent === true;
+      case "authenticate-contiguous-sealed-local-timeline-prefix":
+        return state.sealedLocalTimelinePrefixContiguous === true;
+      case "validate-current-live-device-generation":
+        return state.deviceGeneration === "current";
+      case "validate-operation-coverage":
+        return state.operationCoverageInstalled === true;
+      case "validate-authorized-live-account-and-aggregate-envelope":
+        return state.aggregateEnvelopeState === "LIVE";
+      case "validate-sampler-lod-order-and-range":
+        return Number.isFinite(descriptor.lodMinClamp) &&
+          Number.isFinite(descriptor.lodMaxClamp) &&
+          descriptor.lodMinClamp >= 0 &&
+          descriptor.lodMaxClamp >= descriptor.lodMinClamp;
+      case "validate-sampler-anisotropy-and-filter-combination":
+        return descriptor.maxAnisotropy >= 1 &&
+          descriptor.maxAnisotropy <= state.logicalMaxSamplerAnisotropy &&
+          (descriptor.maxAnisotropy === 1 ||
+            (descriptor.magFilter === "linear" &&
+              descriptor.minFilter === "linear" &&
+              descriptor.mipmapFilter === "linear"));
+      case "validate-sampler-label-under-reviewed-workload":
+        return Buffer.byteLength(descriptor.label, "utf8") <= 14 &&
+          ["", "nearestSampler", "linearSampler", "sampler"].includes(
+            descriptor.label,
+          );
+      case "validate-sampler-descriptor-under-reviewed-workload":
+        return exactReviewedDescriptor(descriptor, reviewedDescriptors);
+      case "authenticate-wrapper-allocated-sampler-target-provenance":
+        return state.targetLogicalDeviceId === "55";
+      case "validate-wrapper-allocated-sampler-target-generation":
+        return state.targetSlotGeneration === "1";
+      case "reserve-sampler-table-and-resource-ledger-capacity":
+        return state.resourceUnitCredit > 0 && state.deviceObjectTableCredit > 0;
+      case "reserve-sampler-provider-request-completion-and-physical-sequence":
+        return state.providerRequestCredit > 0 && state.completionCredit > 0;
+      default:
+        fail(`GPUDevice.createSampler has no executable semantic oracle for ${step}`);
+    }
+  }
+
+  function textureSemanticStepPasses(step, descriptor, state, reviewedDescriptors) {
+    switch (step) {
+      case RESOURCE_SOURCE_AFFINITY_STEP:
+        return state.sourceReceiverTableEntryPresent === true;
+      case "authenticate-contiguous-sealed-local-timeline-prefix":
+        return state.sealedLocalTimelinePrefixContiguous === true;
+      case "validate-current-live-device-generation":
+        return state.deviceGeneration === "current";
+      case "validate-operation-coverage":
+        return state.operationCoverageInstalled === true;
+      case "validate-authorized-live-account-and-aggregate-envelope":
+        return state.aggregateEnvelopeState === "LIVE";
+      case "validate-texture-extent-under-logical-limits-and-structural-bounds":
+        return descriptor.dimension === "2d" &&
+          descriptor.size.width > 0 &&
+          descriptor.size.height > 0 &&
+          descriptor.size.depthOrArrayLayers > 0 &&
+          descriptor.size.width <= state.maxTextureDimension2D &&
+          descriptor.size.height <= state.maxTextureDimension2D;
+      case "validate-texture-format-under-logical-capabilities":
+        return state.allowedFormats.includes(descriptor.format);
+      case "validate-texture-usage-closed-bits-and-format-compatibility":
+        return descriptor.usage > 0 &&
+          (descriptor.usage & ~state.allowedTextureUsageMask) === 0;
+      case "validate-texture-mip-level-and-sample-count-bounds": {
+        const maximumMipLevels =
+          Math.floor(Math.log2(Math.max(descriptor.size.width, descriptor.size.height))) + 1;
+        return descriptor.mipLevelCount >= 1 &&
+          descriptor.mipLevelCount <= maximumMipLevels &&
+          [1, 4].includes(descriptor.sampleCount) &&
+          (descriptor.sampleCount === 1 || descriptor.mipLevelCount === 1);
+      }
+      case "validate-texture-view-formats-compatibility":
+        return new Set(descriptor.viewFormats).size === descriptor.viewFormats.length &&
+          descriptor.viewFormats.every((format) =>
+            format === descriptor.format ||
+            (descriptor.format === "rgba8unorm" && format === "rgba8unorm-srgb") ||
+            (descriptor.format === "rgba8unorm-srgb" && format === "rgba8unorm")
+          );
+      case "validate-texture-binding-view-dimension-compatibility":
+        return descriptor.textureBindingViewDimension === undefined ||
+          descriptor.textureBindingViewDimension === "2d" ||
+          (descriptor.textureBindingViewDimension === "2d-array" &&
+            descriptor.size.depthOrArrayLayers >= 1) ||
+          ((descriptor.textureBindingViewDimension === "cube" ||
+            descriptor.textureBindingViewDimension === "cube-array") &&
+            descriptor.size.depthOrArrayLayers >= 6 &&
+            descriptor.size.depthOrArrayLayers % 6 === 0);
+      case "validate-texture-label-under-reviewed-workload":
+        return Buffer.byteLength(descriptor.label, "utf8") <= 13 &&
+          ["", "texture", "trackTexture", "bezierTexture"].includes(
+            descriptor.label,
+          );
+      case "validate-texture-descriptor-under-reviewed-workload":
+        return exactReviewedDescriptor(descriptor, reviewedDescriptors);
+      case "authenticate-wrapper-allocated-texture-target-provenance":
+        return state.targetLogicalDeviceId === "55";
+      case "validate-wrapper-allocated-texture-target-generation":
+        return state.targetSlotGeneration === "1";
+      case "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity":
+        return state.deviceObjectTableCredit > 0 &&
+          state.aggregateEnvelopeResourceCredit > 0;
+      case "reserve-texture-provider-request-completion-and-physical-sequence":
+        return state.providerRequestCredit > 0 && state.completionCredit > 0;
+      default:
+        fail(`GPUDevice.createTexture has no executable semantic oracle for ${step}`);
+    }
+  }
+
+  function resourceSemanticReachabilityEvidence({
+    operationId,
+    semanticSteps,
+    mutation,
+    expectedFailureIndex,
+    baseDescriptor,
+    reviewedDescriptors,
+  }) {
+    const { descriptor, semanticState } = applyResourceSemanticMutation(
+      baseDescriptor,
+      mutation,
+    );
+    const evaluator = operationId === createSamplerOperationId
+      ? samplerSemanticStepPasses
+      : textureSemanticStepPasses;
+    const predicateResults = semanticSteps.map((step) => Object.freeze({
+      step,
+      passed: evaluator(step, descriptor, semanticState, reviewedDescriptors),
+    }));
+    const firstFailureIndex = predicateResults.findIndex((result) => !result.passed);
+    if (firstFailureIndex !== expectedFailureIndex) {
+      fail(
+        `${operationId} semantic mutation expected first failure ${expectedFailureIndex + 1} ` +
+          `but executable oracle found ${firstFailureIndex + 1}`,
+      );
+    }
+    return Object.freeze({
+      oracle: "resource-semantic-first-failure-v1",
+      evaluatedPredicateResults: Object.freeze(predicateResults),
+      firstFailingSemanticStep: semanticSteps[firstFailureIndex],
+      earlierSemanticStepsAllPassed: predicateResults
+        .slice(0, firstFailureIndex)
+        .every((result) => result.passed),
+      providerTokenCount: 0,
+      physicalSequenceCount: 0,
+    });
+  }
+
   function buildResourceCorpus({
     operationId,
     targetKind,
@@ -1657,22 +1849,33 @@ function buildCorpus() {
       fail(`${operationId} semantic step/mutation inventory drifted`);
     }
     const semanticRejections = Object.freeze(semanticMutations.map(
-      ([suffix, mutation], index) => Object.freeze({
-        id: `${operationId === createSamplerOperationId ? "create-sampler" : "create-texture"}-${suffix}-rejected`,
-        kind: "semantic-rejection",
-        operationId,
-        semanticTerminalId: "later-predicate-rejection",
-        semanticStepIndex: index + 1,
-        firstFailingSemanticStep: semanticSteps[index],
-        earlierSemanticStepsMustPass: semanticSteps.slice(0, index),
-        mutation,
-        bytesHex: requestVectors[0].bytesHex,
-        expected: Object.freeze({
-          codegenDisposition: "encoded-for-post-decode-semantic-validation",
-          providerTokenCount: 0,
-          physicalSequenceCount: 0,
-        }),
-      })),
+      ([suffix, mutation], index) => {
+        const reachabilityEvidence = resourceSemanticReachabilityEvidence({
+          operationId,
+          semanticSteps,
+          mutation,
+          expectedFailureIndex: index,
+          baseDescriptor: expectedDescriptors[0],
+          reviewedDescriptors: expectedDescriptors,
+        });
+        return Object.freeze({
+          id: `${operationId === createSamplerOperationId ? "create-sampler" : "create-texture"}-${suffix}-rejected`,
+          kind: "semantic-rejection",
+          operationId,
+          semanticTerminalId: "later-predicate-rejection",
+          semanticStepIndex: index + 1,
+          firstFailingSemanticStep: semanticSteps[index],
+          earlierSemanticStepsMustPass: semanticSteps.slice(0, index),
+          mutation,
+          reachabilityEvidence,
+          bytesHex: requestVectors[0].bytesHex,
+          expected: Object.freeze({
+            codegenDisposition: "encoded-for-post-decode-semantic-validation",
+            providerTokenCount: 0,
+            physicalSequenceCount: 0,
+          }),
+        });
+      }),
     );
     return Object.freeze({
       route,
@@ -1733,19 +1936,19 @@ function buildCorpus() {
       backingChargeRule: "sampler-has-no-byte-backing-but-consumes-one-resource-table-and-ledger-unit",
     })),
     semanticMutations: [
+      ["source-receiver-table-entry-missing", { sourceReceiverTableEntryPresent: false }],
       ["sealed-timeline-gap", { sealedLocalTimelinePrefixContiguous: false }],
       ["stale-device-generation", { deviceGeneration: "stale" }],
       ["coverage-absent", { operationCoverageInstalled: false }],
       ["aggregate-envelope-not-live", { aggregateEnvelopeState: "CLOSED" }],
-      ["unreviewed-workload", { label: "otherSampler" }],
-      ["enum-vocabulary-mismatch", { addressModeU: "border" }],
       ["lod-order-mismatch", { lodMinClamp: 4, lodMaxClamp: 2 }],
       ["anisotropy-filter-mismatch", { maxAnisotropy: 2, minFilter: "nearest" }],
+      ["overlong-label", { label: "x".repeat(15) }],
+      ["unreviewed-workload", { addressModeU: "repeat" }],
       ["foreign-target-provenance", { targetLogicalDeviceId: "56" }],
       ["stale-target-generation", { targetSlotGeneration: "2" }],
       ["resource-ledger-capacity-exhausted", { resourceUnitCredit: 0 }],
       ["provider-completion-credit-exhausted", { completionCredit: 0 }],
-      ["overlong-label", { label: "x".repeat(15) }],
     ],
   });
 
@@ -1779,22 +1982,25 @@ function buildCorpus() {
       backingChargeRule: "checked-format-block-byte-size-times-complete-mip-extent-without-double-charge",
     })),
     semanticMutations: [
+      ["source-receiver-table-entry-missing", { sourceReceiverTableEntryPresent: false }],
       ["sealed-timeline-gap", { sealedLocalTimelinePrefixContiguous: false }],
       ["stale-device-generation", { deviceGeneration: "stale" }],
       ["coverage-absent", { operationCoverageInstalled: false }],
       ["aggregate-envelope-not-live", { aggregateEnvelopeState: "CLOSED" }],
-      ["unreviewed-workload", { size: [16, 16] }],
       ["logical-dimension-limit", { maxTextureDimension2D: 31 }],
-      ["format-capability-missing", { format: "rgba16float", allowedFormats: ["rgba8unorm"] }],
-      ["usage-format-mismatch", { usage: 8 }],
-      ["mip-sample-bounds", { mipLevelCount: 2 }],
+      ["format-capability-missing", { allowedFormats: [] }],
+      ["usage-format-mismatch", { usage: 0 }],
+      ["mip-sample-bounds", { mipLevelCount: 7 }],
       ["view-format-incompatible", { viewFormats: ["bgra8unorm"] }],
       ["binding-view-dimension-incompatible", { textureBindingViewDimension: "cube" }],
+      ["overlong-label", { label: "x".repeat(14) }],
+      ["unreviewed-workload", {
+        size: { width: 16, height: 16, depthOrArrayLayers: 1 },
+      }],
       ["foreign-target-provenance", { targetLogicalDeviceId: "56" }],
       ["stale-target-generation", { targetSlotGeneration: "2" }],
       ["resource-ledger-capacity-exhausted", { aggregateEnvelopeResourceCredit: 0 }],
       ["provider-completion-credit-exhausted", { completionCredit: 0 }],
-      ["overlong-label", { label: "x".repeat(14) }],
     ],
   });
   if (textureBytes.reduce((sum, value) => sum + value, 0) !== 1_335_296) {

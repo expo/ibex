@@ -75,8 +75,8 @@ interface NativeCodecField {
       | 3212558232
       | 2544948076
       | 3373402978
-      | 258698389
-      | 2925687091
+      | 3285037552
+      | 159202366
       | 599085487
       | 4055478657;
   }>;
@@ -357,14 +357,14 @@ interface NativeCodecCreateBufferRoute {
 
 interface NativeCodecCreateSamplerRoute {
   readonly operationId: 'GPUDevice.createSampler';
-  readonly wireId: 258698389;
+  readonly wireId: 3285037552;
   readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
 
 interface NativeCodecCreateTextureRoute {
   readonly operationId: 'GPUDevice.createTexture';
-  readonly wireId: 2925687091;
+  readonly wireId: 159202366;
   readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
@@ -677,12 +677,12 @@ const CREATE_BUFFER_REQUEST_CODEC = 'gpu-create-buffer-service-request-v1';
 const CREATE_BUFFER_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_SAMPLER_OPERATION_ID = 'GPUDevice.createSampler';
-const CREATE_SAMPLER_WIRE_ID = 258698389;
+const CREATE_SAMPLER_WIRE_ID = 3285037552;
 const CREATE_SAMPLER_REQUEST_CODEC = 'gpu-create-sampler-service-request-v1';
 const CREATE_SAMPLER_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_TEXTURE_OPERATION_ID = 'GPUDevice.createTexture';
-const CREATE_TEXTURE_WIRE_ID = 2925687091;
+const CREATE_TEXTURE_WIRE_ID = 159202366;
 const CREATE_TEXTURE_REQUEST_CODEC = 'gpu-create-texture-service-request-v1';
 const CREATE_TEXTURE_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
@@ -3367,7 +3367,7 @@ function validateNativeCodecProgram(
     .replaceAll('"wireTag":17', '"wireTag":18')
     .replace(
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","validate-buffer-mapped-at-creation-alignment","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
-      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-sampler-descriptor-under-reviewed-workload","validate-sampler-enum-vocabulary","validate-sampler-lod-order-and-range","validate-sampler-anisotropy-and-filter-combination","authenticate-wrapper-allocated-sampler-target-provenance","validate-wrapper-allocated-sampler-target-generation","reserve-sampler-table-and-resource-ledger-capacity","reserve-sampler-provider-request-completion-and-physical-sequence","validate-sampler-label-under-reviewed-workload"]',
+      '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-sampler-lod-order-and-range","validate-sampler-anisotropy-and-filter-combination","validate-sampler-label-under-reviewed-workload","validate-sampler-descriptor-under-reviewed-workload","authenticate-wrapper-allocated-sampler-target-provenance","validate-wrapper-allocated-sampler-target-generation","reserve-sampler-table-and-resource-ledger-capacity","reserve-sampler-provider-request-completion-and-physical-sequence"]',
     );
   const expectedCreateTextureCanonical = expectedCreateBufferCanonical
     .replaceAll(CREATE_BUFFER_OPERATION_ID, CREATE_TEXTURE_OPERATION_ID)
@@ -3379,7 +3379,7 @@ function validateNativeCodecProgram(
     .replaceAll('"wireTag":17', '"wireTag":19')
     .replace(
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","validate-buffer-mapped-at-creation-alignment","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
-      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-texture-descriptor-under-reviewed-workload","validate-texture-extent-under-logical-limits-and-structural-bounds","validate-texture-format-under-logical-capabilities","validate-texture-usage-closed-bits-and-format-compatibility","validate-texture-mip-level-and-sample-count-bounds","validate-texture-view-formats-compatibility","validate-texture-binding-view-dimension-compatibility","authenticate-wrapper-allocated-texture-target-provenance","validate-wrapper-allocated-texture-target-generation","compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity","reserve-texture-provider-request-completion-and-physical-sequence","validate-texture-label-under-reviewed-workload"]',
+      '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-texture-extent-under-logical-limits-and-structural-bounds","validate-texture-format-under-logical-capabilities","validate-texture-usage-closed-bits-and-format-compatibility","validate-texture-mip-level-and-sample-count-bounds","validate-texture-view-formats-compatibility","validate-texture-binding-view-dimension-compatibility","validate-texture-label-under-reviewed-workload","validate-texture-descriptor-under-reviewed-workload","authenticate-wrapper-allocated-texture-target-provenance","validate-wrapper-allocated-texture-target-generation","compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity","reserve-texture-provider-request-completion-and-physical-sequence"]',
     );
   if (
     manifest.nativeCodecPrograms.routes.length !== 10 ||

@@ -5,16 +5,16 @@
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "11c790635480d0f931c08fd1dd6812644bc721020fffeb84c38c13c8f8351329"
+    "manifestSha256": "6e63c8bd76f58e3d4d2b3f13bcd4b787352c62afb706233baf18f318678f5f4e"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-v1",
   "digests": {
-    "operationSet": "7cf1c424acb706fd6ac063e7366de85a3b8c9f6bb9943890e7fc7bd9156b8f12",
-    "semanticProgramSet": "bf30192724ca32b59ea215219e3716c2a62d7354d725ed1276e23cb2ed0127c1",
-    "runtimeRouting": "5c182e06e4bc82cc5b5da299aa029ef6f9f1d8a76fb7ab9685c1b123ac55510a",
-    "webgpuCVocabulary": "86bc31bf5008ce49d38f6e5af9eec65554082afa225beab258900cf924f7e227",
-    "projection": "1b06a611c591a8f67e8ef351b309146aa60dc857dd35506a4571daa1119f2766"
+    "operationSet": "e2bfb85c8bc8663b7293bc5f3d7aedfb57a5b944ea0339174e8f6f4956ecbacd",
+    "semanticProgramSet": "734891432894355f5dee3a1f1906b631f5b17868f107d4a8bce5efcdf76363c6",
+    "runtimeRouting": "f4e06b89b0f5a5564f609f11df5b9d476fb01194578650831df4117527980d92",
+    "webgpuCVocabulary": "d4b64287a090c4badc48673e69fe9eb2ebee2256a92dd6aedade5ecff836a8f1",
+    "projection": "ead84b64bdb9fa728e00ad894ad21f629ffc58098a2c62a4b9e411c87271664d"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
@@ -262,7 +262,7 @@
     },
     {
       "operationId": "GPUDevice.createSampler",
-      "wireId": 258698389,
+      "wireId": 3285037552,
       "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
       "requestCodec": "gpu-create-sampler-service-request-v1",
       "requestCodecTag": 18,
@@ -330,24 +330,24 @@
         "byteBacking": "none-one-resource-table-and-ledger-unit-per-sampler"
       },
       "semanticStepOrder": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload",
-        "validate-sampler-enum-vocabulary",
         "validate-sampler-lod-order-and-range",
         "validate-sampler-anisotropy-and-filter-combination",
+        "validate-sampler-label-under-reviewed-workload",
+        "validate-sampler-descriptor-under-reviewed-workload",
         "authenticate-wrapper-allocated-sampler-target-provenance",
         "validate-wrapper-allocated-sampler-target-generation",
         "reserve-sampler-table-and-resource-ledger-capacity",
-        "reserve-sampler-provider-request-completion-and-physical-sequence",
-        "validate-sampler-label-under-reviewed-workload"
+        "reserve-sampler-provider-request-completion-and-physical-sequence"
       ]
     },
     {
       "operationId": "GPUDevice.createTexture",
-      "wireId": 2925687091,
+      "wireId": 159202366,
       "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
       "requestCodec": "gpu-create-texture-service-request-v1",
       "requestCodecTag": 19,
@@ -448,22 +448,23 @@
         "maximumLabelUtf8Bytes": 13
       },
       "semanticStepOrder": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
         "validate-texture-extent-under-logical-limits-and-structural-bounds",
         "validate-texture-format-under-logical-capabilities",
         "validate-texture-usage-closed-bits-and-format-compatibility",
         "validate-texture-mip-level-and-sample-count-bounds",
         "validate-texture-view-formats-compatibility",
         "validate-texture-binding-view-dimension-compatibility",
+        "validate-texture-label-under-reviewed-workload",
+        "validate-texture-descriptor-under-reviewed-workload",
         "authenticate-wrapper-allocated-texture-target-provenance",
         "validate-wrapper-allocated-texture-target-generation",
         "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
-        "reserve-texture-provider-request-completion-and-physical-sequence",
-        "validate-texture-label-under-reviewed-workload"
+        "reserve-texture-provider-request-completion-and-physical-sequence"
       ]
     },
     {
@@ -4404,7 +4405,7 @@
       "id": "create-sampler-workload-call-01",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 258698389,
+        "operation_id": 3285037552,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -4434,7 +4435,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -4482,7 +4483,7 @@
       "id": "create-sampler-workload-call-02",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 258698389,
+        "operation_id": 3285037552,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -4512,7 +4513,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a100000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000290000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c050e0000006e65617265737453616d706c65720b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205070000006e6561726573740d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205070000006e6561726573740c0000006d69706d617046696c74657205070000006e656172657374",
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a100000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000290000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c050e0000006e65617265737453616d706c65720b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205070000006e6561726573740d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205070000006e6561726573740c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -4560,7 +4561,7 @@
       "id": "create-sampler-workload-call-03",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 258698389,
+        "operation_id": 3285037552,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -4590,7 +4591,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a2000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002a0000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c050d0000006c696e65617253616d706c65720b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a2000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002a0000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c050d0000006c696e65617253616d706c65720b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -4638,7 +4639,7 @@
       "id": "create-sampler-workload-call-04",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 258698389,
+        "operation_id": 3285037552,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -4668,7 +4669,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a3000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002b0000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c050700000073616d706c65720b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a3000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002b0000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c050700000073616d706c65720b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -4723,7 +4724,7 @@
             "result_kind": 0,
             "status": 0,
             "operation": {
-              "operation_id": 258698389,
+              "operation_id": 3285037552,
               "operation_instance_id": "60",
               "promise_id": "0",
               "provider_admission": 1,
@@ -4767,17 +4768,159 @@
       }
     },
     {
-      "id": "create-sampler-sealed-timeline-gap-rejected",
+      "id": "create-sampler-source-receiver-table-entry-missing-rejected",
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createSampler",
       "semanticTerminalId": "later-predicate-rejection",
       "semanticStepIndex": 1,
-      "firstFailingSemanticStep": "authenticate-contiguous-sealed-local-timeline-prefix",
+      "firstFailingSemanticStep": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
       "earlierSemanticStepsMustPass": [],
+      "mutation": {
+        "sourceReceiverTableEntryPresent": false
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": false
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-sampler-sealed-timeline-gap-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createSampler",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 2,
+      "firstFailingSemanticStep": "authenticate-contiguous-sealed-local-timeline-prefix",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table"
+      ],
       "mutation": {
         "sealedLocalTimelinePrefixContiguous": false
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": false
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "authenticate-contiguous-sealed-local-timeline-prefix",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -4789,15 +4932,77 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createSampler",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 2,
+      "semanticStepIndex": 3,
       "firstFailingSemanticStep": "validate-current-live-device-generation",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix"
       ],
       "mutation": {
         "deviceGeneration": "stale"
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": false
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-current-live-device-generation",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -4809,16 +5014,78 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createSampler",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 3,
+      "semanticStepIndex": 4,
       "firstFailingSemanticStep": "validate-operation-coverage",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation"
       ],
       "mutation": {
         "operationCoverageInstalled": false
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": false
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-operation-coverage",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -4830,9 +5097,10 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createSampler",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 4,
+      "semanticStepIndex": 5,
       "firstFailingSemanticStep": "validate-authorized-live-account-and-aggregate-envelope",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage"
@@ -4840,54 +5108,68 @@
       "mutation": {
         "aggregateEnvelopeState": "CLOSED"
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": false
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-authorized-live-account-and-aggregate-envelope",
+        "earlierSemanticStepsAllPassed": true,
         "providerTokenCount": 0,
         "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-sampler-unreviewed-workload-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createSampler",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 5,
-      "firstFailingSemanticStep": "validate-sampler-descriptor-under-reviewed-workload",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope"
-      ],
-      "mutation": {
-        "label": "otherSampler"
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
-        "providerTokenCount": 0,
-        "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-sampler-enum-vocabulary-mismatch-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createSampler",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 6,
-      "firstFailingSemanticStep": "validate-sampler-enum-vocabulary",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload"
-      ],
-      "mutation": {
-        "addressModeU": "border"
-      },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -4899,21 +5181,81 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createSampler",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 7,
+      "semanticStepIndex": 6,
       "firstFailingSemanticStep": "validate-sampler-lod-order-and-range",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload",
-        "validate-sampler-enum-vocabulary"
+        "validate-authorized-live-account-and-aggregate-envelope"
       ],
       "mutation": {
         "lodMinClamp": 4,
         "lodMaxClamp": 2
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": false
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-sampler-lod-order-and-range",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -4925,136 +5267,82 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createSampler",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 8,
+      "semanticStepIndex": 7,
       "firstFailingSemanticStep": "validate-sampler-anisotropy-and-filter-combination",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload",
-        "validate-sampler-enum-vocabulary",
         "validate-sampler-lod-order-and-range"
       ],
       "mutation": {
         "maxAnisotropy": 2,
         "minFilter": "nearest"
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": false
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-sampler-anisotropy-and-filter-combination",
+        "earlierSemanticStepsAllPassed": true,
         "providerTokenCount": 0,
         "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-sampler-foreign-target-provenance-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createSampler",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 9,
-      "firstFailingSemanticStep": "authenticate-wrapper-allocated-sampler-target-provenance",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload",
-        "validate-sampler-enum-vocabulary",
-        "validate-sampler-lod-order-and-range",
-        "validate-sampler-anisotropy-and-filter-combination"
-      ],
-      "mutation": {
-        "targetLogicalDeviceId": "56"
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
-        "providerTokenCount": 0,
-        "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-sampler-stale-target-generation-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createSampler",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 10,
-      "firstFailingSemanticStep": "validate-wrapper-allocated-sampler-target-generation",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload",
-        "validate-sampler-enum-vocabulary",
-        "validate-sampler-lod-order-and-range",
-        "validate-sampler-anisotropy-and-filter-combination",
-        "authenticate-wrapper-allocated-sampler-target-provenance"
-      ],
-      "mutation": {
-        "targetSlotGeneration": "2"
-      },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
-        "providerTokenCount": 0,
-        "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-sampler-resource-ledger-capacity-exhausted-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createSampler",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 11,
-      "firstFailingSemanticStep": "reserve-sampler-table-and-resource-ledger-capacity",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload",
-        "validate-sampler-enum-vocabulary",
-        "validate-sampler-lod-order-and-range",
-        "validate-sampler-anisotropy-and-filter-combination",
-        "authenticate-wrapper-allocated-sampler-target-provenance",
-        "validate-wrapper-allocated-sampler-target-generation"
-      ],
-      "mutation": {
-        "resourceUnitCredit": 0
-      },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
-        "providerTokenCount": 0,
-        "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-sampler-provider-completion-credit-exhausted-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createSampler",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 12,
-      "firstFailingSemanticStep": "reserve-sampler-provider-request-completion-and-physical-sequence",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload",
-        "validate-sampler-enum-vocabulary",
-        "validate-sampler-lod-order-and-range",
-        "validate-sampler-anisotropy-and-filter-combination",
-        "authenticate-wrapper-allocated-sampler-target-provenance",
-        "validate-wrapper-allocated-sampler-target-generation",
-        "reserve-sampler-table-and-resource-ledger-capacity"
-      ],
-      "mutation": {
-        "completionCredit": 0
-      },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5066,26 +5354,532 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createSampler",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 13,
+      "semanticStepIndex": 8,
       "firstFailingSemanticStep": "validate-sampler-label-under-reviewed-workload",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-sampler-descriptor-under-reviewed-workload",
-        "validate-sampler-enum-vocabulary",
         "validate-sampler-lod-order-and-range",
-        "validate-sampler-anisotropy-and-filter-combination",
-        "authenticate-wrapper-allocated-sampler-target-provenance",
-        "validate-wrapper-allocated-sampler-target-generation",
-        "reserve-sampler-table-and-resource-ledger-capacity",
-        "reserve-sampler-provider-request-completion-and-physical-sequence"
+        "validate-sampler-anisotropy-and-filter-combination"
       ],
       "mutation": {
         "label": "xxxxxxxxxxxxxxx"
       },
-      "bytesHex": "4942475101001200956c6b0f03500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-sampler-label-under-reviewed-workload",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-sampler-unreviewed-workload-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createSampler",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 9,
+      "firstFailingSemanticStep": "validate-sampler-descriptor-under-reviewed-workload",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-sampler-lod-order-and-range",
+        "validate-sampler-anisotropy-and-filter-combination",
+        "validate-sampler-label-under-reviewed-workload"
+      ],
+      "mutation": {
+        "addressModeU": "repeat"
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-sampler-descriptor-under-reviewed-workload",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-sampler-foreign-target-provenance-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createSampler",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 10,
+      "firstFailingSemanticStep": "authenticate-wrapper-allocated-sampler-target-provenance",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-sampler-lod-order-and-range",
+        "validate-sampler-anisotropy-and-filter-combination",
+        "validate-sampler-label-under-reviewed-workload",
+        "validate-sampler-descriptor-under-reviewed-workload"
+      ],
+      "mutation": {
+        "targetLogicalDeviceId": "56"
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": false
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "authenticate-wrapper-allocated-sampler-target-provenance",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-sampler-stale-target-generation-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createSampler",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 11,
+      "firstFailingSemanticStep": "validate-wrapper-allocated-sampler-target-generation",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-sampler-lod-order-and-range",
+        "validate-sampler-anisotropy-and-filter-combination",
+        "validate-sampler-label-under-reviewed-workload",
+        "validate-sampler-descriptor-under-reviewed-workload",
+        "authenticate-wrapper-allocated-sampler-target-provenance"
+      ],
+      "mutation": {
+        "targetSlotGeneration": "2"
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": false
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-wrapper-allocated-sampler-target-generation",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-sampler-resource-ledger-capacity-exhausted-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createSampler",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 12,
+      "firstFailingSemanticStep": "reserve-sampler-table-and-resource-ledger-capacity",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-sampler-lod-order-and-range",
+        "validate-sampler-anisotropy-and-filter-combination",
+        "validate-sampler-label-under-reviewed-workload",
+        "validate-sampler-descriptor-under-reviewed-workload",
+        "authenticate-wrapper-allocated-sampler-target-provenance",
+        "validate-wrapper-allocated-sampler-target-generation"
+      ],
+      "mutation": {
+        "resourceUnitCredit": 0
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": false
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "reserve-sampler-table-and-resource-ledger-capacity",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-sampler-provider-completion-credit-exhausted-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createSampler",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 13,
+      "firstFailingSemanticStep": "reserve-sampler-provider-request-completion-and-physical-sequence",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-sampler-lod-order-and-range",
+        "validate-sampler-anisotropy-and-filter-combination",
+        "validate-sampler-label-under-reviewed-workload",
+        "validate-sampler-descriptor-under-reviewed-workload",
+        "authenticate-wrapper-allocated-sampler-target-provenance",
+        "validate-wrapper-allocated-sampler-target-generation",
+        "reserve-sampler-table-and-resource-ledger-capacity"
+      ],
+      "mutation": {
+        "completionCredit": 0
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-lod-order-and-range",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-anisotropy-and-filter-combination",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-sampler-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-sampler-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-sampler-target-generation",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-table-and-resource-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-sampler-provider-request-completion-and-physical-sequence",
+            "passed": false
+          }
+        ],
+        "firstFailingSemanticStep": "reserve-sampler-provider-request-completion-and-physical-sequence",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "4942475101001200f0b1cdc303500000000000000002000000000000003700000000000000010000000000000009000000000000000108a000000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000280000000000000000000000000000000600000000070a0000000c000000616464726573734d6f646555050d000000636c616d702d746f2d656467650c000000616464726573734d6f646556050d000000636c616d702d746f2d656467650c000000616464726573734d6f646557050d000000636c616d702d746f2d65646765050000006c6162656c05000000000b0000006c6f644d6178436c616d7003200000000b0000006c6f644d696e436c616d700300000000090000006d616746696c74657205060000006c696e6561720d0000006d6178416e69736f74726f70790301000000090000006d696e46696c74657205060000006c696e6561720c0000006d69706d617046696c74657205070000006e656172657374",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5096,7 +5890,7 @@
       "id": "create-texture-workload-call-01",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 2925687091,
+        "operation_id": 159202366,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -5126,7 +5920,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -5175,7 +5969,7 @@
       "id": "create-texture-workload-call-02",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 2925687091,
+        "operation_id": 159202366,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -5205,7 +5999,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106ab0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000029000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c05000000000d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740340000000050000007769647468034000000005000000757361676503160000000b00000076696577466f726d6174730600000000",
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106ab0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000029000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c05000000000d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740340000000050000007769647468034000000005000000757361676503160000000b00000076696577466f726d6174730600000000",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -5254,7 +6048,7 @@
       "id": "create-texture-workload-call-03",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 2925687091,
+        "operation_id": 159202366,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -5284,7 +6078,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106ac000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002a000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c05000000000d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503110000000b00000076696577466f726d6174730600000000",
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106ac000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002a000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c05000000000d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503110000000b00000076696577466f726d6174730600000000",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -5333,7 +6127,7 @@
       "id": "create-texture-workload-call-04",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 2925687091,
+        "operation_id": 159202366,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -5363,7 +6157,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106ad000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002b000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c050c000000747261636b546578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740300020000050000007769647468030002000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106ad000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002b000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c050c000000747261636b546578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740300020000050000007769647468030002000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -5412,7 +6206,7 @@
       "id": "create-texture-workload-call-05",
       "kind": "request",
       "carrierProjection": {
-        "operation_id": 2925687091,
+        "operation_id": 159202366,
         "flags": 0,
         "topology_id": 1,
         "ingress_device": {
@@ -5442,7 +6236,7 @@
       },
       "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
       "semanticOwner": "native-semantic-service-before-provider-admission",
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106ae000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002c000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050b000000726762613136666c6f6174050000006c6162656c050d00000062657a696572546578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c617965727303010000000600000068656967687403800000000500000077696474680300010000050000007573616765031f0000000b00000076696577466f726d6174730600000000",
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106ae000000000000000100000000000000370000000000000001000000000000000900000000000000020000000000000000000000000000002c000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050b000000726762613136666c6f6174050000006c6162656c050d00000062657a696572546578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c617965727303010000000600000068656967687403800000000500000077696474680300010000050000007573616765031f0000000b00000076696577466f726d6174730600000000",
       "expected": {
         "receiver": {
           "kind": "GPUDevice",
@@ -5498,7 +6292,7 @@
             "result_kind": 0,
             "status": 0,
             "operation": {
-              "operation_id": 2925687091,
+              "operation_id": 159202366,
               "operation_instance_id": "70",
               "promise_id": "0",
               "provider_admission": 1,
@@ -5542,17 +6336,191 @@
       }
     },
     {
-      "id": "create-texture-sealed-timeline-gap-rejected",
+      "id": "create-texture-source-receiver-table-entry-missing-rejected",
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createTexture",
       "semanticTerminalId": "later-predicate-rejection",
       "semanticStepIndex": 1,
-      "firstFailingSemanticStep": "authenticate-contiguous-sealed-local-timeline-prefix",
+      "firstFailingSemanticStep": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
       "earlierSemanticStepsMustPass": [],
+      "mutation": {
+        "sourceReceiverTableEntryPresent": false
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": false
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-texture-sealed-timeline-gap-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createTexture",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 2,
+      "firstFailingSemanticStep": "authenticate-contiguous-sealed-local-timeline-prefix",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table"
+      ],
       "mutation": {
         "sealedLocalTimelinePrefixContiguous": false
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": false
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "authenticate-contiguous-sealed-local-timeline-prefix",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5564,15 +6532,93 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createTexture",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 2,
+      "semanticStepIndex": 3,
       "firstFailingSemanticStep": "validate-current-live-device-generation",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix"
       ],
       "mutation": {
         "deviceGeneration": "stale"
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": false
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-current-live-device-generation",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5584,16 +6630,94 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createTexture",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 3,
+      "semanticStepIndex": 4,
       "firstFailingSemanticStep": "validate-operation-coverage",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation"
       ],
       "mutation": {
         "operationCoverageInstalled": false
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": false
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-operation-coverage",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5605,9 +6729,10 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createTexture",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 4,
+      "semanticStepIndex": 5,
       "firstFailingSemanticStep": "validate-authorized-live-account-and-aggregate-envelope",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage"
@@ -5615,33 +6740,84 @@
       "mutation": {
         "aggregateEnvelopeState": "CLOSED"
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": false
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-authorized-live-account-and-aggregate-envelope",
+        "earlierSemanticStepsAllPassed": true,
         "providerTokenCount": 0,
         "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-texture-unreviewed-workload-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createTexture",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 5,
-      "firstFailingSemanticStep": "validate-texture-descriptor-under-reviewed-workload",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope"
-      ],
-      "mutation": {
-        "size": [
-          16,
-          16
-        ]
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5656,16 +6832,93 @@
       "semanticStepIndex": 6,
       "firstFailingSemanticStep": "validate-texture-extent-under-logical-limits-and-structural-bounds",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload"
+        "validate-authorized-live-account-and-aggregate-envelope"
       ],
       "mutation": {
         "maxTextureDimension2D": 31
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": false
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5680,20 +6933,94 @@
       "semanticStepIndex": 7,
       "firstFailingSemanticStep": "validate-texture-format-under-logical-capabilities",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
         "validate-texture-extent-under-logical-limits-and-structural-bounds"
       ],
       "mutation": {
-        "format": "rgba16float",
-        "allowedFormats": [
-          "rgba8unorm"
-        ]
+        "allowedFormats": []
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": false
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-texture-format-under-logical-capabilities",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5708,18 +7035,95 @@
       "semanticStepIndex": 8,
       "firstFailingSemanticStep": "validate-texture-usage-closed-bits-and-format-compatibility",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
         "validate-texture-extent-under-logical-limits-and-structural-bounds",
         "validate-texture-format-under-logical-capabilities"
       ],
       "mutation": {
-        "usage": 8
+        "usage": 0
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": false
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-texture-usage-closed-bits-and-format-compatibility",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5734,19 +7138,96 @@
       "semanticStepIndex": 9,
       "firstFailingSemanticStep": "validate-texture-mip-level-and-sample-count-bounds",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
         "validate-texture-extent-under-logical-limits-and-structural-bounds",
         "validate-texture-format-under-logical-capabilities",
         "validate-texture-usage-closed-bits-and-format-compatibility"
       ],
       "mutation": {
-        "mipLevelCount": 2
+        "mipLevelCount": 7
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": false
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-texture-mip-level-and-sample-count-bounds",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5761,11 +7242,11 @@
       "semanticStepIndex": 10,
       "firstFailingSemanticStep": "validate-texture-view-formats-compatibility",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
         "validate-texture-extent-under-logical-limits-and-structural-bounds",
         "validate-texture-format-under-logical-capabilities",
         "validate-texture-usage-closed-bits-and-format-compatibility",
@@ -5776,7 +7257,84 @@
           "bgra8unorm"
         ]
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": false
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-texture-view-formats-compatibility",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5791,11 +7349,11 @@
       "semanticStepIndex": 11,
       "firstFailingSemanticStep": "validate-texture-binding-view-dimension-compatibility",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
         "validate-texture-extent-under-logical-limits-and-structural-bounds",
         "validate-texture-format-under-logical-capabilities",
         "validate-texture-usage-closed-bits-and-format-compatibility",
@@ -5805,133 +7363,84 @@
       "mutation": {
         "textureBindingViewDimension": "cube"
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": false
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-texture-binding-view-dimension-compatibility",
+        "earlierSemanticStepsAllPassed": true,
         "providerTokenCount": 0,
         "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-texture-foreign-target-provenance-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createTexture",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 12,
-      "firstFailingSemanticStep": "authenticate-wrapper-allocated-texture-target-provenance",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
-        "validate-texture-extent-under-logical-limits-and-structural-bounds",
-        "validate-texture-format-under-logical-capabilities",
-        "validate-texture-usage-closed-bits-and-format-compatibility",
-        "validate-texture-mip-level-and-sample-count-bounds",
-        "validate-texture-view-formats-compatibility",
-        "validate-texture-binding-view-dimension-compatibility"
-      ],
-      "mutation": {
-        "targetLogicalDeviceId": "56"
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
-        "providerTokenCount": 0,
-        "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-texture-stale-target-generation-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createTexture",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 13,
-      "firstFailingSemanticStep": "validate-wrapper-allocated-texture-target-generation",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
-        "validate-texture-extent-under-logical-limits-and-structural-bounds",
-        "validate-texture-format-under-logical-capabilities",
-        "validate-texture-usage-closed-bits-and-format-compatibility",
-        "validate-texture-mip-level-and-sample-count-bounds",
-        "validate-texture-view-formats-compatibility",
-        "validate-texture-binding-view-dimension-compatibility",
-        "authenticate-wrapper-allocated-texture-target-provenance"
-      ],
-      "mutation": {
-        "targetSlotGeneration": "2"
-      },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
-        "providerTokenCount": 0,
-        "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-texture-resource-ledger-capacity-exhausted-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createTexture",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 14,
-      "firstFailingSemanticStep": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
-        "validate-texture-extent-under-logical-limits-and-structural-bounds",
-        "validate-texture-format-under-logical-capabilities",
-        "validate-texture-usage-closed-bits-and-format-compatibility",
-        "validate-texture-mip-level-and-sample-count-bounds",
-        "validate-texture-view-formats-compatibility",
-        "validate-texture-binding-view-dimension-compatibility",
-        "authenticate-wrapper-allocated-texture-target-provenance",
-        "validate-wrapper-allocated-texture-target-generation"
-      ],
-      "mutation": {
-        "aggregateEnvelopeResourceCredit": 0
-      },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
-      "expected": {
-        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
-        "providerTokenCount": 0,
-        "physicalSequenceCount": 0
-      }
-    },
-    {
-      "id": "create-texture-provider-completion-credit-exhausted-rejected",
-      "kind": "semantic-rejection",
-      "operationId": "GPUDevice.createTexture",
-      "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 15,
-      "firstFailingSemanticStep": "reserve-texture-provider-request-completion-and-physical-sequence",
-      "earlierSemanticStepsMustPass": [
-        "authenticate-contiguous-sealed-local-timeline-prefix",
-        "validate-current-live-device-generation",
-        "validate-operation-coverage",
-        "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
-        "validate-texture-extent-under-logical-limits-and-structural-bounds",
-        "validate-texture-format-under-logical-capabilities",
-        "validate-texture-usage-closed-bits-and-format-compatibility",
-        "validate-texture-mip-level-and-sample-count-bounds",
-        "validate-texture-view-formats-compatibility",
-        "validate-texture-binding-view-dimension-compatibility",
-        "authenticate-wrapper-allocated-texture-target-provenance",
-        "validate-wrapper-allocated-texture-target-generation",
-        "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity"
-      ],
-      "mutation": {
-        "completionCredit": 0
-      },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,
@@ -5943,29 +7452,656 @@
       "kind": "semantic-rejection",
       "operationId": "GPUDevice.createTexture",
       "semanticTerminalId": "later-predicate-rejection",
-      "semanticStepIndex": 16,
+      "semanticStepIndex": 12,
       "firstFailingSemanticStep": "validate-texture-label-under-reviewed-workload",
       "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
         "validate-current-live-device-generation",
         "validate-operation-coverage",
         "validate-authorized-live-account-and-aggregate-envelope",
-        "validate-texture-descriptor-under-reviewed-workload",
+        "validate-texture-extent-under-logical-limits-and-structural-bounds",
+        "validate-texture-format-under-logical-capabilities",
+        "validate-texture-usage-closed-bits-and-format-compatibility",
+        "validate-texture-mip-level-and-sample-count-bounds",
+        "validate-texture-view-formats-compatibility",
+        "validate-texture-binding-view-dimension-compatibility"
+      ],
+      "mutation": {
+        "label": "xxxxxxxxxxxxxx"
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-texture-label-under-reviewed-workload",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-texture-unreviewed-workload-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createTexture",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 13,
+      "firstFailingSemanticStep": "validate-texture-descriptor-under-reviewed-workload",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
         "validate-texture-extent-under-logical-limits-and-structural-bounds",
         "validate-texture-format-under-logical-capabilities",
         "validate-texture-usage-closed-bits-and-format-compatibility",
         "validate-texture-mip-level-and-sample-count-bounds",
         "validate-texture-view-formats-compatibility",
         "validate-texture-binding-view-dimension-compatibility",
-        "authenticate-wrapper-allocated-texture-target-provenance",
-        "validate-wrapper-allocated-texture-target-generation",
-        "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
-        "reserve-texture-provider-request-completion-and-physical-sequence"
+        "validate-texture-label-under-reviewed-workload"
       ],
       "mutation": {
-        "label": "xxxxxxxxxxxxxx"
+        "size": {
+          "width": 16,
+          "height": 16,
+          "depthOrArrayLayers": 1
+        }
       },
-      "bytesHex": "4942475101001300337162ae03500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": false
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-texture-descriptor-under-reviewed-workload",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-texture-foreign-target-provenance-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createTexture",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 14,
+      "firstFailingSemanticStep": "authenticate-wrapper-allocated-texture-target-provenance",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-texture-extent-under-logical-limits-and-structural-bounds",
+        "validate-texture-format-under-logical-capabilities",
+        "validate-texture-usage-closed-bits-and-format-compatibility",
+        "validate-texture-mip-level-and-sample-count-bounds",
+        "validate-texture-view-formats-compatibility",
+        "validate-texture-binding-view-dimension-compatibility",
+        "validate-texture-label-under-reviewed-workload",
+        "validate-texture-descriptor-under-reviewed-workload"
+      ],
+      "mutation": {
+        "targetLogicalDeviceId": "56"
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": false
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "authenticate-wrapper-allocated-texture-target-provenance",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-texture-stale-target-generation-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createTexture",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 15,
+      "firstFailingSemanticStep": "validate-wrapper-allocated-texture-target-generation",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-texture-extent-under-logical-limits-and-structural-bounds",
+        "validate-texture-format-under-logical-capabilities",
+        "validate-texture-usage-closed-bits-and-format-compatibility",
+        "validate-texture-mip-level-and-sample-count-bounds",
+        "validate-texture-view-formats-compatibility",
+        "validate-texture-binding-view-dimension-compatibility",
+        "validate-texture-label-under-reviewed-workload",
+        "validate-texture-descriptor-under-reviewed-workload",
+        "authenticate-wrapper-allocated-texture-target-provenance"
+      ],
+      "mutation": {
+        "targetSlotGeneration": "2"
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": false
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "validate-wrapper-allocated-texture-target-generation",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-texture-resource-ledger-capacity-exhausted-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createTexture",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 16,
+      "firstFailingSemanticStep": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-texture-extent-under-logical-limits-and-structural-bounds",
+        "validate-texture-format-under-logical-capabilities",
+        "validate-texture-usage-closed-bits-and-format-compatibility",
+        "validate-texture-mip-level-and-sample-count-bounds",
+        "validate-texture-view-formats-compatibility",
+        "validate-texture-binding-view-dimension-compatibility",
+        "validate-texture-label-under-reviewed-workload",
+        "validate-texture-descriptor-under-reviewed-workload",
+        "authenticate-wrapper-allocated-texture-target-provenance",
+        "validate-wrapper-allocated-texture-target-generation"
+      ],
+      "mutation": {
+        "aggregateEnvelopeResourceCredit": 0
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": false
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": true
+          }
+        ],
+        "firstFailingSemanticStep": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-texture-provider-completion-credit-exhausted-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createTexture",
+      "semanticTerminalId": "later-predicate-rejection",
+      "semanticStepIndex": 17,
+      "firstFailingSemanticStep": "reserve-texture-provider-request-completion-and-physical-sequence",
+      "earlierSemanticStepsMustPass": [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-texture-extent-under-logical-limits-and-structural-bounds",
+        "validate-texture-format-under-logical-capabilities",
+        "validate-texture-usage-closed-bits-and-format-compatibility",
+        "validate-texture-mip-level-and-sample-count-bounds",
+        "validate-texture-view-formats-compatibility",
+        "validate-texture-binding-view-dimension-compatibility",
+        "validate-texture-label-under-reviewed-workload",
+        "validate-texture-descriptor-under-reviewed-workload",
+        "authenticate-wrapper-allocated-texture-target-provenance",
+        "validate-wrapper-allocated-texture-target-generation",
+        "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity"
+      ],
+      "mutation": {
+        "completionCredit": 0
+      },
+      "reachabilityEvidence": {
+        "oracle": "resource-semantic-first-failure-v1",
+        "evaluatedPredicateResults": [
+          {
+            "step": "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+            "passed": true
+          },
+          {
+            "step": "authenticate-contiguous-sealed-local-timeline-prefix",
+            "passed": true
+          },
+          {
+            "step": "validate-current-live-device-generation",
+            "passed": true
+          },
+          {
+            "step": "validate-operation-coverage",
+            "passed": true
+          },
+          {
+            "step": "validate-authorized-live-account-and-aggregate-envelope",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-extent-under-logical-limits-and-structural-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-format-under-logical-capabilities",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-usage-closed-bits-and-format-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-mip-level-and-sample-count-bounds",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-view-formats-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-binding-view-dimension-compatibility",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-label-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "validate-texture-descriptor-under-reviewed-workload",
+            "passed": true
+          },
+          {
+            "step": "authenticate-wrapper-allocated-texture-target-provenance",
+            "passed": true
+          },
+          {
+            "step": "validate-wrapper-allocated-texture-target-generation",
+            "passed": true
+          },
+          {
+            "step": "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
+            "passed": true
+          },
+          {
+            "step": "reserve-texture-provider-request-completion-and-physical-sequence",
+            "passed": false
+          }
+        ],
+        "firstFailingSemanticStep": "reserve-texture-provider-request-completion-and-physical-sequence",
+        "earlierSemanticStepsAllPassed": true,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      },
+      "bytesHex": "49424751010013003e3c7d0903500000000000000002000000000000003700000000000000010000000000000009000000000000000106aa0000000000000001000000000000003700000000000000010000000000000009000000000000000200000000000000000000000000000028000000000000000000000000000000060000000007080000000900000064696d656e73696f6e0502000000326406000000666f726d6174050a0000007267626138756e6f726d050000006c6162656c0507000000746578747572650d0000006d69704c6576656c436f756e7403010000000b00000073616d706c65436f756e7403010000000400000073697a6507030000001200000064657074684f7241727261794c61796572730301000000060000006865696768740320000000050000007769647468032000000005000000757361676503170000000b00000076696577466f726d6174730600000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "providerTokenCount": 0,

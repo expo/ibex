@@ -87,11 +87,11 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "7cf1c424acb706fd6ac063e7366de85a3b8c9f6bb9943890e7fc7bd9156b8f12",
-    "semanticProgramSet": "bf30192724ca32b59ea215219e3716c2a62d7354d725ed1276e23cb2ed0127c1",
-    "runtimeRouting": "5c182e06e4bc82cc5b5da299aa029ef6f9f1d8a76fb7ab9685c1b123ac55510a",
-    "webgpuCVocabulary": "86bc31bf5008ce49d38f6e5af9eec65554082afa225beab258900cf924f7e227",
-    "projection": "1b06a611c591a8f67e8ef351b309146aa60dc857dd35506a4571daa1119f2766"
+    "operationSet": "e2bfb85c8bc8663b7293bc5f3d7aedfb57a5b944ea0339174e8f6f4956ecbacd",
+    "semanticProgramSet": "734891432894355f5dee3a1f1906b631f5b17868f107d4a8bce5efcdf76363c6",
+    "runtimeRouting": "f4e06b89b0f5a5564f609f11df5b9d476fb01194578650831df4117527980d92",
+    "webgpuCVocabulary": "d4b64287a090c4badc48673e69fe9eb2ebee2256a92dd6aedade5ecff836a8f1",
+    "projection": "ead84b64bdb9fa728e00ad894ad21f629ffc58098a2c62a4b9e411c87271664d"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -3202,7 +3202,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUDevice.createSampler",
-        "wireId": 258698389,
+        "wireId": 3285037552,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -3220,7 +3220,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 18,
-                  "operationWireId": 258698389
+                  "operationWireId": 3285037552
                 }
               },
               {
@@ -3359,7 +3359,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 258698389
+              "value": 3285037552
             },
             {
               "carrierPath": "flags",
@@ -3458,19 +3458,19 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             "stateAuthority": "authenticated-device-object-account-coverage-and-reservation-tables",
             "payloadRole": "comparison-input-only-never-authority",
             "requiredAfterDecode": [
+              "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
               "authenticate-contiguous-sealed-local-timeline-prefix",
               "validate-current-live-device-generation",
               "validate-operation-coverage",
               "validate-authorized-live-account-and-aggregate-envelope",
-              "validate-sampler-descriptor-under-reviewed-workload",
-              "validate-sampler-enum-vocabulary",
               "validate-sampler-lod-order-and-range",
               "validate-sampler-anisotropy-and-filter-combination",
+              "validate-sampler-label-under-reviewed-workload",
+              "validate-sampler-descriptor-under-reviewed-workload",
               "authenticate-wrapper-allocated-sampler-target-provenance",
               "validate-wrapper-allocated-sampler-target-generation",
               "reserve-sampler-table-and-resource-ledger-capacity",
-              "reserve-sampler-provider-request-completion-and-physical-sequence",
-              "validate-sampler-label-under-reviewed-workload"
+              "reserve-sampler-provider-request-completion-and-physical-sequence"
             ],
             "completionEncodingRequires": [
               "authenticated-retained-call",
@@ -3502,7 +3502,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 258698389
+              "value": 3285037552
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",
@@ -3629,7 +3629,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUDevice.createTexture",
-        "wireId": 2925687091,
+        "wireId": 159202366,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -3647,7 +3647,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 19,
-                  "operationWireId": 2925687091
+                  "operationWireId": 159202366
                 }
               },
               {
@@ -3786,7 +3786,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 2925687091
+              "value": 159202366
             },
             {
               "carrierPath": "flags",
@@ -3885,22 +3885,23 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             "stateAuthority": "authenticated-device-object-account-coverage-and-reservation-tables",
             "payloadRole": "comparison-input-only-never-authority",
             "requiredAfterDecode": [
+              "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
               "authenticate-contiguous-sealed-local-timeline-prefix",
               "validate-current-live-device-generation",
               "validate-operation-coverage",
               "validate-authorized-live-account-and-aggregate-envelope",
-              "validate-texture-descriptor-under-reviewed-workload",
               "validate-texture-extent-under-logical-limits-and-structural-bounds",
               "validate-texture-format-under-logical-capabilities",
               "validate-texture-usage-closed-bits-and-format-compatibility",
               "validate-texture-mip-level-and-sample-count-bounds",
               "validate-texture-view-formats-compatibility",
               "validate-texture-binding-view-dimension-compatibility",
+              "validate-texture-label-under-reviewed-workload",
+              "validate-texture-descriptor-under-reviewed-workload",
               "authenticate-wrapper-allocated-texture-target-provenance",
               "validate-wrapper-allocated-texture-target-generation",
               "compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity",
-              "reserve-texture-provider-request-completion-and-physical-sequence",
-              "validate-texture-label-under-reviewed-workload"
+              "reserve-texture-provider-request-completion-and-physical-sequence"
             ],
             "completionEncodingRequires": [
               "authenticated-retained-call",
@@ -3932,7 +3933,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 2925687091
+              "value": 159202366
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",
