@@ -264,6 +264,15 @@ enum NativeProbeSetup {
         #[serde(rename = "sourceDescriptorDigest")]
         source_descriptor_digest: String,
     },
+    FsWriteFile {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        path: String,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
     InvokeNativeGlobal {
         #[serde(rename = "globalName")]
         global_name: String,
@@ -856,6 +865,7 @@ fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
 #[derive(Default)]
 struct NativeSetupState {
     fs_file_descriptor: Option<f64>,
+    fs_file_path: Option<String>,
     tcp_loopback_client_handle: Option<f64>,
     sqlite_database_handle: Option<f64>,
     sqlite_statement_handle: Option<f64>,
@@ -903,6 +913,53 @@ async fn run_native_setup(
                         .as_f64()
                         .expect("native filesystem setup must return a numeric descriptor"),
                 );
+            }
+            NativeProbeSetup::FsWriteFile {
+                global_name,
+                path,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+                // retained write controls receive a harness-owned file and
+                // descriptor before their decision observation begins.
+                assert_eq!(global_name, "__exactFsOpen");
+                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 4);
+                assert!(state.fs_file_descriptor.is_none());
+                assert!(state.fs_file_path.is_none());
+                assert!(
+                    matches!(
+                        path.as_str(),
+                        "target/ibex-capsec-fsync" | "target/ibex-capsec-fdatasync"
+                    ),
+                    "retained write setup escaped its exact owned paths"
+                );
+                let _ = std::fs::remove_file(path);
+                std::fs::write(path, b"ibex-capsec-retained-sync")
+                    .expect("create retained write setup fixture");
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[serde_json::json!(path), serde_json::json!("a")],
+                    ))
+                    .await
+                    .expect("execute native writable descriptor setup")
+                    .expect("native writable descriptor setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("native writable descriptor setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.fs_file_descriptor = Some(
+                    result["value"]
+                        .as_f64()
+                        .expect("native writable setup must return a numeric descriptor"),
+                );
+                state.fs_file_path = Some(path.clone());
             }
             NativeProbeSetup::InvokeNativeGlobal {
                 global_name,
@@ -1380,7 +1437,10 @@ fn validate_native_runtime_observation(
     // edge may be admitted by the authored recipe.
     let auxiliary_worker_terminal = if matches!(
         invocation.global_name.as_str(),
-        "__exactFsOpenAsync" | "__exactFsFstatSync"
+        "__exactFsOpenAsync"
+            | "__exactFsFstatSync"
+            | "__exactFsFsyncSync"
+            | "__exactFsFdatasyncSync"
     ) {
         Some("native-op:__exactFsOpen")
     } else if invocation.global_name == "__exactFsPathAsync" {
@@ -2008,22 +2068,36 @@ async fn execute_native_public_recipe(
         .expect("native public invocation returned no result");
     let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
-    if invocation.global_name == "__exactFsFstatSync" {
+    if matches!(
+        invocation.global_name.as_str(),
+        "__exactFsFstatSync" | "__exactFsFsyncSync" | "__exactFsFdatasyncSync"
+    ) {
         let descriptor = setup_state
             .fs_file_descriptor
-            .expect("retained fstat requires an owned setup descriptor");
+            .expect("retained descriptor operation requires an owned setup descriptor");
         let cleanup = engine
             .eval_immediate(&format!(
                 "JSON.stringify((function(){{try{{globalThis.__exactFsClose({});return {{kind:\"return\"}};}}catch(e){{return {{kind:\"throw\",errorMessage:String(e&&e.message||e)}};}}}})())",
                 serde_json::to_string(&descriptor).expect("serialize setup descriptor")
             ))
             .await
-            .expect("close retained fstat setup descriptor")
-            .expect("retained fstat cleanup returned no result");
+            .expect("close retained setup descriptor")
+            .expect("retained descriptor cleanup returned no result");
         let cleanup: serde_json::Value = serde_json::from_str(&cleanup)
-            .expect("retained fstat cleanup returned invalid JSON");
-        assert_eq!(cleanup["kind"], "return", "retained fstat cleanup failed");
-        if invocation_result["kind"] == "return" {
+            .expect("retained descriptor cleanup returned invalid JSON");
+        assert_eq!(cleanup["kind"], "return", "retained descriptor cleanup failed");
+        if let Some(path) = &setup_state.fs_file_path {
+            assert_eq!(
+                std::fs::read(path).expect("read retained sync fixture"),
+                b"ibex-capsec-retained-sync"
+            );
+            std::fs::remove_file(path).expect("remove retained sync fixture");
+            if invocation_result["kind"] == "return" {
+                invocation_result["cleanup"] = serde_json::Value::String(
+                    "closed-fs-file-descriptor-removed-owned-file".into(),
+                );
+            }
+        } else if invocation_result["kind"] == "return" {
             invocation_result["cleanup"] =
                 serde_json::Value::String("closed-fs-file-descriptor".into());
         }

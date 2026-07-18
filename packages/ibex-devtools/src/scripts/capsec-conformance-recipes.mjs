@@ -599,6 +599,14 @@ const fsReadFileSetup = () => [
     requiredSourceArity: 4,
   },
 ];
+const fsWriteFileSetup = (path) => [
+  {
+    kind: "fs-write-file",
+    globalName: "__exactFsOpen",
+    path,
+    requiredSourceArity: 4,
+  },
+];
 const nativeResultArgument = (
   globalName,
   requiredSourceArity,
@@ -1224,6 +1232,49 @@ const nativeRetainedFsFstatTemplate = () =>
     unsupportedTargetReason: "native-public-operation-not-typed-on-target",
     unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
   });
+const nativeRetainedFsSyncTemplate = (path) =>
+  Object.freeze({
+    actionIds: ["fs:write"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [harnessFsFileDescriptorArgument()],
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:write"],
+      malformed: ["fs:write"],
+      "missing-attribution": ["fs:write"],
+      "wrong-principal": ["fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: fsWriteFileSetup(path),
+  });
 const nativeProjectReaddirTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -1468,6 +1519,14 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     }),
   ],
   ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
+  [
+    "__exactFsFsyncSync",
+    nativeRetainedFsSyncTemplate("target/ibex-capsec-fsync"),
+  ],
+  [
+    "__exactFsFdatasyncSync",
+    nativeRetainedFsSyncTemplate("target/ibex-capsec-fdatasync"),
+  ],
   [
     "__exactTcpConnect",
     Object.freeze({
@@ -2930,6 +2989,7 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
   if (
     !new Set([
       "fs-read-file",
+      "fs-write-file",
       "sqlite-memory-database",
       "sqlite-memory-statement",
       "tcp-loopback-client",
@@ -2949,9 +3009,10 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
     );
   }
   const sourceDescriptor = clone(producer);
+  const boundSetup = clone(setup);
+  delete boundSetup.requiredSourceArity;
   return {
-    kind: setup.kind,
-    globalName: setup.globalName,
+    ...boundSetup,
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
   };

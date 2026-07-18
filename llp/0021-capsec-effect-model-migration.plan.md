@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor durability on Apple through typed fsync/fdatasync repeat gates and owned-file cleanup, while prerequisite-conflicting denial remains residual)
 **Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor metadata on Apple, closes the setup descriptor outside observation, and leaves prerequisite-conflicting denial and the legacy Windows path residual)
 **Revised:** 2026-07-18 (ENG-24933 keeps POSIX evidence directories mode-private while treating Windows' synthetic POSIX mode bits as non-authoritative)
 **Revised:** 2026-07-18 (ENG-24933 executes all three asynchronous descriptor-open branches through event-loop quiescence on Apple, closes returned descriptors, and keeps the uninstalled Windows surface residual)
@@ -1594,6 +1595,16 @@ prerequisite descriptor from being opened, so the harness cannot honestly
 stage that retained-object scenario. Windows remains residual independently
 because its installed descriptor-metadata implementation still uses the
 legacy capability check rather than the typed retained-object gate.
+Retained `__exactFsFsyncSync` and `__exactFsFdatasyncSync` durability each add
+four physical Apple recipes. Before observation, the harness creates a distinct
+exact file under `target/` and opens an append descriptor through the
+source-bound native surface under joint `fs:list` and `fs:write` floors. Each
+durability invocation must emit one typed `fs:write` repeat decision, preserve
+the fixture bytes, and then close the descriptor and remove the owned file
+outside the decision window. The same typed implementations and recipes apply
+to Windows, pending physical Windows evidence. Denial remains residual on both
+targets because denying the descriptor's required `fs:write` authority would
+also prevent the prerequisite writable descriptor from being opened.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
 harness-owned file. Passing evidence must select requested, discovery, and two
 repeat decisions: one retained-target authorization and one generation-bound

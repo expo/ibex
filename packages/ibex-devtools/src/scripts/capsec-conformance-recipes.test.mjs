@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_189);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_749);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_197);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_741);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(490);
+    expect(nativePublicFixtures).toHaveLength(498);
     expect(
       nativePublicFixtures
         .filter(
@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_938);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_049);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_889);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_057);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_881);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -1193,6 +1193,54 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsResiduals).not.toContain(
       "native-public-operation-not-installed-on-target",
     );
+  });
+
+  test("flushes retained writable descriptors and removes their owned files", () => {
+    for (const [globalName, path] of [
+      ["__exactFsFsyncSync", "target/ibex-capsec-fsync"],
+      ["__exactFsFdatasyncSync", "target/ibex-capsec-fdatasync"],
+    ]) {
+      for (const catalog of [recipes, windowsRecipes]) {
+        const rows = catalog.recipes.filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+        );
+        expect(rows).toHaveLength(4);
+        for (const recipe of rows) {
+          const invocation = recipe.publicSurfaceProbe.invocation;
+          expect(invocation.arguments).toEqual([
+            { kind: "harness-fs-file-descriptor" },
+          ]);
+          expect(invocation.setup).toHaveLength(1);
+          expect(invocation.setup[0]).toMatchObject({
+            kind: "fs-write-file",
+            globalName: "__exactFsOpen",
+            path,
+          });
+          expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+          expect(
+            invocation.requiredFloor.map((selector) => selector.cap),
+          ).toEqual(["fs:list", "fs:write"]);
+          expect(invocation.expectedActionIds).toEqual(["fs:write"]);
+          expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+          expect(invocation.expectedTypedDecisionCount).toBe(1);
+          expect(invocation.expectedCleanup).toBe(
+            "closed-fs-file-descriptor-removed-owned-file",
+          );
+          expect(recipe.residualReasons).toEqual([]);
+          expect(recipe.status).toBe("fully-executable");
+        }
+        const denied = catalog.recipes.find(
+          (recipe) =>
+            recipe.terminalObservedKey === `native-op:${globalName}` &&
+            recipe.scenario === "deny",
+        );
+        expect(denied.publicSurfaceProbe).toBeNull();
+        expect(denied.residualReasons).toContain(
+          "native-public-deny-scenario-not-authored",
+        );
+      }
+    }
   });
 
   test("enumerates a direct native directory with retained repeat evidence", () => {
