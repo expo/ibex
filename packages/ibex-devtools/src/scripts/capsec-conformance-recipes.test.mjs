@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_932);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_222);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_710);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_226);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_706);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(523);
+    expect(nativePublicFixtures).toHaveLength(527);
     expect(
       nativePublicFixtures
         .filter(
@@ -1222,6 +1222,58 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe?.invocation?.globalName ===
             "__exactFsStatAsync" &&
           recipe.fixtureId.includes(".logical.path."),
+      ),
+    ).toHaveLength(0);
+  });
+
+  test("reads retained descriptor metadata through the async stat branch", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsStatAsync" &&
+        recipe.fixtureId.includes(".logical.descriptor."),
+    );
+    expect(rows).toHaveLength(4);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "harness-fs-file-descriptor" },
+        { kind: "json-literal", value: "fstat" },
+        { kind: "json-literal", value: null },
+      ]);
+      expect(invocation.completion).toEqual({
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      });
+      expect(invocation.setup).toHaveLength(1);
+      expect(invocation.setup[0].globalName).toBe("__exactFsOpen");
+      expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
+        "fs:list",
+        "fs:read",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+      expect(invocation.expectedTypedDecisionCount).toBe(1);
+      expect(invocation.expectedCleanup).toBe("closed-fs-file-descriptor");
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    for (const scenario of ["branch-selection", "deny"]) {
+      const residual = recipes.recipes.find(
+        (recipe) =>
+          recipe.fixtureId.includes("exactfsstatasync") &&
+          recipe.fixtureId.includes(".logical.descriptor.") &&
+          recipe.scenario === scenario,
+      );
+      expect(residual.publicSurfaceProbe).toBeNull();
+      expect(residual.status).toBe("unresolved");
+    }
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+            "__exactFsStatAsync" &&
+          recipe.fixtureId.includes(".logical.descriptor."),
       ),
     ).toHaveLength(0);
   });

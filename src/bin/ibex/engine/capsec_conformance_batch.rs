@@ -2024,7 +2024,7 @@ async fn execute_native_public_recipe(
         std::fs::write(format!("{path}/entry.txt"), b"ibex-capsec-directory-list")
             .expect("create direct directory-list fixture entry");
     }
-    let async_stat_path_fixture = invocation.global_name == "__exactFsStatAsync"
+    let async_stat_fixture = if invocation.global_name == "__exactFsStatAsync"
         && matches!(
             invocation.arguments.as_slice(),
             [
@@ -2034,7 +2034,23 @@ async fn execute_native_public_recipe(
             ] if path.as_str() == Some("Cargo.toml")
                 && kind.as_str() == Some("stat")
                 && handle.is_null()
-        );
+        )
+    {
+        Some("Cargo.toml")
+    } else if invocation.global_name == "__exactFsStatAsync"
+        && matches!(
+            invocation.arguments.as_slice(),
+            [
+                NativeProbeArgument::HarnessFsFileDescriptor,
+                NativeProbeArgument::JsonLiteral { value: kind },
+                NativeProbeArgument::JsonLiteral { value: handle }
+            ] if kind.as_str() == Some("fstat") && handle.is_null()
+        )
+    {
+        Some("Cargo.toml")
+    } else {
+        None
+    };
     let fs_path_async_file_fixture = if invocation.global_name == "__exactFsPathAsync" {
         match (
             invocation.arguments.first(),
@@ -2122,7 +2138,9 @@ async fn execute_native_public_recipe(
             | "__exactFsFdatasyncSync"
             | "__exactFsFtruncateSync"
             | "__exactFsFdAsync"
-    ) {
+    ) || (invocation.global_name == "__exactFsStatAsync"
+        && setup_state.fs_file_descriptor.is_some())
+    {
         let descriptor = setup_state
             .fs_file_descriptor
             .expect("retained descriptor operation requires an owned setup descriptor");
@@ -2274,7 +2292,7 @@ async fn execute_native_public_recipe(
                 serde_json::Value::String("removed-owned-directory".into());
         }
     }
-    if async_stat_path_fixture && invocation_result["kind"] == "return" {
+    if let Some(path) = async_stat_fixture.filter(|_| invocation_result["kind"] == "return") {
         let stat: serde_json::Value = serde_json::from_str(
             invocation_result["resultString"]
                 .as_str()
@@ -2284,7 +2302,7 @@ async fn execute_native_public_recipe(
         assert_eq!(
             stat["size"],
             serde_json::Value::from(
-                std::fs::metadata("Cargo.toml")
+                std::fs::metadata(path)
                     .expect("read async stat fixture metadata")
                     .len()
             ),

@@ -1303,6 +1303,59 @@ const nativeRetainedFsFstatTemplate = () =>
     unsupportedTargetReason: "native-public-operation-not-typed-on-target",
     unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
   });
+const nativeRetainedFsStatAsyncTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [
+      harnessFsFileDescriptorArgument(),
+      literalArgument("fstat"),
+      literalArgument(null),
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedCleanup: "closed-fs-file-descriptor",
+    expectedDecisionCounts: {
+      allow: 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:list"],
+      malformed: ["fs:list"],
+      "missing-attribution": ["fs:list"],
+      "wrong-principal": ["fs:list"],
+    },
+    expectedResults: {
+      allow: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: fsReadFileSetup(),
+    unsupportedTargetReason: "native-public-operation-not-typed-on-target",
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
 const nativeRetainedFsWriteTemplate = ({
   path,
   argumentsList = [],
@@ -2412,7 +2465,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactFsStatAsync",
-    new Map([["path", nativeProjectStatAsyncPathTemplate()]]),
+    new Map([
+      ["descriptor", nativeRetainedFsStatAsyncTemplate()],
+      ["path", nativeProjectStatAsyncPathTemplate()],
+    ]),
   ],
   [
     "__exactFsPathAsync",
