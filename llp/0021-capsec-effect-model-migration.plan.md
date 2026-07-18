@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24578 moves the four lockdown-tamed evaluator probes from the deliberately syntax-closed persistent-session route to authenticated direct-file native-graph admission, preserving exact loaded-engine evidence without reopening REPL dynamic code)
 **Revised:** 2026-07-17 (ENG-24933 restamps the reviewed Hermes evaluator identity after the Release artifact builder changed, preserving fail-closed source-authority drift detection)
 **Revised:** 2026-07-17 (ENG-24578 binds native-public async completion to event-loop quiescence, reconciles retained-path live traces with the source-bound internal observer-stage contract, and keeps armed `mkdtemp` residual because its public entry point remains closed)
 **Revised:** 2026-07-17 (ENG-25062 was reopened after merge-prep review confirmed that graph-link receipts are produced and retained, but production source/cache/prepared-carrier reads do not yet enter the receipt-revalidated access closures; the existing Host edge authentication and exact prepared-byte comparison remain in force without claiming the stronger closure-gated boundary)
@@ -1557,7 +1558,10 @@ parser against the live Clap command and then observes the production entry
 reject that selected control before artifact or project execution. The four
 Hermes evaluator identities additionally bind the reviewed engine identity and
 lockdown-taming digest, resolve their exact intrinsic access path, and must
-actually throw the native lockdown error when invoked on the loaded engine.
+actually throw the exact native lockdown error when invoked on the loaded
+engine. Their public fixture is an authenticated direct-file program admitted
+through the native module graph: persistent-session lowering intentionally
+closes evaluator syntax before runtime and is never bypassed for this evidence.
 
 Production startup evidence now covers ten curated structural stages against a
 fresh armed runtime from the exact mapped Hermes artifact: runtime creation,

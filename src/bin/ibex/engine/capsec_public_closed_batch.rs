@@ -741,34 +741,161 @@ async fn execute_closed_tamed_evaluator(
         "generator-function-constructor" => "Object.getPrototypeOf(function*(){}).constructor",
         other => panic!("unsupported tamed evaluator access mode {other}"),
     };
-    let (host, snapshot_digest) =
-        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+    let expected_error_message =
+        format!("{global_name} is disabled under lockdown (LLP 0013 Mechanism 1)");
+    let expected_error_message_literal = serde_json::to_string(&expected_error_message)
+        .expect("serialize tamed-evaluator refusal message");
+    let directory = tempfile::tempdir().expect("create tamed-evaluator project root");
+    let project_root = std::fs::canonicalize(directory.path())
+        .expect("canonicalize tamed-evaluator project root");
+    std::fs::write(
+        project_root.join("package.json"),
+        r#"{"name":"capsec-tamed-evaluator","private":true,"type":"module"}"#,
+    )
+    .expect("write tamed-evaluator package manifest");
+    let source = format!(
+        r#"
+const evaluator = {expression};
+const expectedErrorMessage = {expected_error_message_literal};
+if (typeof evaluator !== "function" || evaluator.__ibexTamed !== true) {{
+  throw new Error("selected evaluator is not the reviewed lockdown-tamed intrinsic");
+}}
+let observed;
+try {{
+  Reflect.apply(evaluator, globalThis, ["throw new Error('dynamic payload executed')"]);
+  observed = {{ kind: "return" }};
+}} catch (error) {{
+  observed = {{
+    kind: "throw",
+    isTypeError: error instanceof TypeError,
+    errorName: String(error && error.name || "Error"),
+    errorMessage: String(error && error.message || error),
+  }};
+}}
+if (
+  observed.kind !== "throw" ||
+  observed.isTypeError !== true ||
+  observed.errorName !== "TypeError" ||
+  observed.errorMessage !== expectedErrorMessage
+) {{
+  throw new Error(`reviewed evaluator did not fail closed: ${{JSON.stringify(observed)}}`);
+}}
+"#
+    );
+    std::fs::write(project_root.join("entry.mjs"), source)
+        .expect("write tamed-evaluator authenticated module entry");
+
+    // Persistent REPL lowering deliberately rejects eval/Function syntax.
+    // Exercise the same public global through an authenticated file request
+    // and the production native-graph admission seam. Source acquisition and
+    // graph discovery remain outside the zero-decision evaluator window.
+    // @ref LLP 0024#1-the-in-memory-source-api
+    // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+    use ibex_runtime::module_loader::runner_pipeline::{
+        build_authenticated_source_graph_v1_for_host, SourceModuleGraphBuildV1,
+    };
+    let entry = project_root.join("entry.mjs");
+    let entry_identity = "file:///project/entry.mjs";
+    let (host, snapshot_digest) = build_armed_test_host_custom(
+        Some(&project_root),
+        false,
+        true,
+        true,
+        Vec::new(),
+        None,
+        |snapshot| {
+            snapshot["entry"] = serde_json::json!({
+                "kind": "file",
+                "identity": entry_identity,
+                "mode": "program",
+            });
+        },
+    );
     assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
-        .expect("create exact tamed-evaluator engine");
+        .expect("create authenticated tamed-evaluator file engine");
     engine
         .load_runtime()
         .await
         .expect("load exact tamed-evaluator runtime");
+    let vfs = host
+        .virtual_file_system()
+        .expect("create tamed-evaluator virtual filesystem");
+    let namespace = vfs
+        .resolve_root_file_url(entry_identity, None)
+        .expect("resolve authenticated tamed-evaluator entry");
+    let session = host
+        .mint_armed_session_token()
+        .expect("mint tamed-evaluator armed session");
+    let mut sequence = ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
+        .expect("create tamed-evaluator submission sequence");
+    let submission = sequence
+        .mint_file(
+            namespace
+                .logical_referrer()
+                .expect("derive tamed-evaluator logical referrer"),
+            &[],
+        )
+        .expect("mint tamed-evaluator file submission");
+    let request = host
+        .authenticated_vfs_file_read(&vfs, namespace, submission)
+        .expect("read authenticated tamed-evaluator entry")
+        .into_capsule()
+        .into_request()
+        .expect("construct tamed-evaluator source request");
+
+    let graph_host = host.clone();
+    let graph_entry = entry.clone();
+    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
+        .expect("loaded engine digest is canonical");
+    let hermes_target = bytecode_cache_identity();
     let session_id = format!("closed-evaluator:{}", recipe.plan_digest);
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
-    let script = format!(
-        "JSON.stringify((function(){{var evaluator={expression};try{{Reflect.apply(evaluator,globalThis,['return 7']);return {{kind:'return',tamed:evaluator&&evaluator.__ibexTamed===true}};}}catch(error){{return {{kind:'throw',tamed:evaluator&&evaluator.__ibexTamed===true,errorName:String(error&&error.name||'Error'),errorMessage:String(error&&error.message||error)}};}}}})())"
-    );
-    let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
-    let encoded = evaluator.eval_string(&engine, &script).await;
-    let result: serde_json::Value =
-        serde_json::from_str(&encoded).expect("tamed evaluator result must be JSON");
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &format!("{session_id}:admission")
+    ));
+    let execution_session_id = session_id.clone();
+    let evaluation = engine
+        .evaluate_authenticated_module_graph(
+            &session,
+            request,
+            Box::new(move |_admitted_request| {
+                let (admission_legacy, admission_typed) =
+                    ibex_runtime::host::abi::take_installed_conformance_observations();
+                assert!(admission_legacy.is_empty());
+                assert!(admission_typed.is_empty());
+                let graph = match build_authenticated_source_graph_v1_for_host(
+                    &graph_host,
+                    &graph_entry,
+                    producer_digest,
+                    &hermes_target,
+                )? {
+                    SourceModuleGraphBuildV1::Native(graph) => graph,
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => anyhow::bail!(
+                        "tamed-evaluator graph unexpectedly required legacy: {}",
+                        requirement.reason
+                    ),
+                };
+                assert!(
+                    ibex_runtime::host::abi::begin_installed_conformance_observation(
+                        &execution_session_id,
+                    )
+                );
+                Ok(crate::engine::AuthenticatedModuleGraphPreparation::Native(
+                    graph,
+                ))
+            }),
+        )
+        .await
+        .expect("execute authenticated tamed-evaluator module graph");
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     assert!(legacy.is_empty());
     assert!(typed.is_empty());
-    assert_eq!(result["kind"], "throw");
-    assert_eq!(result["tamed"], true);
-    assert_eq!(result["errorName"], "TypeError");
-    assert!(result["errorMessage"]
-        .as_str()
-        .is_some_and(|message| message.contains("disabled under lockdown")));
+    assert!(
+        matches!(evaluation, AuthenticatedEvaluation::Empty),
+        "authenticated tamed-evaluator module did not complete its self-check: {evaluation:?}"
+    );
+    vfs.close();
 
     let result = serde_json::json!({
         "kind": "closed",
@@ -776,7 +903,7 @@ async fn execute_closed_tamed_evaluator(
         "surfaceName": surface_name,
         "mechanism": invocation.operation.kind(),
         "errorName": "ClosedSurface",
-        "errorMessage": result["errorMessage"],
+        "errorMessage": expected_error_message,
         "engineExecuted": true,
         "projectCodeExecuted": false,
     });
