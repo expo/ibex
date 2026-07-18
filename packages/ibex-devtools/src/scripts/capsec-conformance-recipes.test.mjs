@@ -2909,7 +2909,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "module-runner-source-graph",
     );
-    expect(rows).toHaveLength(24);
+    expect(rows).toHaveLength(19);
     expect(
       rows.map((recipe) => recipe.publicSurfaceProbe.invocation.functionName),
     ).toEqual([
@@ -2917,9 +2917,6 @@ describe("exact-target CapSec executable recipes", () => {
       "ex_hermes_commonjs_record_create_esm_adapter",
       "ex_hermes_commonjs_record_declare_export",
       "ex_hermes_commonjs_record_evaluate",
-      "ex_hermes_commonjs_record_link_dynamic_import",
-      "ex_hermes_commonjs_record_link_require",
-      "ex_hermes_commonjs_record_link_require_esm",
       "ex_hermes_graph_context_create",
       "ex_hermes_graph_context_retain",
       "ex_hermes_module_compile_factory",
@@ -2929,14 +2926,12 @@ describe("exact-target CapSec executable recipes", () => {
       "ex_hermes_module_record_declare_export",
       "ex_hermes_module_record_instantiate",
       "ex_hermes_module_record_link_dependency",
-      "ex_hermes_module_record_link_dynamic_import",
       "ex_hermes_module_record_link_export",
       "ex_hermes_module_record_link_import",
       "ex_hermes_module_record_poll_evaluation",
       "ex_hermes_module_record_run_declare",
       "ex_hermes_module_record_run_execute",
       "ex_hermes_module_release_handle",
-      "ex_hermes_module_unpin_generation",
     ]);
     expect(
       rows.every(
@@ -2953,6 +2948,49 @@ describe("exact-target CapSec executable recipes", () => {
             .sourceRefs[0] ===
             `src/engine/hermes_module_runner.cc#${recipe.publicSurfaceProbe.invocation.functionName}` &&
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount === 0,
+      ),
+    ).toBe(true);
+
+    const compatibilityDeferredEdgeFunctions = [
+      "ex_hermes_commonjs_record_link_dynamic_import",
+      "ex_hermes_commonjs_record_link_require",
+      "ex_hermes_commonjs_record_link_require_esm",
+      "ex_hermes_module_record_link_dynamic_import",
+    ];
+    const runtimeTeardownOnlyFunctions = [
+      "ex_hermes_module_unpin_generation",
+    ];
+    const nonNativeLifecycleFunctions = [
+      ...compatibilityDeferredEdgeFunctions,
+      ...runtimeTeardownOnlyFunctions,
+    ];
+    const deferredRows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.scenario === "non-capability" &&
+        nonNativeLifecycleFunctions.includes(
+          recipe.terminalObservedKey.slice("host-abi:".length),
+        ),
+    );
+    expect(
+      [
+        ...new Set(
+          deferredRows.map((recipe) =>
+            recipe.terminalObservedKey.slice("host-abi:".length),
+          ),
+        ),
+      ],
+    ).toEqual(nonNativeLifecycleFunctions);
+    expect(
+      deferredRows.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            "public-surface-invocation-not-authored",
+          ) &&
+          recipe.residualReasons.includes(
+            "non-capability-no-decision-probe-not-authored",
+          ),
       ),
     ).toBe(true);
   });

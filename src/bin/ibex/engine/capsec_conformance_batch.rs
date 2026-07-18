@@ -2686,9 +2686,14 @@ async fn execute_authenticated_module_runner_public_graph(
         .load_runtime()
         .await
         .expect("load runtime before module-runner host ABI recipe");
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(session_id));
 
     if retain_context {
+        assert!(
+            ibex_runtime::host::abi::begin_installed_conformance_observation(&format!(
+                "{session_id}:retain"
+            )),
+            "module-runner retain observer has no installed host",
+        );
         let runtime = engine
             .ensure_runtime()
             .await
@@ -2718,6 +2723,16 @@ async fn execute_authenticated_module_runner_public_graph(
             })
             .expect("access loaded runtime for graph-context retain")
             .expect("retain a real native graph context");
+        let (retain_legacy, retain_typed) =
+            ibex_runtime::host::abi::take_installed_conformance_observations();
+        assert!(
+            retain_legacy.is_empty(),
+            "module-runner context retention performed legacy authorization"
+        );
+        assert!(
+            retain_typed.is_empty(),
+            "module-runner context retention performed a typed capability decision"
+        );
     }
 
     let vfs = host
@@ -2751,11 +2766,28 @@ async fn execute_authenticated_module_runner_public_graph(
     let graph_project_root = project_root.to_path_buf();
     let graph_producer_digest = producer_digest.clone();
     let graph_hermes_target = hermes_target.to_owned();
+    let execution_session_id = format!("{session_id}:execution");
+    assert!(
+        ibex_runtime::host::abi::begin_installed_conformance_observation(&format!(
+            "{session_id}:admission"
+        )),
+        "module-runner admission observer has no installed host",
+    );
     let evaluation = engine
         .evaluate_authenticated_module_graph(
             &session,
             request,
             Box::new(move |_admitted_request| {
+                let (admission_legacy, admission_typed) =
+                    ibex_runtime::host::abi::take_installed_conformance_observations();
+                assert!(
+                    admission_legacy.is_empty(),
+                    "module-runner admission performed legacy authorization"
+                );
+                assert!(
+                    admission_typed.is_empty(),
+                    "module-runner admission or generation pin performed a typed capability decision"
+                );
                 // Native admission must precede graph discovery and prepared
                 // carrier selection; this callback is the production seam.
                 // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
@@ -2782,6 +2814,18 @@ async fn execute_authenticated_module_runner_public_graph(
                 } else {
                     graph
                 };
+                // Graph discovery and authenticated source acquisition are
+                // setup for this non-capability ABI fixture. Begin the exact
+                // observation only after that setup is complete so loader
+                // effects cannot be miscredited to the native module-runner
+                // lifecycle surface selected by the recipe.
+                // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+                assert!(
+                    ibex_runtime::host::abi::begin_installed_conformance_observation(
+                        &execution_session_id,
+                    ),
+                    "module-runner execution observer has no installed host",
+                );
                 Ok(crate::engine::AuthenticatedModuleGraphPreparation::Native(
                     graph,
                 ))
@@ -2810,8 +2854,14 @@ async fn execute_authenticated_module_runner_public_graph(
         }
     }
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
-    assert!(legacy.is_empty());
-    assert!(typed.is_empty());
+    assert!(
+        legacy.is_empty(),
+        "module-runner execution performed legacy authorization"
+    );
+    assert!(
+        typed.is_empty(),
+        "module-runner execution performed a typed capability decision"
+    );
     vfs.close();
     drop(engine);
 }
@@ -2870,14 +2920,18 @@ async fn execute_module_runner_host_abi_public_recipe(
     let directory = tempfile::tempdir().expect("create module-runner public graph root");
     let project_root = std::fs::canonicalize(directory.path())
         .expect("canonicalize module-runner public graph root");
+    // This corpus intentionally stays inside the production-native subset.
+    // Authored dynamic-import and CommonJS require edges select the bounded
+    // compatibility loader before target discovery and cannot prove their
+    // dormant native link ABIs through this public path.
+    // @ref LLP 0026#6-top-level-await-and-dynamic-import
     let entry = project_root.join("entry.mjs");
     std::fs::write(
         &entry,
         "import { value as imported } from './dep.mjs';\n\
          export { other as forwarded } from './dep.mjs';\n\
          export * from './star.mjs';\n\
-         export const local = imported;\n\
-         export function loadDynamic() { return import('./dynamic.mjs'); }\n",
+         export const local = imported;\n",
     )
     .expect("write module-runner public entry");
     std::fs::write(
@@ -2887,30 +2941,9 @@ async fn execute_module_runner_host_abi_public_recipe(
     .expect("write module-runner public dependency");
     std::fs::write(project_root.join("star.mjs"), "export const star = 3;\n")
         .expect("write module-runner public star dependency");
-    std::fs::write(
-        project_root.join("dynamic.mjs"),
-        "export const dynamicValue = 4;\n",
-    )
-    .expect("write module-runner public dynamic dependency");
     let commonjs_entry = project_root.join("commonjs-entry.cjs");
-    std::fs::write(
-        &commonjs_entry,
-        "const peer = require('./commonjs-peer.cjs');\n\
-         const esm = require('./commonjs-esm.mjs');\n\
-         exports.total = peer.value + esm.value;\n\
-         import('./dynamic.mjs');\n",
-    )
+    std::fs::write(&commonjs_entry, "exports.total = 5;\n")
     .expect("write module-runner public CommonJS entry");
-    std::fs::write(
-        project_root.join("commonjs-peer.cjs"),
-        "exports.value = 2;\n",
-    )
-    .expect("write module-runner public CommonJS dependency");
-    std::fs::write(
-        project_root.join("commonjs-esm.mjs"),
-        "export const value = 3;\n",
-    )
-    .expect("write module-runner public CommonJS ESM dependency");
     let asynchronous_entry = project_root.join("asynchronous-entry.mjs");
     std::fs::write(
         &asynchronous_entry,
@@ -2927,6 +2960,10 @@ async fn execute_module_runner_host_abi_public_recipe(
         b"authenticated prepared graph",
     )
     .expect("digest module-runner public prepared graph");
+    // Production pins generation 1 during admission and owns it until the
+    // engine's owner-thread teardown. The direct unpin ABI is therefore not a
+    // production-callable lifecycle surface for this evidence corpus.
+    // @ref LLP 0027#esmcommonjs-interop-matrix
     unsafe { ibex_test_begin_module_runner_abi_observation() };
     let session_id = format!("public-module-runner-host-abi:{}", recipe.plan_digest);
     execute_authenticated_module_runner_public_graph(

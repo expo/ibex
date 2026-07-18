@@ -2985,14 +2985,18 @@ const MODULE_RUNNER_LOADER_OPERATIONS = new Map([
   ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
 ]);
 
+// Authored dynamic-import and CommonJS require edges deliberately select the
+// compatibility loader before target discovery, so their four native link
+// ABIs cannot receive production-path execution credit here.
+// @ref LLP 0026#6-top-level-await-and-dynamic-import — deferred edges stay outside the native runner until call-time identity is enforceable.
+// Production also owns generation 1 through runtime teardown rather than
+// calling the public unpin ABI, so that ABI remains residual independently.
+// @ref LLP 0027#esmcommonjs-interop-matrix — the single-generation runtime pin is released only by owner-thread teardown.
 const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
   "ex_hermes_commonjs_create_record",
   "ex_hermes_commonjs_record_create_esm_adapter",
   "ex_hermes_commonjs_record_declare_export",
   "ex_hermes_commonjs_record_evaluate",
-  "ex_hermes_commonjs_record_link_dynamic_import",
-  "ex_hermes_commonjs_record_link_require",
-  "ex_hermes_commonjs_record_link_require_esm",
   "ex_hermes_graph_context_create",
   "ex_hermes_graph_context_retain",
   "ex_hermes_module_compile_factory",
@@ -3002,14 +3006,12 @@ const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
   "ex_hermes_module_record_declare_export",
   "ex_hermes_module_record_instantiate",
   "ex_hermes_module_record_link_dependency",
-  "ex_hermes_module_record_link_dynamic_import",
   "ex_hermes_module_record_link_export",
   "ex_hermes_module_record_link_import",
   "ex_hermes_module_record_poll_evaluation",
   "ex_hermes_module_record_run_declare",
   "ex_hermes_module_record_run_execute",
   "ex_hermes_module_release_handle",
-  "ex_hermes_module_unpin_generation",
 ]);
 
 function moduleRunnerLoaderProbeForPlan({

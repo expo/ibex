@@ -24,7 +24,7 @@
 **Revised:** 2026-07-17 (ENG-24933 credits two incomplete authority-call refusals and the exact invalid spawned-process handle refusal)
 **Revised:** 2026-07-17 (ENG-24933 proves immutable module-level intrinsic receivers in builtin routes, removing 404 false ambiguous-route residuals without promoting unexecuted fixtures)
 **Revised:** 2026-07-17 (ENG-24933 authenticates timer cancellation and ref-state mutation to the retained timer owner, replacing four closed native/global rows with eight executable non-capability and invariant recipes)
-**Revised:** 2026-07-17 (ENG-24933 credits 29 exact module-runner executions: four loader/source-acquisition surfaces, 24 native ABI lifecycle surfaces, and one armed namespace-inspection closure)
+**Revised:** 2026-07-17 (ENG-24578 reconciles module-runner evidence with the production security boundary and credits 24 exact executions: four loader/source-acquisition surfaces, 19 native ABI lifecycle surfaces, and one armed namespace-inspection closure; four deferred-edge ABIs and the teardown-only generation-unpin ABI remain residual)
 **Revised:** 2026-07-16 (ENG-24933 removes thirteen closed memory-debug implementation surfaces by capturing diagnostic state behind its deliberate API)
 **Revised:** 2026-07-16 (ENG-24933 removes ten closed internal locale/accessibility state surfaces by retaining mutable state in module singletons)
 **Revised:** 2026-07-16 (ENG-24933 completes malformed, missing-attribution, and wrong-principal scenarios for bounded loopback TCP connect)
@@ -644,12 +644,12 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed merged catalog has 23,859
-required fixtures, 2,079 fully executable recipes, 11,645 adapter-executable
-recipes, and 21,780 unresolved fixtures. The latest source-bound tranches add
+required fixtures, 2,074 fully executable recipes, 11,645 adapter-executable
+recipes, and 21,785 unresolved fixtures. The latest source-bound tranches add
 33 armed shared-runtime global
 absence recipes, 18 physical no-debugger ABI closure recipes, 106
 terminal-builtin closure recipes, four
-loader/source-acquisition recipes, 24 native module-runner ABI
+loader/source-acquisition recipes, 19 native module-runner ABI
 lifecycle recipes, one armed namespace-inspection closure, 14 asymmetric/EVP
 crypto recipes, eight
 owner-authenticated timer-control recipes, nine bounded authority-control
@@ -709,7 +709,7 @@ ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs. After the merged source inventory
 and exact recipe reconciliation, the current residual counts are 7,078
-ambiguous routes and 21,780 unresolved fixtures. The physical
+ambiguous routes and 21,785 unresolved fixtures. The physical
 no-debugger tranche also executes all nine debugger ABI functions on the exact
 Apple artifact and binds their nine corresponding native-operation facets to
 the same zero, null-pointer, or no-event results. Together with the other

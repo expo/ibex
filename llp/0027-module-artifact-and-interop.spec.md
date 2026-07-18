@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-16 (prepared-cache admission now derives its complete expected publication and virtual diagnostic envelope from the current authenticated source graph rather than cache-asserted metadata); 2026-07-15 (accepted by the author after the bounded CommonJS/JSON/builtin interop migration passed authenticated source/prepared real-Hermes coverage); 2026-07-15 (ENG-25063 retained graph generations through the complete embedder event-loop drive so delayed and fire-and-forget dynamic imports cannot observe released records); 2026-07-15 (ENG-25061 added host-owned builtin records and strict shared-identity JSON records across source/prepared ESM and CommonJS paths); 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
+**Revised:** 2026-07-17 (ENG-24578 records the single-generation production lifecycle: generation 1 stays pinned through keep-alive and is released by owner-thread runtime teardown, so the direct unpin ABI remains non-production evidence); 2026-07-16 (prepared-cache admission now derives its complete expected publication and virtual diagnostic envelope from the current authenticated source graph rather than cache-asserted metadata); 2026-07-15 (accepted by the author after the bounded CommonJS/JSON/builtin interop migration passed authenticated source/prepared real-Hermes coverage); 2026-07-15 (ENG-25063 retained graph generations through the complete embedder event-loop drive so delayed and fire-and-forget dynamic imports cannot observe released records); 2026-07-15 (ENG-25061 added host-owned builtin records and strict shared-identity JSON records across source/prepared ESM and CommonJS paths); 2026-07-15 (ENG-25061 linked production mixed ESM/CommonJS graphs in both directions, including pre-evaluation adapters and async ESM importers); 2026-07-15 (ENG-25064 canonical prepared-graph index, cache publication, strict reload, and full native linking); 2026-07-15 (ENG-25064 canonical prepared-carrier schema, admission, and source/HBC native loading); 2026-07-15 (ENG-25063 authenticated dynamic-edge metadata and
 promise-returning CommonJS-to-ESM import ABI); 2026-07-15 (ENG-25061 native CommonJS cache records and ESM
 snapshot adapters); 2026-07-15 (ENG-25059 v1 schema, codecs, admission gate,
 producer adapter, and tamper fixtures)
@@ -205,13 +205,16 @@ namespace and supports asynchronous target graphs. A missing, denied, stale,
 or malformed target returns a rejected promise rather than throwing from the
 factory call.
 
-The embedder pins the authenticated graph generation before native linking and
-releases it only after the file-owned event-loop drive completes. Dropping the
-Rust linker handles therefore defers native record cleanup, allowing a dynamic
-import initiated by a later timer or a fire-and-forget promise chain to retain
-the same generation, context, target table, and sticky record state. Unpinning
-releases all deferred ESM/CommonJS records and their context references as one
-owner-thread operation.
+The embedder pins the authenticated graph generation before native linking.
+The current single-generation production runtime keeps generation 1 pinned
+through keep-alive and releases it only by owner-thread runtime teardown.
+Dropping Rust linker handles therefore defers native record cleanup, allowing
+a later timer or fire-and-forget promise chain to retain the same generation,
+context, target table, and sticky record state. The direct unpin ABI remains a
+test/private lifecycle primitive rather than a production-callable surface;
+when explicit generation advance lands, unpinning must release all deferred
+ESM/CommonJS records and their context references as one owner-thread
+operation.
 
 For `require(ESM)`, an explicit ESM export named `'module.exports'` is returned
 directly. Otherwise the namespace object is returned, with `__esModule`
