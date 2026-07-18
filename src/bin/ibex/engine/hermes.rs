@@ -1607,6 +1607,25 @@ impl HermesEngine {
       throw new Error('armed runtime could not seal the accessibility namespace');
     }
   }
+  // @ref LLP 0011#cross-context-messaging-boundary — message ports and
+  // broadcast channels are ambient cross-context IPC. The
+  // trusted bootstrap may capture their constructors for internal plumbing,
+  // but armed project code receives no public channel-minting namespace.
+  var closedMessageRoots = ['BroadcastChannel', 'MessageChannel', 'MessagePort'];
+  for (var messageIndex = 0; messageIndex < closedMessageRoots.length; messageIndex += 1) {
+    var messageRoot = closedMessageRoots[messageIndex];
+    var messageDescriptor = Object.getOwnPropertyDescriptor(globalThis, messageRoot);
+    if (messageDescriptor === undefined) {
+      if (messageRoot in globalThis) {
+        throw new Error('armed runtime inherited the ' + messageRoot + ' namespace');
+      }
+      continue;
+    }
+    if (messageDescriptor.configurable !== true || !delete globalThis[messageRoot] ||
+        messageRoot in globalThis) {
+      throw new Error('armed runtime could not seal the ' + messageRoot + ' namespace');
+    }
+  }
 })();"#;
         let _ = self.eval_str(seal, "<armed-shared-runtime-seal>").await?;
         Ok(())

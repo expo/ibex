@@ -1402,6 +1402,7 @@ async fn execute_closed_debugger_abi(
     probe: &ClosedSurfaceProbe,
     coverage: &BTreeMap<String, (String, String)>,
     engine_binary_digest: &str,
+    catalog_target_triple: &str,
 ) -> serde_json::Value {
     let invocation = &probe.invocation;
     let ClosedOperation::DebuggerAbiDisabled {
@@ -1457,14 +1458,22 @@ async fn execute_closed_debugger_abi(
     );
     assert_eq!(
         descriptor.target_triple.as_deref(),
-        Some("aarch64-apple-darwin")
+        Some(catalog_target_triple)
     );
+    assert!(matches!(
+        catalog_target_triple,
+        "aarch64-apple-darwin" | "x86_64-pc-windows-msvc"
+    ));
     let default_source_ref = format!("src/engine/hermes_runtime_debugger.cc#{function_name}");
     let windows_source_ref =
         format!("src/engine/hermes_runtime_platform_windows.cc#{function_name}");
     assert_eq!(
         descriptor.selected_source_ref.as_deref(),
-        Some(default_source_ref.as_str())
+        Some(if catalog_target_triple == "x86_64-pc-windows-msvc" {
+            windows_source_ref.as_str()
+        } else {
+            default_source_ref.as_str()
+        })
     );
     assert_eq!(
         descriptor.source_refs,
@@ -1686,6 +1695,19 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "__exactStreamWrapState"
             | "__exactSyncTrackedIpcListenersAfterDispatch"
             | "global:Bun.gc"
+            | "global:BroadcastChannel"
+            | "global:BroadcastChannel.[[Symbol.toStringTag]]"
+            | "global:BroadcastChannel._deliverMessage"
+            | "global:BroadcastChannel._getChannelCount"
+            | "global:BroadcastChannel._getChannelNames"
+            | "global:BroadcastChannel.addEventListener"
+            | "global:BroadcastChannel.close"
+            | "global:BroadcastChannel.dispatchEvent"
+            | "global:BroadcastChannel.name"
+            | "global:BroadcastChannel.onmessage"
+            | "global:BroadcastChannel.onmessageerror"
+            | "global:BroadcastChannel.postMessage"
+            | "global:BroadcastChannel.removeEventListener"
             | "global:Cache"
             | "global:Cache.add"
             | "global:Cache.addAll"
@@ -1729,6 +1751,22 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "global:Exact.accessibility.prefersReducedMotion"
             | "global:Exact.accessibility.prefersReducedTransparency"
             | "global:Exact.gc"
+            | "global:MessageChannel"
+            | "global:MessageChannel.[[Symbol.toStringTag]]"
+            | "global:MessageChannel.port1"
+            | "global:MessageChannel.port2"
+            | "global:MessagePort"
+            | "global:MessagePort.[[Symbol.toStringTag]]"
+            | "global:MessagePort.[[symbol-binding:structuredCloneTransferSymbol]]"
+            | "global:MessagePort._setRemotePort"
+            | "global:MessagePort.addEventListener"
+            | "global:MessagePort.close"
+            | "global:MessagePort.dispatchEvent"
+            | "global:MessagePort.onmessage"
+            | "global:MessagePort.onmessageerror"
+            | "global:MessagePort.postMessage"
+            | "global:MessagePort.removeEventListener"
+            | "global:MessagePort.start"
     )
 }
 
@@ -1754,6 +1792,7 @@ async fn execute_closed_shared_runtime_global_absence(
     probe: &ClosedSurfaceProbe,
     coverage: &BTreeMap<String, (String, String)>,
     engine_binary_digest: &str,
+    catalog_target_triple: &str,
 ) -> serde_json::Value {
     let invocation = &probe.invocation;
     let (global_name, member_name, expected_error, armed_native) = match &invocation.operation {
@@ -1821,8 +1860,12 @@ async fn execute_closed_shared_runtime_global_absence(
     assert_eq!(descriptor.member_name.as_ref(), member_name);
     assert_eq!(
         descriptor.target_triple.as_deref(),
-        Some("aarch64-apple-darwin")
+        Some(catalog_target_triple)
     );
+    assert!(matches!(
+        catalog_target_triple,
+        "aarch64-apple-darwin" | "x86_64-pc-windows-msvc"
+    ));
     assert!(!descriptor.source_refs.is_empty());
     let metadata = &descriptor.source_metadata;
     assert_eq!(metadata["surfaceType"], "global-api");
@@ -1854,15 +1897,6 @@ async fn execute_closed_shared_runtime_global_absence(
         );
     } else {
         assert_eq!(branches.len(), 1);
-        let shared_runtime_accessibility = invocation
-            .surface_name
-            .strip_prefix("global:Bun.accessibility")
-            .or_else(|| {
-                invocation
-                    .surface_name
-                    .strip_prefix("global:Exact.accessibility")
-            })
-            .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('.'));
         let legacy_bootstrap = branches[0]["route"] == "legacy-bootstrap"
             && branches[0]["targetVariant"] == "default"
             && metadata["sourceKey"] != "shared_runtime";
@@ -1870,7 +1904,7 @@ async fn execute_closed_shared_runtime_global_absence(
             && branches[0]["route"] == "shared-runtime"
             && branches[0]["targetVariant"] == "all";
         assert!(
-            if shared_runtime_accessibility {
+            if metadata["sourceKey"] == "shared_runtime" {
                 shared_runtime
             } else {
                 legacy_bootstrap
@@ -1898,7 +1932,13 @@ async fn execute_closed_shared_runtime_global_absence(
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let global_json = serde_json::to_string(global_name).unwrap();
-    let script = if let Some(member_name) = member_name {
+    let root_is_sealed = matches!(
+        global_name.as_str(),
+        "BroadcastChannel" | "MessageChannel" | "MessagePort"
+    );
+    let script = if root_is_sealed {
+        format!("{global_json} in globalThis?'present':'absent'")
+    } else if let Some(member_name) = member_name {
         let member_path_json = serde_json::to_string(
             &member_name.split('.').collect::<Vec<_>>(),
         )
@@ -2818,6 +2858,16 @@ async fn capsec_closed_native_seal_preserves_diagnostic_runtime_compatibility() 
         ["object", "object", "function", "function", "function", "function"],
         "foreground diagnostic runtime lost the accessibility namespace"
     );
+    let messaging = engine
+        .eval_immediate(
+            "JSON.stringify([typeof BroadcastChannel, typeof MessageChannel, typeof MessagePort])",
+        )
+        .await
+        .expect("inspect diagnostic messaging compatibility")
+        .expect("diagnostic messaging inspection returned no result");
+    let messaging: Vec<String> =
+        serde_json::from_str(&messaging).expect("decode diagnostic messaging globals");
+    assert_eq!(messaging, ["function", "function", "function"]);
 }
 
 #[cfg(test)]
@@ -3001,8 +3051,8 @@ async fn capsec_public_closed_recipe_batch() {
     );
     let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
         match catalog.target.triple.as_str() {
-            "aarch64-apple-darwin" => (18, 61, 9),
-            "x86_64-pc-windows-msvc" => (0, 0, 0),
+            "aarch64-apple-darwin" => (18, 90, 9),
+            "x86_64-pc-windows-msvc" => (18, 90, 9),
             target => panic!("closed public batch has no reviewed target shape for {target}"),
         };
     assert_eq!(
@@ -3122,6 +3172,7 @@ async fn capsec_public_closed_recipe_batch() {
                     &probe,
                     &coverage,
                     &identity_before.binary_digest,
+                    &catalog.target.triple,
                 )
                 .await,
             );
@@ -3162,6 +3213,7 @@ async fn capsec_public_closed_recipe_batch() {
                     &probe,
                     &coverage,
                     &identity_before.binary_digest,
+                    &catalog.target.triple,
                 )
                 .await,
             );

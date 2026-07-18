@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Android, Web APIs
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-27
-**Revised:** 2026-07-16
+**Revised:** 2026-07-17
 **Related:** LLP 0000; LLP 0003; LLP 0008
 
 ## Summary
@@ -64,6 +64,19 @@ package-compartment baseline is finalized `[observed]`
 and notification hooks remain installed, so web and React Native compatibility
 consumers can continue to share coherent host state without exposing the
 ambient application-state channel directly to project globals.
+
+## Cross-context Messaging Boundary
+
+The shared runtime installs `BroadcastChannel`, `MessageChannel`, and
+`MessagePort` for compatibility, and trusted bootstrap code may capture those
+constructors for internal stream and worker plumbing `[observed]`. They also
+mint ambient cross-context communication paths, so an armed runtime deletes
+all three configurable roots after trusted shared-runtime installation and
+before the package-compartment baseline is finalized `[observed]`
+(`src/bin/ibex/engine/hermes.rs`). Deleting the roots closes every inventoried
+constructor and member surface while preserving constructors already captured
+inside trusted modules. A diagnostic runtime remains unarmed and retains all
+three compatibility constructors.
 
 ## Host Snapshot Contract
 

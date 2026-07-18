@@ -201,8 +201,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_118);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_825);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_293);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_942);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_176);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
@@ -226,7 +226,28 @@ describe("exact-target CapSec executable recipes", () => {
             "capsec_public_closed_recipe_batch",
           ),
       ),
-    ).toHaveLength(269);
+    ).toHaveLength(386);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "debugger-abi-disabled",
+      ),
+    ).toHaveLength(18);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "shared-runtime-global-absence",
+      ),
+    ).toHaveLength(90);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "armed-native-global-absence",
+      ),
+    ).toHaveLength(9);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {
@@ -1600,13 +1621,32 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 
+  test("binds every debugger ABI facet to the physical Windows stubs", () => {
+    const rows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "debugger-abi-disabled",
+    );
+    expect(rows).toHaveLength(18);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
+            "x86_64-pc-windows-msvc" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.selectedSourceRef.startsWith(
+            "src/engine/hermes_runtime_platform_windows.cc#",
+          ),
+      ),
+    ).toBe(true);
+  });
+
   test("binds reviewed globals to armed shared-runtime absence", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "shared-runtime-global-absence",
     );
-    expect(rows).toHaveLength(61);
+    expect(rows).toHaveLength(90);
     expect(
       rows.every(
         (recipe) =>
@@ -1643,6 +1683,33 @@ describe("exact-target CapSec executable recipes", () => {
             kind: "shared-runtime-global-absence",
             globalName: "__exactAllowNativesSyntax",
             memberName: null,
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:global:BroadcastChannel.postMessage",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "BroadcastChannel",
+            memberName: "postMessage",
+            sourceMetadata: {
+              sourceKey: "shared_runtime",
+              installationBranches: [
+                { route: "shared-runtime", targetVariant: "all" },
+              ],
+            },
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "BroadcastChannel",
+            memberName: "postMessage",
           },
         },
       },

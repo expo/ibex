@@ -132,6 +132,19 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "__exactStreamWrapState",
   "__exactSyncTrackedIpcListenersAfterDispatch",
   "global:Bun.gc",
+  "global:BroadcastChannel",
+  "global:BroadcastChannel.[[Symbol.toStringTag]]",
+  "global:BroadcastChannel._deliverMessage",
+  "global:BroadcastChannel._getChannelCount",
+  "global:BroadcastChannel._getChannelNames",
+  "global:BroadcastChannel.addEventListener",
+  "global:BroadcastChannel.close",
+  "global:BroadcastChannel.dispatchEvent",
+  "global:BroadcastChannel.name",
+  "global:BroadcastChannel.onmessage",
+  "global:BroadcastChannel.onmessageerror",
+  "global:BroadcastChannel.postMessage",
+  "global:BroadcastChannel.removeEventListener",
   "global:Cache",
   "global:Cache.add",
   "global:Cache.addAll",
@@ -175,6 +188,27 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "global:Exact.accessibility.prefersReducedMotion",
   "global:Exact.accessibility.prefersReducedTransparency",
   "global:Exact.gc",
+  "global:MessageChannel",
+  "global:MessageChannel.[[Symbol.toStringTag]]",
+  "global:MessageChannel.port1",
+  "global:MessageChannel.port2",
+  "global:MessagePort",
+  "global:MessagePort.[[Symbol.toStringTag]]",
+  "global:MessagePort.[[symbol-binding:structuredCloneTransferSymbol]]",
+  "global:MessagePort._setRemotePort",
+  "global:MessagePort.addEventListener",
+  "global:MessagePort.close",
+  "global:MessagePort.dispatchEvent",
+  "global:MessagePort.onmessage",
+  "global:MessagePort.onmessageerror",
+  "global:MessagePort.postMessage",
+  "global:MessagePort.removeEventListener",
+  "global:MessagePort.start",
+]);
+
+const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
 ]);
 
 const ARMED_NATIVE_ABSENT_GLOBALS = new Set([
@@ -861,7 +895,7 @@ function debuggerAbiDisabledProbe({
   target,
 }) {
   if (
-    target?.triple !== "aarch64-apple-darwin" ||
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
     route.surfaceObservedKeys.length !== 1 ||
     route.alternatives.length !== 1 ||
     route.ambiguousCallees.length !== 0
@@ -920,11 +954,15 @@ function debuggerAbiDisabledProbe({
   ) {
     return null;
   }
+  const selectedSourceRef =
+    target.triple === "x86_64-pc-windows-msvc"
+      ? windowsSourceRef
+      : defaultSourceRef;
   const sourceDescriptor = {
     kind: "closed-debugger-abi",
     surfaceObservedKey,
     functionName,
-    selectedSourceRef: defaultSourceRef,
+    selectedSourceRef,
     targetTriple: target.triple,
     sourceRefs: structuredClone(live.sourceRefs),
     sourceMetadata: structuredClone(live.metadata ?? null),
@@ -965,7 +1003,7 @@ function sharedRuntimeGlobalAbsenceProbe({
   target,
 }) {
   if (
-    target?.triple !== "aarch64-apple-darwin" ||
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
     route.surfaceObservedKeys.length !== 1 ||
     route.alternatives.length !== 1 ||
     route.ambiguousCallees.length !== 0
@@ -981,18 +1019,15 @@ function sharedRuntimeGlobalAbsenceProbe({
   const edge = coverageByObservedKey.get(surfaceObservedKey);
   const metadata = live?.metadata;
   const branches = metadata?.installationBranches;
-  const sharedRuntimeAccessibility =
-    /^global:(?:Bun|Exact)\.accessibility(?:\.|$)/u.test(surfaceName);
+  const sharedRuntimeInstallation = metadata?.sourceKey === "shared_runtime";
   const reviewedInstallation =
     Array.isArray(branches) &&
     branches.length === 1 &&
     canonicalJson(branches[0].sourceRefs) === canonicalJson(live?.sourceRefs) &&
-    (sharedRuntimeAccessibility
-      ? metadata?.sourceKey === "shared_runtime" &&
-        branches[0].route === "shared-runtime" &&
+    (sharedRuntimeInstallation
+      ? branches[0].route === "shared-runtime" &&
         branches[0].targetVariant === "all"
-      : metadata?.sourceKey !== "shared_runtime" &&
-        branches[0].route === "legacy-bootstrap" &&
+      : branches[0].route === "legacy-bootstrap" &&
         branches[0].targetVariant === "default");
   const expectedExportName =
     metadata?.memberName == null
@@ -1062,7 +1097,7 @@ function armedNativeGlobalAbsenceProbe({
   target,
 }) {
   if (
-    target?.triple !== "aarch64-apple-darwin" ||
+    !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(target?.triple) ||
     route.surfaceObservedKeys.length !== 1 ||
     route.alternatives.length !== 1 ||
     route.ambiguousCallees.length !== 0
