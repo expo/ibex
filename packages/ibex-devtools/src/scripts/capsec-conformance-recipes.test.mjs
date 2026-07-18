@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(22_933);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_226);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_707);
+    expect(recipes.summary.requiredFixtures).toBe(22_918);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_216);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_702);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -203,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_673);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_962);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_711);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_620);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_959);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_661);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -221,7 +221,7 @@ describe("exact-target CapSec executable recipes", () => {
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(windowsAbsenceRecipes).toHaveLength(85);
+    expect(windowsAbsenceRecipes).toHaveLength(94);
     expect(
       windowsAbsenceRecipes.every(
         (recipe) =>
@@ -499,7 +499,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_710);
+    expect(callbackRecipes).toHaveLength(2_700);
     expect(
       Object.fromEntries(
         [
@@ -521,8 +521,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 507,
       "principal-restore": 507,
       "snapshot-mismatch-deny": 507,
-      "cannot-widen-authority": 337,
-      "post-lockdown-invariant": 337,
+      "cannot-widen-authority": 332,
+      "post-lockdown-invariant": 332,
       "non-capability": 8,
     });
     for (const terminalObservedKey of [
