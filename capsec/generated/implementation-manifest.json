@@ -155076,10 +155076,12 @@
           "native-op:__exactGetGCStats"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetGCStats",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetGCStats",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetGCStats"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetGCStats",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetGCStats",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetGCStats"
         ],
@@ -155091,6 +155093,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactGetGCStats",
         "src/engine/hermes_runtime_process_setup.cc#__exactGetGCStats",
         "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetGCStats"
       ],
@@ -155110,10 +155113,12 @@
           "native-op:__exactGetHeapInfo"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetHeapInfo",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetHeapInfo",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetHeapInfo"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetHeapInfo",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetHeapInfo",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetHeapInfo"
         ],
@@ -155125,6 +155130,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactGetHeapInfo",
         "src/engine/hermes_runtime_process_setup.cc#__exactGetHeapInfo",
         "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetHeapInfo"
       ],
@@ -155452,10 +155458,12 @@
           "native-op:__exactGetSourceCacheStats"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetSourceCacheStats",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetSourceCacheStats",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetSourceCacheStats"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactGetSourceCacheStats",
           "src/engine/hermes_runtime_process_setup.cc#__exactGetSourceCacheStats",
           "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetSourceCacheStats"
         ],
@@ -155467,6 +155475,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactGetSourceCacheStats",
         "src/engine/hermes_runtime_process_setup.cc#__exactGetSourceCacheStats",
         "src/engine/hermes_runtime_process_setup.cc#jsi-global:__exactGetSourceCacheStats"
       ],
@@ -157322,10 +157331,12 @@
           "native-op:__exactIpcRecvMsg"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactIpcRecvMsg",
           "src/engine/hermes_runtime_fs.cc#__exactIpcRecvMsg",
           "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcRecvMsg"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactIpcRecvMsg",
           "src/engine/hermes_runtime_fs.cc#__exactIpcRecvMsg",
           "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcRecvMsg"
         ],
@@ -157337,6 +157348,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactIpcRecvMsg",
         "src/engine/hermes_runtime_fs.cc#__exactIpcRecvMsg",
         "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcRecvMsg"
       ],
@@ -157356,10 +157368,12 @@
           "native-op:__exactIpcSendMsg"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactIpcSendMsg",
           "src/engine/hermes_runtime_fs.cc#__exactIpcSendMsg",
           "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcSendMsg"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactIpcSendMsg",
           "src/engine/hermes_runtime_fs.cc#__exactIpcSendMsg",
           "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcSendMsg"
         ],
@@ -157371,6 +157385,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactIpcSendMsg",
         "src/engine/hermes_runtime_fs.cc#__exactIpcSendMsg",
         "src/engine/hermes_runtime_fs.cc#jsi-global:__exactIpcSendMsg"
       ],
@@ -159717,10 +159732,12 @@
           "native-op:__exactPollSignal"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactPollSignal",
           "src/engine/hermes_runtime_crypto.cc#__exactPollSignal",
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPollSignal"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactPollSignal",
           "src/engine/hermes_runtime_crypto.cc#__exactPollSignal",
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPollSignal"
         ],
@@ -159732,6 +159749,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactPollSignal",
         "src/engine/hermes_runtime_crypto.cc#__exactPollSignal",
         "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactPollSignal"
       ],
@@ -160270,10 +160288,12 @@
           "native-op:__exactResetSignal"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactResetSignal",
           "src/engine/hermes_runtime_crypto.cc#__exactResetSignal",
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactResetSignal"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactResetSignal",
           "src/engine/hermes_runtime_crypto.cc#__exactResetSignal",
           "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactResetSignal"
         ],
@@ -160285,6 +160305,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactResetSignal",
         "src/engine/hermes_runtime_crypto.cc#__exactResetSignal",
         "src/engine/hermes_runtime_crypto.cc#jsi-global:__exactResetSignal"
       ],
@@ -264730,7 +264751,7 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-OyRrdvfqcI90j3WgnHZGm4TBrdeMMBAXrRRPPeHsH24"
+      "rawContentDigest": "sha256-WScOKkzS4cFpdNgLqgD3Md8VtR72L-3853BoqWTs6MY"
     },
     {
       "kind": "registry",
@@ -264759,7 +264780,7 @@
     }
   ],
   "counts": {
-    "observedReferences": 12761,
+    "observedReferences": 12768,
     "logicalSurfaces": 7108,
     "enforcementBranches": 7307,
     "coverageEdges": 7108,

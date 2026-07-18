@@ -149,6 +149,18 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "global:Exact.gc",
 ]);
 
+const ARMED_NATIVE_ABSENT_GLOBALS = new Set([
+  "__exactExit",
+  "__exactGetGCStats",
+  "__exactGetHeapInfo",
+  "__exactGetSourceCacheStats",
+  "__exactIpcRecvMsg",
+  "__exactIpcSendMsg",
+  "__exactPollSignal",
+  "__exactResetSignal",
+  "__exactSetCwd",
+]);
+
 const EXACT_OPERATION_MANIFEST_DIGEST =
   "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
 const EXACT_APP_OPERATION_IDS = Object.freeze([7, 11]);
@@ -1005,6 +1017,95 @@ function sharedRuntimeGlobalAbsenceProbe({
   };
 }
 
+function armedNativeGlobalAbsenceProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    target?.triple !== "aarch64-apple-darwin" ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const globalName = surfaceObservedKey.slice(prefix.length);
+  if (!ARMED_NATIVE_ABSENT_GLOBALS.has(globalName)) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const branches = metadata?.installationBranches;
+  const publicInvocation = metadata?.publicInvocation;
+  const defaultBranch = branches?.find(
+    (branch) =>
+      branch.route === "native-jsi-global" &&
+      branch.targetVariant === "default",
+  );
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== globalName ||
+    metadata?.surfaceType !== "global-api" ||
+    metadata?.sourceKey !== "native_jsi_global" ||
+    metadata?.globalName !== globalName ||
+    metadata?.memberName !== null ||
+    metadata?.exportName !== globalName ||
+    canonicalJson(metadata?.memberKinds) !== canonicalJson(["native-root"]) ||
+    publicInvocation?.kind !== "native-global-function" ||
+    publicInvocation.globalName !== globalName ||
+    !Number.isSafeInteger(publicInvocation.arity) ||
+    publicInvocation.arity < 0 ||
+    typeof publicInvocation.sourceRef !== "string" ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(branches) ||
+    !defaultBranch ||
+    !defaultBranch.sourceRefs.includes(publicInvocation.sourceRef) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-armed-native-global-absence",
+    surfaceObservedKey,
+    globalName,
+    targetTriple: target.triple,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  const expectedError = `armed runtime does not expose ${globalName}`;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName: globalName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "armed-native-global-absence",
+        globalName,
+        expectedError,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredClosedPublicProbe(options) {
   const { plan, scenario } = options;
   if (
@@ -1025,6 +1126,7 @@ export function authoredClosedPublicProbe(options) {
     loaderExecutableKindProbe(options) ??
     terminalBuiltinImportProbe(options) ??
     debuggerAbiDisabledProbe(options) ??
+    armedNativeGlobalAbsenceProbe(options) ??
     sharedRuntimeGlobalAbsenceProbe(options)
   );
 }

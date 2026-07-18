@@ -1497,6 +1497,77 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "armed-native-global-absence") {
+      const reviewedSurfaces = new Set([
+        "__exactExit",
+        "__exactGetGCStats",
+        "__exactGetHeapInfo",
+        "__exactGetSourceCacheStats",
+        "__exactIpcRecvMsg",
+        "__exactIpcSendMsg",
+        "__exactPollSignal",
+        "__exactResetSignal",
+        "__exactSetCwd",
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          "targetTriple",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed armed native global descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "globalName", "expectedError"],
+        `${recipe.fixtureId}: closed armed native global operation`,
+      );
+      const metadata = descriptor.sourceMetadata;
+      const branches = metadata?.installationBranches;
+      const publicInvocation = metadata?.publicInvocation;
+      const defaultBranch = branches?.find(
+        (branch) =>
+          branch.route === "native-jsi-global" &&
+          branch.targetVariant === "default",
+      );
+      if (
+        !reviewedSurfaces.has(authored.surfaceName) ||
+        authored.surfaceKind !== "native-op" ||
+        descriptor.kind !== "closed-armed-native-global-absence" ||
+        descriptor.surfaceObservedKey !== `native-op:${authored.surfaceName}` ||
+        recipe.terminalObservedKey !== descriptor.surfaceObservedKey ||
+        descriptor.globalName !== authored.operation.globalName ||
+        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.sourceKey !== "native_jsi_global" ||
+        metadata.globalName !== authored.operation.globalName ||
+        metadata.memberName !== null ||
+        metadata.exportName !== authored.operation.globalName ||
+        canonicalJson(metadata.memberKinds) !== canonicalJson(["native-root"]) ||
+        publicInvocation?.kind !== "native-global-function" ||
+        publicInvocation.globalName !== authored.operation.globalName ||
+        !Number.isSafeInteger(publicInvocation.arity) ||
+        publicInvocation.arity < 0 ||
+        typeof publicInvocation.sourceRef !== "string" ||
+        !descriptor.sourceRefs.includes(publicInvocation.sourceRef) ||
+        !Array.isArray(branches) ||
+        !defaultBranch ||
+        !defaultBranch.sourceRefs.includes(publicInvocation.sourceRef) ||
+        authored.operation.expectedError !==
+          `armed runtime does not expose ${authored.operation.globalName}`
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: armed native global closure is not bound to the reviewed source-derived JSI path`,
+        );
+      }
+    }
     if (authored.operation?.kind === "exact-unendowed-operation") {
       const descriptor = authored.sourceDescriptor;
       exactKeys(
@@ -2257,6 +2328,15 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: armed shared-runtime global was not physically absent`,
+      );
+    }
+    if (
+      authored.operation?.kind === "armed-native-global-absence" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed native global was not physically absent`,
       );
     }
     const loaderExecutableExpectation = new Map([

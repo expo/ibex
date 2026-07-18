@@ -968,6 +968,62 @@ function completeClosedSharedRuntimeGlobalCatalog() {
   return catalog;
 }
 
+function completeClosedArmedNativeGlobalCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceRefs = [
+    "src/engine/hermes_runtime.cc#__exactExit",
+    "src/engine/hermes_runtime.cc#jsi-global:__exactExit",
+  ];
+  const sourceDescriptor = {
+    kind: "closed-armed-native-global-absence",
+    surfaceObservedKey: "native-op:__exactExit",
+    globalName: "__exactExit",
+    targetTriple: "aarch64-apple-darwin",
+    sourceRefs,
+    sourceMetadata: {
+      exportName: "__exactExit",
+      globalName: "__exactExit",
+      installationBranches: [
+        {
+          route: "native-jsi-global",
+          sourceRefs,
+          targetVariant: "default",
+        },
+      ],
+      memberKinds: ["native-root"],
+      memberName: null,
+      publicInvocation: {
+        arity: 1,
+        globalName: "__exactExit",
+        kind: "native-global-function",
+        sourceRef: sourceRefs[1],
+      },
+      sourceKey: "native_jsi_global",
+      surfaceType: "global-api",
+    },
+  };
+  recipe.fixtureId = "fixture.armed-native.exact-exit.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName: "__exactExit",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "armed-native-global-absence",
+      globalName: "__exactExit",
+      expectedError: "armed runtime does not expose __exactExit",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedExactCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -1113,6 +1169,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           ? invocation.operation.expectedError
         : invocation.operation.kind === "shared-runtime-global-absence"
           ? invocation.operation.expectedError
+        : invocation.operation.kind === "armed-native-global-absence"
+          ? invocation.operation.expectedError
         : invocation.operation.kind === "exact-unendowed-operation"
           ? invocation.operation.expectedError
           : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
@@ -1137,6 +1195,7 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           invocation.operation.kind === "terminal-builtin-import" ||
           invocation.operation.kind === "debugger-abi-disabled" ||
           invocation.operation.kind === "shared-runtime-global-absence" ||
+          invocation.operation.kind === "armed-native-global-absence" ||
           invocation.operation.kind === "exact-unendowed-operation",
         projectCodeExecuted,
       },
@@ -2354,6 +2413,46 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/reviewed legacy-only path/);
+
+    const present = closedRuntimeObservation(recipe);
+    present.invocation.result.engineExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: present,
+        coverage,
+      }),
+    ).toThrow(/not physically absent/);
+  });
+
+  test("accepts armed native global closure only for a source-derived JSI path", () => {
+    const catalog = completeClosedArmedNativeGlobalCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const inventedSource = structuredClone(recipe);
+    inventedSource.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.publicInvocation.sourceRef =
+      "src/engine/hermes_runtime.cc#invented";
+    inventedSource.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        inventedSource.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inventedSource,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(inventedSource),
+        coverage,
+      }),
+    ).toThrow(/source-derived JSI path/);
 
     const present = closedRuntimeObservation(recipe);
     present.invocation.result.engineExecuted = false;

@@ -173,6 +173,12 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    ArmedNativeGlobalAbsence {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
 }
 
 impl ClosedOperation {
@@ -187,6 +193,7 @@ impl ClosedOperation {
             Self::TerminalBuiltinImport { .. } => "terminal-builtin-import",
             Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
             Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
+            Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
         }
     }
 
@@ -200,7 +207,8 @@ impl ClosedOperation {
             | Self::ModuleRunnerNamespace { .. }
             | Self::TerminalBuiltinImport { .. }
             | Self::DebuggerAbiDisabled { .. } => None,
-            Self::SharedRuntimeGlobalAbsence { .. } => None,
+            Self::SharedRuntimeGlobalAbsence { .. }
+            | Self::ArmedNativeGlobalAbsence { .. } => None,
         }
     }
 }
@@ -1690,6 +1698,21 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
     )
 }
 
+fn reviewed_armed_native_absent_surface(surface_name: &str) -> bool {
+    matches!(
+        surface_name,
+        "__exactExit"
+            | "__exactGetGCStats"
+            | "__exactGetHeapInfo"
+            | "__exactGetSourceCacheStats"
+            | "__exactIpcRecvMsg"
+            | "__exactIpcSendMsg"
+            | "__exactPollSignal"
+            | "__exactResetSignal"
+            | "__exactSetCwd"
+    )
+}
+
 #[cfg(test)]
 async fn execute_closed_shared_runtime_global_absence(
     engine: &HermesEngine,
@@ -1699,13 +1722,17 @@ async fn execute_closed_shared_runtime_global_absence(
     engine_binary_digest: &str,
 ) -> serde_json::Value {
     let invocation = &probe.invocation;
-    let ClosedOperation::SharedRuntimeGlobalAbsence {
-        global_name,
-        member_name,
-        expected_error,
-    } = &invocation.operation
-    else {
-        panic!("shared-runtime global absence probe has the wrong operation")
+    let (global_name, member_name, expected_error, armed_native) = match &invocation.operation {
+        ClosedOperation::SharedRuntimeGlobalAbsence {
+            global_name,
+            member_name,
+            expected_error,
+        } => (global_name, member_name.as_ref(), expected_error, false),
+        ClosedOperation::ArmedNativeGlobalAbsence {
+            global_name,
+            expected_error,
+        } => (global_name, None, expected_error, true),
+        _ => panic!("global absence probe has the wrong operation"),
     };
     assert_eq!(recipe.status, "fully-executable");
     assert_eq!(recipe.classification, "closed");
@@ -1724,9 +1751,15 @@ async fn execute_closed_shared_runtime_global_absence(
     );
     assert_eq!(invocation.kind, "closed-surface");
     assert_eq!(invocation.surface_kind, "native-op");
-    assert!(reviewed_shared_runtime_absent_surface(
-        &invocation.surface_name
-    ));
+    if armed_native {
+        assert!(reviewed_armed_native_absent_surface(
+            &invocation.surface_name
+        ));
+    } else {
+        assert!(reviewed_shared_runtime_absent_surface(
+            &invocation.surface_name
+        ));
+    }
     assert_eq!(invocation.expected_result, "closed");
     assert_eq!(invocation.expected_typed_decision_count, 0);
     assert!(invocation.expected_typed_stages.is_empty());
@@ -1738,13 +1771,20 @@ async fn execute_closed_shared_runtime_global_absence(
     );
 
     let descriptor = &invocation.source_descriptor;
-    assert_eq!(descriptor.kind, "closed-shared-runtime-global-absence");
+    assert_eq!(
+        descriptor.kind,
+        if armed_native {
+            "closed-armed-native-global-absence"
+        } else {
+            "closed-shared-runtime-global-absence"
+        }
+    );
     assert_eq!(
         descriptor.surface_observed_key.as_deref(),
         Some(probe.surface_observed_key.as_str())
     );
     assert_eq!(descriptor.global_name.as_deref(), Some(global_name.as_str()));
-    assert_eq!(descriptor.member_name.as_ref(), member_name.as_ref());
+    assert_eq!(descriptor.member_name.as_ref(), member_name);
     assert_eq!(
         descriptor.target_triple.as_deref(),
         Some("aarch64-apple-darwin")
@@ -1761,17 +1801,36 @@ async fn execute_closed_shared_runtime_global_absence(
     let branches = metadata["installationBranches"]
         .as_array()
         .expect("shared-runtime global source must name installation branches");
-    assert_eq!(branches.len(), 1);
-    assert_eq!(branches[0]["route"], "legacy-bootstrap");
-    assert_eq!(branches[0]["targetVariant"], "default");
-    assert_eq!(
-        branches[0]["sourceRefs"],
-        serde_json::json!(descriptor.source_refs)
-    );
-    assert_eq!(
-        expected_error,
-        &format!("armed shared runtime does not expose {export_name}")
-    );
+    if armed_native {
+        assert_eq!(metadata["sourceKey"], "native_jsi_global");
+        assert_eq!(metadata["memberKinds"], serde_json::json!(["native-root"]));
+        let public_invocation = metadata["publicInvocation"]
+            .as_object()
+            .expect("armed native source must carry a public invocation");
+        assert_eq!(public_invocation["kind"], "native-global-function");
+        assert_eq!(public_invocation["globalName"], global_name.as_str());
+        assert!(public_invocation["arity"].as_u64().is_some());
+        assert!(branches.iter().any(|branch| {
+            branch["route"] == "native-jsi-global"
+                && branch["targetVariant"] == "default"
+        }));
+        assert_eq!(
+            expected_error,
+            &format!("armed runtime does not expose {export_name}")
+        );
+    } else {
+        assert_eq!(branches.len(), 1);
+        assert_eq!(branches[0]["route"], "legacy-bootstrap");
+        assert_eq!(branches[0]["targetVariant"], "default");
+        assert_eq!(
+            branches[0]["sourceRefs"],
+            serde_json::json!(descriptor.source_refs)
+        );
+        assert_eq!(
+            expected_error,
+            &format!("armed shared runtime does not expose {export_name}")
+        );
+    }
     let (surface_kind, surface_name) = coverage
         .get(&recipe.edge_ids[0])
         .expect("closed shared-runtime global recipe names an unknown coverage edge");
@@ -2651,6 +2710,41 @@ async fn execute_closed_cli_control(
 
 #[cfg(test)]
 #[tokio::test(flavor = "current_thread")]
+async fn capsec_closed_native_seal_preserves_diagnostic_runtime_compatibility() {
+    let _lock = hermes_engine_test_lock().lock().await;
+    let engine = HermesEngine::new().expect("create foreground diagnostic Hermes runtime");
+    engine
+        .load_runtime()
+        .await
+        .expect("load foreground diagnostic Hermes runtime");
+    let observed = engine
+        .eval_immediate(
+            r#"JSON.stringify([
+  '__exactExit',
+  '__exactGetGCStats',
+  '__exactGetHeapInfo',
+  '__exactGetSourceCacheStats',
+  '__exactIpcRecvMsg',
+  '__exactIpcSendMsg',
+  '__exactPollSignal',
+  '__exactResetSignal',
+  '__exactSetCwd'
+].map(function (name) { return [name, typeof globalThis[name]]; }))"#,
+        )
+        .await
+        .expect("inspect diagnostic compatibility globals")
+        .expect("diagnostic compatibility inspection returned no result");
+    let observed: Vec<(String, String)> =
+        serde_json::from_str(&observed).expect("decode diagnostic compatibility globals");
+    assert_eq!(observed.len(), 9);
+    assert!(
+        observed.iter().all(|(_, value_type)| value_type == "function"),
+        "foreground diagnostic runtime lost reviewed compatibility globals: {observed:?}"
+    );
+}
+
+#[cfg(test)]
+#[tokio::test(flavor = "current_thread")]
 async fn capsec_public_closed_recipe_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
         eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping closed public batch");
@@ -2775,6 +2869,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let armed_native_global_absence_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::ArmedNativeGlobalAbsence { .. }
+            )
+        })
+        .count();
     assert_eq!(
         recipe_indexes.len(),
         startup_count
@@ -2785,7 +2891,8 @@ async fn capsec_public_closed_recipe_batch() {
             + module_runner_namespace_count
             + terminal_builtin_count
             + debugger_abi_count
-            + shared_runtime_global_absence_count,
+            + shared_runtime_global_absence_count
+            + armed_native_global_absence_count,
         "every closed recipe must have an accounted execution family"
     );
     assert_eq!(
@@ -2822,6 +2929,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         shared_runtime_global_absence_count, 33,
         "expected every reviewed legacy-only global path to be absent"
+    );
+    assert_eq!(
+        armed_native_global_absence_count, 9,
+        "expected every reviewed armed native global to be absent"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
@@ -2933,7 +3044,7 @@ async fn capsec_public_closed_recipe_batch() {
             );
         }
     }
-    if shared_runtime_global_absence_count > 0 {
+    if shared_runtime_global_absence_count + armed_native_global_absence_count > 0 {
         let absence_indexes = recipe_indexes
             .iter()
             .copied()
@@ -2944,6 +3055,7 @@ async fn capsec_public_closed_recipe_batch() {
                         .invocation
                         .operation,
                     ClosedOperation::SharedRuntimeGlobalAbsence { .. }
+                        | ClosedOperation::ArmedNativeGlobalAbsence { .. }
                 )
             })
             .collect::<Vec<_>>();
@@ -2977,9 +3089,10 @@ async fn capsec_public_closed_recipe_batch() {
         let probe = closed_surface_probe(recipe).unwrap();
         if matches!(
             &probe.invocation.operation,
-            ClosedOperation::TerminalBuiltinImport { .. }
+                ClosedOperation::TerminalBuiltinImport { .. }
                 | ClosedOperation::DebuggerAbiDisabled { .. }
                 | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
+                | ClosedOperation::ArmedNativeGlobalAbsence { .. }
         ) {
             continue;
         }
@@ -3041,6 +3154,7 @@ async fn capsec_public_closed_recipe_batch() {
             ClosedOperation::TerminalBuiltinImport { .. } => unreachable!(),
             ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),
             ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
+            ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),
         });
     }
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));

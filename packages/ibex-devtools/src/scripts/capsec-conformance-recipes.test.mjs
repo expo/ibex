@@ -1604,6 +1604,46 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 
+  test("binds reviewed direct native globals to armed runtime absence", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "armed-native-global-absence",
+    );
+    expect(rows).toHaveLength(9);
+    expect(
+      rows.map(
+        (recipe) => recipe.publicSurfaceProbe.invocation.operation.globalName,
+      ),
+    ).toEqual([
+      "__exactExit",
+      "__exactGetGCStats",
+      "__exactGetHeapInfo",
+      "__exactGetSourceCacheStats",
+      "__exactIpcRecvMsg",
+      "__exactIpcSendMsg",
+      "__exactPollSignal",
+      "__exactResetSignal",
+      "__exactSetCwd",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
+            "closed-armed-native-global-absence" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+            .publicInvocation.kind === "native-global-function",
+      ),
+    ).toBe(true);
+  });
+
   test("executes module-runner authority and trusted-access loader surfaces", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>

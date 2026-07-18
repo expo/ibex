@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24933 removes nine direct compatibility, diagnostic, IPC, signal, process, and working-directory native globals from the armed lockdown runtime and binds their source-derived cells to physical absence)
 **Revised:** 2026-07-17 (ENG-24933 restamps the reviewed Hermes evaluator identity after the Release artifact builder changed, preserving fail-closed source-authority drift detection)
 **Revised:** 2026-07-17 (ENG-24933 versions the conformance cache by the no-debugger build profile and reattests every restored framework before execution)
 **Revised:** 2026-07-17 (ENG-24933 explicitly binds CI artifact selection and wrapper compilation to the Release profile and makes symbol attestation SIGPIPE-safe)
@@ -616,9 +617,10 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalog has 23,126 required
-fixtures, 5,002 fully executable recipes, and 18,124 unresolved
+fixtures, 5,011 fully executable recipes, and 18,115 unresolved
 fixtures. The latest source-bound tranches add 33 armed shared-runtime global
-absence recipes, 18 physical no-debugger ABI closure recipes, 106
+absence recipes, nine armed direct-native global absence recipes, 18 physical
+no-debugger ABI closure recipes, 106
 terminal-builtin closure recipes, four
 loader/source-acquisition recipes, 24 native module-runner ABI
 lifecycle recipes, one armed namespace-inspection closure, 14 asymmetric/EVP
@@ -676,11 +678,14 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes and 18,124 unresolved fixtures. The physical
+are 7,043 ambiguous routes and 18,115 unresolved fixtures. Nine direct native
+compatibility, diagnostic, IPC, signal, process, and working-directory globals
+are now deleted after lazy installation on the armed lockdown path, and their
+exact source-derived JSI cells prove physical absence. The physical
 no-debugger tranche also executes all nine debugger ABI functions on the exact
 Apple artifact and binds their nine corresponding native-operation facets to
 the same zero, null-pointer, or no-event results. Together with the other
-closed families, the exact loaded engine passes all 320 closed fixtures with
+closed families, the exact loaded engine passes all 329 closed fixtures with
 zero typed or legacy decisions.
 
 ### WP0 artifacts and gate

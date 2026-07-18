@@ -3264,8 +3264,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // lockdown/compartment path the installers stay lazy for startup cost.
   if (handle->structural_lockdown) {
     requireArmedStartupStage(handle, "eager-install-seal");
-    static const char* kEagerInstallSealJS = R"JS((function () {
+    std::string eagerInstallSealJS = std::string(R"JS((function () {
   var g = globalThis;
+  var sealClosedNative = )JS") + (handle->armed ? "true" : "false") + R"JS(;
   var ensures = ['__exactEnsureFs', '__exactEnsureHttp', '__exactEnsureSqlite',
     '__exactEnsureDns', '__exactEnsureChildProcess', '__exactEnsureNet',
     '__exactEnsureStreamEnhance', '__exactEnsureWebCrypto',
@@ -3274,6 +3275,29 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var fn = g[ensures[i]];
     if (typeof fn === 'function') fn();
     delete g[ensures[i]];
+  }
+  // These direct native globals back compatibility and diagnostic wrappers,
+  // but the production CapSec registry classifies their ambient forms as
+  // closed. Some are created by the lazy installers above, so remove the
+  // complete reviewed set only after every installer has run.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  if (sealClosedNative) {
+    var closedNative = [
+      '__exactExit',
+      '__exactGetGCStats',
+      '__exactGetHeapInfo',
+      '__exactGetSourceCacheStats',
+      '__exactIpcRecvMsg',
+      '__exactIpcSendMsg',
+      '__exactPollSignal',
+      '__exactResetSignal',
+      '__exactSetCwd'
+    ];
+    for (var j = 0; j < closedNative.length; j++) {
+      if (!delete g[closedNative[j]]) {
+        throw new TypeError('cannot close armed native global ' + closedNative[j]);
+      }
+    }
   }
   // @ref LLP 0013#phase-1 — close the ambient self-grant channel. The
   // end-of-bootstrap seal deletes __exactGrantCapability but rebinds
@@ -3289,6 +3313,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   } catch (e) { throw e; }
 })();
 )JS";
+    const char* kEagerInstallSealJS = eagerInstallSealJS.c_str();
     try {
       auto buffer =
           std::make_shared<facebook::jsi::StringBuffer>(kEagerInstallSealJS);
