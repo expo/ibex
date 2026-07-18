@@ -227,7 +227,7 @@ function renderPlan(authority, workloadStaging) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     activeRouteSubset: {
       scopeId: payload.scopeId,
@@ -346,6 +346,9 @@ function buildCodecManifest(authority, semantics) {
   const requestDeviceProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUAdapter.requestDevice",
   );
+  const createBindGroupLayoutProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUDevice.createBindGroupLayout",
+  );
   const createCommandEncoderProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createCommandEncoder",
   );
@@ -363,6 +366,10 @@ function buildCodecManifest(authority, semantics) {
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createCommandEncoder",
     );
+  const createBindGroupLayoutSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUDevice.createBindGroupLayout",
+    );
   const createShaderModuleSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createShaderModule",
@@ -376,15 +383,18 @@ function buildCodecManifest(authority, semantics) {
   if (
     !requestAdapterProgram ||
     !requestDeviceProgram ||
+    !createBindGroupLayoutProgram ||
     !createCommandEncoderProgram ||
     !createShaderModuleProgram ||
     !deviceDestroyProgram ||
+    !createBindGroupLayoutSemanticProgram ||
     !createCommandEncoderSemanticProgram ||
     !createShaderModuleSemanticProgram ||
     !deviceDestroySemanticProgram ||
     headerVocabulary.tags.GPU !== 1 ||
     headerVocabulary.tags.GPUAdapter !== 2 ||
     headerVocabulary.tags.GPUDevice !== 3 ||
+    headerVocabulary.tags.GPUBindGroupLayout !== 9 ||
     headerVocabulary.tags.GPUShaderModule !== 12 ||
     headerVocabulary.tags.GPUCommandEncoder !== 15 ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 !==
@@ -401,6 +411,8 @@ function buildCodecManifest(authority, semantics) {
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createCommandEncoderProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      createBindGroupLayoutProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createShaderModuleProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_V2 !== 1 ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 !== 2 ||
@@ -410,6 +422,7 @@ function buildCodecManifest(authority, semantics) {
     headerVocabulary.carrierConstants.EXACT_GPU_BACKEND_NONE_V2 !== 0 ||
     requestDeviceProgram.request.executablePrerequisites.join(",") !==
       "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity" ||
+    createBindGroupLayoutProgram.request.executablePrerequisites.length !== 0 ||
     createCommandEncoderProgram.request.executablePrerequisites.length !== 0 ||
     createShaderModuleProgram.request.executablePrerequisites.length !== 0 ||
     deviceDestroyProgram.request.executablePrerequisites.length !== 0
@@ -491,6 +504,29 @@ function buildCodecManifest(authority, semantics) {
       completionVariant: "operation-success",
     },
   };
+  const expectedCreateBindGroupLayoutTerminalMapping = {
+    authorityPath:
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createBindGroupLayout]",
+    terminals: createBindGroupLayoutSemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+      event: createCommandEncoderCompletionEvents[terminal.terminalId],
+    })),
+  };
+  if (
+    canonicalJson(createBindGroupLayoutProgram.completion.semanticTerminalMapping) !==
+      canonicalJson(expectedCreateBindGroupLayoutTerminalMapping) ||
+    expectedCreateBindGroupLayoutTerminalMapping.terminals.some(
+      (terminal) => !terminal.event,
+    )
+  ) {
+    throw new Error(
+      "GPUDevice.createBindGroupLayout native completion mapping differs from semantic terminals",
+    );
+  }
   const expectedCreateCommandEncoderTerminalMapping = {
     authorityPath:
       "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createCommandEncoder]",
@@ -564,7 +600,7 @@ function buildCodecManifest(authority, semantics) {
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,

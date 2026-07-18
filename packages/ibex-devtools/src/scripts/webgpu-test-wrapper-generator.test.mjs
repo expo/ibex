@@ -58,6 +58,7 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(nativePrograms.routes.map((route) => route.operationId)).toEqual([
       "GPU.requestAdapter",
       "GPUAdapter.requestDevice",
+      "GPUDevice.createBindGroupLayout",
       "GPUDevice.createCommandEncoder",
       "GPUDevice.createShaderModule",
       "GPUDevice.destroy",
@@ -103,7 +104,28 @@ describe("test-only WebGPU wrapper generator", () => {
       serviceResultPath: "nativeSemanticServiceResult.diagnosticMessage",
       operator: "equal-never-caller-selected",
     });
-    const createCommandEncoder = nativePrograms.routes[2];
+    const createBindGroupLayout = nativePrograms.routes[2];
+    expect(createBindGroupLayout.request.catalog.wireTag).toBe(15);
+    expect(createBindGroupLayout.completion.catalog.wireTag).toBe(2);
+    expect(createBindGroupLayout.request.executablePrerequisites).toEqual([]);
+    expect(createBindGroupLayout.request.carrierConstraints.find(
+      (constraint) => constraint.carrierPath === "target.kind",
+    )?.valueFrom).toBe("objectKindTags.GPUBindGroupLayout");
+    expect(
+      createBindGroupLayout.request.semanticServiceBoundary.requiredAfterDecode,
+    ).toEqual([
+      "authenticate-contiguous-sealed-local-timeline-prefix",
+      "validate-current-live-device-generation",
+      "validate-operation-coverage",
+      "validate-authorized-live-account",
+      "validate-bind-group-layout-descriptor-under-logical-device-capabilities",
+      "reserve-bind-group-layout-handle-and-aggregate-envelope",
+      "authenticate-wrapper-allocated-bind-group-layout-target",
+      "select-provider-admission-and-physical-sequence",
+    ]);
+    expect(nativePrograms.types.bindGroupLayoutDescriptorV1.fields[1].value)
+      .toMatchObject({ minCount: 1, maxCount: 5 });
+    const createCommandEncoder = nativePrograms.routes[3];
     expect(createCommandEncoder.request.catalog.wireTag).toBe(5);
     expect(createCommandEncoder.completion.catalog.wireTag).toBe(2);
     expect(createCommandEncoder.request.executablePrerequisites).toEqual([]);
@@ -113,7 +135,7 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(createCommandEncoder.completion.variants.map(
       (variant) => variant.name,
     )).toEqual(["operation-success"]);
-    const createShaderModule = nativePrograms.routes[3];
+    const createShaderModule = nativePrograms.routes[4];
     expect(createShaderModule.request.catalog.wireTag).toBe(7);
     expect(createShaderModule.completion.catalog.wireTag).toBe(2);
     expect(createShaderModule.request.executablePrerequisites).toEqual([]);
@@ -139,7 +161,7 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(createShaderModule.completion.variants.map(
       (variant) => variant.name,
     )).toEqual(["operation-success"]);
-    const deviceDestroy = nativePrograms.routes[4];
+    const deviceDestroy = nativePrograms.routes[5];
     expect(deviceDestroy.request.catalog.wireTag).toBe(12);
     expect(deviceDestroy.completion.catalog.wireTag).toBe(2);
     expect(deviceDestroy.request.executablePrerequisites).toEqual([]);
@@ -198,10 +220,10 @@ describe("test-only WebGPU wrapper generator", () => {
 
   test("carries every authenticated operation field into one bijective wrapper route", () => {
     const plan = buildWebGpuWrapperPlan(authority, semantics);
-    expect(plan.routes).toHaveLength(25);
-    expect(WRAPPER_ROUTE_ASSIGNMENTS).toHaveLength(25);
-    expect(new Set(plan.routes.map((route) => route.operationId)).size).toBe(25);
-    expect(new Set(plan.routes.map((route) => route.wireId)).size).toBe(25);
+    expect(plan.routes).toHaveLength(26);
+    expect(WRAPPER_ROUTE_ASSIGNMENTS).toHaveLength(26);
+    expect(new Set(plan.routes.map((route) => route.operationId)).size).toBe(26);
+    expect(new Set(plan.routes.map((route) => route.wireId)).size).toBe(26);
     for (const operation of authority.payload.operations) {
       const route = plan.routes.find((candidate) => candidate.operationId === operation.operationId);
       const assignment = WRAPPER_ROUTE_ASSIGNMENTS.find(
@@ -236,6 +258,7 @@ describe("test-only WebGPU wrapper generator", () => {
       "GPUAdapter.requestDevice",
       "GPUCanvasContext.configure",
       "GPUCanvasContext.unconfigure",
+      "GPUDevice.createBindGroupLayout",
       "GPUDevice.createCommandEncoder",
       "GPUDevice.createRenderPipeline",
       "GPUDevice.createShaderModule",
@@ -261,7 +284,7 @@ describe("test-only WebGPU wrapper generator", () => {
     );
     expect(validated.semanticProjection.requestDeviceRouting.terminals).toHaveLength(17);
     expect(validated.semanticProjection.requestDeviceFailureProgram.branches).toHaveLength(10);
-    expect(validated.semanticProjection.providerRoutingPrograms).toHaveLength(12);
+    expect(validated.semanticProjection.providerRoutingPrograms).toHaveLength(13);
     expect(
       validated.semanticProjection.limitPolicy.requestValidation
         .unknownNonUndefined,
@@ -455,13 +478,35 @@ describe("test-only WebGPU wrapper generator", () => {
       .completion.variants[2].carrierConstraints[0].value = 1;
     mutations.push(nativeRequestDeviceTransition);
 
+    const nativeBindGroupLayoutTarget = clone(authority);
+    nativeBindGroupLayoutTarget.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+      .request.carrierConstraints.find(
+        (constraint) => constraint.carrierPath === "target.kind",
+      ).valueFrom = "objectKindTags.GPUShaderModule";
+    mutations.push(nativeBindGroupLayoutTarget);
+
+    const nativeBindGroupLayoutValidationOrder = clone(authority);
+    const nativeBindGroupLayoutValidationSteps =
+      nativeBindGroupLayoutValidationOrder.payload.wireEnvelope.nativeCodecPrograms
+        .routes[2].request.semanticServiceBoundary.requiredAfterDecode;
+    [nativeBindGroupLayoutValidationSteps[4], nativeBindGroupLayoutValidationSteps[5]] = [
+      nativeBindGroupLayoutValidationSteps[5],
+      nativeBindGroupLayoutValidationSteps[4],
+    ];
+    mutations.push(nativeBindGroupLayoutValidationOrder);
+
+    const nativeBindGroupLayoutSequenceBound = clone(authority);
+    nativeBindGroupLayoutSequenceBound.payload.wireEnvelope.nativeCodecPrograms.types
+      .bindGroupLayoutDescriptorV1.fields[1].value.maxCount = 6;
+    mutations.push(nativeBindGroupLayoutSequenceBound);
+
     const nativeShaderDescriptor = clone(authority);
     nativeShaderDescriptor.payload.wireEnvelope.nativeCodecPrograms.types
       .shaderModuleDescriptorV1.unknownFields = "ignore";
     mutations.push(nativeShaderDescriptor);
 
     const nativeShaderTarget = clone(authority);
-    nativeShaderTarget.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+    nativeShaderTarget.payload.wireEnvelope.nativeCodecPrograms.routes[4]
       .request.carrierConstraints.find(
         (constraint) => constraint.carrierPath === "target.kind",
       ).valueFrom = "objectKindTags.GPUCommandEncoder";
@@ -469,7 +514,7 @@ describe("test-only WebGPU wrapper generator", () => {
 
     const nativeShaderValidationOrder = clone(authority);
     const nativeShaderValidationSteps =
-      nativeShaderValidationOrder.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+      nativeShaderValidationOrder.payload.wireEnvelope.nativeCodecPrograms.routes[4]
         .request.semanticServiceBoundary.requiredAfterDecode;
     [nativeShaderValidationSteps[4], nativeShaderValidationSteps[5]] = [
       nativeShaderValidationSteps[5],
@@ -478,28 +523,28 @@ describe("test-only WebGPU wrapper generator", () => {
     mutations.push(nativeShaderValidationOrder);
 
     const nativeDeviceDestroyTimeline = clone(authority);
-    nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[4]
+    nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[5]
       .request.valueConstraints[0].operator = "exact-empty-sequence";
     mutations.push(nativeDeviceDestroyTimeline);
 
     const nativeDeviceDestroyAdmission = clone(authority);
-    nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[4]
+    nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[5]
       .completion.variants[1].carrierConstraints[1].operator = "equal";
     mutations.push(nativeDeviceDestroyAdmission);
 
     const nativeDeviceDestroyTerminal = clone(authority);
-    nativeDeviceDestroyTerminal.payload.wireEnvelope.nativeCodecPrograms.routes[4]
+    nativeDeviceDestroyTerminal.payload.wireEnvelope.nativeCodecPrograms.routes[5]
       .completion.semanticTerminalMapping.terminals[2].terminalId =
         "generic-admitted-cleanup";
     mutations.push(nativeDeviceDestroyTerminal);
 
     const nativeDeviceDestroyTerminalCount = clone(authority);
-    nativeDeviceDestroyTerminalCount.payload.wireEnvelope.nativeCodecPrograms.routes[4]
+    nativeDeviceDestroyTerminalCount.payload.wireEnvelope.nativeCodecPrograms.routes[5]
       .completion.semanticTerminalMapping.terminals[2].providerTokenCount = 0;
     mutations.push(nativeDeviceDestroyTerminalCount);
 
     const nativeDeviceDestroyErrorMapping = clone(authority);
-    nativeDeviceDestroyErrorMapping.payload.wireEnvelope.nativeCodecPrograms.routes[4]
+    nativeDeviceDestroyErrorMapping.payload.wireEnvelope.nativeCodecPrograms.routes[5]
       .completion.semanticTerminalMapping.terminals[1].event.kind =
         "operation-result";
     mutations.push(nativeDeviceDestroyErrorMapping);

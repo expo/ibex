@@ -57,16 +57,18 @@ interface NativeCodecField {
   readonly constraintType?:
     | 'requestAdapterOptionsV1'
     | 'requestDeviceDescriptorV1'
+    | 'bindGroupLayoutDescriptorV1'
     | 'commandEncoderDescriptorV1'
     | 'shaderModuleDescriptorV1';
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 12;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15;
     operationWireId:
       | 1660448199
       | 194635792
       | 206890944
+      | 2939505691
       | 599085487
       | 4055478657;
   }>;
@@ -136,6 +138,7 @@ interface NativeCodecCarrierConstraint {
     | 'objectKindTags.GPU'
     | 'objectKindTags.GPUAdapter'
     | 'objectKindTags.GPUDevice'
+    | 'objectKindTags.GPUBindGroupLayout'
     | 'objectKindTags.GPUCommandEncoder'
     | 'objectKindTags.GPUShaderModule'
     | 'constants.providerTopologyId';
@@ -159,11 +162,12 @@ interface NativeCodecCatalogReference {
     | 'nullable-gpu-adapter-service-completion-v2'
     | 'gpu-request-device-service-request-v1'
     | 'gpu-device-service-completion-v1'
+    | 'gpu-create-bind-group-layout-service-request-v1'
     | 'gpu-create-command-encoder-service-request-v1'
     | 'gpu-create-shader-module-service-request-v1'
     | 'gpu-device-cleanup-service-request-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 12;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15;
 }
 
 interface NativeCodecCompletionVariant {
@@ -288,6 +292,39 @@ interface NativeCodecCreateCommandEncoderRoute {
   }>;
 }
 
+interface NativeCodecCreateBindGroupLayoutRoute {
+  readonly operationId: 'GPUDevice.createBindGroupLayout';
+  readonly wireId: 2939505691;
+  readonly request: Readonly<{
+    payloadRole:
+      'service-request-payload-decoder-plus-operation-specific-call-joins';
+    catalog: NativeCodecCatalogReference;
+    payload: Readonly<{
+      kind: 'struct';
+      fields: readonly NativeCodecField[];
+    }>;
+    carrierJoins: readonly NativeCodecJoin[];
+    carrierConstraints: readonly NativeCodecCarrierConstraint[];
+    valueConstraints: readonly Readonly<Record<string, unknown>>[];
+    semanticServiceBoundary: Readonly<Record<string, unknown>>;
+    executablePrerequisites: readonly [];
+    noTrailingBytes: true;
+  }>;
+  readonly completion: Readonly<{
+    payloadRole:
+      'service-completion-payload-codec-plus-operation-specific-event-joins';
+    catalog: NativeCodecCatalogReference;
+    commonCarrierConstraints: readonly NativeCodecCarrierConstraint[];
+    payload: Readonly<{ kind: 'empty'; exactLengthBytes: 0 }>;
+    semanticTerminalMapping: Readonly<Record<string, unknown>>;
+    variants: readonly Readonly<{
+      name: 'operation-success';
+      carrierConstraints: readonly NativeCodecCarrierConstraint[];
+    }>[];
+    noTrailingBytes: true;
+  }>;
+}
+
 interface NativeCodecCreateShaderModuleRoute {
   readonly operationId: 'GPUDevice.createShaderModule';
   readonly wireId: 599085487;
@@ -357,7 +394,7 @@ interface NativeCodecDeviceDestroyRoute {
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -431,6 +468,7 @@ export interface NativeCodecProgramsV2 {
       }>[];
     }>;
     requestDeviceDescriptorV1: Readonly<Record<string, unknown>>;
+    bindGroupLayoutDescriptorV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
     shaderModuleDescriptorV1: Readonly<Record<string, unknown>>;
     sortedUniqueFeatureSequenceV1: Readonly<Record<string, unknown>>;
@@ -443,6 +481,7 @@ export interface NativeCodecProgramsV2 {
   readonly routes: readonly (
     | NativeCodecRequestAdapterRoute
     | NativeCodecRequestDeviceRoute
+    | NativeCodecCreateBindGroupLayoutRoute
     | NativeCodecCreateCommandEncoderRoute
     | NativeCodecCreateShaderModuleRoute
     | NativeCodecDeviceDestroyRoute
@@ -533,6 +572,7 @@ type DetachedOperationResultEvent = OperationResultEvent & Readonly<{
 const PRODUCTION_WRAPPER_KINDS = Object.freeze([
   'GPU',
   'GPUAdapter',
+  'GPUBindGroupLayout',
   'GPUDevice',
   'GPUQueue',
   'GPUTexture',
@@ -555,6 +595,13 @@ const REQUEST_DEVICE_OPERATION_ID = 'GPUAdapter.requestDevice';
 const REQUEST_DEVICE_WIRE_ID = 194635792;
 const REQUEST_DEVICE_REQUEST_CODEC = 'gpu-request-device-service-request-v1';
 const REQUEST_DEVICE_COMPLETION_CODEC = 'gpu-device-service-completion-v1';
+const CREATE_BIND_GROUP_LAYOUT_OPERATION_ID =
+  'GPUDevice.createBindGroupLayout';
+const CREATE_BIND_GROUP_LAYOUT_WIRE_ID = 2939505691;
+const CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC =
+  'gpu-create-bind-group-layout-service-request-v1';
+const CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
 const CREATE_COMMAND_ENCODER_OPERATION_ID = 'GPUDevice.createCommandEncoder';
 const CREATE_COMMAND_ENCODER_WIRE_ID = 4055478657;
 const CREATE_COMMAND_ENCODER_REQUEST_CODEC =
@@ -630,7 +677,7 @@ const EXPECTED_COMPLETE_LIMIT_NAMES = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -860,6 +907,196 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
           },
         },
       ],
+    },
+    bindGroupLayoutDescriptorV1: {
+      "kind": "closed-dictionary",
+      "encodingType": "canonicalValueV1",
+      "unknownFields": "reject",
+      "workloadClosure": "typegpu-0.11.9-genetic-racing-plus-jelly-slider",
+      "fields": [
+        {
+          "name": "label",
+          "required": true,
+          "value": {
+            "kind": "string",
+            "maxUtf8Bytes": 57
+          }
+        },
+        {
+          "name": "entries",
+          "required": true,
+          "value": {
+            "kind": "sequence",
+            "minCount": 1,
+            "maxCount": 5,
+            "constraints": [
+              "binding-values-unique-contiguous-ascending-from-zero"
+            ],
+            "element": {
+              "kind": "closed-dictionary",
+              "unknownFields": "reject",
+              "constraints": [
+                "exactly-one-resource-layout-member"
+              ],
+              "fields": [
+                {
+                  "name": "binding",
+                  "required": true,
+                  "value": {
+                    "kind": "u32-enum",
+                    "values": [
+                      0,
+                      1,
+                      2,
+                      3,
+                      4
+                    ]
+                  }
+                },
+                {
+                  "name": "visibility",
+                  "required": true,
+                  "value": {
+                    "kind": "u32-enum",
+                    "values": [
+                      2,
+                      6,
+                      7
+                    ]
+                  }
+                },
+                {
+                  "name": "buffer",
+                  "required": false,
+                  "value": {
+                    "kind": "closed-dictionary",
+                    "unknownFields": "reject",
+                    "fields": [
+                      {
+                        "name": "type",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "values": [
+                            "uniform",
+                            "storage",
+                            "read-only-storage"
+                          ]
+                        }
+                      },
+                      {
+                        "name": "hasDynamicOffset",
+                        "required": true,
+                        "value": {
+                          "kind": "constant",
+                          "value": false
+                        }
+                      },
+                      {
+                        "name": "minBindingSize",
+                        "required": true,
+                        "value": {
+                          "kind": "constant",
+                          "value": 0
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "sampler",
+                  "required": false,
+                  "value": {
+                    "kind": "closed-dictionary",
+                    "unknownFields": "reject",
+                    "fields": [
+                      {
+                        "name": "type",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "values": [
+                            "filtering",
+                            "non-filtering"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "texture",
+                  "required": false,
+                  "value": {
+                    "kind": "closed-dictionary",
+                    "unknownFields": "reject",
+                    "fields": [
+                      {
+                        "name": "sampleType",
+                        "required": true,
+                        "value": {
+                          "kind": "constant",
+                          "value": "float"
+                        }
+                      },
+                      {
+                        "name": "viewDimension",
+                        "required": true,
+                        "value": {
+                          "kind": "constant",
+                          "value": "2d"
+                        }
+                      },
+                      {
+                        "name": "multisampled",
+                        "required": true,
+                        "value": {
+                          "kind": "constant",
+                          "value": false
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "storageTexture",
+                  "required": false,
+                  "value": {
+                    "kind": "closed-dictionary",
+                    "unknownFields": "reject",
+                    "fields": [
+                      {
+                        "name": "access",
+                        "required": true,
+                        "value": {
+                          "kind": "constant",
+                          "value": "write-only"
+                        }
+                      },
+                      {
+                        "name": "format",
+                        "required": true,
+                        "value": {
+                          "kind": "constant",
+                          "value": "rgba16float"
+                        }
+                      },
+                      {
+                        "name": "viewDimension",
+                        "required": true,
+                        "value": {
+                          "kind": "constant",
+                          "value": "2d"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
     },
     commandEncoderDescriptorV1: {
       kind: 'closed-dictionary',
@@ -2173,6 +2410,7 @@ function canonicalManifestJson(value: unknown): string {
 interface ValidatedNativeCodecProgram {
   readonly route: NativeCodecRequestAdapterRoute;
   readonly requestDeviceRoute: NativeCodecRequestDeviceRoute;
+  readonly createBindGroupLayoutRoute: NativeCodecCreateBindGroupLayoutRoute;
   readonly createCommandEncoderRoute: NativeCodecCreateCommandEncoderRoute;
   readonly createShaderModuleRoute: NativeCodecCreateShaderModuleRoute;
   readonly deviceDestroyRoute: NativeCodecDeviceDestroyRoute;
@@ -2195,6 +2433,7 @@ function validateNativeCodecProgram(
     ...manifest.nativeCodecPrograms,
     routes: manifest.nativeCodecPrograms.routes.filter(
       (candidate) =>
+        candidate.operationId !== CREATE_BIND_GROUP_LAYOUT_OPERATION_ID &&
         candidate.operationId !== CREATE_COMMAND_ENCODER_OPERATION_ID &&
         candidate.operationId !== CREATE_SHADER_MODULE_OPERATION_ID,
     ),
@@ -2214,6 +2453,10 @@ function validateNativeCodecProgram(
   const requestDeviceRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecRequestDeviceRoute =>
       candidate.operationId === REQUEST_DEVICE_OPERATION_ID,
+  );
+  const createBindGroupLayoutRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCreateBindGroupLayoutRoute =>
+      candidate.operationId === CREATE_BIND_GROUP_LAYOUT_OPERATION_ID,
   );
   const createCommandEncoderRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreateCommandEncoderRoute =>
@@ -2244,6 +2487,15 @@ function validateNativeCodecProgram(
   );
   const requestDeviceCompletionCodec = manifest.serviceCompletions.find(
       (candidate) => candidate.tag === REQUEST_DEVICE_COMPLETION_CODEC,
+  );
+  const createBindGroupLayoutPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === CREATE_BIND_GROUP_LAYOUT_OPERATION_ID,
+  );
+  const createBindGroupLayoutRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC,
+  );
+  const createBindGroupLayoutCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC,
   );
   const createCommandEncoderPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === CREATE_COMMAND_ENCODER_OPERATION_ID,
@@ -2841,13 +3093,36 @@ function validateNativeCodecProgram(
       noTrailingBytes: true,
     },
   };
+  const expectedCreateBindGroupLayoutCanonical = canonicalManifestJson(
+    expectedCreateShaderModuleRoute,
+  )
+    .replaceAll('GPUDevice.createShaderModule', CREATE_BIND_GROUP_LAYOUT_OPERATION_ID)
+    .replaceAll('gpu-create-shader-module-service-request-v1', CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC)
+    .replaceAll('GPUShaderModule', 'GPUBindGroupLayout')
+    .replaceAll('shaderModuleDescriptorV1', 'bindGroupLayoutDescriptorV1')
+    .replaceAll('599085487', String(CREATE_BIND_GROUP_LAYOUT_WIRE_ID))
+    .replaceAll('"codecTag":7', '"codecTag":15')
+    .replaceAll('"wireTag":7', '"wireTag":15')
+    .replaceAll(
+      'validate-wgsl-with-naga-under-logical-capabilities',
+      'validate-bind-group-layout-descriptor-under-logical-device-capabilities',
+    )
+    .replaceAll(
+      'reserve-shader-module-handle-and-aggregate-envelope',
+      'reserve-bind-group-layout-handle-and-aggregate-envelope',
+    )
+    .replaceAll(
+      'authenticate-wrapper-allocated-shader-module-target',
+      'authenticate-wrapper-allocated-bind-group-layout-target',
+    );
   if (
-    manifest.nativeCodecPrograms.routes.length !== 5 ||
+    manifest.nativeCodecPrograms.routes.length !== 6 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 5 ||
+    ).size !== 6 ||
     !route ||
     !requestDeviceRoute ||
+    !createBindGroupLayoutRoute ||
     !createCommandEncoderRoute ||
     !createShaderModuleRoute ||
     !deviceDestroyRoute ||
@@ -2855,6 +3130,8 @@ function validateNativeCodecProgram(
       canonicalManifestJson(expectedCreateCommandEncoderRoute) ||
     canonicalManifestJson(createShaderModuleRoute) !==
       canonicalManifestJson(expectedCreateShaderModuleRoute) ||
+    canonicalManifestJson(createBindGroupLayoutRoute) !==
+      expectedCreateBindGroupLayoutCanonical ||
     !planRoute ||
     planRoute.wireId !== REQUEST_ADAPTER_WIRE_ID ||
     planRoute.serviceArgumentCodec !== REQUEST_ADAPTER_REQUEST_CODEC ||
@@ -2879,6 +3156,19 @@ function validateNativeCodecProgram(
     ]) ||
     requestDeviceCompletionCodec?.wireTag !==
       requestDeviceRoute.completion.catalog.wireTag ||
+    !createBindGroupLayoutPlanRoute ||
+    createBindGroupLayoutPlanRoute.wireId !== CREATE_BIND_GROUP_LAYOUT_WIRE_ID ||
+    createBindGroupLayoutPlanRoute.serviceArgumentCodec !==
+      CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC ||
+    createBindGroupLayoutPlanRoute.serviceCompletionCodec !==
+      CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC ||
+    createBindGroupLayoutRequestCodec?.wireTag !==
+      createBindGroupLayoutRoute.request.catalog.wireTag ||
+    createBindGroupLayoutRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    createBindGroupLayoutRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    createBindGroupLayoutRequestCodec.unavailableSemanticFields.length !== 0 ||
+    createBindGroupLayoutCompletionCodec?.wireTag !==
+      createBindGroupLayoutRoute.completion.catalog.wireTag ||
     !createCommandEncoderPlanRoute ||
     createCommandEncoderPlanRoute.wireId !== CREATE_COMMAND_ENCODER_WIRE_ID ||
     createCommandEncoderPlanRoute.serviceArgumentCodec !==
@@ -2924,11 +3214,13 @@ function validateNativeCodecProgram(
     manifest.objectKindTags.GPU !== 1 ||
     manifest.objectKindTags.GPUAdapter !== 2 ||
     manifest.objectKindTags.GPUDevice !== 3 ||
+    manifest.objectKindTags.GPUBindGroupLayout !== 9 ||
     manifest.objectKindTags.GPUShaderModule !== 12 ||
     manifest.objectKindTags.GPUCommandEncoder !== 15 ||
     expectedObjectKindTags.GPU !== 1 ||
     expectedObjectKindTags.GPUAdapter !== 2 ||
     expectedObjectKindTags.GPUDevice !== 3 ||
+    expectedObjectKindTags.GPUBindGroupLayout !== 9 ||
     expectedObjectKindTags.GPUShaderModule !== 12 ||
     expectedObjectKindTags.GPUCommandEncoder !== 15 ||
     nullVariant?.resultKind !==
@@ -2939,6 +3231,8 @@ function validateNativeCodecProgram(
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createCommandEncoderRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    createBindGroupLayoutRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createShaderModuleRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
@@ -2947,6 +3241,7 @@ function validateNativeCodecProgram(
   return Object.freeze({
     route,
     requestDeviceRoute,
+    createBindGroupLayoutRoute,
     createCommandEncoderRoute,
     createShaderModuleRoute,
     deviceDestroyRoute,
@@ -3255,6 +3550,139 @@ function convertRenderPassDescriptor(
 function convertObjectDescriptor(value: unknown, label: string): unknown {
   const source = dictionary(value, label);
   return frozenRecord({ label: optionalLabel(source) });
+}
+
+function convertBindGroupLayoutDescriptor(
+  value: unknown,
+  maximum: number,
+): unknown {
+  const source = dictionary(value, 'GPUBindGroupLayoutDescriptor');
+  if (source.entries === undefined) {
+    throw new TypeError('GPUBindGroupLayoutDescriptor.entries is required');
+  }
+  const entries = sequence(
+    source.entries,
+    'GPUBindGroupLayoutDescriptor.entries',
+    maximum,
+  ).map((entry, index) => {
+    const row = dictionary(entry, `GPUBindGroupLayoutEntry[${index}]`);
+    if (row.binding === undefined || row.visibility === undefined) {
+      throw new TypeError(
+        `GPUBindGroupLayoutEntry[${index}] binding and visibility are required`,
+      );
+    }
+    const converted: Record<string, unknown> = {
+      binding: u32(row.binding, `GPUBindGroupLayoutEntry[${index}].binding`),
+      visibility: u32(
+        row.visibility,
+        `GPUBindGroupLayoutEntry[${index}].visibility`,
+      ),
+    };
+    if (row.buffer !== undefined) {
+      const buffer = dictionary(
+        row.buffer,
+        `GPUBufferBindingLayout[${index}]`,
+      );
+      converted.buffer = frozenRecord({
+        type: buffer.type === undefined
+          ? 'uniform'
+          : enumValue(
+            buffer.type,
+            ['uniform', 'storage', 'read-only-storage'],
+            `GPUBufferBindingLayout[${index}].type`,
+          ),
+        hasDynamicOffset: Boolean(buffer.hasDynamicOffset),
+        minBindingSize: buffer.minBindingSize === undefined
+          ? 0
+          : u64Number(
+            buffer.minBindingSize,
+            `GPUBufferBindingLayout[${index}].minBindingSize`,
+          ),
+      });
+    }
+    if (row.sampler !== undefined) {
+      const sampler = dictionary(
+        row.sampler,
+        `GPUSamplerBindingLayout[${index}]`,
+      );
+      converted.sampler = frozenRecord({
+        type: sampler.type === undefined
+          ? 'filtering'
+          : enumValue(
+            sampler.type,
+            ['filtering', 'non-filtering', 'comparison'],
+            `GPUSamplerBindingLayout[${index}].type`,
+          ),
+      });
+    }
+    if (row.texture !== undefined) {
+      const texture = dictionary(
+        row.texture,
+        `GPUTextureBindingLayout[${index}]`,
+      );
+      converted.texture = frozenRecord({
+        sampleType: texture.sampleType === undefined
+          ? 'float'
+          : enumValue(
+            texture.sampleType,
+            ['float', 'unfilterable-float', 'depth', 'sint', 'uint'],
+            `GPUTextureBindingLayout[${index}].sampleType`,
+          ),
+        viewDimension: texture.viewDimension === undefined
+          ? '2d'
+          : enumValue(
+            texture.viewDimension,
+            ['1d', '2d', '2d-array', 'cube', 'cube-array', '3d'],
+            `GPUTextureBindingLayout[${index}].viewDimension`,
+          ),
+        multisampled: Boolean(texture.multisampled),
+      });
+    }
+    if (row.storageTexture !== undefined) {
+      const storageTexture = dictionary(
+        row.storageTexture,
+        `GPUStorageTextureBindingLayout[${index}]`,
+      );
+      if (storageTexture.format === undefined) {
+        throw new TypeError(
+          `GPUStorageTextureBindingLayout[${index}].format is required`,
+        );
+      }
+      converted.storageTexture = frozenRecord({
+        access: storageTexture.access === undefined
+          ? 'write-only'
+          : enumValue(
+            storageTexture.access,
+            ['write-only', 'read-only', 'read-write'],
+            `GPUStorageTextureBindingLayout[${index}].access`,
+          ),
+        format: enumValue(
+          storageTexture.format,
+          TEXTURE_FORMATS,
+          `GPUStorageTextureBindingLayout[${index}].format`,
+        ),
+        viewDimension: storageTexture.viewDimension === undefined
+          ? '2d'
+          : enumValue(
+            storageTexture.viewDimension,
+            ['1d', '2d', '2d-array', '3d'],
+            `GPUStorageTextureBindingLayout[${index}].viewDimension`,
+          ),
+      });
+    }
+    if (row.externalTexture !== undefined) {
+      dictionary(
+        row.externalTexture,
+        `GPUExternalTextureBindingLayout[${index}]`,
+      );
+      converted.externalTexture = frozenRecord({});
+    }
+    return frozenRecord(converted);
+  });
+  return frozenRecord({
+    label: optionalLabel(source),
+    entries: Object.freeze(entries),
+  });
 }
 
 function convertVertexBuffers(value: unknown, maximum: number): readonly unknown[] {
@@ -4305,6 +4733,175 @@ function validateCreateCommandEncoderDescriptorForService(
   }
 }
 
+function validateCreateBindGroupLayoutDescriptorForService(
+  value: unknown,
+): void {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    Reflect.ownKeys(value).length !== 2 ||
+    !Object.prototype.hasOwnProperty.call(value, 'label') ||
+    !Object.prototype.hasOwnProperty.call(value, 'entries')
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBindGroupLayout converted arguments must be the reviewed closed descriptor',
+    );
+  }
+  const descriptor = value as Readonly<Record<string, unknown>>;
+  if (
+    typeof descriptor.label !== 'string' ||
+    encodeUtf8(descriptor.label).byteLength > 57 ||
+    !Array.isArray(descriptor.entries) ||
+    descriptor.entries.length < 1 ||
+    descriptor.entries.length > 5
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBindGroupLayout descriptor exceeds the reviewed workload bounds',
+    );
+  }
+  const visibilityValues = new Set([2, 6, 7]);
+  const bufferTypes = new Set(['uniform', 'storage', 'read-only-storage']);
+  const samplerTypes = new Set(['filtering', 'non-filtering']);
+  const resourceNames = ['buffer', 'sampler', 'texture', 'storageTexture'];
+  descriptor.entries.forEach((entry, index) => {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      Array.isArray(entry)
+    ) {
+      throw new TypeError(
+        `GPUDevice.createBindGroupLayout entry ${index} must be a closed dictionary`,
+      );
+    }
+    const row = entry as Readonly<Record<string, unknown>>;
+    const presentResources = resourceNames.filter((name) =>
+      Object.prototype.hasOwnProperty.call(row, name));
+    if (
+      Reflect.ownKeys(row).length !== 3 ||
+      row.binding !== index ||
+      typeof row.visibility !== 'number' ||
+      !visibilityValues.has(row.visibility) ||
+      presentResources.length !== 1
+    ) {
+      throw new TypeError(
+        `GPUDevice.createBindGroupLayout entry ${index} violates binding, visibility, or resource closure`,
+      );
+    }
+    const resourceName = presentResources[0];
+    const resource = row[resourceName];
+    if (
+      typeof resource !== 'object' ||
+      resource === null ||
+      Array.isArray(resource)
+    ) {
+      throw new TypeError(
+        `GPUDevice.createBindGroupLayout entry ${index} resource must be a closed dictionary`,
+      );
+    }
+    const layout = resource as Readonly<Record<string, unknown>>;
+    const valid = resourceName === 'buffer'
+      ? Reflect.ownKeys(layout).length === 3 &&
+        bufferTypes.has(String(layout.type)) &&
+        layout.hasDynamicOffset === false &&
+        layout.minBindingSize === 0
+      : resourceName === 'sampler'
+        ? Reflect.ownKeys(layout).length === 1 &&
+          samplerTypes.has(String(layout.type))
+        : resourceName === 'texture'
+          ? Reflect.ownKeys(layout).length === 3 &&
+            layout.sampleType === 'float' &&
+            layout.viewDimension === '2d' &&
+            layout.multisampled === false
+          : Reflect.ownKeys(layout).length === 3 &&
+            layout.access === 'write-only' &&
+            layout.format === 'rgba16float' &&
+            layout.viewDimension === '2d';
+    if (!valid) {
+      throw new TypeError(
+        `GPUDevice.createBindGroupLayout entry ${index} is outside the pinned TypeGPU resource subset`,
+      );
+    }
+  });
+}
+
+function validateCreateBindGroupLayoutRequestFields(
+  receiver: RequestAdapterReferenceLike,
+  target: unknown,
+  adapterOrdinal: unknown,
+  deviceIngressOrdinal: unknown,
+  queueIngressOrdinal: unknown,
+  sealedLocalTimeline: unknown,
+  convertedArguments: unknown,
+  sequenceMaximum: number,
+): void {
+  if (
+    receiver.kind !== 'GPUDevice' ||
+    typeof receiver.objectId !== 'string' ||
+    typeof receiver.objectGeneration !== 'string' ||
+    typeof receiver.logicalDeviceId !== 'string' ||
+    typeof receiver.logicalDeviceGeneration !== 'string' ||
+    typeof receiver.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBindGroupLayout requires an authenticated GPUDevice receiver',
+    );
+  }
+  for (const [identity, label] of [
+    [receiver.objectId, 'receiver.objectId'],
+    [receiver.objectGeneration, 'receiver.objectGeneration'],
+    [receiver.logicalDeviceId, 'receiver.logicalDeviceId'],
+    [receiver.logicalDeviceGeneration, 'receiver.logicalDeviceGeneration'],
+    [receiver.providerGeneration, 'receiver.providerGeneration'],
+  ] as const) {
+    positiveIdentity(identity, `GPUDevice.createBindGroupLayout ${label}`);
+  }
+  if (typeof target !== 'object' || target === null || Array.isArray(target)) {
+    throw new TypeError(
+      'GPUDevice.createBindGroupLayout requires a wrapper-allocated target',
+    );
+  }
+  const targetReference = target as RequestAdapterReferenceLike;
+  if (
+    targetReference.kind !== 'GPUBindGroupLayout' ||
+    typeof targetReference.objectId !== 'string' ||
+    typeof targetReference.objectGeneration !== 'string' ||
+    targetReference.logicalDeviceId !== receiver.logicalDeviceId ||
+    targetReference.logicalDeviceGeneration !== receiver.logicalDeviceGeneration ||
+    targetReference.providerGeneration !== receiver.providerGeneration
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBindGroupLayout target must share the authenticated device provenance',
+    );
+  }
+  positiveIdentity(
+    targetReference.objectId,
+    'GPUDevice.createBindGroupLayout target.objectId',
+  );
+  positiveIdentity(
+    targetReference.objectGeneration,
+    'GPUDevice.createBindGroupLayout target.objectGeneration',
+  );
+  if (adapterOrdinal !== '0' || queueIngressOrdinal !== '0') {
+    throw new TypeError(
+      'GPUDevice.createBindGroupLayout adapter and queue ingress ordinals must be zero',
+    );
+  }
+  positiveIdentity(
+    String(deviceIngressOrdinal),
+    'GPUDevice.createBindGroupLayout deviceIngressOrdinal',
+  );
+  if (
+    !Array.isArray(sealedLocalTimeline) ||
+    sealedLocalTimeline.length > sequenceMaximum
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBindGroupLayout sealed local timeline must be a bounded sequence',
+    );
+  }
+  validateCreateBindGroupLayoutDescriptorForService(convertedArguments);
+}
+
 function validateCreateCommandEncoderRequestFields(
   receiver: RequestAdapterReferenceLike,
   target: unknown,
@@ -4637,7 +5234,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -4792,6 +5389,11 @@ export function createExecutableWebGpuCodecs(
         return convertObjectDescriptor(args[0], 'GPUCommandBufferDescriptor');
       case 'gpu-command-encoder-descriptor-v1':
         return convertObjectDescriptor(args[0], 'GPUCommandEncoderDescriptor');
+      case 'gpu-bind-group-layout-descriptor-v1':
+        return convertBindGroupLayoutDescriptor(
+          args[0],
+          manifest.layout.sequenceMaxCount,
+        );
       case 'gpu-render-pipeline-descriptor-v1':
         return convertRenderPipelineDescriptor(
           args[0],
@@ -4862,6 +5464,20 @@ export function createExecutableWebGpuCodecs(
         input.convertedArguments,
         manifest.layout.sequenceMaxCount,
         manifest.layout.dictionaryMaxFields,
+      );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId
+    ) {
+      validateCreateBindGroupLayoutRequestFields(
+        input.receiver,
+        input.target,
+        input.adapterOrdinal,
+        input.deviceIngressOrdinal,
+        input.queueIngressOrdinal,
+        input.sealedLocalTimeline,
+        input.convertedArguments,
+        manifest.layout.sequenceMaxCount,
       );
     } else if (
       route.operationId ===
@@ -4954,6 +5570,8 @@ export function createExecutableWebGpuCodecs(
       input.operationId !== requestAdapterNativeProgram.route.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.requestDeviceRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createCommandEncoderRoute.operationId &&
       input.operationId !==
@@ -5244,6 +5862,20 @@ export function createExecutableWebGpuCodecs(
       );
     } else if (
       route.operationId ===
+        requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId
+    ) {
+      validateCreateBindGroupLayoutRequestFields(
+        receiver,
+        target,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
+      );
+    } else if (
+      route.operationId ===
         requestAdapterNativeProgram.createCommandEncoderRoute.operationId
     ) {
       validateCreateCommandEncoderRequestFields(
@@ -5320,6 +5952,8 @@ export function createExecutableWebGpuCodecs(
     }
     if (
       (route.operationId ===
+          requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId ||
+        route.operationId ===
           requestAdapterNativeProgram.createCommandEncoderRoute.operationId ||
         route.operationId ===
           requestAdapterNativeProgram.createShaderModuleRoute.operationId ||

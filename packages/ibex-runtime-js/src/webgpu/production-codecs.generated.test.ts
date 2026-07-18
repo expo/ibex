@@ -49,6 +49,66 @@ const shaderModule = wrapper('GPUShaderModule');
 const texture = wrapper('GPUTexture');
 const textureView = wrapper('GPUTextureView');
 
+function bindGroupLayoutDescriptor(): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    label: 'corpus-layout',
+    entries: Object.freeze([
+      Object.freeze({ binding: 0, visibility: 7, buffer: Object.freeze({}) }),
+      Object.freeze({
+        binding: 1,
+        visibility: 7,
+        sampler: Object.freeze({ type: 'non-filtering' }),
+      }),
+      Object.freeze({ binding: 2, visibility: 7, texture: Object.freeze({}) }),
+      Object.freeze({
+        binding: 3,
+        visibility: 6,
+        storageTexture: Object.freeze({ format: 'rgba16float' }),
+      }),
+    ]),
+  });
+}
+
+function convertedBindGroupLayoutDescriptor(): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    label: 'corpus-layout',
+    entries: Object.freeze([
+      Object.freeze({
+        binding: 0,
+        visibility: 7,
+        buffer: Object.freeze({
+          type: 'uniform',
+          hasDynamicOffset: false,
+          minBindingSize: 0,
+        }),
+      }),
+      Object.freeze({
+        binding: 1,
+        visibility: 7,
+        sampler: Object.freeze({ type: 'non-filtering' }),
+      }),
+      Object.freeze({
+        binding: 2,
+        visibility: 7,
+        texture: Object.freeze({
+          sampleType: 'float',
+          viewDimension: '2d',
+          multisampled: false,
+        }),
+      }),
+      Object.freeze({
+        binding: 3,
+        visibility: 6,
+        storageTexture: Object.freeze({
+          access: 'write-only',
+          format: 'rgba16float',
+          viewDimension: '2d',
+        }),
+      }),
+    ]),
+  });
+}
+
 const wrappers: ProductionGpuCodecWrapperAccess = {
   reference(value, expectedKind) {
     if (typeof value !== 'object' || value === null) {
@@ -86,6 +146,8 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [{ colorAttachments: [{ view: textureView }] }];
     case 'GPUCommandEncoder.finish':
       return [{ label: 'buffer' }];
+    case 'GPUDevice.createBindGroupLayout':
+      return [bindGroupLayoutDescriptor()];
     case 'GPUDevice.createCommandEncoder':
       return [{ label: 'encoder' }];
     case 'GPUDevice.createRenderPipeline':
@@ -136,6 +198,8 @@ function serviceInput(
       requiredLimits: Object.freeze({ maxBindGroups: 4 }),
       defaultQueue: Object.freeze({ label: 'queue' }),
     })
+    : operationId === 'GPUDevice.createBindGroupLayout'
+    ? convertedBindGroupLayoutDescriptor()
     : operationId === 'GPUDevice.createCommandEncoder'
     ? Object.freeze({ label: 'encoder' })
     : operationId === 'GPUDevice.createShaderModule'
@@ -294,11 +358,11 @@ function completeLimits(value = 4): Record<string, number> {
 }
 
 describe('generated injection-only WebGPU executable codecs', () => {
-  test('pins one generated catalog over the exact reviewed 25-operation profile', () => {
+  test('pins one generated catalog over the exact reviewed 26-operation profile', () => {
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationCount).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
     );
-    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(25);
+    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(26);
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).toEqual(
       WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     );
@@ -314,7 +378,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -331,6 +395,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       routes: [
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
+        { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2939505691 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
         { operationId: 'GPUDevice.destroy', wireId: 206890944 },
@@ -936,6 +1001,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       ['GPU.requestAdapter', [{ powerPreference: 'fastest' }]],
       ['GPUCanvasContext.configure', [{ device: {}, format: 'bgra8unorm' }]],
       ['GPUCommandEncoder.beginRenderPass', [{ colorAttachments: [{ view: {} }] }]],
+      ['GPUDevice.createBindGroupLayout', [{}]],
       ['GPUDevice.createRenderPipeline', [{}]],
       ['GPUDevice.createShaderModule', [{}]],
       ['GPUDevice.pushErrorScope', ['network']],
@@ -1005,6 +1071,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
             }
             : route.operationId === 'GPUDevice.destroy'
             ? null
+            : route.operationId === 'GPUDevice.createBindGroupLayout'
+            ? convertedBindGroupLayoutDescriptor()
             : route.operationId === 'GPUDevice.createCommandEncoder'
             ? { label: 'encoder' }
             : route.operationId === 'GPUDevice.createShaderModule'
@@ -1341,6 +1409,195 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(completion.byteLength).toBe(0);
     expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
       'GPUDevice.createCommandEncoder',
+      { kind: 'null' },
+    )).toThrow('wrong shape');
+  });
+
+  test('executes the private createBindGroupLayout request program and enforces the workload closure', () => {
+    const operationId = 'GPUDevice.createBindGroupLayout';
+    const input = serviceInput(operationId);
+    const nativeRoute = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes
+      .find((candidate) => candidate.operationId === operationId)!;
+    const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === 'gpu-create-bind-group-layout-service-request-v1',
+    )!;
+    expect(nativeRoute.wireId).toBe(2939505691);
+    expect(nativeRoute.request.catalog.wireTag).toBe(15);
+    expect(nativeRoute.completion.catalog.wireTag).toBe(2);
+    expect(nativeRoute.request.executablePrerequisites).toEqual([]);
+    expect(nativeRoute.request.semanticServiceBoundary.requiredAfterDecode).toEqual([
+      'authenticate-contiguous-sealed-local-timeline-prefix',
+      'validate-current-live-device-generation',
+      'validate-operation-coverage',
+      'validate-authorized-live-account',
+      'validate-bind-group-layout-descriptor-under-logical-device-capabilities',
+      'reserve-bind-group-layout-handle-and-aggregate-envelope',
+      'authenticate-wrapper-allocated-bind-group-layout-target',
+      'select-provider-admission-and-physical-sequence',
+    ]);
+    expect(codec.nativeProgramPrerequisitesRepresented).toBe(true);
+    expect(codec.executableFromCurrentAuthenticatedInputs).toBe(true);
+    expect(codec.unavailableSemanticFields).toEqual([]);
+
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [bindGroupLayoutDescriptor()],
+      wrappers,
+    )).toEqual(convertedBindGroupLayoutDescriptor());
+
+    const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(input);
+    expect(new DataView(
+      payload.buffer,
+      payload.byteOffset,
+      payload.byteLength,
+    ).getUint16(6, true)).toBe(15);
+    expect(new DataView(
+      payload.buffer,
+      payload.byteOffset,
+      payload.byteLength,
+    ).getUint32(8, true)).toBe(2939505691);
+    expect(Array.from(payload.slice(53, 55))).toEqual([
+      1,
+      WEBGPU_OBJECT_KIND_TAGS.GPUBindGroupLayout,
+    ]);
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(input))
+      .toEqual(payload);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      payload,
+    )).toMatchObject({
+      operationId,
+      codec: 'gpu-create-bind-group-layout-service-request-v1',
+      receiver: {
+        kind: 'GPUDevice',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      target: {
+        kind: 'GPUBindGroupLayout',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      adapterOrdinal: '0',
+      deviceIngressOrdinal: '3',
+      queueIngressOrdinal: '0',
+      convertedArguments: convertedBindGroupLayoutDescriptor(),
+    });
+
+    const convertedComparison = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(operationId, [{
+        entries: [{ binding: 0, visibility: 7, sampler: { type: 'comparison' } }],
+      }], wrappers);
+    expect(convertedComparison).toMatchObject({
+      entries: [{ sampler: { type: 'comparison' } }],
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, convertedComparison)))
+      .toThrow('outside the pinned TypeGPU resource subset');
+
+    const convertedExternalTexture = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(operationId, [{
+        entries: [{ binding: 0, visibility: 7, externalTexture: {} }],
+      }], wrappers);
+    expect(convertedExternalTexture).toMatchObject({
+      entries: [{ externalTexture: {} }],
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, convertedExternalTexture)))
+      .toThrow('violates binding, visibility, or resource closure');
+
+    const base = convertedBindGroupLayoutDescriptor() as Readonly<{
+      label: string;
+      entries: ReadonlyArray<Readonly<Record<string, unknown>>>;
+    }>;
+    const bufferEntry = (binding: number) => ({
+      binding,
+      visibility: 7,
+      buffer: { type: 'uniform', hasDynamicOffset: false, minBindingSize: 0 },
+    });
+    const rejectedDescriptors: ReadonlyArray<readonly [unknown, string]> = [
+      [{ ...base, entries: [] }, 'exceeds the reviewed workload bounds'],
+      [{ ...base, label: '💡'.repeat(15) }, 'exceeds the reviewed workload bounds'],
+      [{ ...base, entries: [...base.entries, bufferEntry(4), bufferEntry(5)] },
+        'exceeds the reviewed workload bounds'],
+      [{ ...base, entries: base.entries.map((entry, index) =>
+        index === 1 ? { ...entry, binding: 2 } : entry) },
+        'violates binding, visibility, or resource closure'],
+      [{ ...base, entries: base.entries.map((entry, index) =>
+        index === 1 ? { ...entry, binding: 0 } : entry) },
+        'violates binding, visibility, or resource closure'],
+      [{ ...base, entries: base.entries.map((entry, index) =>
+        index === 1 ? { ...entry, visibility: 1 } : entry) },
+        'violates binding, visibility, or resource closure'],
+      [{ ...base, entries: base.entries.map((entry, index) => index === 0
+        ? {
+          ...entry,
+          buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 0 },
+        }
+        : entry) }, 'outside the pinned TypeGPU resource subset'],
+      [{ ...base, entries: base.entries.map((entry, index) => index === 0
+        ? {
+          ...entry,
+          buffer: { type: 'uniform', hasDynamicOffset: false, minBindingSize: 1 },
+        }
+        : entry) }, 'outside the pinned TypeGPU resource subset'],
+      [{ ...base, entries: base.entries.map((entry, index) => index === 2
+        ? {
+          ...entry,
+          texture: {
+            sampleType: 'depth',
+            viewDimension: 'cube',
+            multisampled: true,
+          },
+        }
+        : entry) }, 'outside the pinned TypeGPU resource subset'],
+      [{ ...base, entries: base.entries.map((entry, index) => index === 3
+        ? {
+          ...entry,
+          storageTexture: {
+            access: 'read-only',
+            format: 'rgba8unorm',
+            viewDimension: '3d',
+          },
+        }
+        : entry) }, 'outside the pinned TypeGPU resource subset'],
+      [{ ...base, entries: base.entries.map((entry, index) => index === 0
+        ? { ...entry, sampler: { type: 'filtering' } }
+        : entry) }, 'violates binding, visibility, or resource closure'],
+    ];
+    for (const [convertedArguments, message] of rejectedDescriptors) {
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .encodeNativeCodegenRequest(serviceInput(operationId, convertedArguments)))
+        .toThrow(message);
+    }
+
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({ ...input, target: undefined }))
+      .toThrow('wrapper-allocated target');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        receiver: reference('GPUAdapter'),
+      })).toThrow('authenticated GPUDevice receiver');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        target: reference('GPUShaderModule'),
+      })).toThrow('authenticated device provenance');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        target: { ...input.target!, logicalDeviceId: '18' },
+      })).toThrow('authenticated device provenance');
+
+    const completion = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeServiceResult(operationId, { kind: 'none' });
+    expect(completion.byteLength).toBe(0);
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      operationId,
       { kind: 'null' },
     )).toThrow('wrong shape');
   });

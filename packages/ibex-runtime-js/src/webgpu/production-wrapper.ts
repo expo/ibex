@@ -298,6 +298,7 @@ function createPrototypeTable(): Record<ProductionGpuWrapperKind, object> {
   return {
     GPU: Object.create(null),
     GPUAdapter: Object.create(null),
+    GPUBindGroupLayout: Object.create(null),
     GPUCanvasContext: Object.create(null),
     GPUCommandBuffer: Object.create(null),
     GPUCommandEncoder: Object.create(null),
@@ -1051,6 +1052,23 @@ export function createProductionWebGpuPrivateBinding(
     context.configuredDevice = undefined;
   });
 
+  defineMethod(mutablePrototypes.GPUDevice, 'createBindGroupLayout', function (
+    this: object,
+    descriptor: unknown,
+  ) {
+    const state = requireState(this, 'GPUDevice');
+    const converted = convert('GPUDevice.createBindGroupLayout', [descriptor]);
+    const layout = allocateWrapper('GPUBindGroupLayout', state.device);
+    submitService(
+      'GPUDevice.createBindGroupLayout',
+      state,
+      layout,
+      converted,
+      false,
+    );
+    return layout.wrapper;
+  });
+
   defineMethod(mutablePrototypes.GPUDevice, 'createCommandEncoder', function (
     this: object,
     descriptor?: unknown,
@@ -1446,6 +1464,10 @@ export function createProductionWebGpuPrivateBinding(
   const interfaceObjects: Record<string, object> = {
     GPU: makeIllegalConstructor('GPU', mutablePrototypes.GPU),
     GPUAdapter: makeIllegalConstructor('GPUAdapter', mutablePrototypes.GPUAdapter),
+    GPUBindGroupLayout: makeIllegalConstructor(
+      'GPUBindGroupLayout',
+      mutablePrototypes.GPUBindGroupLayout,
+    ),
     GPUCanvasContext: makeIllegalConstructor(
       'GPUCanvasContext',
       mutablePrototypes.GPUCanvasContext,
@@ -1562,6 +1584,7 @@ export function createProductionWebGpuPrivateBinding(
 const PUBLIC_INTERFACE_NAMES = Object.freeze([
   'GPU',
   'GPUAdapter',
+  'GPUBindGroupLayout',
   'GPUCanvasContext',
   'GPUCommandBuffer',
   'GPUCommandEncoder',

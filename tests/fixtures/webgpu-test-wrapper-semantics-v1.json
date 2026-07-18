@@ -11,8 +11,8 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "semanticProjectionSha256": "eb9aa61ec2cd9f3362c7abcf4af43646bc19bd7025475ee787e7f74202695482",
-    "fakeClientDataSha256": "51834c11d72ce342e20f093ad30736be0e681025563aa9a3f9c0a092f212c41f"
+    "semanticProjectionSha256": "c0587227f2bc2c16618f8051a1492683b185233168445835f4360537cd04cc3c",
+    "fakeClientDataSha256": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
   },
   "semanticProjection": {
     "featurePolicy": {
@@ -3012,6 +3012,92 @@
         ]
       },
       {
+        "operationId": "GPUDevice.createBindGroupLayout",
+        "facts": [
+          "webidlValid",
+          "providerPredicatesValid"
+        ],
+        "precedence": [
+          "webidlValid",
+          "providerPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "conditions": {
+              "webidlValid": false
+            },
+            "branchPath": [
+              "webidl"
+            ],
+            "terminalOutcome": "throw during synchronous Web IDL conversion",
+            "errorTiming": "synchronous-webidl",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "throw",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "webidl"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "providerPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "service-provider"
+            ],
+            "terminalOutcome": "reject before the terminal operation outcome",
+            "errorTiming": "device-timeline",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "return-invalid-object-and-report-error",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "service-provider"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "conditions": {
+              "webidlValid": true,
+              "providerPredicatesValid": true
+            },
+            "branchPath": [
+              "webidl",
+              "service-provider"
+            ],
+            "terminalOutcome": "enqueue one logically validated bind group layout creation",
+            "errorTiming": "none",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "resultDisposition": "return-object",
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "webidlValid",
+            "kind": "branch-predicates",
+            "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "providerPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "service-provider",
+            "passWhen": true
+          }
+        ]
+      },
+      {
         "operationId": "GPUDevice.createCommandEncoder",
         "facts": [
           "webidlValid",
@@ -3743,6 +3829,7 @@
       "GPU.requestAdapter",
       "GPUAdapter.requestDevice",
       "GPUCanvasContext.configure",
+      "GPUDevice.createBindGroupLayout",
       "GPUDevice.createCommandEncoder",
       "GPUDevice.createRenderPipeline",
       "GPUDevice.createShaderModule",

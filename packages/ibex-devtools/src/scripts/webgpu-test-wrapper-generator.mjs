@@ -17,18 +17,18 @@ import crypto from "node:crypto";
 import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  projection: "c64dd148fdb884ae55b648d993ff1f990bb5e9a11ee6a443da0faae942a221d3",
-  operationSet: "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
-  semanticProgramSet: "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
-  runtimeRouting: "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-  webgpuCVocabulary: "3c88dc23a046c978815ebff43b104ad75295146334d2c8e09cceaad1a7b7de7b",
+  projection: "5c9507b19fcc644962abf41e038349b955ff30dc24826a0d7177b7e5c3cf25ab",
+  operationSet: "f7e3463c2c4ece96ac96db8ad37e8e7bdb9ff725c456d19da9c70129168aeaaa",
+  semanticProgramSet: "002bb0f6c113d6509abf9d253b9a29e50aec8a13f7fec45e08fc6ee1aaea4eeb",
+  runtimeRouting: "5abdbc9fdaf27846a31eb7798d9700b91fd724cb49e7d6402cd1c3b41cfb2b92",
+  webgpuCVocabulary: "209c948b4616a3af7081605f42d0521e3845cb4d00d61778407526639cbee3f0",
 });
 
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   semanticProjection:
-    "eb9aa61ec2cd9f3362c7abcf4af43646bc19bd7025475ee787e7f74202695482",
+    "c0587227f2bc2c16618f8051a1492683b185233168445835f4360537cd04cc3c",
   fakeClientData:
-    "51834c11d72ce342e20f093ad30736be0e681025563aa9a3f9c0a092f212c41f",
+    "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39",
 });
 
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
@@ -41,6 +41,7 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
   ["GPUCanvasContext.unconfigure", "GPUCanvasContext", "unconfigure", "method"],
   ["GPUCommandEncoder.beginRenderPass", "GPUCommandEncoder", "beginRenderPass", "method"],
   ["GPUCommandEncoder.finish", "GPUCommandEncoder", "finish", "method"],
+  ["GPUDevice.createBindGroupLayout", "GPUDevice", "createBindGroupLayout", "method"],
   ["GPUDevice.createCommandEncoder", "GPUDevice", "createCommandEncoder", "method"],
   ["GPUDevice.createRenderPipeline", "GPUDevice", "createRenderPipeline", "method"],
   ["GPUDevice.createShaderModule", "GPUDevice", "createShaderModule", "method"],
@@ -101,7 +102,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -196,6 +197,7 @@ function validateNativeCodecPrograms(payload) {
   assertCanonical(
     Object.keys(types || {}).sort(),
     [
+      "bindGroupLayoutDescriptorV1",
       "canonicalValueV1",
       "commandEncoderDescriptorV1",
       "completeDeviceLimitsV1",
@@ -386,6 +388,53 @@ function validateNativeCodecPrograms(payload) {
     "native requestDevice untrusted descriptor ingress type",
   );
   assertCanonical(
+    {
+      kind: types.bindGroupLayoutDescriptorV1?.kind,
+      encodingType: types.bindGroupLayoutDescriptorV1?.encodingType,
+      unknownFields: types.bindGroupLayoutDescriptorV1?.unknownFields,
+      workloadClosure: types.bindGroupLayoutDescriptorV1?.workloadClosure,
+      fieldNames: types.bindGroupLayoutDescriptorV1?.fields?.map(
+        (field) => field.name,
+      ),
+      labelBound:
+        types.bindGroupLayoutDescriptorV1?.fields?.[0]?.value?.maxUtf8Bytes,
+      entryBounds: {
+        min: types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.minCount,
+        max: types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.maxCount,
+      },
+      entryConstraints:
+        types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.constraints,
+      entryFieldNames:
+        types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.element?.fields?.map(
+          (field) => field.name,
+        ),
+      resourceConstraint:
+        types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.element?.constraints,
+    },
+    {
+      kind: "closed-dictionary",
+      encodingType: "canonicalValueV1",
+      unknownFields: "reject",
+      workloadClosure: "typegpu-0.11.9-genetic-racing-plus-jelly-slider",
+      fieldNames: ["label", "entries"],
+      labelBound: 57,
+      entryBounds: { min: 1, max: 5 },
+      entryConstraints: [
+        "binding-values-unique-contiguous-ascending-from-zero",
+      ],
+      entryFieldNames: [
+        "binding",
+        "visibility",
+        "buffer",
+        "sampler",
+        "texture",
+        "storageTexture",
+      ],
+      resourceConstraint: ["exactly-one-resource-layout-member"],
+    },
+    "native createBindGroupLayout descriptor type",
+  );
+  assertCanonical(
     types.commandEncoderDescriptorV1,
     {
       kind: "closed-dictionary",
@@ -476,8 +525,8 @@ function validateNativeCodecPrograms(payload) {
     "native requestDevice completion body type",
   );
 
-  assert(Array.isArray(program.routes) && program.routes.length === 5,
-    "native codec program must contain exactly requestAdapter, requestDevice, createCommandEncoder, createShaderModule, and device destroy routes");
+  assert(Array.isArray(program.routes) && program.routes.length === 6,
+    "native codec program must contain exactly requestAdapter, requestDevice, createBindGroupLayout, createCommandEncoder, createShaderModule, and device destroy routes");
   const route = program.routes.find(
     (candidate) => candidate.operationId === "GPU.requestAdapter",
   );
@@ -1745,6 +1794,96 @@ function validateNativeCodecPrograms(payload) {
     "native createShaderModule codec route",
   );
 
+  const createBindGroupLayoutRoute = program.routes.find(
+    (candidate) => candidate.operationId === "GPUDevice.createBindGroupLayout",
+  );
+  const createBindGroupLayoutOperation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPUDevice.createBindGroupLayout",
+  );
+  assert(
+    createBindGroupLayoutRoute && createBindGroupLayoutOperation &&
+      createBindGroupLayoutRoute.wireId === createBindGroupLayoutOperation.wireId,
+    "native createBindGroupLayout operation identity drifted",
+  );
+  const createBindGroupLayoutRequestCatalogIndex =
+    payload.codecCatalog.serviceArguments.findIndex(
+      (codec) => codec.tag === createBindGroupLayoutOperation.serviceArgumentCodec,
+    );
+  const createBindGroupLayoutCompletionCatalogIndex =
+    payload.codecCatalog.serviceCompletions.findIndex(
+      (codec) => codec.tag === createBindGroupLayoutOperation.serviceCompletionCodec,
+    );
+  const expectedCreateBindGroupLayoutRoute = structuredClone(
+    createShaderModuleRoute,
+  );
+  expectedCreateBindGroupLayoutRoute.operationId =
+    "GPUDevice.createBindGroupLayout";
+  expectedCreateBindGroupLayoutRoute.wireId =
+    createBindGroupLayoutOperation.wireId;
+  expectedCreateBindGroupLayoutRoute.request.catalog.tag =
+    "gpu-create-bind-group-layout-service-request-v1";
+  expectedCreateBindGroupLayoutRoute.request.catalog.wireTag =
+    createBindGroupLayoutRequestCatalogIndex + 1;
+  const createBindGroupLayoutHeader =
+    expectedCreateBindGroupLayoutRoute.request.payload.fields.find(
+      (field) => field.name === "header",
+    );
+  createBindGroupLayoutHeader.constants.codecTag =
+    createBindGroupLayoutRequestCatalogIndex + 1;
+  createBindGroupLayoutHeader.constants.operationWireId =
+    createBindGroupLayoutOperation.wireId;
+  expectedCreateBindGroupLayoutRoute.request.payload.fields.find(
+    (field) => field.name === "convertedArguments",
+  ).constraintType = "bindGroupLayoutDescriptorV1";
+  for (const constraint of
+    expectedCreateBindGroupLayoutRoute.request.carrierConstraints) {
+    if (constraint.carrierPath === "operation_id") {
+      constraint.value = createBindGroupLayoutOperation.wireId;
+    }
+    if (constraint.carrierPath === "target.kind") {
+      constraint.valueFrom = "objectKindTags.GPUBindGroupLayout";
+    }
+  }
+  expectedCreateBindGroupLayoutRoute.request.valueConstraints.find(
+    (constraint) => constraint.payloadPath === "convertedArguments",
+  ).type = "bindGroupLayoutDescriptorV1";
+  expectedCreateBindGroupLayoutRoute.request.semanticServiceBoundary
+    .requiredAfterDecode = [
+      "authenticate-contiguous-sealed-local-timeline-prefix",
+      "validate-current-live-device-generation",
+      "validate-operation-coverage",
+      "validate-authorized-live-account",
+      "validate-bind-group-layout-descriptor-under-logical-device-capabilities",
+      "reserve-bind-group-layout-handle-and-aggregate-envelope",
+      "authenticate-wrapper-allocated-bind-group-layout-target",
+      "select-provider-admission-and-physical-sequence",
+    ];
+  expectedCreateBindGroupLayoutRoute.completion.catalog.wireTag =
+    createBindGroupLayoutCompletionCatalogIndex + 1;
+  for (const constraint of
+    expectedCreateBindGroupLayoutRoute.completion.commonCarrierConstraints) {
+    if (
+      constraint.carrierPath ===
+      "record.operation_result.operation.operation_id"
+    ) {
+      constraint.value = createBindGroupLayoutOperation.wireId;
+    }
+    if (
+      constraint.carrierPath ===
+      "record.operation_result.operation.target.kind"
+    ) {
+      constraint.valueFrom = "objectKindTags.GPUBindGroupLayout";
+    }
+  }
+  expectedCreateBindGroupLayoutRoute.completion.semanticTerminalMapping
+    .authorityPath =
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createBindGroupLayout]";
+  assertCanonical(
+    createBindGroupLayoutRoute,
+    expectedCreateBindGroupLayoutRoute,
+    "native createBindGroupLayout codec route",
+  );
+
   const deviceDestroyRoute = program.routes.find(
     (candidate) => candidate.operationId === "GPUDevice.destroy",
   );
@@ -2112,7 +2251,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(
@@ -2168,13 +2307,13 @@ export function validateWebGpuWrapperAuthority(authority) {
   validateNativeCodecPrograms(payload);
 
   const operations = payload.operations;
-  assert(Array.isArray(operations) && operations.length === 25, "operation inventory must have 25 rows");
+  assert(Array.isArray(operations) && operations.length === 26, "operation inventory must have 26 rows");
   const operationIds = operations.map((entry) => entry.operationId);
   const wireIds = operations.map((entry) => entry.wireId);
-  assert(new Set(operationIds).size === 25, "operation IDs are not unique");
+  assert(new Set(operationIds).size === 26, "operation IDs are not unique");
   assert(
     wireIds.every((wireId) => Number.isSafeInteger(wireId) && wireId > 0) &&
-      new Set(wireIds).size === 25,
+      new Set(wireIds).size === 26,
     "wire IDs must be unique nonzero safe integers",
   );
   assert(
@@ -2183,7 +2322,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   );
 
   const assignments = new Map(WRAPPER_ROUTE_ASSIGNMENTS.map((row) => [row[0], row]));
-  assert(assignments.size === 25, "wrapper assignment table is not bijective");
+  assert(assignments.size === 26, "wrapper assignment table is not bijective");
   assert(
     operationIds.slice().sort().join("\n") === [...assignments.keys()].sort().join("\n"),
     "operation inventory and wrapper assignment table differ",
@@ -2725,6 +2864,7 @@ export function validateWebGpuWrapperSemantics(semantics) {
     "GPUAdapter.requestDevice",
     "GPUCanvasContext.configure",
     "GPUCanvasContext.unconfigure",
+    "GPUDevice.createBindGroupLayout",
     "GPUDevice.createCommandEncoder",
     "GPUDevice.createRenderPipeline",
     "GPUDevice.createShaderModule",

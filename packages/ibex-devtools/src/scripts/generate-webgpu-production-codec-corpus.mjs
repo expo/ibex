@@ -38,6 +38,7 @@ const outputPath =
   "tests/fixtures/webgpu-production-codec-corpus-v1.generated.json";
 const operationId = "GPU.requestAdapter";
 const requestDeviceOperationId = "GPUAdapter.requestDevice";
+const createBindGroupLayoutOperationId = "GPUDevice.createBindGroupLayout";
 const createCommandEncoderOperationId = "GPUDevice.createCommandEncoder";
 const createShaderModuleOperationId = "GPUDevice.createShaderModule";
 const deviceDestroyOperationId = "GPUDevice.destroy";
@@ -745,6 +746,391 @@ function buildCorpus() {
     },
   });
 
+  const createBindGroupLayoutRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === createBindGroupLayoutOperationId,
+  );
+  const createBindGroupLayoutRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === createBindGroupLayoutRoute?.serviceArgumentCodec,
+    );
+  const createBindGroupLayoutCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === createBindGroupLayoutRoute?.serviceCompletionCodec,
+    );
+  const createBindGroupLayoutNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === createBindGroupLayoutOperationId,
+    );
+  if (
+    !createBindGroupLayoutRoute ||
+    !createBindGroupLayoutRequestCodec?.executableFromCurrentAuthenticatedInputs ||
+    !createBindGroupLayoutRequestCodec.nativeProgramPrerequisitesRepresented ||
+    createBindGroupLayoutRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !createBindGroupLayoutCompletionCodec ||
+    !createBindGroupLayoutNativeRoute ||
+    createBindGroupLayoutNativeRoute.request.catalog.wireTag !==
+      createBindGroupLayoutRequestCodec.wireTag ||
+    createBindGroupLayoutNativeRoute.completion.catalog.wireTag !==
+      createBindGroupLayoutCompletionCodec.wireTag
+  ) {
+    fail(
+      "GPUDevice.createBindGroupLayout native codegen program is not executable from authenticated inputs",
+    );
+  }
+  const createBindGroupLayoutReceiver = Object.freeze({
+    kind: "GPUDevice",
+    objectId: "80",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const createBindGroupLayoutTarget = Object.freeze({
+    kind: "GPUBindGroupLayout",
+    objectId: "86",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const createBindGroupLayoutDescriptor = Object.freeze({
+    label: "corpus-layout",
+    entries: Object.freeze([
+      Object.freeze({
+        binding: 0,
+        visibility: 7,
+        buffer: Object.freeze({}),
+      }),
+      Object.freeze({
+        binding: 1,
+        visibility: 2,
+        sampler: Object.freeze({ type: "non-filtering" }),
+      }),
+      Object.freeze({
+        binding: 2,
+        visibility: 6,
+        texture: Object.freeze({}),
+      }),
+      Object.freeze({
+        binding: 3,
+        visibility: 7,
+        storageTexture: Object.freeze({ format: "rgba16float" }),
+      }),
+    ]),
+  });
+  const expectedCreateBindGroupLayoutArguments = Object.freeze({
+    label: "corpus-layout",
+    entries: Object.freeze([
+      Object.freeze({
+        binding: 0,
+        visibility: 7,
+        buffer: Object.freeze({
+          type: "uniform",
+          hasDynamicOffset: false,
+          minBindingSize: 0,
+        }),
+      }),
+      Object.freeze({
+        binding: 1,
+        visibility: 2,
+        sampler: Object.freeze({ type: "non-filtering" }),
+      }),
+      Object.freeze({
+        binding: 2,
+        visibility: 6,
+        texture: Object.freeze({
+          sampleType: "float",
+          viewDimension: "2d",
+          multisampled: false,
+        }),
+      }),
+      Object.freeze({
+        binding: 3,
+        visibility: 7,
+        storageTexture: Object.freeze({
+          access: "write-only",
+          format: "rgba16float",
+          viewDimension: "2d",
+        }),
+      }),
+    ]),
+  });
+  const convertedCreateBindGroupLayoutArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      createBindGroupLayoutOperationId,
+      [createBindGroupLayoutDescriptor],
+      wrapperAccess,
+    );
+  if (
+    canonicalJson(convertedCreateBindGroupLayoutArguments) !==
+      canonicalJson(expectedCreateBindGroupLayoutArguments)
+  ) {
+    fail("GPUDevice.createBindGroupLayout descriptor projection drifted");
+  }
+  const createBindGroupLayoutInput = (convertedArguments) => Object.freeze({
+    operationId: createBindGroupLayoutOperationId,
+    wireId: createBindGroupLayoutRoute.wireId,
+    convertedArguments,
+    receiver: createBindGroupLayoutReceiver,
+    target: createBindGroupLayoutTarget,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+  });
+  const createBindGroupLayoutBytes =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      createBindGroupLayoutInput(convertedCreateBindGroupLayoutArguments),
+    );
+  const expectedCreateBindGroupLayoutRequest = Object.freeze({
+    receiver: createBindGroupLayoutReceiver,
+    target: createBindGroupLayoutTarget,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+    convertedArguments: expectedCreateBindGroupLayoutArguments,
+  });
+  const inspectedCreateBindGroupLayout =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      createBindGroupLayoutBytes,
+    );
+  if (
+    canonicalJson(inspectedCreateBindGroupLayout) !== canonicalJson({
+      operationId: createBindGroupLayoutOperationId,
+      codec: createBindGroupLayoutRequestCodec.tag,
+      ...expectedCreateBindGroupLayoutRequest,
+    })
+  ) {
+    fail(
+      "GPUDevice.createBindGroupLayout generated request does not round-trip through inspection",
+    );
+  }
+  const createBindGroupLayoutCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createBindGroupLayoutOperationId,
+      { kind: "none" },
+    );
+  if (createBindGroupLayoutCompletion.byteLength !== 0) {
+    fail(
+      "GPUDevice.createBindGroupLayout terminal receipt must have an empty completion payload",
+    );
+  }
+  const createBindGroupLayoutRequestCarrier = Object.freeze({
+    operation_id: createBindGroupLayoutRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: "15",
+    promise_id: "0",
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: "3",
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+      flags: 0,
+      object_id: "80",
+      object_generation: "2",
+    }),
+    target: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUBindGroupLayout,
+      flags: 0,
+      object_id: "86",
+      object_generation: "1",
+    }),
+  });
+  const createBindGroupLayoutCompletionCarrier = Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: createBindGroupLayoutRoute.wireId,
+          operation_instance_id: "15",
+          promise_id: "0",
+          provider_admission: 1,
+          physical_sequence: "10",
+          captured_scope_id: "2",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "3",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: createBindGroupLayoutRequestCarrier.ingress_device,
+          result_device: createBindGroupLayoutRequestCarrier.ingress_device,
+          provider_generation: "9",
+          receiver: createBindGroupLayoutRequestCarrier.receiver,
+          target: createBindGroupLayoutRequestCarrier.target,
+        }),
+      }),
+    }),
+  });
+
+  const bindGroupLayoutRejectionVector = (
+    id,
+    rawDescriptor,
+    expectedErrorIncludes,
+  ) => {
+    const convertedArguments =
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        createBindGroupLayoutOperationId,
+        [rawDescriptor],
+        wrapperAccess,
+      );
+    let observedError = "";
+    try {
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+        createBindGroupLayoutInput(convertedArguments),
+      );
+    } catch (error) {
+      observedError = error instanceof Error ? error.message : String(error);
+    }
+    if (!observedError.includes(expectedErrorIncludes)) {
+      fail(`${id} did not fail closed at the reviewed descriptor boundary`);
+    }
+    return Object.freeze({
+      id,
+      kind: "semantic-rejection",
+      operationId: createBindGroupLayoutOperationId,
+      semanticTerminalId: "later-predicate-rejection",
+      errorTiming: "device-timeline",
+      providerTokenCount: 0,
+      physicalSequenceCount: 0,
+      rawDescriptor,
+      convertedArguments,
+      expected: Object.freeze({
+        codegenDisposition: "rejected-before-bytes",
+        errorIncludes: expectedErrorIncludes,
+      }),
+    });
+  };
+  const bindGroupLayoutRejectionVectors = Object.freeze([
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-empty-entries-rejected",
+      { entries: [] },
+      "exceeds the reviewed workload bounds",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-sixth-entry-rejected",
+      {
+        entries: [0, 1, 2, 3, 4, 5].map((binding) => ({
+          binding,
+          visibility: 7,
+          buffer: {},
+        })),
+      },
+      "exceeds the reviewed workload bounds",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-binding-gap-rejected",
+      {
+        entries: [
+          { binding: 0, visibility: 7, buffer: {} },
+          { binding: 2, visibility: 7, buffer: {} },
+        ],
+      },
+      "violates binding, visibility, or resource closure",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-visibility-rejected",
+      {
+        entries: [{ binding: 0, visibility: 1, buffer: {} }],
+      },
+      "violates binding, visibility, or resource closure",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-comparison-sampler-rejected",
+      {
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          sampler: { type: "comparison" },
+        }],
+      },
+      "outside the pinned TypeGPU resource subset",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-external-texture-rejected",
+      {
+        entries: [{ binding: 0, visibility: 7, externalTexture: {} }],
+      },
+      "violates binding, visibility, or resource closure",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-dynamic-buffer-rejected",
+      {
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          buffer: { hasDynamicOffset: true, minBindingSize: 1 },
+        }],
+      },
+      "outside the pinned TypeGPU resource subset",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-alternate-texture-rejected",
+      {
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          texture: {
+            sampleType: "depth",
+            viewDimension: "cube",
+            multisampled: true,
+          },
+        }],
+      },
+      "outside the pinned TypeGPU resource subset",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-alternate-storage-texture-rejected",
+      {
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          storageTexture: {
+            access: "read-only",
+            format: "rgba8unorm",
+            viewDimension: "3d",
+          },
+        }],
+      },
+      "outside the pinned TypeGPU resource subset",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-multiple-resource-members-rejected",
+      {
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          buffer: {},
+          sampler: {},
+        }],
+      },
+      "violates binding, visibility, or resource closure",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-overlong-label-rejected",
+      {
+        label: "💡".repeat(15),
+        entries: [{ binding: 0, visibility: 7, buffer: {} }],
+      },
+      "exceeds the reviewed workload bounds",
+    ),
+  ]);
+
   const createCommandEncoderRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === createCommandEncoderOperationId,
   );
@@ -1288,7 +1674,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -1334,6 +1720,19 @@ function buildCorpus() {
         unavailableSemanticFields:
           requestDeviceRequestCodec.unavailableSemanticFields,
         testOnlyPayloadCodegenEvidence: true,
+      },
+      {
+        operationId: createBindGroupLayoutOperationId,
+        wireId: createBindGroupLayoutRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createBindGroupLayoutRequestCodec.tag,
+        requestCodecTag: createBindGroupLayoutRequestCodec.wireTag,
+        completionCodec: createBindGroupLayoutCompletionCodec.tag,
+        completionCodecTag: createBindGroupLayoutCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createBindGroupLayoutNativeRoute.completion.semanticTerminalMapping,
       },
       {
         operationId: createCommandEncoderOperationId,
@@ -1575,6 +1974,26 @@ function buildCorpus() {
         },
       },
       {
+        id: "create-bind-group-layout-request",
+        kind: "request",
+        carrierProjection: createBindGroupLayoutRequestCarrier,
+        trust:
+          "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
+        semanticOwner:
+          "native-semantic-service-before-provider-admission",
+        bytesHex: toHex(createBindGroupLayoutBytes),
+        expected: expectedCreateBindGroupLayoutRequest,
+      },
+      {
+        id: "create-bind-group-layout-operation-success-result",
+        kind: "result",
+        semanticTerminalId: "operation-success",
+        carrierProjection: createBindGroupLayoutCompletionCarrier,
+        bytesHex: toHex(createBindGroupLayoutCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      ...bindGroupLayoutRejectionVectors,
+      {
         id: "create-command-encoder-request",
         kind: "request",
         carrierProjection: createCommandEncoderRequestCarrier,
@@ -1657,7 +2076,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroupLayout positive/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }

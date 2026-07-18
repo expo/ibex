@@ -2011,6 +2011,29 @@ export function portableWebGpuTestWrapperFactory(plan) {
     context.configuredDevice = null;
   });
 
+  defineMethod(prototypeFor("GPUDevice"), "createBindGroupLayout", function (descriptor) {
+    var state = requireReceiver(this, "GPUDevice");
+    var copy = snapshotDictionary(descriptor, "GPUBindGroupLayoutDescriptor");
+    var layout = allocateWrapper(
+      state.realm,
+      "GPUBindGroupLayout",
+      state.device,
+      {},
+    );
+    var call = beginPublic(
+      state.realm,
+      "GPUDevice.createBindGroupLayout",
+      state,
+      wrapperStates.get(layout),
+    );
+    if (deviceIsUnavailable(state.device)) {
+      serviceError(call, copy, "GPUValidationError", "device is unavailable", "invalid-state");
+    } else {
+      serviceCall(state.realm.client, call, copy, false, null);
+    }
+    return layout;
+  });
+
   defineMethod(prototypeFor("GPUDevice"), "createCommandEncoder", function (descriptor) {
     var state = requireReceiver(this, "GPUDevice");
     var copy = snapshotDictionary(descriptor, "GPUCommandEncoderDescriptor");
@@ -2534,6 +2557,7 @@ export function portableWebGpuTestWrapperFactory(plan) {
 
   Object.freeze(prototypeFor("GPU"));
   Object.freeze(prototypeFor("GPUAdapter"));
+  Object.freeze(prototypeFor("GPUBindGroupLayout"));
   Object.freeze(prototypeFor("GPUCanvasContext"));
   Object.freeze(prototypeFor("GPUCommandBuffer"));
   Object.freeze(prototypeFor("GPUCommandEncoder"));

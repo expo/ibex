@@ -6,17 +6,17 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
+  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
   "digests": {
-    "operationSet": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
-    "semanticProgramSet": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
-    "runtimeRouting": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-    "webgpuCVocabulary": "3c88dc23a046c978815ebff43b104ad75295146334d2c8e09cceaad1a7b7de7b",
-    "projection": "c64dd148fdb884ae55b648d993ff1f990bb5e9a11ee6a443da0faae942a221d3"
+    "operationSet": "f7e3463c2c4ece96ac96db8ad37e8e7bdb9ff725c456d19da9c70129168aeaaa",
+    "semanticProgramSet": "002bb0f6c113d6509abf9d253b9a29e50aec8a13f7fec45e08fc6ee1aaea4eeb",
+    "runtimeRouting": "5abdbc9fdaf27846a31eb7798d9700b91fd724cb49e7d6402cd1c3b41cfb2b92",
+    "webgpuCVocabulary": "209c948b4616a3af7081605f42d0521e3845cb4d00d61778407526639cbee3f0",
+    "projection": "5c9507b19fcc644962abf41e038349b955ff30dc24826a0d7177b7e5c3cf25ab"
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",
-    "operationCount": 25,
+    "operationCount": 26,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
@@ -27,6 +27,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUCanvasContext.unconfigure",
       "GPUCommandEncoder.beginRenderPass",
       "GPUCommandEncoder.finish",
+      "GPUDevice.createBindGroupLayout",
       "GPUDevice.createCommandEncoder",
       "GPUDevice.createRenderPipeline",
       "GPUDevice.createShaderModule",
@@ -52,12 +53,12 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
     "source": {
       "path": "tests/gpu/typegpu-workload-closure-v1.json",
-      "normalizedProjectionSha256": "d874d53e6426189afa5622be66f33b57b84b592b8ee37c0d75e8099a281ef065",
+      "normalizedProjectionSha256": "66b7c73e54c241a7c4b916b380c888834f8fe30d3addb6d3ab332b1516ddc814",
       "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
     },
     "typegpuVersion": "0.11.9",
     "operationCount": 51,
-    "additionalOperationCount": 30,
+    "additionalOperationCount": 29,
     "additionalOperations": [
       {
         "operationId": "GPUBuffer.destroy",
@@ -131,11 +132,6 @@ export const WEBGPU_PRODUCTION_PLAN = {
       },
       {
         "operationId": "GPUDevice.createBindGroup",
-        "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
-      },
-      {
-        "operationId": "GPUDevice.createBindGroupLayout",
         "memberKind": "method",
         "disposition": "staged-unroutable-no-prototype-member"
       },
@@ -503,6 +499,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "publicResultCodec": "gpu-command-buffer-handle-v1",
       "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPUDevice.createBindGroupLayout",
+      "wireId": 2939505691,
+      "interfaceName": "GPUDevice",
+      "memberName": "createBindGroupLayout",
+      "memberKind": "method",
+      "dispatchClass": "service-submit",
+      "logicalExecutionKind": "service-enqueue",
+      "resultTiming": "synchronous-logical-identity-service-enqueued",
+      "providerSubmission": "semantic-call-device-timeline",
+      "receiverHandleKind": "GPUDevice",
+      "wrapperAllocatedTargetHandleKind": "GPUBindGroupLayout",
+      "resultHandleKind": "GPUBindGroupLayout",
+      "serviceReceiverProjection": {
+        "source": "wrapper-full-reference",
+        "kind": "GPUDevice",
+        "flags": 0,
+        "objectIdSource": "wrapperReceiver.logicalHandle",
+        "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+      },
+      "publicArgumentCodec": "gpu-bind-group-layout-descriptor-v1",
+      "serviceArgumentCodec": "gpu-create-bind-group-layout-service-request-v1",
+      "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
+      "publicResultCodec": "gpu-bind-group-layout-handle-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+      "promiseIdentity": "zero-non-applicable"
     },
     {
       "operationId": "GPUDevice.createCommandEncoder",

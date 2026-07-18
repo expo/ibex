@@ -8,6 +8,7 @@ import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 export type ProductionGpuWrapperKind =
   | 'GPU'
   | 'GPUAdapter'
+  | 'GPUBindGroupLayout'
   | 'GPUCanvasContext'
   | 'GPUCommandBuffer'
   | 'GPUCommandEncoder'

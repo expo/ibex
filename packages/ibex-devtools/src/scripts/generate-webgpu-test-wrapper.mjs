@@ -59,7 +59,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-test-wrapper-generation: 25/25 routes fresh at normalized projection " +
+      "webgpu-test-wrapper-generation: 26/26 routes fresh at normalized projection " +
         REVIEWED_DIGESTS.projection,
     );
     return;
