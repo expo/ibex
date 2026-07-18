@@ -926,6 +926,38 @@ const projectPathExactResource = (...components) => ({
     components: components.map((value) => ({ encoding: "utf8", value })),
   },
 });
+// A direct native path beneath `/project/target` first authorizes the complete
+// requested spelling, discovers the authenticated project root, then requests
+// and repeat-authorizes each retained component. A missing leaf adds a second
+// requested decision for the dangling spelling plus absent-create discovery.
+// Keep these sequences shared so a recipe cannot silently regress to the
+// pre-component-walk evidence shape.
+// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+const NATIVE_EXISTING_PROJECT_CHILD_STAGES = Object.freeze([
+  "requested",
+  "discovery",
+  "requested",
+  "repeat",
+  "requested",
+  "repeat",
+]);
+const NATIVE_MISSING_PROJECT_CHILD_STAGES = Object.freeze([
+  "requested",
+  "discovery",
+  "requested",
+  "repeat",
+  "requested",
+  "requested",
+  "discovery",
+]);
+const existingProjectChildStages = (...tail) => [
+  ...NATIVE_EXISTING_PROJECT_CHILD_STAGES,
+  ...tail,
+];
+const missingProjectChildStages = (...tail) => [
+  ...NATIVE_MISSING_PROJECT_CHILD_STAGES,
+  ...tail,
+];
 const nativeProjectMetadataTemplate = (
   allowStages = ["requested", "discovery", "requested", "repeat"],
 ) =>
@@ -1035,11 +1067,11 @@ const nativeProjectTruncateTemplate = () =>
     ],
     expectedCleanup: "removed-owned-file",
     expectedDecisionCounts: {
-      allow: 5,
+      allow: 8,
       deny: 1,
-      malformed: 5,
-      "missing-attribution": 5,
-      "wrong-principal": 5,
+      malformed: 8,
+      "missing-attribution": 8,
+      "wrong-principal": 8,
     },
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:write"],
@@ -1051,24 +1083,13 @@ const nativeProjectTruncateTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      allow: existingProjectChildStages("commit", "repeat"),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
-      "missing-attribution": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
-      "wrong-principal": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
+      malformed: existingProjectChildStages("commit", "repeat"),
+      "missing-attribution": existingProjectChildStages("commit", "repeat"),
+      "wrong-principal": existingProjectChildStages("commit", "repeat"),
     },
     requiredFloor: ["fs:list", "fs:write"].map((cap) => ({
       cap,
@@ -1158,11 +1179,11 @@ const nativeProjectMkdirTemplate = () =>
     ],
     expectedCleanup: "removed-created-directory",
     expectedDecisionCounts: {
-      allow: 4,
+      allow: 7,
       deny: 1,
-      malformed: 4,
-      "missing-attribution": 4,
-      "wrong-principal": 4,
+      malformed: 7,
+      "missing-attribution": 7,
+      "wrong-principal": 7,
     },
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:write"],
@@ -1174,12 +1195,13 @@ const nativeProjectMkdirTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit"],
+      allow: missingProjectChildStages(),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit"],
-      "missing-attribution": ["requested", "discovery", "discovery", "commit"],
-      "wrong-principal": ["requested", "discovery", "discovery", "commit"],
+      malformed: missingProjectChildStages(),
+      "missing-attribution": missingProjectChildStages(),
+      "wrong-principal": missingProjectChildStages(),
     },
     requiredFloor: [
       {
@@ -1206,11 +1228,11 @@ const nativeProjectWriteFileTemplate = () =>
     ],
     expectedCleanup: "removed-owned-file",
     expectedDecisionCounts: {
-      allow: 5,
+      allow: 9,
       deny: 1,
-      malformed: 5,
-      "missing-attribution": 5,
-      "wrong-principal": 5,
+      malformed: 9,
+      "missing-attribution": 9,
+      "wrong-principal": 9,
     },
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:write"],
@@ -1222,24 +1244,13 @@ const nativeProjectWriteFileTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      allow: missingProjectChildStages("commit", "repeat"),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
-      "missing-attribution": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
-      "wrong-principal": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
+      malformed: missingProjectChildStages("commit", "repeat"),
+      "missing-attribution": missingProjectChildStages("commit", "repeat"),
+      "wrong-principal": missingProjectChildStages("commit", "repeat"),
     },
     requiredFloor: [
       {
@@ -1266,11 +1277,11 @@ const nativeProjectAppendFileTemplate = () =>
     ],
     expectedCleanup: "removed-owned-file",
     expectedDecisionCounts: {
-      allow: 5,
+      allow: 8,
       deny: 1,
-      malformed: 5,
-      "missing-attribution": 5,
-      "wrong-principal": 5,
+      malformed: 8,
+      "missing-attribution": 8,
+      "wrong-principal": 8,
     },
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:write"],
@@ -1282,24 +1293,13 @@ const nativeProjectAppendFileTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      allow: existingProjectChildStages("commit", "repeat"),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
-      "missing-attribution": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
-      "wrong-principal": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
+      malformed: existingProjectChildStages("commit", "repeat"),
+      "missing-attribution": existingProjectChildStages("commit", "repeat"),
+      "wrong-principal": existingProjectChildStages("commit", "repeat"),
     },
     requiredFloor: [
       {
@@ -1319,8 +1319,14 @@ const nativeProjectFsOpenTemplate = ({
   async = false,
   flags,
   fixture,
-}) =>
-  Object.freeze({
+}) => {
+  // The synchronous facade performs its typed access-class request before the
+  // shared retained-component walk. The async facade enters that walk directly
+  // while it still owns the runtime thread.
+  const openStages = !async
+    ? ["requested", ...existingProjectChildStages("commit")]
+    : existingProjectChildStages("commit");
+  return Object.freeze({
     actionIds,
     arguments: [
       literalArgument(`target/${fixture}`),
@@ -1330,12 +1336,12 @@ const nativeProjectFsOpenTemplate = ({
     ],
     expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
     expectedDecisionCounts: {
-      allow: 4,
-      "branch-selection": 4,
+      allow: openStages.length,
+      "branch-selection": openStages.length,
       deny: 1,
-      malformed: 4,
-      "missing-attribution": 4,
-      "wrong-principal": 4,
+      malformed: openStages.length,
+      "missing-attribution": openStages.length,
+      "wrong-principal": openStages.length,
     },
     expectedObservedActionIds: {
       malformed: actionIds,
@@ -1348,13 +1354,14 @@ const nativeProjectFsOpenTemplate = ({
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit"],
-      "branch-selection": ["requested", "discovery", "discovery", "commit"],
+      allow: openStages,
+      "branch-selection": openStages,
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit"],
-      "missing-attribution": ["requested", "discovery", "discovery", "commit"],
-      "wrong-principal": ["requested", "discovery", "discovery", "commit"],
+      malformed: openStages,
+      "missing-attribution": openStages,
+      "wrong-principal": openStages,
     },
     requiredFloor: actionIds.map((cap) => ({
       cap,
@@ -1373,6 +1380,7 @@ const nativeProjectFsOpenTemplate = ({
         }
       : {}),
   });
+};
 const nativeRetainedFsFstatTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -1538,11 +1546,11 @@ const nativeProjectReaddirTemplate = () =>
     ],
     expectedCleanup: "removed-owned-directory",
     expectedDecisionCounts: {
-      allow: 4,
+      allow: 9,
       deny: 1,
-      malformed: 4,
-      "missing-attribution": 4,
-      "wrong-principal": 4,
+      malformed: 9,
+      "missing-attribution": 9,
+      "wrong-principal": 9,
     },
     expectedResults: {
       allow: "return",
@@ -1551,12 +1559,21 @@ const nativeProjectReaddirTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "repeat", "repeat"],
+      allow: existingProjectChildStages("repeat", "repeat", "repeat"),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "repeat", "repeat"],
-      "missing-attribution": ["requested", "discovery", "repeat", "repeat"],
-      "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
+      malformed: existingProjectChildStages("repeat", "repeat", "repeat"),
+      "missing-attribution": existingProjectChildStages(
+        "repeat",
+        "repeat",
+        "repeat",
+      ),
+      "wrong-principal": existingProjectChildStages(
+        "repeat",
+        "repeat",
+        "repeat",
+      ),
     },
     requiredFloor: [
       {

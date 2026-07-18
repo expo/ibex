@@ -586,6 +586,58 @@ pub(crate) struct RuntimeVfsSession {
     alive: AtomicBool,
 }
 
+/// Opaque Rust-side lease over one authenticated native runtime's VFS state.
+///
+/// Callers cannot construct this from a nonce or a virtual spelling. The Host
+/// registry mints it only after matching an engine-supplied runtime generation
+/// to the exact cloned Host identity that was claimed at native construction.
+/// A retained lease does not extend the generation: native teardown closes the
+/// underlying session, after which every operation fails stale.
+/// @ref LLP 0023#5-the-virtual-resolution-base-working-directory
+/// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+#[derive(Clone)]
+pub struct AuthenticatedRuntimeVfs(Arc<RuntimeVfsSession>);
+
+impl fmt::Debug for AuthenticatedRuntimeVfs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("AuthenticatedRuntimeVfs(<opaque>)")
+    }
+}
+
+impl AuthenticatedRuntimeVfs {
+    pub(crate) fn new(session: Arc<RuntimeVfsSession>) -> Self {
+        Self(session)
+    }
+
+    /// Capture the exact retained cwd namespace for this runtime generation.
+    /// Capture re-verifies the retained object before returning its logical
+    /// identity, so a replaced or moved base fails instead of being reduced to
+    /// a trusted-looking string.
+    pub fn capture_cwd(&self) -> Result<NamespacePath, VfsError> {
+        self.0.current_namespace()
+    }
+
+    /// Resolve untrusted path syntax against this runtime's retained cwd.
+    pub fn resolve(&self, input: &[u8]) -> Result<NamespacePath, VfsError> {
+        self.0.resolve_namespace(input)
+    }
+
+    /// Immutable mount descriptors for this live runtime generation.
+    pub fn mounts(&self) -> Result<&[MountDescriptor], VfsError> {
+        self.0.ensure_live("mounts", None)?;
+        Ok(self.0.vfs.mounts())
+    }
+
+    /// The exact VFS whose session identity appears on namespaces minted by
+    /// this lease. This is intentionally an immutable borrow: callers can use
+    /// it for typed Host reads but cannot replace the runtime's cwd.
+    #[doc(hidden)]
+    pub fn virtual_file_system(&self) -> Result<&VirtualFileSystem, VfsError> {
+        self.0.ensure_live("resolve", None)?;
+        Ok(&self.0.vfs)
+    }
+}
+
 impl fmt::Debug for RuntimeVfsSession {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -617,12 +669,31 @@ impl RuntimeVfsSession {
         self.vfs.close();
     }
 
-    pub(crate) fn current_cwd(&self) -> Result<Vec<u8>, VfsError> {
+    fn current_namespace(&self) -> Result<NamespacePath, VfsError> {
         self.ensure_live("cwd", None)?;
-        let cwd = lock_recover(&self.cwd);
-        let result = cwd.namespace.virtual_path().as_bytes().to_vec();
-        self.ensure_live("cwd", Some(cwd.namespace.virtual_path.clone()))?;
+        let mut cwd = lock_recover(&self.cwd);
+        self.vfs.verify_retained_directory(&mut cwd, "cwd")?;
+        let result = cwd.namespace.clone();
+        self.ensure_live("cwd", Some(result.virtual_path.clone()))?;
         Ok(result)
+    }
+
+    pub(crate) fn current_cwd(&self) -> Result<Vec<u8>, VfsError> {
+        Ok(self.current_namespace()?.virtual_path().as_bytes().to_vec())
+    }
+
+    fn resolve_namespace(&self, input: &[u8]) -> Result<NamespacePath, VfsError> {
+        self.ensure_live("resolve", None)?;
+        let is_absolute = input.first() == Some(&b'/');
+        let namespace = if is_absolute {
+            self.vfs.resolve_root_bytes(input, None)?
+        } else {
+            let mut cwd = lock_recover(&self.cwd);
+            self.vfs.verify_retained_directory(&mut cwd, "resolve")?;
+            self.vfs.resolve_root_bytes(input, Some(&cwd.namespace))?
+        };
+        self.ensure_live("resolve", Some(namespace.virtual_path.clone()))?;
+        Ok(namespace)
     }
 
     /// Resolve untrusted lexical syntax against this runtime's authenticated
@@ -633,15 +704,7 @@ impl RuntimeVfsSession {
         &self,
         input: &[u8],
     ) -> Result<ResolvedPrivatePath, VfsError> {
-        self.ensure_live("resolve", None)?;
-        let is_absolute = input.first() == Some(&b'/');
-        let namespace = if is_absolute {
-            self.vfs.resolve_root_bytes(input, None)?
-        } else {
-            let mut cwd = lock_recover(&self.cwd);
-            self.vfs.verify_retained_directory(&mut cwd, "resolve")?;
-            self.vfs.resolve_root_bytes(input, Some(&cwd.namespace))?
-        };
+        let namespace = self.resolve_namespace(input)?;
         let backing_path = self.vfs.private_backing_path_bytes(&namespace, "resolve")?;
         self.ensure_live("resolve", Some(namespace.virtual_path.clone()))?;
         Ok(ResolvedPrivatePath {
@@ -3495,6 +3558,11 @@ mod tests {
         assert_eq!(
             session.resolve_private_path(b"child").unwrap_err().reason(),
             VfsReason::StaleIdentity
+        );
+        assert_eq!(
+            session.current_cwd().unwrap_err().reason(),
+            VfsReason::StaleIdentity,
+            "capturing a prompt referrer must not turn a stale retained cwd into trusted text"
         );
 
         assert_eq!(session.chdir(b"/project").unwrap(), b"/project");

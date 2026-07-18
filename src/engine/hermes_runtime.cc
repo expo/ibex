@@ -2769,6 +2769,8 @@ void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target) {
   // its final access to the runtime and released the mutex.
   // @ref LLP 0003#blocking-work-worker-pools — detached-worker pins must drain
   // completely before runtime teardown destroys their synchronization state.
+  // @ref LLP 0025#6-interruption-and-cancellation — admitted any-thread
+  // controls use the same drain edge through their final runtime access.
   auto* runtime = target.runtime;
   std::lock_guard<std::mutex> lock(runtime->native_worker_mutex);
   auto previous = runtime->native_worker_pins.fetch_sub(1, std::memory_order_acq_rel);
@@ -2776,6 +2778,102 @@ void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target) {
     runtime->native_worker_cv.notify_all();
   }
 }
+
+namespace {
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+std::mutex g_structuredControlLeasePauseMutex;
+std::condition_variable g_structuredControlLeasePauseCv;
+bool g_structuredControlLeasePauseArmed{false};
+bool g_structuredControlLeasePaused{false};
+bool g_structuredControlTeardownWaitObserved{false};
+
+void exactTestPauseStructuredControlLease() {
+  std::unique_lock<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  if (!g_structuredControlLeasePauseArmed) return;
+  g_structuredControlLeasePaused = true;
+  g_structuredControlLeasePauseCv.notify_all();
+  g_structuredControlLeasePauseCv.wait(lock, [] {
+    return !g_structuredControlLeasePauseArmed;
+  });
+  g_structuredControlLeasePaused = false;
+  g_structuredControlLeasePauseCv.notify_all();
+}
+
+void exactTestObserveStructuredControlTeardownWait() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  if (!g_structuredControlLeasePaused) return;
+  g_structuredControlTeardownWaitObserved = true;
+  g_structuredControlLeasePauseCv.notify_all();
+}
+#else
+void exactTestPauseStructuredControlLease() {}
+void exactTestObserveStructuredControlTeardownWait() {}
+#endif
+
+// The public structured-control ABI is deliberately callable while the owner
+// thread is driving Hermes. A registry check alone would leave a TOCTOU window:
+// teardown could delete the runtime after the check and before the control
+// locks one of its mutexes. Pin the exact pointer-plus-nonce generation for the
+// full operation; Closing refuses new leases and destroy drains admitted ones.
+// @ref LLP 0025#6-interruption-and-cancellation — cancellation targets and
+// their terminal publication are native, exact-generation state.
+class ScopedRuntimeControlLease {
+ public:
+  ScopedRuntimeControlLease(
+      ExactHermesRuntime* runtime,
+      uint64_t runtimeNonce)
+      : target_{runtime, runtimeNonce},
+        acquired_(exactPinRuntimeNativeWorker(target_)) {
+    if (acquired_) exactTestPauseStructuredControlLease();
+  }
+
+  ~ScopedRuntimeControlLease() {
+    if (acquired_) exactUnpinRuntimeNativeWorker(target_);
+  }
+
+  ScopedRuntimeControlLease(const ScopedRuntimeControlLease&) = delete;
+  ScopedRuntimeControlLease& operator=(const ScopedRuntimeControlLease&) = delete;
+
+  explicit operator bool() const { return acquired_; }
+
+ private:
+  RuntimeCallbackTarget target_;
+  bool acquired_{false};
+};
+
+}  // namespace
+
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+extern "C" int32_t ibex_test_arm_structured_control_lease_pause() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  if (g_structuredControlLeasePauseArmed || g_structuredControlLeasePaused) {
+    return -1;
+  }
+  g_structuredControlLeasePauseArmed = true;
+  g_structuredControlTeardownWaitObserved = false;
+  return 1;
+}
+
+extern "C" int32_t ibex_test_structured_control_lease_paused() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  return g_structuredControlLeasePaused ? 1 : 0;
+}
+
+extern "C" int32_t ibex_test_structured_control_teardown_wait_observed() {
+  std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+  return g_structuredControlTeardownWaitObserved ? 1 : 0;
+}
+
+extern "C" int32_t ibex_test_release_structured_control_lease_pause() {
+  {
+    std::lock_guard<std::mutex> lock(g_structuredControlLeasePauseMutex);
+    g_structuredControlLeasePauseArmed = false;
+  }
+  g_structuredControlLeasePauseCv.notify_all();
+  return 1;
+}
+#endif
 
 static int32_t beginRuntimeTeardown(
     ExactHermesRuntime* runtime,
@@ -2844,6 +2942,7 @@ static void finishRuntimeTeardown(RuntimeCallbackTarget target) {
     if (runtime->native_worker_pins.load(std::memory_order_acquire) == 0) {
       break;
     }
+    exactTestObserveStructuredControlTeardownWait();
     runtime->native_worker_cv.wait_for(lock, std::chrono::milliseconds(25));
   }
 
@@ -7497,9 +7596,10 @@ extern "C" int32_t ex_hermes_try_destroy(
   uint64_t hostContext = runtime->host_context_id;
   ScopedRuntimeSecurityContext securityContext(runtime);
 
-  // Closing refuses new native-worker pins. Cancel only filesystem leases
-  // that have not crossed the pool's queued -> committed edge; workers that
-  // already crossed it retain their generation pin and drain below.
+  // Closing refuses new native lifetime pins, including structured-control
+  // leases. Cancel only filesystem leases that have not crossed the pool's
+  // queued -> committed edge; workers that already crossed it retain their
+  // generation pin and drain below.
   // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
   exactCancelQueuedFsOperations(target);
   // Stop/cancel callback sources while the exact generation remains
@@ -7558,8 +7658,9 @@ extern "C" int32_t ex_hermes_try_destroy(
   const uint64_t destroyedStructuredValueHandleCount =
       runtime->structured_value_handles.size();
 #endif
-  // All producer pins are gone and every queued/finalized JSI capture was
-  // destroyed on this thread before Hermes itself.
+  // All native lifetime pins (workers and structured controls) are gone, and
+  // every queued/finalized JSI capture was destroyed on this thread before
+  // Hermes itself.
   delete runtime;
 #if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
   if (destroyedStructuredValueHandleCount != 0) {
@@ -10526,12 +10627,15 @@ extern "C" int ex_hermes_structured_module_graph_finish(
 // @abi-output ex_hermes_take_work_unit_event event role=inout kind=aggregate schema=ExHermesWorkUnitEvent members=kind,phase,target_id,scheduling_id ownership=caller-storage
 extern "C" uint32_t ex_hermes_take_work_unit_event(
     ExactHermesRuntime* runtime,
+    uint64_t runtimeNonce,
     ExHermesWorkUnitEvent* event) {
-  if (runtime == nullptr || event == nullptr ||
+  if (event == nullptr ||
       event->abi_version != EX_HERMES_WORK_UNIT_EVENT_ABI_VERSION ||
       event->struct_size != sizeof(ExHermesWorkUnitEvent)) {
     return EX_HERMES_WORK_UNIT_EVENT_FAILED;
   }
+  ScopedRuntimeControlLease lease(runtime, runtimeNonce);
+  if (!lease) return EX_HERMES_WORK_UNIT_EVENT_FAILED;
   std::lock_guard<std::mutex> lock(runtime->structured_work_event_mutex);
   if (runtime->structured_work_event_failed) {
     return EX_HERMES_WORK_UNIT_EVENT_FAILED;
@@ -10555,13 +10659,16 @@ extern "C" uint32_t ex_hermes_take_work_unit_event(
 // @abi-output ex_hermes_take_cancellation_event event role=inout kind=aggregate schema=ExHermesCancellationEvent members=resolution,target_id ownership=caller-storage
 extern "C" uint32_t ex_hermes_take_cancellation_event(
     ExactHermesRuntime* runtime,
+    uint64_t runtimeNonce,
     ExHermesCancellationEvent* event) {
-  if (runtime == nullptr || event == nullptr ||
+  if (event == nullptr ||
       event->abi_version != EX_HERMES_CANCELLATION_EVENT_ABI_VERSION ||
       event->struct_size != sizeof(ExHermesCancellationEvent) ||
       event->reserved != 0) {
     return EX_HERMES_CANCELLATION_EVENT_FAILED;
   }
+  ScopedRuntimeControlLease lease(runtime, runtimeNonce);
+  if (!lease) return EX_HERMES_CANCELLATION_EVENT_FAILED;
   std::lock_guard<std::mutex> lock(runtime->structured_work_event_mutex);
   if (runtime->structured_work_event_failed) {
     return EX_HERMES_CANCELLATION_EVENT_FAILED;
@@ -10924,18 +11031,23 @@ extern "C" int32_t ibex_test_release_blocking_native_work(
 #endif
 
 extern "C" uint64_t ex_hermes_structured_active_work_target(
-    ExactHermesRuntime* runtime) {
-  if (runtime == nullptr) return 0;
+    ExactHermesRuntime* runtime,
+    uint64_t runtimeNonce) {
+  ScopedRuntimeControlLease lease(runtime, runtimeNonce);
+  if (!lease) return 0;
   std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
   return runtime->structured_active_work_target_id;
 }
 
 extern "C" uint32_t ex_hermes_cancel_structured_work_target(
     ExactHermesRuntime* runtime,
+    uint64_t runtimeNonce,
     uint64_t workTargetId) {
-  if (runtime == nullptr || workTargetId == 0) {
+  if (workTargetId == 0) {
     return EX_HERMES_CANCEL_FAILED;
   }
+  ScopedRuntimeControlLease lease(runtime, runtimeNonce);
+  if (!lease) return EX_HERMES_CANCEL_FAILED;
   std::lock_guard<std::mutex> lock(runtime->structured_cancel_mutex);
   if (runtime->structured_active_work_target_id == 0) {
     return EX_HERMES_CANCEL_UNAVAILABLE;

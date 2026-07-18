@@ -2084,6 +2084,119 @@ mod tests {
     }
 
     #[test]
+    fn arms_transitive_package_graph_without_promoting_the_leaf_to_root() {
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let root: Principal =
+            serde_json::from_value(value["principals"][0]["principal"].clone()).unwrap();
+        let package_a_value = value["principals"][1]["principal"].clone();
+        let package_a: Principal = serde_json::from_value(package_a_value.clone()).unwrap();
+        let package_b_value = serde_json::json!({
+            "kind": "package",
+            "name": "transitive-lib",
+            "integrity": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA",
+            "locator": "transitive-lib@1.0.0",
+        });
+        let package_b: Principal = serde_json::from_value(package_b_value.clone()).unwrap();
+
+        value["principals"][1]["imports"]["packages"] = serde_json::json!(["transitive-lib@1.0.0"]);
+        let mut package_b_row = value["principals"][1].clone();
+        package_b_row["principal"] = package_b_value.clone();
+        package_b_row["imports"]["packages"] = serde_json::json!([]);
+        value["principals"]
+            .as_array_mut()
+            .unwrap()
+            .push(package_b_row);
+
+        let mut package_b_node = value["packageGraph"]["nodes"][0].clone();
+        package_b_node["principal"] = package_b_value.clone();
+        package_b_node["resolvingSpecifier"] = Value::String("transitive-lib".into());
+        package_b_node["rootObject"]["file"] = Value::String("file-201".into());
+        package_b_node["virtualAliases"][0]["components"][1]["value"] =
+            Value::String("transitive-lib".into());
+        value["packageGraph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(package_b_node);
+
+        let package_b_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| {
+                let mut edge = edge.clone();
+                edge["importer"] = package_a_value.clone();
+                edge["imported"] = package_b_value.clone();
+                edge["requestSpecifier"] = Value::String("transitive-lib".into());
+                edge
+            })
+            .collect::<Vec<_>>();
+        value["packageGraph"]["importEdges"]
+            .as_array_mut()
+            .unwrap()
+            .extend(package_b_edges);
+
+        let mut package_b_binding = value["rootBindings"][0].clone();
+        package_b_binding["owner"] = package_b_value.clone();
+        package_b_binding["hostPath"]["components"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap()["value"] = Value::String("transitive-lib".into());
+        package_b_binding["object"]["file"] = Value::String("file-201".into());
+        value["rootBindings"]
+            .as_array_mut()
+            .unwrap()
+            .push(package_b_binding);
+
+        let package_graph_digest = crate::digest::compute_domain_digest(
+            "ibex:capsec:package-graph:1",
+            &value["packageGraph"],
+            &["digest".to_owned()],
+        )
+        .unwrap();
+        value["packageGraph"]["digest"] = Value::String(package_graph_digest.clone());
+        expected.package_graph_digest = Digest::new(package_graph_digest).unwrap();
+        expected
+            .protected_artifacts
+            .iter_mut()
+            .find(|artifact| artifact.role == ProtectedArtifactRole::PackageGraph)
+            .unwrap()
+            .content_digest = expected.package_graph_digest.clone();
+        let bytes = redigest(&mut value);
+        expected.armed_snapshot_digest =
+            Digest::new(value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+
+        let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let conditions = ["import".to_owned(), "node".to_owned()];
+        let attributes = BTreeMap::new();
+        assert!(armed.authenticates_module_edge(
+            &root,
+            "image-lib",
+            &package_a,
+            "esm-static",
+            &conditions,
+            &attributes,
+        ));
+        assert!(armed.authenticates_module_edge(
+            &package_a,
+            "transitive-lib",
+            &package_b,
+            "esm-static",
+            &conditions,
+            &attributes,
+        ));
+        assert!(!armed.authenticates_module_edge(
+            &root,
+            "transitive-lib",
+            &package_b,
+            "esm-static",
+            &conditions,
+            &attributes,
+        ));
+    }
+
+    #[test]
     fn requires_an_explicitly_empty_digest_bound_environment_base() {
         let (bytes, expected) = fixture();
         let value: Value = serde_json::from_slice(&bytes).unwrap();

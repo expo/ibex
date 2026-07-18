@@ -3075,6 +3075,7 @@ fn execute_basic(function_name: &str) -> Result<Value, String> {
 
 struct OwnedDiagnosticRuntime {
     raw: *mut HermesRuntimeOpaque,
+    nonce: u64,
 }
 
 impl OwnedDiagnosticRuntime {
@@ -3084,7 +3085,13 @@ impl OwnedDiagnosticRuntime {
         if raw.is_null() {
             Err("ex_hermes_create_diagnostic returned NULL".into())
         } else {
-            Ok(Self { raw })
+            let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+            if nonce == 0 {
+                unsafe { ex_hermes_destroy(raw) };
+                Err("ex_hermes_create_diagnostic returned a runtime without a live nonce".into())
+            } else {
+                Ok(Self { raw, nonce })
+            }
         }
     }
 
@@ -5032,7 +5039,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
             returned_number(unsafe { ex_hermes_callback_backlog(runtime.raw) })
         }
         "ex_hermes_cancel_structured_work_target" => {
-            returned_number(unsafe { ex_hermes_cancel_structured_work_target(runtime.raw, 0) })
+            returned_number(unsafe {
+                ex_hermes_cancel_structured_work_target(runtime.raw, runtime.nonce, 0)
+            })
         }
         "ex_hermes_create_diagnostic" => returned_object(),
         "ex_hermes_debugger_enable" => {
@@ -5305,7 +5314,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
             returned_undefined()
         }
         "ex_hermes_structured_active_work_target" => {
-            returned_number(unsafe { ex_hermes_structured_active_work_target(runtime.raw) })
+            returned_number(unsafe {
+                ex_hermes_structured_active_work_target(runtime.raw, runtime.nonce)
+            })
         }
         "ex_hermes_take_async_failure_event" => {
             let mut event = NativeAsyncFailureEvent::current();
@@ -5325,7 +5336,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
         }
         "ex_hermes_take_cancellation_event" => {
             let mut event = NativeCancellationEvent::current();
-            let status = unsafe { ex_hermes_take_cancellation_event(runtime.raw, &mut event) };
+            let status = unsafe {
+                ex_hermes_take_cancellation_event(runtime.raw, runtime.nonce, &mut event)
+            };
             match selector {
                 "out:event.resolution" => returned_number(event.resolution),
                 "out:event.target_id" => returned_u64(event.target_id),
@@ -5334,7 +5347,9 @@ fn execute_hermes_diagnostic(function_name: &str, selector: &str) -> Result<Valu
         }
         "ex_hermes_take_work_unit_event" => {
             let mut event = NativeWorkUnitEvent::current();
-            let status = unsafe { ex_hermes_take_work_unit_event(runtime.raw, &mut event) };
+            let status = unsafe {
+                ex_hermes_take_work_unit_event(runtime.raw, runtime.nonce, &mut event)
+            };
             match selector {
                 "out:event.kind" => returned_number(event.kind),
                 "out:event.phase" => returned_number(event.phase),

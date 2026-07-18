@@ -6635,10 +6635,6 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       environmentRows.some((row) => row.name.startsWith("env:IBEX_CAPSEC_")),
     ).toBe(true);
     for (const environmentName of [
-      "IBEX_CAPSEC_BUILTIN_EFFECTS_OUTPUT_PLAN",
-      "IBEX_CAPSEC_BUILTIN_EFFECTS_OUTPUT_RESULT",
-      "IBEX_CAPSEC_BUILTIN_NONCAP_CLOSED_OUTPUT_PLAN",
-      "IBEX_CAPSEC_BUILTIN_NONCAP_CLOSED_OUTPUT_RESULT",
       "IBEX_CAPSEC_CLOSED_CONTROL_OUTPUT_PLAN",
       "IBEX_CAPSEC_CLOSED_CONTROL_OUTPUT_RESULT",
       "IBEX_CAPSEC_GLOBAL_CALLABLE_DIAGNOSTIC_OUTPUT",

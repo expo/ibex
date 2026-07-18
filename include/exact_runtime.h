@@ -907,35 +907,48 @@ enum {
   EX_HERMES_CANCEL_FAILED = 3
 };
 
+// @ref LLP 0025#6-interruption-and-cancellation — any-thread structured
+// controls authenticate pointer-plus-generation and retain a teardown lease.
 /// Take the oldest native work-unit transition without waiting. This operation
 /// is callable from any thread while the runtime owner is inside Hermes. The
 /// queue is bounded; OVERFLOW is a fail-loud terminal state, never permission
 /// to reconstruct a partial live-unit set by polling the active target.
+/// `runtime_nonce` must be the generation captured from this live handle with
+/// ex_hermes_runtime_nonce; stale pointer/nonce pairs fail closed. An admitted
+/// operation retains that exact generation through return, and teardown waits
+/// for the lease to drain before deleting the runtime.
 uint32_t ex_hermes_take_work_unit_event(
     ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
     ExHermesWorkUnitEvent* event);
 
 /// Take the oldest terminal cancellation result without waiting. ACCEPTED is
 /// published only after the exact target returned because of the request and a
 /// fixed native consistency probe proved that the runtime remains reusable.
+/// `runtime_nonce` has the same generation-bearing contract as above.
 uint32_t ex_hermes_take_cancellation_event(
     ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
     ExHermesCancellationEvent* event);
 
 /// Return the exact authenticated work target currently owned by this runtime,
 /// or zero when no native work unit is executing. Suspended evaluations and
 /// due-but-not-begun timers are deliberately not cancellation targets. This is
 /// any-thread and is intended only for the native terminal-session controller.
+/// `runtime_nonce` has the same generation-bearing contract as above.
 uint64_t ex_hermes_structured_active_work_target(
-    ExactHermesRuntime* runtime);
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce);
 
 /// Request cancellation of exactly `work_target_id`. The native target lock
 /// prevents a check for one unit from landing on a successor. The
 /// EX_HERMES_CANCEL_ACCEPTED return means only that the request was delivered;
 /// terminal acceptance arrives through ex_hermes_take_cancellation_event after
 /// the target returns. This call never waits for JavaScript to cooperate.
+/// `runtime_nonce` has the same generation-bearing contract as above.
 uint32_t ex_hermes_cancel_structured_work_target(
     ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
     uint64_t work_target_id);
 
 /// Consume one authenticated credential and evaluate its exact source bytes.

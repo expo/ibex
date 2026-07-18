@@ -761,6 +761,26 @@ impl Host {
         crate::vfs::RuntimeVfsSession::new(runtime_nonce, self.virtual_file_system()?)
     }
 
+    /// Retain the native VFS generation claimed by this exact Host clone.
+    ///
+    /// The runtime nonce comes from the engine's private native handle; this
+    /// method additionally matches the Host's unforgeable shared session
+    /// identity against the construction-time Host context. Neither a session
+    /// token nor a virtual cwd spelling can select a runtime generation.
+    /// @ref LLP 0023#5-the-virtual-resolution-base-working-directory
+    /// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+    #[doc(hidden)]
+    pub fn authenticated_runtime_vfs(
+        &self,
+        runtime_nonce: std::num::NonZeroU64,
+    ) -> Result<crate::vfs::AuthenticatedRuntimeVfs, crate::vfs::VfsError> {
+        abi::authenticated_runtime_vfs_for_host(self, runtime_nonce)
+    }
+
+    fn same_runtime_security_identity(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.armed_session_token, &other.armed_session_token)
+    }
+
     /// Consume a minted `.load` submission through requested/discovery
     /// metadata decisions and commit/repeat read decisions, then bind the
     /// immutable bytes to that exact evidence before returning an engine capsule.

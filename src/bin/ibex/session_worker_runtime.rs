@@ -658,7 +658,19 @@ async fn evaluate_submission(
             settle_repl_evaluation(engine, submission_id, evaluation, events, output_cutoffs).await;
         }
         (WorkerIngress::Repl(ingress), SubmissionKind::Mounts) if source.is_empty() => {
-            let description = ingress.mounts_description();
+            let description = match ingress.mounts_description(engine).await {
+                Ok(description) => description,
+                Err(error) => {
+                    send_outcome(
+                        events,
+                        submission_id,
+                        EvaluationOutcomeKind::EngineFault,
+                        70,
+                        format!("{error:#}").into_bytes(),
+                    );
+                    return;
+                }
+            };
             let payload = serde_json::json!({
                 "virtualCwd": description.virtual_cwd(),
                 "mounts": description.mounts().iter().map(|mount| serde_json::json!({

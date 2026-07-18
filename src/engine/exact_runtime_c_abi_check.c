@@ -444,17 +444,20 @@ void ibex_exact_runtime_c_abi_typecheck(void) {
       ex_hermes_resume_structured_session;
   uint32_t (*finish_bootstrap)(ExactHermesRuntime*) =
       ex_hermes_finish_bootstrap;
-  uint32_t (*take_work_unit)(ExactHermesRuntime*, ExHermesWorkUnitEvent*) =
+  uint32_t (*take_work_unit)(ExactHermesRuntime*,
+                             uint64_t,
+                             ExHermesWorkUnitEvent*) =
       ex_hermes_take_work_unit_event;
   uint32_t (*take_cancellation)(ExactHermesRuntime*,
+                                uint64_t,
                                 ExHermesCancellationEvent*) =
       ex_hermes_take_cancellation_event;
   uint32_t (*take_async_failure)(ExactHermesRuntime*,
                                  ExHermesAsyncFailureEvent*) =
       ex_hermes_take_async_failure_event;
-  uint64_t (*active_work_target)(ExactHermesRuntime*) =
+  uint64_t (*active_work_target)(ExactHermesRuntime*, uint64_t) =
       ex_hermes_structured_active_work_target;
-  uint32_t (*cancel_work_target)(ExactHermesRuntime*, uint64_t) =
+  uint32_t (*cancel_work_target)(ExactHermesRuntime*, uint64_t, uint64_t) =
       ex_hermes_cancel_structured_work_target;
   int32_t (*authorize_exit)(uint64_t,
                             const uint64_t*,
@@ -1078,6 +1081,7 @@ done:
 /* Controller-thread half of the deterministic normal-return race. */
 int32_t ibex_exact_runtime_c_abi_probe_cancel_then_release(
     ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
     uint64_t target_id) {
   uint64_t stale_target =
       target_id == UINT64_MAX ? target_id - 1 : target_id + 1;
@@ -1086,11 +1090,18 @@ int32_t ibex_exact_runtime_c_abi_probe_cancel_then_release(
   uint32_t first_status;
   uint32_t second_status;
   int32_t release_status;
-  if (runtime == NULL || target_id == 0 || stale_target == 0) return -40;
-  active_target = ex_hermes_structured_active_work_target(runtime);
-  stale_status = ex_hermes_cancel_structured_work_target(runtime, stale_target);
-  first_status = ex_hermes_cancel_structured_work_target(runtime, target_id);
-  second_status = ex_hermes_cancel_structured_work_target(runtime, target_id);
+  if (runtime == NULL || runtime_nonce == 0 || target_id == 0 ||
+      stale_target == 0) {
+    return -40;
+  }
+  active_target =
+      ex_hermes_structured_active_work_target(runtime, runtime_nonce);
+  stale_status = ex_hermes_cancel_structured_work_target(
+      runtime, runtime_nonce, stale_target);
+  first_status = ex_hermes_cancel_structured_work_target(
+      runtime, runtime_nonce, target_id);
+  second_status = ex_hermes_cancel_structured_work_target(
+      runtime, runtime_nonce, target_id);
   /* Always release the deterministic native callback, including when an ABI
    * assertion failed, so the owner thread can return and report the failure. */
   release_status = ibex_test_release_blocking_native_work(runtime);
@@ -1117,6 +1128,7 @@ int32_t ibex_exact_runtime_c_abi_probe_release_blocking_work(
  * request; exactly one terminal record may be published for the target. */
 int32_t ibex_exact_runtime_c_abi_probe_cancel_terminal(
     ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
     uint64_t target_id) {
   ExHermesCancellationEvent event = {
       EX_HERMES_CANCELLATION_EVENT_ABI_VERSION,
@@ -1130,18 +1142,19 @@ int32_t ibex_exact_runtime_c_abi_probe_cancel_terminal(
       0,
       0,
       0};
-  if (runtime == NULL || target_id == 0) return -50;
-  if (ex_hermes_take_cancellation_event(runtime, &event) !=
+  if (runtime == NULL || runtime_nonce == 0 || target_id == 0) return -50;
+  if (ex_hermes_take_cancellation_event(runtime, runtime_nonce, &event) !=
           EX_HERMES_CANCELLATION_EVENT_AVAILABLE ||
       event.target_id != target_id ||
       event.resolution != EX_HERMES_CANCELLATION_DEFEATED) {
     return -51;
   }
-  if (ex_hermes_take_cancellation_event(runtime, &empty) !=
+  if (ex_hermes_take_cancellation_event(runtime, runtime_nonce, &empty) !=
       EX_HERMES_CANCELLATION_EVENT_EMPTY) {
     return -52;
   }
-  if (ex_hermes_cancel_structured_work_target(runtime, target_id) !=
+  if (ex_hermes_cancel_structured_work_target(
+          runtime, runtime_nonce, target_id) !=
       EX_HERMES_CANCEL_UNAVAILABLE) {
     return -53;
   }

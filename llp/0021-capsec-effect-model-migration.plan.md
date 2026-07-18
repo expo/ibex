@@ -1065,7 +1065,8 @@ path lookup and retained-object discovery, then `fs:read` authorizes commit
 immediately before the first byte can be observed and every repeat lease. The
 private descriptor open between discovery and commit discloses no file bytes
 and does not add a redundant read-discovery decision. Public `Cargo.toml`
-allow/deny recipes prove the four-stage action sequence and fail closed at the
+allow/deny recipes prove the six-decision component-walk, commit, and repeat
+sequence and fail closed at the
 first list decision when lookup authority is absent. Whole-file reads accept
 only retained regular files. They perform one full repeat decision per
 descriptor lease and cheaply compare
@@ -1667,9 +1668,12 @@ facets, installer definitions, skipped legacy bootstraps, and platform-only
 routes remain residual rather than inheriting these stage results.
 Direct non-recursive `__exactMkdir` now uses a separate harness-owned path under
 `target/`, an exact `fs:list` and `fs:write` floor, and source-authored boolean
-arguments. Successful public execution must emit requested, retained-parent
-discovery, leaf discovery, and commit decisions, and the harness must remove
-the created directory before
+arguments. Successful public execution must emit the complete seven-decision
+component walk: requested full spelling, authenticated-root discovery,
+requested/repeat authorization for the retained `target` directory, requested
+leaf lookup, requested dangling spelling, and absent-create discovery. The
+authorized `mkdirat` is deliberately the terminal mutation and emits no
+name-bound post-create commit; the harness must remove the created directory before
 the fixture can pass. Denial occurs at requested before creation. This closes
 the direct Apple and Windows surface cells independently from the asynchronous
 dispatcher route; recursive creation remains closed under armed startup.
@@ -1677,25 +1681,29 @@ Direct `__exactWriteFile` similarly receives bytes from the source-bound
 `__exactStringToUtf8Bytes` native producer and a null typed-handle argument. It
 can create only one exact harness-owned target file under the joint `fs:list`
 and `fs:write` floor. Passing evidence requires requested, retained-parent and
-created-target discovery, commit, and repeat decisions, exact written bytes,
-and removal of the file after the
+created-target discovery through the complete nine-decision component walk,
+commit, and repeat sequence, exact written bytes, and removal of the file after the
 call; denial stops at requested before creation.
 Direct `__exactAppendFile` uses the same typed retained-object route against a
 pre-seeded exact harness-owned file. Passing evidence must preserve the known
-prefix, append all source-derived suffix bytes, observe requested, two
-discovery, commit, and repeat decisions, and then remove the file. Denial stops
+prefix, append all source-derived suffix bytes, observe the eight-decision
+existing-path sequence (full-spelling request, authenticated-root discovery,
+requested/repeat checks for both components, commit, and write repeat), and
+then remove the file. Denial stops
 at requested, leaves the prefix byte-identical, and still removes the harness
 fixture outside the observation.
 Direct `__exactFsOpen` covers its read, write, and read-write logical branches
 with non-mutating `r`, `a`, and `r+` flags against three exact pre-seeded files.
-Successful and branch-selection evidence must emit requested, discovery,
-target discovery, and commit decisions, close the returned descriptor through
+Successful and branch-selection evidence must emit an access-class request,
+the six-decision existing-path component walk, and commit (eight decisions),
+then close the returned descriptor through
 `__exactFsClose`, prove the fixture bytes unchanged, and remove the file.
 Denial stops at requested and still proves unchanged bytes before harness
 cleanup.
 The POSIX `__exactFsOpenAsync` surface mirrors those three exact owned fixtures
 through event-loop quiescence. Successful and branch-selection evidence binds
-the asynchronous surface plus its synchronous descriptor-cleanup terminal,
+the seven-decision component-walk-and-commit sequence to the asynchronous
+surface plus its synchronous descriptor-cleanup terminal,
 closes the returned descriptor, proves unchanged bytes, and removes the file;
 denial stops at requested and removes its unchanged fixture. The Windows
 backend does not install `__exactFsOpenAsync`, so Windows recipes remain
@@ -1732,7 +1740,7 @@ and timestamp mutation remain unresolved: LLP 0023 keeps `fchmod` and `futimes`
 closed pending object-bound mutation work, so physical execution alone would
 overclaim the governing contract.
 Direct `__exactTruncate` now uses the same object-bound shape on armed Apple
-runtimes: requested and retained-parent discovery decisions precede a
+runtimes: the six-decision existing-path component walk precedes a
 non-truncating `openat`, commit binds the actual regular-file descriptor, and a
 repeat decision immediately precedes `ftruncate`. Five public recipes operate
 only on an exact harness-owned file, verify its two-byte result or unchanged
@@ -1753,9 +1761,10 @@ and the Windows backend does not install this dispatcher. The aggregate
 pending object-bound mutation work. One `ftruncate` execution therefore cannot
 honestly prove that branch; its registry/runtime split is follow-up work.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
-harness-owned file. Passing evidence must select requested, discovery, and two
-repeat decisions: one retained-target authorization and one generation-bound
-enumeration lease. The harness removes the entry and directory after both
+harness-owned file. Passing evidence must select the six-decision existing-path
+component walk and three later repeat decisions: retained-target open,
+pre-enumeration reauthorization, and the generation-bound lease for the one
+disclosed entry. The harness removes the entry and directory after both
 success and denial, and successful evidence records that cleanup explicitly.
 The runtime-create descriptor binds `ex_hermes_create_armed`, not the historical
 `ex_hermes_create` symbol that production deliberately leaves non-executable.

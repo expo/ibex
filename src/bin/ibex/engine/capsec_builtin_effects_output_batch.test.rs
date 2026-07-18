@@ -14,10 +14,8 @@ use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-const PLAN_SCHEMA: &str = "ibex/capsec-builtin-effects-output-plan/2";
 const INVOCATION_SCHEMA: &str = "ibex/capsec-builtin-effects-output-invocation/1";
 const SOURCE_DESCRIPTOR_KIND: &str = "authored-builtin-effects-output";
-const ARTIFACT_SCHEMA: &str = "ibex/capsec-builtin-effects-output-artifact/2";
 const TIMEOUT_MILLISECONDS: u64 = 1_000;
 const OUTPUT_HARNESS: &str = include_str!("capsec_builtin_effects_output_invocation.js");
 const OUTPUT_SETUP_HARNESS: &str = include_str!("capsec_builtin_effects_output_setup.js");
@@ -1561,21 +1559,6 @@ pub(super) async fn execute_builtin_effects_output_rows(
     (observed, unexercisable)
 }
 
-fn write_artifact(path: &str, value: &Value) {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).expect("create builtin effects artifact");
-    serde_json::to_writer_pretty(&mut file, value).expect("serialize builtin effects artifact");
-    file.write_all(b"\n")
-        .expect("terminate builtin effects artifact");
-    file.sync_all().expect("sync builtin effects artifact");
-}
-
 fn validator_fixture_row(no_effect: bool) -> Value {
     let source_descriptor = json!({"kind": "builtin-export"});
     let invocation = json!({
@@ -1701,85 +1684,4 @@ fn builtin_effects_output_rejects_throw_and_unbound_typed_evidence() {
     assert!(
         validate_source_typed_decisions(&no_effect, "output-shape:fixture", &json!([]),).is_ok()
     );
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn capsec_builtin_effects_output_batch() {
-    let Ok(plan_path) = std::env::var("IBEX_CAPSEC_BUILTIN_EFFECTS_OUTPUT_PLAN") else {
-        eprintln!("IBEX_CAPSEC_BUILTIN_EFFECTS_OUTPUT_PLAN is unset; skipping");
-        return;
-    };
-    let plan_text = std::fs::read_to_string(&plan_path).expect("read builtin effects plan");
-    let plan = capsec_semantics::strict_json::parse_strict(&plan_text)
-        .expect("builtin effects plan must be strict JSON");
-    assert_eq!(plan["planSchema"], PLAN_SCHEMA);
-    assert_eq!(
-        plan["counts"],
-        json!({"registrar": 653, "descriptorResidual": 40})
-    );
-    let rows = plan["rows"].as_array().expect("builtin effects plan rows");
-    assert_eq!(rows.len(), 693);
-    for row in rows {
-        let _ = invocation(row);
-    }
-    let _lock = hermes_engine_test_lock().lock().await;
-    let execution = execute_rows_with_diagnostics(rows).await;
-    let observed = execution.observed;
-    let blocked = execution.blocked;
-    let controls = execution.controls;
-    let fixture_audits = execution.fixture_audits;
-    let family_failures = execution.family_failures;
-    let cohort_count = |values: &[Value], cohort: &str| {
-        values
-            .iter()
-            .filter(|value| value["cohort"] == cohort)
-            .count()
-    };
-    let control_failures = controls
-        .iter()
-        .filter(|control| control["validation"]["ok"] != true)
-        .count();
-    let target_refusals = controls
-        .iter()
-        .filter(|control| {
-            control["validation"]["ok"] == true && control["disposition"] == "target-refused"
-        })
-        .count();
-    let artifact = json!({
-        "artifactSchema": ARTIFACT_SCHEMA,
-        "planDigest": plan["planDigest"].clone(),
-        "catalogKeyDigest": plan["catalogKeyDigest"].clone(),
-        "counts": {
-            "registrar": {
-                "planned": 653,
-                "observed": cohort_count(&observed, "registrar"),
-                "residual": cohort_count(&blocked, "registrar"),
-            },
-            "descriptorResidual": {
-                "planned": 40,
-                "observed": cohort_count(&observed, "descriptor-residual"),
-                "residual": cohort_count(&blocked, "descriptor-residual"),
-            },
-            "positiveControls": {
-                "planned": execution.family_count,
-                "passed": controls.len() - control_failures - target_refusals,
-                "targetRefused": target_refusals,
-                "failed": control_failures + family_failures.len(),
-            }
-        },
-        "resolvedFamilyFixtures": fixture_audits,
-        "positiveControls": controls,
-        "observations": observed,
-        "residuals": blocked,
-        "familyFailures": family_failures,
-    });
-    let output_path = std::env::var("IBEX_CAPSEC_BUILTIN_EFFECTS_OUTPUT_RESULT")
-        .expect("builtin effects batch requires a fresh result path");
-    write_artifact(&output_path, &artifact);
-
-    assert_eq!(artifact["counts"]["registrar"]["observed"], 653);
-    assert_eq!(artifact["counts"]["registrar"]["residual"], 0);
-    assert_eq!(artifact["counts"]["descriptorResidual"]["observed"], 40);
-    assert_eq!(artifact["counts"]["descriptorResidual"]["residual"], 0);
-    assert_eq!(artifact["counts"]["positiveControls"]["failed"], 0);
 }

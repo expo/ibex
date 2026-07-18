@@ -353,7 +353,7 @@ impl ReplEvaluationSession {
         &mut self,
     ) -> Result<crate::runtime::ReplMountsDescription> {
         match self {
-            Self::Local { ingress, .. } => Ok(ingress.mounts_description()),
+            Self::Local { engine, ingress } => ingress.mounts_description(engine.as_ref()).await,
             #[cfg(unix)]
             Self::Worker(worker) => worker.mounts_description().await,
         }

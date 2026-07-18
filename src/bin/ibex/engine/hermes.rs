@@ -441,7 +441,6 @@ extern "C" {
         armed_snapshot_digest: *const std::os::raw::c_char,
     ) -> *mut HermesRuntimeOpaque;
     fn ex_hermes_finish_bootstrap(runtime: *mut HermesRuntimeOpaque) -> u32;
-    #[cfg(any(test, feature = "module-runner"))]
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
     #[cfg(feature = "module-runner")]
     fn ex_hermes_module_pin_generation(
@@ -517,19 +516,25 @@ extern "C" {
     fn ex_hermes_has_pending_tasks(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_take_work_unit_event(
         runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
         event: *mut NativeWorkUnitEvent,
     ) -> u32;
     fn ex_hermes_take_cancellation_event(
         runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
         event: *mut NativeCancellationEvent,
     ) -> u32;
     fn ex_hermes_take_async_failure_event(
         runtime: *mut HermesRuntimeOpaque,
         event: *mut NativeAsyncFailureEvent,
     ) -> u32;
-    fn ex_hermes_structured_active_work_target(runtime: *mut HermesRuntimeOpaque) -> u64;
+    fn ex_hermes_structured_active_work_target(
+        runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
+    ) -> u64;
     fn ex_hermes_cancel_structured_work_target(
         runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
         work_target_id: u64,
     ) -> u32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
@@ -613,6 +618,7 @@ extern "C" {
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_exact_runtime_c_abi_probe_cancel_then_release(
         runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
         target_id: u64,
     ) -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
@@ -622,8 +628,17 @@ extern "C" {
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_exact_runtime_c_abi_probe_cancel_terminal(
         runtime: *mut HermesRuntimeOpaque,
+        runtime_nonce: u64,
         target_id: u64,
     ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_arm_structured_control_lease_pause() -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_structured_control_lease_paused() -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_structured_control_teardown_wait_observed() -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_release_structured_control_lease_pause() -> i32;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ibex_test_install_capsec_context_observer(
         runtime: *mut HermesRuntimeOpaque,
@@ -1399,6 +1414,15 @@ struct RuntimeHandle {
 
 struct SharedRuntime {
     raw: AtomicPtr<HermesRuntimeOpaque>,
+    // Native structured controls and Rust-owned session ingress carry the
+    // generation captured while this handle was live. Never recover a nonce
+    // from `raw` at call time: after allocator reuse that would authenticate a
+    // stale pointer as its successor.
+    // @ref LLP 0025#6-interruption-and-cancellation — control identity is the
+    // captured pointer-plus-generation pair, retained for the handle lifetime.
+    // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle — VFS state is
+    // selected by the exact authenticated runtime generation, never spelling.
+    runtime_nonce: std::num::NonZeroU64,
     // Native graph records belong to the runtime/session generation, not one
     // initial quiescence pass. Keep generation 1 pinned until runtime teardown
     // so `--keep-alive` can later run unref'd timers and delayed imports.
@@ -1478,12 +1502,19 @@ impl SharedRuntime {
             }
             anyhow::bail!("Failed to create Hermes runtime");
         }
+        let Some(runtime_nonce) =
+            std::num::NonZeroU64::new(unsafe { ex_hermes_runtime_nonce(raw) })
+        else {
+            unsafe { ex_hermes_destroy(raw) };
+            anyhow::bail!("Failed to create Hermes runtime: live generation nonce was unavailable");
+        };
         unsafe {
             ex_hermes_set_host_call(raw, exact_agent_host_call);
             ex_hermes_set_host_call_async(raw, exact_agent_host_call_async);
         }
         Ok(Self {
             raw: AtomicPtr::new(raw),
+            runtime_nonce,
             module_generation_pinned: AtomicU64::new(0),
             owner_thread: std::thread::current().id(),
             ffi_lock: std::sync::Mutex::new(()),
@@ -1572,10 +1603,18 @@ impl SharedRuntime {
         Ok(f(raw))
     }
 
-    /// The terminal-session cancellation ABI is any-thread and shares the
-    /// debugger port's pointer-lifetime pin, without exposing debugger power.
-    fn with_session_control<T>(&self, f: impl FnOnce(*mut HermesRuntimeOpaque) -> T) -> Result<T> {
-        self.with_debugger(f)
+    /// The terminal-session control ABI is any-thread and shares the debugger
+    /// port's Rust pointer-lifetime pin without exposing debugger power. The
+    /// native boundary independently authenticates `runtime_nonce` and retains
+    /// its teardown-counted lease for the complete operation, so non-Rust C
+    /// consumers receive the same generation and lifetime guarantees.
+    /// @ref LLP 0025#6-interruption-and-cancellation — controller operations
+    /// carry the captured runtime generation and drain before deletion.
+    fn with_session_control<T>(
+        &self,
+        f: impl FnOnce(*mut HermesRuntimeOpaque, u64) -> T,
+    ) -> Result<T> {
+        self.with_debugger(|raw| f(raw, self.runtime_nonce.get()))
     }
 
     /// Rejecting before swapping `raw` leaves an owner-held clone able to
@@ -2972,6 +3011,16 @@ impl Engine for HermesEngine {
         get_version()
     }
 
+    async fn authenticated_runtime_vfs(
+        &self,
+        host: &ibex_runtime::host::Host,
+    ) -> Result<ibex_runtime::vfs::AuthenticatedRuntimeVfs> {
+        self.ensure_thread()?;
+        let runtime = self.ensure_runtime().await?;
+        host.authenticated_runtime_vfs(runtime.runtime_nonce)
+            .map_err(anyhow::Error::new)
+    }
+
     async fn load_runtime(&self) -> Result<()> {
         let mut loaded = self.runtime_loaded.lock().await;
         if *loaded {
@@ -3304,7 +3353,9 @@ impl Engine for HermesEngine {
     fn active_authenticated_target(&self) -> Option<u64> {
         let runtime = self.cancellation_runtime()?;
         runtime
-            .with_session_control(|raw| unsafe { ex_hermes_structured_active_work_target(raw) })
+            .with_session_control(|raw, nonce| unsafe {
+                ex_hermes_structured_active_work_target(raw, nonce)
+            })
             .ok()
             .filter(|target| *target != 0)
     }
@@ -3318,8 +3369,8 @@ impl Engine for HermesEngine {
             return Ok(None);
         };
         let mut native = NativeWorkUnitEvent::current();
-        let status = runtime.with_session_control(|raw| unsafe {
-            ex_hermes_take_work_unit_event(raw, &mut native)
+        let status = runtime.with_session_control(|raw, nonce| unsafe {
+            ex_hermes_take_work_unit_event(raw, nonce, &mut native)
         })?;
         match status {
             0 => Ok(None),
@@ -3334,8 +3385,8 @@ impl Engine for HermesEngine {
             return Ok(None);
         };
         let mut native = NativeCancellationEvent::current();
-        let status = runtime.with_session_control(|raw| unsafe {
-            ex_hermes_take_cancellation_event(raw, &mut native)
+        let status = runtime.with_session_control(|raw, nonce| unsafe {
+            ex_hermes_take_cancellation_event(raw, nonce, &mut native)
         })?;
         match status {
             0 => Ok(None),
@@ -3413,8 +3464,8 @@ impl Engine for HermesEngine {
         let Some(runtime) = self.cancellation_runtime() else {
             return AuthenticatedCancellationStatus::Unavailable;
         };
-        match runtime.with_session_control(|raw| unsafe {
-            ex_hermes_cancel_structured_work_target(raw, target_id)
+        match runtime.with_session_control(|raw, nonce| unsafe {
+            ex_hermes_cancel_structured_work_target(raw, nonce, target_id)
         }) {
             Ok(1) => AuthenticatedCancellationStatus::Accepted,
             Ok(0) => AuthenticatedCancellationStatus::Unavailable,
@@ -4498,9 +4549,21 @@ mod tests {
     #[cfg(feature = "capsec-conformance-observer")]
     impl Drop for CAbiBlockingWorkReleaseGuard {
         fn drop(&mut self) {
-            let _ = self.0.with_session_control(|raw| unsafe {
+            let _ = self.0.with_session_control(|raw, _nonce| unsafe {
                 ibex_exact_runtime_c_abi_probe_release_blocking_work(raw)
             });
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    struct StructuredControlLeasePauseReleaseGuard;
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    impl Drop for StructuredControlLeasePauseReleaseGuard {
+        fn drop(&mut self) {
+            unsafe {
+                ibex_test_release_structured_control_lease_pause();
+            }
         }
     }
 
@@ -4980,9 +5043,10 @@ mod tests {
                     {
                         assert_eq!(
                             controller_runtime
-                                .with_session_control(|raw| unsafe {
+                                .with_session_control(|raw, nonce| unsafe {
                                     ibex_exact_runtime_c_abi_probe_cancel_then_release(
                                         raw,
+                                        nonce,
                                         event.target_id,
                                     )
                                 })
@@ -5003,7 +5067,11 @@ mod tests {
         assert_eq!(
             runtime
                 .with_runtime(|raw| unsafe {
-                    ibex_exact_runtime_c_abi_probe_cancel_terminal(raw, target_id)
+                    ibex_exact_runtime_c_abi_probe_cancel_terminal(
+                        raw,
+                        runtime.runtime_nonce.get(),
+                        target_id,
+                    )
                 })
                 .unwrap(),
             0,
@@ -7500,6 +7568,68 @@ module.exports = JSON.stringify({
         assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
         assert_eq!(shared.shutdown(), RuntimeShutdown::NotLive);
         assert!(shared.raw.load(Ordering::SeqCst).is_null());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn structured_control_rejects_stale_runtime_generations() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = HostResetGuard;
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let runtime = SharedRuntime::new(None).expect("diagnostic runtime");
+        let raw = runtime.raw.load(Ordering::SeqCst);
+        let live_nonce = runtime.runtime_nonce.get();
+        let stale_nonce = match live_nonce.wrapping_add(1) {
+            0 => 1,
+            candidate => candidate,
+        };
+        assert_ne!(stale_nonce, live_nonce);
+
+        let mut work_event = NativeWorkUnitEvent::current();
+        work_event.kind = 0xA5;
+        let mut cancellation_event = NativeCancellationEvent::current();
+        cancellation_event.resolution = 0x5A;
+        unsafe {
+            assert_eq!(
+                ex_hermes_take_work_unit_event(raw, stale_nonce, &mut work_event),
+                3
+            );
+            assert_eq!(work_event.kind, 0xA5);
+            assert_eq!(
+                ex_hermes_take_cancellation_event(raw, stale_nonce, &mut cancellation_event),
+                3
+            );
+            assert_eq!(cancellation_event.resolution, 0x5A);
+            assert_eq!(ex_hermes_structured_active_work_target(raw, stale_nonce), 0);
+            assert_eq!(
+                ex_hermes_cancel_structured_work_target(raw, stale_nonce, 1),
+                3
+            );
+        }
+
+        let stale_address = raw as usize;
+        assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
+        let stale_raw = stale_address as *mut HermesRuntimeOpaque;
+        unsafe {
+            assert_eq!(
+                ex_hermes_take_work_unit_event(stale_raw, live_nonce, &mut work_event),
+                3
+            );
+            assert_eq!(
+                ex_hermes_take_cancellation_event(stale_raw, live_nonce, &mut cancellation_event),
+                3
+            );
+            assert_eq!(
+                ex_hermes_structured_active_work_target(stale_raw, live_nonce),
+                0
+            );
+            assert_eq!(
+                ex_hermes_cancel_structured_work_target(stale_raw, live_nonce, 1),
+                3
+            );
+        }
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -13157,6 +13287,77 @@ module.exports = JSON.stringify({
             String::from_utf8_lossy(&output.stderr)
         );
         true
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn concurrent_destroy_waits_for_an_inflight_structured_control_lease() {
+        const CHILD_ENV: &str = "IBEX_TEST_INFLIGHT_STRUCTURED_CONTROL_TEARDOWN_CHILD";
+        const TEST_NAME: &str = "engine::hermes::tests::concurrent_destroy_waits_for_an_inflight_structured_control_lease";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let _reset = HostResetGuard;
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let runtime = SharedRuntime::new(None).expect("diagnostic runtime");
+        let raw = runtime.raw.load(Ordering::SeqCst);
+        let raw_address = raw as usize;
+        let runtime_nonce = runtime.runtime_nonce.get();
+        assert_eq!(unsafe { ibex_test_arm_structured_control_lease_pause() }, 1);
+        let _pause_release = StructuredControlLeasePauseReleaseGuard;
+
+        let controller = std::thread::spawn(move || unsafe {
+            ex_hermes_structured_active_work_target(
+                raw_address as *mut HermesRuntimeOpaque,
+                runtime_nonce,
+            )
+        });
+        let pause_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while unsafe { ibex_test_structured_control_lease_paused() } != 1 {
+            assert!(
+                std::time::Instant::now() < pause_deadline,
+                "structured control did not pause after acquiring its native lease"
+            );
+            std::thread::yield_now();
+        }
+
+        let shutdown_returned = Arc::new(AtomicBool::new(false));
+        let shutdown_returned_for_releaser = Arc::clone(&shutdown_returned);
+        let releaser = std::thread::spawn(move || {
+            let wait_deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while unsafe { ibex_test_structured_control_teardown_wait_observed() } != 1 {
+                if std::time::Instant::now() >= wait_deadline {
+                    unsafe {
+                        ibex_test_release_structured_control_lease_pause();
+                    }
+                    panic!("teardown did not observe the admitted structured-control lease");
+                }
+                std::thread::yield_now();
+            }
+            let returned_before_release = shutdown_returned_for_releaser.load(Ordering::Acquire);
+            unsafe {
+                ibex_test_release_structured_control_lease_pause();
+            }
+            assert!(
+                !returned_before_release,
+                "owner-thread destroy returned while an admitted structured-control lease was in flight"
+            );
+        });
+
+        assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
+        shutdown_returned.store(true, Ordering::Release);
+        let releaser_result = releaser.join();
+        // Ensure a failing releaser assertion cannot strand the controller.
+        unsafe {
+            ibex_test_release_structured_control_lease_pause();
+        }
+        assert_eq!(controller.join().unwrap(), 0);
+        releaser_result.unwrap();
     }
 
     #[cfg(unix)]

@@ -1176,7 +1176,10 @@ async fn run_native_setup(
                 // retained write controls receive a harness-owned file and
                 // descriptor before their decision observation begins.
                 assert_eq!(global_name, "__exactFsOpen");
-                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(
+                    source_descriptor_digest,
+                    &tagged_value_digest(source_descriptor)
+                );
                 assert_eq!(source_descriptor["kind"], "native-global-function");
                 assert_eq!(source_descriptor["globalName"], global_name.as_str());
                 assert_eq!(source_descriptor["arity"], 4);
@@ -1854,12 +1857,19 @@ fn validate_native_runtime_observation(
                 assert_eq!(fragment, "filesystem policy denied");
                 assert!(matches!(
                     invocation.global_name.as_str(),
-                    "__exactFsPathAsync"
+                    "__exactAppendFile"
+                        | "__exactFsOpen"
+                        | "__exactFsOpenAsync"
+                        | "__exactFsPathAsync"
                         | "__exactLstat"
+                        | "__exactMkdir"
                         | "__exactReadFile"
+                        | "__exactReaddir"
                         | "__exactRealpath"
                         | "__exactStat"
                         | "__exactStatfs"
+                        | "__exactTruncate"
+                        | "__exactWriteFile"
                 ));
             }
         }
@@ -2468,8 +2478,7 @@ async fn execute_native_public_recipe(
             path.starts_with("target/ibex-capsec-fsopen-"),
             "direct fs-open fixture escaped its owned target prefix"
         );
-        std::fs::write(path, b"ibex-capsec-fsopen-owned")
-            .expect("create direct fs-open fixture");
+        std::fs::write(path, b"ibex-capsec-fsopen-owned").expect("create direct fs-open fixture");
     }
     let direct_readdir_fixture = if invocation.global_name == "__exactReaddir" {
         match invocation.arguments.first() {
@@ -2598,7 +2607,10 @@ async fn execute_native_public_recipe(
             .expect("retained descriptor cleanup returned no result");
         let cleanup: serde_json::Value = serde_json::from_str(&cleanup)
             .expect("retained descriptor cleanup returned invalid JSON");
-        assert_eq!(cleanup["kind"], "return", "retained descriptor cleanup failed");
+        assert_eq!(
+            cleanup["kind"], "return",
+            "retained descriptor cleanup failed"
+        );
         if let Some(path) = &setup_state.fs_file_path {
             let expected_bytes = if invocation.global_name == "__exactFsFtruncateSync" {
                 b"ib".as_slice()
@@ -2651,8 +2663,7 @@ async fn execute_native_public_recipe(
                 b"ibex-capsec-write-file"
             );
             std::fs::remove_file(path).expect("remove direct write-file fixture");
-            invocation_result["cleanup"] =
-                serde_json::Value::String("removed-owned-file".into());
+            invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
         }
     }
     if let Some(path) = &direct_append_file_fixture {
@@ -2667,8 +2678,7 @@ async fn execute_native_public_recipe(
         );
         std::fs::remove_file(path).expect("remove direct append-file fixture");
         if invocation_result["kind"] == "return" {
-            invocation_result["cleanup"] =
-                serde_json::Value::String("removed-owned-file".into());
+            invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
         }
     }
     if let Some(path) = &direct_truncate_fixture {
@@ -2683,8 +2693,7 @@ async fn execute_native_public_recipe(
         );
         std::fs::remove_file(path).expect("remove direct truncate fixture");
         if invocation_result["kind"] == "return" {
-            invocation_result["cleanup"] =
-                serde_json::Value::String("removed-owned-file".into());
+            invocation_result["cleanup"] = serde_json::Value::String("removed-owned-file".into());
         }
     }
     if let Some(path) = &direct_fs_open_fixture {
@@ -2695,9 +2704,8 @@ async fn execute_native_public_recipe(
         std::fs::remove_file(path).expect("remove direct fs-open fixture");
         if invocation_result["kind"] == "return" {
             assert_eq!(invocation_result["cleanup"], "closed-fs-file-descriptor");
-            invocation_result["cleanup"] = serde_json::Value::String(
-                "closed-fs-file-descriptor-removed-owned-file".into(),
-            );
+            invocation_result["cleanup"] =
+                serde_json::Value::String("closed-fs-file-descriptor-removed-owned-file".into());
         }
     }
     if let Some(path) = &direct_readdir_fixture {
@@ -3305,7 +3313,7 @@ async fn execute_module_runner_host_abi_public_recipe(
         .expect("write module-runner public star dependency");
     let commonjs_entry = project_root.join("commonjs-entry.cjs");
     std::fs::write(&commonjs_entry, "exports.total = 5;\n")
-    .expect("write module-runner public CommonJS entry");
+        .expect("write module-runner public CommonJS entry");
     let asynchronous_entry = project_root.join("asynchronous-entry.mjs");
     std::fs::write(
         &asynchronous_entry,

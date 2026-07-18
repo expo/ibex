@@ -592,9 +592,10 @@ struct ExactHermesRuntime {
   // counts as referenced work so the loop survives until the worker delivers
   // its completion via pushRuntimeCallback. (ENG-23497)
   std::atomic<int> pending_fs_ops{0};
-  // Pins held by native workers that may dereference this handle outside the
-  // runtime thread. Destroy enters Closing (refusing new pins), cancels source
-  // work, and keeps the exact registry generation until this reaches zero.
+  // Pins held by native workers and generation-bearing any-thread controls
+  // that may dereference this handle outside the runtime thread. Destroy enters
+  // Closing (refusing new pins), cancels source work, and keeps the exact
+  // registry generation until this reaches zero.
   std::atomic<uint32_t> native_worker_pins{0};
   std::mutex native_worker_mutex;
   std::condition_variable native_worker_cv;

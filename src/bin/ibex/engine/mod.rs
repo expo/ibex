@@ -553,6 +553,20 @@ pub trait Engine: Send + Sync {
         Ok(())
     }
 
+    /// Retain the exact native runtime generation's authenticated VFS state
+    /// for Rust-owned session ingress. Implementations must combine their
+    /// private generation credential with the supplied Host identity; a
+    /// virtual spelling or session token alone is not sufficient.
+    async fn authenticated_runtime_vfs(
+        &self,
+        _host: &ibex_runtime::host::Host,
+    ) -> Result<ibex_runtime::vfs::AuthenticatedRuntimeVfs> {
+        anyhow::bail!(
+            "{} does not expose an authenticated runtime VFS generation",
+            self.name()
+        )
+    }
+
     /// Evaluate JavaScript code and return the result
     async fn eval(&self, code: &str) -> Result<Option<String>>;
 

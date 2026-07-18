@@ -1523,10 +1523,8 @@ struct SessionWorkerRuntimeMaterial {
 /// @ref LLP 0024#1-the-in-memory-source-api
 pub(crate) struct ReplSessionIngress {
     host: Host,
-    vfs: ibex_runtime::vfs::VirtualFileSystem,
     session: ibex_runtime::engine::evaluation::ArmedSessionToken,
     sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
-    project_base: ibex_runtime::vfs::NamespacePath,
     session_io: crate::terminal_session::SessionIoPlan,
 }
 
@@ -2295,21 +2293,13 @@ impl ReplSessionIngress {
         let session = host
             .mint_armed_session_token()
             .context("failed to retain the authenticated REPL session token")?;
-        let vfs = host
-            .virtual_file_system()
-            .context("failed to construct the authenticated REPL virtual filesystem")?;
-        let project_base = vfs
-            .default_base()
-            .context("authenticated REPL has no virtual project root")?;
         let sequence = ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
             .context("failed to claim the REPL submission sequence")?;
 
         Ok(Self {
             host,
-            vfs,
             session,
             sequence,
-            project_base,
             session_io,
         })
     }
@@ -2344,12 +2334,21 @@ impl ReplSessionIngress {
     /// @ref LLP 0022#8-commands — `.mounts` exposes only what prompt code can
     /// discover by probing the virtual namespace.
     /// @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
-    pub(crate) fn mounts_description(&self) -> ReplMountsDescription {
-        ReplMountsDescription {
-            virtual_cwd: Arc::from(self.project_base.virtual_path()),
-            mounts: self
-                .vfs
-                .mounts()
+    pub(crate) async fn mounts_description(
+        &self,
+        engine: &dyn Engine,
+    ) -> Result<ReplMountsDescription> {
+        let runtime_vfs = engine
+            .authenticated_runtime_vfs(&self.host)
+            .await
+            .context("failed to retain the authenticated REPL runtime namespace")?;
+        let cwd = runtime_vfs
+            .capture_cwd()
+            .context("failed to capture the authenticated REPL virtual cwd")?;
+        Ok(ReplMountsDescription {
+            virtual_cwd: Arc::from(cwd.virtual_path()),
+            mounts: runtime_vfs
+                .mounts()?
                 .iter()
                 .map(|mount| ReplMountDescription {
                     virtual_path: Arc::from(mount.virtual_path()),
@@ -2357,7 +2356,7 @@ impl ReplSessionIngress {
                     attributes: mount.attributes(),
                 })
                 .collect(),
-        }
+        })
     }
 
     /// Evaluate one prompt or transcript record through the fixed REPL source
@@ -2368,8 +2367,16 @@ impl ReplSessionIngress {
         engine: &dyn Engine,
         bytes: Vec<u8>,
     ) -> std::result::Result<crate::engine::AuthenticatedEvaluation, ReplEvaluationFailure> {
+        let runtime_vfs = engine
+            .authenticated_runtime_vfs(&self.host)
+            .await
+            .map_err(classify_authenticated_preparation_failure)?;
+        let base = runtime_vfs
+            .capture_cwd()
+            .map_err(anyhow::Error::new)
+            .map_err(classify_authenticated_preparation_failure)?;
         let request = self
-            .inline_request(bytes)
+            .inline_request(&base, bytes)
             .map_err(classify_authenticated_preparation_failure)?;
         engine
             .evaluate_authenticated(&self.session, request)
@@ -2385,8 +2392,12 @@ impl ReplSessionIngress {
         engine: &dyn Engine,
         virtual_path: &str,
     ) -> std::result::Result<crate::engine::AuthenticatedEvaluation, ReplEvaluationFailure> {
+        let runtime_vfs = engine
+            .authenticated_runtime_vfs(&self.host)
+            .await
+            .map_err(classify_authenticated_preparation_failure)?;
         let request = self
-            .load_request(virtual_path)
+            .load_request(&runtime_vfs, virtual_path)
             .map_err(classify_authenticated_preparation_failure)?;
         engine
             .evaluate_authenticated(&self.session, request)
@@ -2396,6 +2407,7 @@ impl ReplSessionIngress {
 
     fn inline_request(
         &mut self,
+        base: &ibex_runtime::vfs::NamespacePath,
         bytes: Vec<u8>,
     ) -> Result<ibex_runtime::engine::evaluation::SourceRequest> {
         use ibex_runtime::engine::evaluation::SourceRefusal;
@@ -2404,11 +2416,10 @@ impl ReplSessionIngress {
         if bytes.len() > max_bytes {
             return Err(SourceRefusal::InputTooLarge { max_bytes }.into());
         }
-        let referrer = self
-            .project_base
+        let referrer = base
             .logical_path()
             .filter(capsec_semantics::model::LogicalPath::is_canonical)
-            .context("authenticated REPL project root has no canonical logical identity")?;
+            .context("authenticated REPL cwd has no canonical logical identity")?;
         self.sequence
             .mint_repl(referrer)?
             .authorize_inline()
@@ -2419,19 +2430,22 @@ impl ReplSessionIngress {
 
     fn load_request(
         &mut self,
+        runtime_vfs: &ibex_runtime::vfs::AuthenticatedRuntimeVfs,
         virtual_path: &str,
     ) -> Result<ibex_runtime::engine::evaluation::SourceRequest> {
         // The command argument is passed verbatim to the VFS grammar. Only the
         // resolved namespace's canonical spelling is allowed to label and
         // authorize the loaded bytes.
-        let namespace = self
-            .vfs
-            .resolve_root_bytes(virtual_path.as_bytes(), Some(&self.project_base))?;
+        let namespace = runtime_vfs.resolve(virtual_path.as_bytes())?;
         let referrer = namespace.logical_referrer()?;
         let canonical_virtual_path = Arc::<str>::from(namespace.virtual_path());
         let submission = self.sequence.mint_load(canonical_virtual_path, referrer)?;
         self.host
-            .authenticated_vfs_script_read(&self.vfs, namespace, submission)?
+            .authenticated_vfs_script_read(
+                runtime_vfs.virtual_file_system()?,
+                namespace,
+                submission,
+            )?
             .into_capsule()
             .into_request()
             .map_err(Into::into)
@@ -2473,6 +2487,7 @@ fn classify_authenticated_preparation_failure(
                     | VfsReason::Absent
                     | VfsReason::SymlinkDepthExceeded
                     | VfsReason::UnmappableLink
+                    | VfsReason::StaleIdentity
                     | VfsReason::InputTooLarge
                     | VfsReason::HostError
             )
@@ -3029,12 +3044,6 @@ impl AuthenticatedFileIngress {
             "retained source entry differs from the authenticated raw read"
         );
         Ok((source_namespace, source_entry))
-    }
-}
-
-impl Drop for ReplSessionIngress {
-    fn drop(&mut self) {
-        self.vfs.close();
     }
 }
 
@@ -4393,6 +4402,87 @@ fn build_host_with_route(
     }
 }
 
+fn push_typed_package_import_edges(
+    edges: &mut Vec<serde_json::Value>,
+    importer: &serde_json::Value,
+    imported: &serde_json::Value,
+    request_specifier: &str,
+) {
+    for (resolution_kind, conditions) in [
+        ("common-js-require", vec!["node", "require"]),
+        ("dynamic-import", vec!["import", "node"]),
+        ("esm-static", vec!["import", "node"]),
+    ] {
+        edges.push(serde_json::json!({
+            "importer": importer,
+            "imported": imported,
+            "requestSpecifier": request_specifier,
+            "resolutionKind": resolution_kind,
+            "conditions": conditions,
+            "attributes": {},
+        }));
+    }
+}
+
+/// Project the policy's exact import allowlists into typed package-graph
+/// edges. Root edges come only from `rootImports`; a package that is reachable
+/// transitively or merely has a policy row must not be promoted to direct Root
+/// authority during snapshot construction.
+// @ref LLP 0022#2-startup-project-identity-and-session-arming — rootImports is the authenticated
+// direct-import boundary, while package rows govern their own outgoing edges.
+fn policy_package_graph_edges(
+    policy_principals: &[serde_json::Value],
+    root_package_imports: &[String],
+) -> Result<Vec<serde_json::Value>> {
+    let principals_by_locator = policy_principals
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row["principal"]["locator"].as_str()?.to_string(),
+                row["principal"].clone(),
+            ))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut graph_edges = Vec::new();
+    let root_principal = serde_json::json!({"kind": "root", "identity": "project-root"});
+    for locator in root_package_imports {
+        let imported = principals_by_locator
+            .get(locator)
+            .with_context(|| format!("canonical root imports unknown package locator {locator}"))?;
+        push_typed_package_import_edges(
+            &mut graph_edges,
+            &root_principal,
+            imported,
+            imported["name"]
+                .as_str()
+                .context("canonical imported principal has no package name")?,
+        );
+    }
+    for row in policy_principals {
+        let importer = &row["principal"];
+        for locator in row["imports"]["packages"]
+            .as_array()
+            .context("canonical package imports must be an array")?
+        {
+            let locator = locator
+                .as_str()
+                .context("canonical package import must be a locator string")?;
+            let imported = principals_by_locator.get(locator).with_context(|| {
+                format!("canonical policy imports unknown package locator {locator}")
+            })?;
+            push_typed_package_import_edges(
+                &mut graph_edges,
+                importer,
+                imported,
+                imported["name"]
+                    .as_str()
+                    .context("canonical imported principal has no package name")?,
+            );
+        }
+    }
+    Ok(graph_edges)
+}
+
 fn build_default_armed_host(
     cli: &Cli,
     launch: AuthenticatedLaunchEntry,
@@ -4538,36 +4628,12 @@ fn build_default_armed_host(
         "escalationCeiling": [],
         "imports": {
             "builtins": root_builtins,
-            "packages": root_package_imports
+            "packages": root_package_imports.clone()
         },
         "endowments": [],
     })];
     let mut graph_nodes = Vec::new();
-    let mut graph_edges = Vec::new();
-    let root_principal = serde_json::json!({"kind": "root", "identity": "project-root"});
     let mut package_bindings = Vec::new();
-    // @ref LLP 0023#12-package-bindings-are-derived-from-the-graph-and-contained-in-the-project
-    // — snapshot edges bind the caller-visible request and resolution mode to
-    // one exact package principal before the resolver can inspect its root.
-    let push_typed_edges = |edges: &mut Vec<serde_json::Value>,
-                            importer: &serde_json::Value,
-                            imported: &serde_json::Value,
-                            request_specifier: &str| {
-        for (resolution_kind, conditions) in [
-            ("common-js-require", vec!["node", "require"]),
-            ("dynamic-import", vec!["import", "node"]),
-            ("esm-static", vec!["import", "node"]),
-        ] {
-            edges.push(serde_json::json!({
-                "importer": importer,
-                "imported": imported,
-                "requestSpecifier": request_specifier,
-                "resolutionKind": resolution_kind,
-                "conditions": conditions,
-                "attributes": {},
-            }));
-        }
-    };
     let installed_packages = authenticated_installed_packages(&project_root, policy_principals)?;
     for row in policy_principals {
         let principal = row["principal"].clone();
@@ -4632,42 +4698,18 @@ fn build_default_armed_host(
                 }],
                 "platformDisposition": "required",
             }));
-            push_typed_edges(&mut graph_edges, &root_principal, &principal, name);
             package_bindings.push(serde_json::json!({
                     "logicalRoot": "package",
                     "owner": principal,
                     "hostPath": {"root": "absolute", "components": package_components, "hostBound": true},
                     "object": object,
-                }));
+            }));
         }
     }
-    let principals_by_locator = policy_principals
-        .iter()
-        .filter_map(|row| {
-            Some((
-                row["principal"]["locator"].as_str()?.to_string(),
-                row["principal"].clone(),
-            ))
-        })
-        .collect::<std::collections::BTreeMap<_, _>>();
-    for row in policy_principals {
-        let importer = row["principal"].clone();
-        for locator in row["imports"]["packages"]
-            .as_array()
-            .context("canonical package imports must be an array")?
-        {
-            let locator = locator
-                .as_str()
-                .context("canonical package import must be a locator string")?;
-            let imported = principals_by_locator.get(locator).with_context(|| {
-                format!("canonical policy imports unknown package locator {locator}")
-            })?;
-            let request_specifier = imported["name"]
-                .as_str()
-                .context("canonical imported principal has no package name")?;
-            push_typed_edges(&mut graph_edges, &importer, imported, request_specifier);
-        }
-    }
+    // @ref LLP 0023#12-package-bindings-are-derived-from-the-graph-and-contained-in-the-project
+    // — snapshot edges bind the caller-visible request and resolution mode to
+    // one exact package principal before the resolver can inspect its root.
+    let graph_edges = policy_package_graph_edges(policy_principals, &root_package_imports)?;
     let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/capsec/examples/armed-snapshot.canonical.json"
@@ -10176,6 +10218,54 @@ pub(crate) mod tests {
     use clap::Parser;
     use tempfile::tempdir;
 
+    #[test]
+    fn package_graph_projects_only_explicit_root_imports_as_root_edges() {
+        let package_a = serde_json::json!({
+            "kind": "package",
+            "name": "package-a",
+            "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "locator": "package-a@1.0.0",
+        });
+        let package_b = serde_json::json!({
+            "kind": "package",
+            "name": "package-b",
+            "integrity": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA",
+            "locator": "package-b@1.0.0",
+        });
+        let principals = vec![
+            serde_json::json!({
+                "principal": package_a,
+                "imports": {"builtins": [], "packages": ["package-b@1.0.0"]},
+            }),
+            serde_json::json!({
+                "principal": package_b,
+                "imports": {"builtins": [], "packages": []},
+            }),
+        ];
+        let edges =
+            policy_package_graph_edges(&principals, &["package-a@1.0.0".to_owned()]).unwrap();
+        assert_eq!(edges.len(), 6, "three typed modes per declared edge");
+
+        let root = serde_json::json!({"kind": "root", "identity": "project-root"});
+        assert_eq!(
+            edges
+                .iter()
+                .filter(|edge| edge["importer"] == root && edge["imported"] == package_a)
+                .count(),
+            3,
+        );
+        assert_eq!(
+            edges
+                .iter()
+                .filter(|edge| edge["importer"] == package_a && edge["imported"] == package_b)
+                .count(),
+            3,
+        );
+        assert!(edges
+            .iter()
+            .all(|edge| !(edge["importer"] == root && edge["imported"] == package_b)));
+    }
+
     #[cfg(unix)]
     #[test]
     fn bundles_subroot_refuses_preexisting_symlink_redirect() {
@@ -13034,22 +13124,24 @@ pub(crate) mod tests {
         assert_eq!(ingress.presentation(), plan.presentation);
         assert!(!ingress.presentation().session_ansi);
         assert!(!ingress.presentation().editor_control);
-        let mounts = ingress.mounts_description();
-        assert_eq!(mounts.virtual_cwd(), "/project");
-        assert_eq!(mounts.mounts().len(), 1);
-        assert_eq!(mounts.mounts()[0].virtual_path(), "/project");
+        let vfs = host.virtual_file_system().unwrap();
+        let base = vfs.default_base().unwrap();
+        assert_eq!(base.virtual_path(), "/project");
+        assert_eq!(vfs.mounts().len(), 1);
+        assert_eq!(vfs.mounts()[0].virtual_path(), "/project");
         assert_eq!(
-            mounts.mounts()[0].logical_root(),
+            vfs.mounts()[0].logical_root(),
             capsec_semantics::model::LogicalRoot::Project
         );
         assert_eq!(
-            mounts.mounts()[0].attributes().lifecycle,
+            vfs.mounts()[0].attributes().lifecycle,
             ibex_runtime::vfs::MountLifecycle::Session
         );
         assert!(
-            !format!("{mounts:?}").contains(project.path().to_string_lossy().as_ref()),
+            !format!("{vfs:?}").contains(project.path().to_string_lossy().as_ref()),
             "parity-safe mount diagnostics must not contain a backing host path"
         );
+        vfs.close();
 
         let error = ReplSessionIngress::from_armed_repl_runtime(host.clone(), plan)
             .err()
@@ -13071,15 +13163,17 @@ pub(crate) mod tests {
         let project = tempdir().unwrap();
         let host = armed_repl_ingress_test_host(project.path(), ArmedExecutionMode::Transcript);
         let plan = repl_ingress_test_plan(ArmedExecutionMode::Transcript);
+        let vfs = host.virtual_file_system().unwrap();
+        let base = vfs.default_base().unwrap();
         let mut ingress = ReplSessionIngress::from_armed_repl_runtime(host, plan).unwrap();
         let too_large = vec![b'x'; ibex_runtime::session_constants::MAX_INPUT_BYTES + 1];
-        let error = ingress.inline_request(too_large).unwrap_err();
+        let error = ingress.inline_request(&base, too_large).unwrap_err();
         assert!(error.to_string().contains("authenticated input limit"));
 
-        let invalid_utf8 = ingress.inline_request(vec![0xff]).unwrap_err();
+        let invalid_utf8 = ingress.inline_request(&base, vec![0xff]).unwrap_err();
         assert!(invalid_utf8.to_string().contains("not valid UTF-8"));
         let request = ingress
-            .inline_request(b"const answer: number = 42".to_vec())
+            .inline_request(&base, b"const answer: number = 42".to_vec())
             .unwrap();
         assert_eq!(request.source_label().as_str(), "repl:1");
         assert_eq!(request.text().as_str(), "const answer: number = 42");
@@ -13162,10 +13256,11 @@ pub(crate) mod tests {
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
-    #[test]
-    fn repl_ingress_load_uses_vfs_canonical_path_and_authenticated_bytes() {
-        use capsec_semantics::arming::ArmedExecutionMode;
-
+    #[tokio::test(flavor = "current_thread")]
+    async fn repl_ingress_load_uses_vfs_canonical_path_and_authenticated_bytes() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
         let project = tempdir().unwrap();
         std::fs::create_dir_all(project.path().join("src")).unwrap();
         std::fs::write(
@@ -13174,10 +13269,12 @@ pub(crate) mod tests {
         )
         .unwrap();
         std::fs::write(project.path().join("src/data.json"), "{\"answer\":42}\n").unwrap();
-        let host = armed_repl_ingress_test_host(project.path(), ArmedExecutionMode::Transcript);
-        let plan = repl_ingress_test_plan(ArmedExecutionMode::Transcript);
-        let mut ingress = ReplSessionIngress::from_armed_repl_runtime(host, plan).unwrap();
-        let request = ingress.load_request("src/../src/a b.ts").unwrap();
+        let (host, engine, mut ingress) = session_conformance_repl_parts(project.path()).unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime_vfs = engine.authenticated_runtime_vfs(&host).await.unwrap();
+        let request = ingress
+            .load_request(&runtime_vfs, "src/../src/a b.ts")
+            .unwrap();
         assert_eq!(
             request.source_label().as_str(),
             "repl:1:/project/src/a b.ts"
@@ -13190,7 +13287,7 @@ pub(crate) mod tests {
         assert_eq!(request.virtual_referrer().components[0].bytes(), b"src");
         drop(request);
 
-        let json = ingress.load_request("src/data.json").unwrap();
+        let json = ingress.load_request(&runtime_vfs, "src/data.json").unwrap();
         assert!(matches!(
             &json,
             ibex_runtime::engine::evaluation::SourceRequest::JsonData(_)
@@ -13198,6 +13295,124 @@ pub(crate) mod tests {
         assert_eq!(
             json.source_label().as_str(),
             "repl:1:/project/src/data.json"
+        );
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn repl_ingress_uses_native_runtime_cwd_after_chdir() {
+        use crate::engine::{AuthenticatedDisplayKind, AuthenticatedEvaluation};
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        async fn take_string(engine: &dyn Engine, evaluation: AuthenticatedEvaluation) -> String {
+            let AuthenticatedEvaluation::Value { display, receipt } = evaluation else {
+                panic!("authenticated REPL source did not produce a value")
+            };
+            assert_eq!(display.kind, AuthenticatedDisplayKind::String);
+            engine
+                .release_undisplayed_value(
+                    receipt.expect("authenticated REPL value has no display receipt"),
+                )
+                .await
+                .unwrap();
+            serde_json::from_str(&display.text).unwrap()
+        }
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let project = tempdir().unwrap();
+        std::fs::create_dir(project.path().join("sub")).unwrap();
+        std::fs::write(
+            project.path().join("package.json"),
+            r#"{"name":"repl-cwd-projection","private":true,"type":"module"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            project.path().join("sub/relative.mjs"),
+            "export default 'module-from-sub';\n",
+        )
+        .unwrap();
+        std::fs::write(project.path().join("sub/loaded.js"), "'load-from-sub';\n").unwrap();
+
+        let host = armed_ingress_test_host_with_root_fs_read(
+            project.path(),
+            ArmedEntryKind::Repl,
+            "ibex:repl",
+            ArmedExecutionMode::Transcript,
+        );
+        let foreign_host = armed_ingress_test_host_with_root_fs_read(
+            project.path(),
+            ArmedEntryKind::Repl,
+            "ibex:repl",
+            ArmedExecutionMode::Transcript,
+        );
+        let digest = host.armed_snapshot().unwrap().digest().as_str().to_owned();
+        crate::host::abi::install_host(host.clone());
+        let engine = crate::engine::create_engine("hermes", Some(&digest)).unwrap();
+        let mut ingress = ReplSessionIngress::from_armed_repl_runtime(
+            host.clone(),
+            repl_ingress_test_plan(ArmedExecutionMode::Transcript),
+        )
+        .unwrap();
+        engine.load_runtime().await.unwrap();
+        let foreign_error = engine
+            .authenticated_runtime_vfs(&foreign_host)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            foreign_error
+                .downcast_ref::<ibex_runtime::vfs::VfsError>()
+                .unwrap()
+                .reason(),
+            ibex_runtime::vfs::VfsReason::StaleSession,
+            "an engine generation must reject an equal-snapshot foreign Host"
+        );
+
+        let changed = ingress
+            .evaluate_inline(
+                engine.as_ref(),
+                b"process.chdir('/project/sub'); process.cwd()".to_vec(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(take_string(engine.as_ref(), changed).await, "/project/sub");
+
+        let imported = ingress
+            .evaluate_inline(
+                engine.as_ref(),
+                b"var replCwdModule = await import('./relative.mjs'); replCwdModule.default"
+                    .to_vec(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            take_string(engine.as_ref(), imported).await,
+            "module-from-sub"
+        );
+
+        let loaded = ingress
+            .evaluate_load(engine.as_ref(), "loaded.js")
+            .await
+            .unwrap();
+        assert_eq!(take_string(engine.as_ref(), loaded).await, "load-from-sub");
+
+        let mounts = ingress.mounts_description(engine.as_ref()).await.unwrap();
+        assert_eq!(mounts.virtual_cwd(), "/project/sub");
+        assert_eq!(mounts.mounts().len(), 1);
+        assert_eq!(mounts.mounts()[0].virtual_path(), "/project");
+        assert!(
+            !format!("{mounts:?}").contains(project.path().to_string_lossy().as_ref()),
+            "runtime cwd projection disclosed the backing host path"
+        );
+
+        let stale_lease = engine.authenticated_runtime_vfs(&host).await.unwrap();
+        drop(ingress);
+        drop(engine);
+        assert_eq!(
+            stale_lease.capture_cwd().unwrap_err().reason(),
+            ibex_runtime::vfs::VfsReason::StaleSession,
+            "an ingress lease retained past native teardown must fail stale"
         );
     }
 

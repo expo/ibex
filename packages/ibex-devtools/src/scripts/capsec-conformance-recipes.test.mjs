@@ -876,6 +876,9 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
       );
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
@@ -922,6 +925,9 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
       );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
@@ -971,6 +977,9 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
       );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
@@ -1044,10 +1053,25 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
       );
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 8,
       );
       expect(invocation.expectedCleanup).toBe("removed-owned-file");
       expect(recipe.residualReasons).toEqual([]);
@@ -1082,13 +1106,24 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
       );
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "requested",
+              "discovery",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 4,
+        recipe.scenario === "deny" ? 1 : 7,
       );
       expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
         "fs:list",
@@ -1128,13 +1163,26 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
       );
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "requested",
+              "discovery",
+              "commit",
+              "repeat",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 5,
+        recipe.scenario === "deny" ? 1 : 9,
       );
       expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
         "fs:list",
@@ -1174,13 +1222,25 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedActionIds).toEqual(
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
       );
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 5,
+        recipe.scenario === "deny" ? 1 : 8,
       );
       expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
         "fs:list",
@@ -1261,13 +1321,25 @@ describe("exact-target CapSec executable recipes", () => {
         expect(invocation.expectedActionIds).toEqual(
           recipe.scenario === "deny" ? ["fs:list"] : branch.actionIds,
         );
+        expect(invocation.expectedDenyMessageFragment).toBe(
+          "filesystem policy denied",
+        );
         expect(invocation.expectedTypedStages).toEqual(
           recipe.scenario === "deny"
             ? ["requested"]
-            : ["requested", "discovery", "discovery", "commit"],
+            : [
+                "requested",
+                ...(!async ? ["requested"] : []),
+                "discovery",
+                "requested",
+                "repeat",
+                "requested",
+                "repeat",
+                "commit",
+              ],
         );
         expect(invocation.expectedTypedDecisionCount).toBe(
-          recipe.scenario === "deny" ? 1 : 4,
+          recipe.scenario === "deny" ? 1 : async ? 7 : 8,
         );
         expect(
           invocation.requiredFloor.map((selector) => selector.cap),
@@ -1520,13 +1592,26 @@ describe("exact-target CapSec executable recipes", () => {
       ]);
       expect(invocation.expectedCleanup).toBe("removed-owned-directory");
       expect(invocation.expectedActionIds).toEqual(["fs:list"]);
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "repeat", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "requested",
+              "repeat",
+              "repeat",
+              "repeat",
+              "repeat",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 4,
+        recipe.scenario === "deny" ? 1 : 9,
       );
       expect(invocation.requiredFloor).toHaveLength(1);
       expect(recipe.residualReasons).toEqual([]);

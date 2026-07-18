@@ -5,6 +5,8 @@
 **Systems:** CLI Runtime, REPL, Runtime, Security
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-18 (the any-thread structured-control ABI now requires a
+captured runtime-generation nonce and a teardown-drained full-operation lease.)
 **Revised:** 2026-07-15 (ENG-25066 routed default file-module execution through
 the same TLA keepalive/cancellation unit); 2026-07-15 (ENG-25063 classified a
 TLA-suspended module graph as one keepalive/cancellation unit rather than one
@@ -741,6 +743,18 @@ a request carries the id it was raised against, so a request aimed at a callback
 on its successor. This is forced by the engine: the queued interrupt runs *exactly once*, and one native poll drains a
 whole callback queue and several due timers, so a Rust id wrapped around the FFI call cannot name a unit — publishing
 unit boundaries natively is an obligation on the engine seam (§11).
+
+**The any-thread native control seam is generation-bearing and leased.** The terminal controller captures
+`ex_hermes_runtime_nonce(runtime)` while it owns the live runtime and carries that nonce, unchanged, with every
+work-unit take, cancellation-result take, active-target query, and id-exact cancellation request. It must never recover
+the current nonce from a retained pointer when the control fires: an allocator may have reused that address for a later
+runtime. Native admission validates the pointer-plus-nonce pair against the exact **Running** registry generation and
+acquires a teardown-counted lease before dereferencing the handle; the lease remains held through the complete queue or
+cancellation operation. A mismatched, zero, Closing, destroyed, or address-reused generation fails closed (`FAILED`, or
+zero for the active-target query), without touching runtime-owned mutexes or Hermes. Teardown atomically changes Running
+to **Closing**, refuses later leases, and does not erase or delete the generation until every already-admitted control
+lease has completed. A check without the full-operation lease is non-conforming because it leaves a check-to-dereference
+use-after-free race.
 
 **More than one unit can be live at once**, so the target is chosen by an **ordered selection function**, not by a
 singular "the in-flight work". LLP 0024 permits a background callback to execute *while* an input is suspended at a

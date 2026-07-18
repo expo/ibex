@@ -1715,6 +1715,42 @@ fn runtime_vfs_session(
     Ok(binding.1)
 }
 
+/// Match an engine-owned runtime generation to the exact Host identity which
+/// native construction claimed, then return an opaque Rust-side lease over
+/// that generation's VFS state. This is the session-ingress counterpart to the
+/// private native VFS calls: it accepts no JavaScript principal, path spelling,
+/// or ambient cwd as identity.
+/// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+pub(crate) fn authenticated_runtime_vfs_for_host(
+    host: &Host,
+    runtime_nonce: NonZeroU64,
+) -> Result<crate::vfs::AuthenticatedRuntimeVfs, crate::vfs::VfsError> {
+    let session = runtime_vfs_session(runtime_nonce.get(), "session-ingress")?;
+    let context_id = RUNTIME_VFS_SESSIONS
+        .get()
+        .and_then(|sessions| {
+            let sessions = sessions.read().ok()?;
+            let binding = sessions.get(&runtime_nonce.get())?;
+            Arc::ptr_eq(&binding.session, &session).then_some(binding.context_id)
+        })
+        .ok_or_else(|| crate::vfs::VfsError::stale_session("session-ingress", None))?;
+    let host_matches = HOST_CONTEXTS
+        .get()
+        .and_then(|contexts| {
+            let contexts = contexts.read().ok()?;
+            let record = contexts.get(&context_id)?;
+            (record.claimed
+                && record.runtime_nonce == Some(runtime_nonce.get())
+                && record.host.same_runtime_security_identity(host))
+            .then_some(())
+        })
+        .is_some();
+    if !host_matches {
+        return Err(crate::vfs::VfsError::stale_session("session-ingress", None));
+    }
+    Ok(crate::vfs::AuthenticatedRuntimeVfs::new(session))
+}
+
 fn unbind_runtime_vfs_session(runtime_nonce: u64) -> bool {
     if runtime_nonce == 0 {
         return false;
@@ -7734,6 +7770,59 @@ mod tests {
         };
         ex_host_free_buffer(data, len);
         bytes
+    }
+
+    #[test]
+    fn authenticated_runtime_vfs_lease_requires_exact_host_and_live_generation() {
+        use crate::vfs::VfsReason;
+
+        let _guard = host_test_lock();
+        let host = crate::host::tests::example_vfs_armed_host();
+        let foreign = crate::host::tests::example_vfs_armed_host();
+        let context = insert_host_context(Arc::new(host.clone()), true);
+        assert_ne!(context, 0);
+        let nonce = NonZeroU64::new(0x4357_445f_4c45_4153).unwrap();
+
+        assert_eq!(
+            host.authenticated_runtime_vfs(nonce).unwrap_err().reason(),
+            VfsReason::StaleSession,
+            "a Host cannot obtain a lease before native runtime binding"
+        );
+        assert_eq!(
+            ex_host_vfs_bind_runtime(context, nonce.get()),
+            EX_HOST_VFS_RESULT_OK
+        );
+        let lease = host.authenticated_runtime_vfs(nonce).unwrap();
+        assert_eq!(lease.capture_cwd().unwrap().virtual_path(), "/project");
+        assert_eq!(
+            foreign
+                .authenticated_runtime_vfs(nonce)
+                .unwrap_err()
+                .reason(),
+            VfsReason::StaleSession,
+            "an equal snapshot on a foreign Host must not adopt the generation"
+        );
+        assert_eq!(
+            host.authenticated_runtime_vfs(NonZeroU64::new(nonce.get() + 1).unwrap())
+                .unwrap_err()
+                .reason(),
+            VfsReason::StaleSession
+        );
+
+        assert_eq!(
+            ex_host_vfs_unbind_runtime(nonce.get()),
+            EX_HOST_VFS_RESULT_OK
+        );
+        assert_eq!(
+            lease.capture_cwd().unwrap_err().reason(),
+            VfsReason::StaleSession,
+            "a retained ingress lease must not extend native generation lifetime"
+        );
+        assert_eq!(
+            host.authenticated_runtime_vfs(nonce).unwrap_err().reason(),
+            VfsReason::StaleSession
+        );
+        ex_host_release_context(context);
     }
 
     #[test]
