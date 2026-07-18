@@ -735,6 +735,21 @@ describe('generated injection-only WebGPU executable codecs', () => {
       duplicatedCompleteLimit,
       WEBGPU_OBJECT_KIND_TAGS,
     )).toThrow('Invalid generated WebGPU executable codec manifest');
+
+    const substitutedTextureFormat = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      webIdlVocabulary: {
+        ...WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary,
+        gpuTextureFormats:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary.gpuTextureFormats.map(
+            (format, index) => index === 50 ? 'not-a-gpu-texture-format' : format,
+          ),
+      },
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      substitutedTextureFormat,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('Invalid generated WebGPU executable codec manifest');
   });
 
   test('executes the selected public conversion for every reviewed operation', () => {
@@ -2113,6 +2128,122 @@ describe('generated injection-only WebGPU executable codecs', () => {
         wrappers,
       )).toThrow(TypeError);
     }
+  });
+
+  test('carries the complete pinned storage-texture format vocabulary before semantic validation', () => {
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary).toMatchObject({
+      bindingPackage: '@webgpu/types',
+      bindingPackageVersion: '0.1.71',
+      declarationPath: 'node_modules/@webgpu/types/dist/index.d.ts',
+    });
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary.gpuTextureFormats)
+      .toHaveLength(101);
+
+    for (const format of ['r16unorm', 'bc7-rgba-unorm'] as const) {
+      const convertedArguments = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+        .convertPublicArguments(
+          'GPUDevice.createBindGroupLayout',
+          [{
+            entries: [{
+              binding: 0,
+              visibility: 7,
+              storageTexture: { format },
+            }],
+          }],
+          wrappers,
+        );
+      expect(convertedArguments).toMatchObject({
+        entries: [{
+          storageTexture: {
+            access: 'write-only',
+            format,
+            viewDimension: '2d',
+          },
+        }],
+      });
+      const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .encodeNativeCodegenRequest(serviceInput(
+          'GPUDevice.createBindGroupLayout',
+          convertedArguments,
+        ));
+      expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(payload))
+        .toMatchObject({ convertedArguments });
+    }
+  });
+
+  test('rejects an unknown storage-texture format at its single observable conversion point', () => {
+    const log: string[] = [];
+    const storageTexture = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperties(storageTexture, {
+      access: {
+        get() {
+          log.push('storage.access:get');
+          return undefined;
+        },
+      },
+      format: {
+        get() {
+          log.push('storage.format:get');
+          return {
+            toString() {
+              log.push('storage.format:convert');
+              return 'not-a-gpu-texture-format';
+            },
+          };
+        },
+      },
+      viewDimension: {
+        get() {
+          log.push('storage.viewDimension:get');
+          return '2d';
+        },
+      },
+    });
+    const entry = new Proxy(Object.create(null) as Record<PropertyKey, unknown>, {
+      get(_target, property) {
+        if (typeof property === 'string') log.push(`entry.${property}:get`);
+        if (property === 'binding') return 0;
+        if (property === 'storageTexture') return storageTexture;
+        if (property === 'visibility') return 7;
+        return undefined;
+      },
+    });
+    let returnCalls = 0;
+    const entries = {
+      [Symbol.iterator]() {
+        let yielded = false;
+        return {
+          next() {
+            if (yielded) return { done: true, value: undefined };
+            yielded = true;
+            return { done: false, value: entry };
+          },
+          return() {
+            returnCalls += 1;
+            log.push('iterator.return:call');
+            return { done: true, value: undefined };
+          },
+        };
+      },
+    };
+
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [{ entries }],
+      wrappers,
+    )).toThrow('not a supported enum value');
+    expect(returnCalls).toBe(1);
+    expect(log).toEqual([
+      'entry.binding:get',
+      'entry.buffer:get',
+      'entry.externalTexture:get',
+      'entry.sampler:get',
+      'entry.storageTexture:get',
+      'storage.access:get',
+      'storage.format:get',
+      'storage.format:convert',
+      'iterator.return:call',
+    ]);
   });
 
   test('executes the private createShaderModule request program and rejects hostile inputs', () => {

@@ -554,6 +554,13 @@ export interface ExecutableWebGpuCodecManifest {
   }>;
   readonly objectKindTags: Readonly<Record<string, number>>;
   readonly carrierConstants: WebGpuCarrierConstants;
+  readonly webIdlVocabulary: Readonly<{
+    bindingPackage: '@webgpu/types';
+    bindingPackageVersion: '0.1.71';
+    declarationPath: 'node_modules/@webgpu/types/dist/index.d.ts';
+    declarationSha256: string;
+    gpuTextureFormats: readonly string[];
+  }>;
   readonly publicArguments: readonly CodecCatalogRow[];
   readonly serviceArguments: readonly ServiceCodecCatalogRow[];
   readonly serviceCompletions: readonly CodecCatalogRow[];
@@ -2292,52 +2299,6 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   }],
 } as const satisfies NativeCodecProgramsV2);
 
-const TEXTURE_FORMATS = Object.freeze([
-  'r8unorm',
-  'r8snorm',
-  'r8uint',
-  'r8sint',
-  'r16uint',
-  'r16sint',
-  'r16float',
-  'rg8unorm',
-  'rg8snorm',
-  'rg8uint',
-  'rg8sint',
-  'r32uint',
-  'r32sint',
-  'r32float',
-  'rg16uint',
-  'rg16sint',
-  'rg16float',
-  'rgba8unorm',
-  'rgba8unorm-srgb',
-  'rgba8snorm',
-  'rgba8uint',
-  'rgba8sint',
-  'bgra8unorm',
-  'bgra8unorm-srgb',
-  'rgb10a2uint',
-  'rgb10a2unorm',
-  'rg11b10ufloat',
-  'rgb9e5ufloat',
-  'rg32uint',
-  'rg32sint',
-  'rg32float',
-  'rgba16uint',
-  'rgba16sint',
-  'rgba16float',
-  'rgba32uint',
-  'rgba32sint',
-  'rgba32float',
-  'stencil8',
-  'depth16unorm',
-  'depth24plus',
-  'depth24plus-stencil8',
-  'depth32float',
-  'depth32float-stencil8',
-]);
-
 const VERTEX_FORMATS = Object.freeze([
   'uint8',
   'uint8x2',
@@ -3450,6 +3411,7 @@ function convertCanvasConfiguration(
   value: unknown,
   wrappers: ProductionGpuCodecWrapperAccess,
   maximum: number,
+  textureFormats: readonly string[],
 ): unknown {
   const source = dictionary(value, 'GPUCanvasConfiguration');
   const device = source.device;
@@ -3459,14 +3421,14 @@ function convertCanvasConfiguration(
   }
   const result: Record<string, unknown> = {
     device,
-    format: enumValue(source.format, TEXTURE_FORMATS, 'GPUCanvasConfiguration.format'),
+    format: enumValue(source.format, textureFormats, 'GPUCanvasConfiguration.format'),
     usage: u32(source.usage, 'GPUCanvasConfiguration.usage', 0x10),
     viewFormats: Object.freeze(
       (source.viewFormats === undefined
         ? []
         : sequence(source.viewFormats, 'GPUCanvasConfiguration.viewFormats', maximum)
       ).map((format) =>
-        enumValue(format, TEXTURE_FORMATS, 'GPUCanvasConfiguration.viewFormats member')),
+        enumValue(format, textureFormats, 'GPUCanvasConfiguration.viewFormats member')),
     ),
     colorSpace: source.colorSpace === undefined
       ? 'srgb'
@@ -3571,6 +3533,7 @@ function convertObjectDescriptor(value: unknown, label: string): unknown {
 function convertBindGroupLayoutDescriptor(
   value: unknown,
   maximum: number,
+  textureFormats: readonly string[],
 ): unknown {
   const source = dictionary(value, 'GPUBindGroupLayoutDescriptor');
   // GPUBindGroupLayoutDescriptor inherits label before its own entries member.
@@ -3674,7 +3637,7 @@ function convertBindGroupLayoutDescriptor(
         }
         const format = enumValue(
           formatValue,
-          TEXTURE_FORMATS,
+          textureFormats,
           `GPUStorageTextureBindingLayout[${index}].format`,
         );
         const viewDimensionValue = storageTexture.viewDimension;
@@ -3815,6 +3778,7 @@ function convertRenderPipelineDescriptor(
   value: unknown,
   wrappers: ProductionGpuCodecWrapperAccess,
   maximum: number,
+  textureFormats: readonly string[],
 ): unknown {
   const source = dictionary(value, 'GPURenderPipelineDescriptor');
   if (source.vertex === undefined) {
@@ -3852,7 +3816,7 @@ function convertRenderPipelineDescriptor(
       if (target === null) return null;
       const row = dictionary(target, 'GPUColorTargetState');
       const targetResult: Record<string, unknown> = {
-        format: enumValue(row.format, TEXTURE_FORMATS, 'GPUColorTargetState.format'),
+        format: enumValue(row.format, textureFormats, 'GPUColorTargetState.format'),
         writeMask: u32(row.writeMask, 'GPUColorTargetState.writeMask', 0xf),
       };
       if (row.blend !== undefined) {
@@ -3942,7 +3906,10 @@ function convertDrawArguments(args: readonly unknown[]): unknown {
   ]);
 }
 
-function convertTextureViewDescriptor(value: unknown): unknown {
+function convertTextureViewDescriptor(
+  value: unknown,
+  textureFormats: readonly string[],
+): unknown {
   const source = dictionary(value, 'GPUTextureViewDescriptor');
   const result: Record<string, unknown> = {
     label: optionalLabel(source),
@@ -3963,7 +3930,7 @@ function convertTextureViewDescriptor(value: unknown): unknown {
   if (source.format !== undefined) {
     result.format = enumValue(
       source.format,
-      TEXTURE_FORMATS,
+      textureFormats,
       'GPUTextureViewDescriptor.format',
     );
   }
@@ -4815,6 +4782,7 @@ function isConvertedU64(value: unknown): value is number {
 function validateCreateBindGroupLayoutDescriptorForService(
   value: unknown,
   sequenceMaximum: number,
+  textureFormats: readonly string[],
 ): void {
   if (
     typeof value !== 'object' ||
@@ -4926,7 +4894,7 @@ function validateCreateBindGroupLayoutDescriptorForService(
                 typeof layout.access === 'string' &&
                 storageAccessValues.has(layout.access) &&
                 typeof layout.format === 'string' &&
-                TEXTURE_FORMATS.includes(layout.format) &&
+                textureFormats.includes(layout.format) &&
                 typeof layout.viewDimension === 'string' &&
                 storageViewDimensions.has(layout.viewDimension)
               : hasExactOwnProperties(
@@ -4956,6 +4924,7 @@ function validateCreateBindGroupLayoutRequestFields(
   sealedLocalTimeline: unknown,
   convertedArguments: unknown,
   sequenceMaximum: number,
+  textureFormats: readonly string[],
 ): void {
   if (
     receiver.kind !== 'GPUDevice' ||
@@ -5024,6 +4993,7 @@ function validateCreateBindGroupLayoutRequestFields(
   validateCreateBindGroupLayoutDescriptorForService(
     convertedArguments,
     sequenceMaximum,
+    textureFormats,
   );
 }
 
@@ -5373,6 +5343,8 @@ export function createExecutableWebGpuCodecs(
     manifest.digests.projection !== WEBGPU_PRODUCTION_PLAN.digests.projection ||
     canonicalManifestJson(manifest.completeLimitNames) !==
       canonicalManifestJson(EXPECTED_COMPLETE_LIMIT_NAMES) ||
+    canonicalManifestJson(manifest.webIdlVocabulary) !==
+      canonicalManifestJson(WEBGPU_PRODUCTION_PLAN.webIdlVocabulary) ||
     new Set(manifest.completeLimitNames).size !==
       EXPECTED_COMPLETE_LIMIT_NAMES.length ||
     manifest.layout.requestMagic !== 'IBGQ' ||
@@ -5411,6 +5383,16 @@ export function createExecutableWebGpuCodecs(
       }) ||
     manifest.objectKindAuthority.path !== 'include/exact_runtime.h' ||
     !/^[0-9a-f]{64}$/u.test(manifest.objectKindAuthority.sha256) ||
+    manifest.webIdlVocabulary.bindingPackage !== '@webgpu/types' ||
+    manifest.webIdlVocabulary.bindingPackageVersion !== '0.1.71' ||
+    manifest.webIdlVocabulary.declarationPath !==
+      'node_modules/@webgpu/types/dist/index.d.ts' ||
+    !/^[0-9a-f]{64}$/u.test(manifest.webIdlVocabulary.declarationSha256) ||
+    manifest.webIdlVocabulary.gpuTextureFormats.length !== 101 ||
+    new Set(manifest.webIdlVocabulary.gpuTextureFormats).size !== 101 ||
+    manifest.webIdlVocabulary.gpuTextureFormats[0] !== 'r8unorm' ||
+    manifest.webIdlVocabulary.gpuTextureFormats.at(-1) !==
+      'astc-12x12-unorm-srgb' ||
     manifest.publicArguments.some((row, index) => row.wireTag !== index + 1) ||
     manifest.serviceArguments.some((row, index) => row.wireTag !== index + 1) ||
     manifest.serviceCompletions.some((row, index) => row.wireTag !== index + 1)
@@ -5503,6 +5485,7 @@ export function createExecutableWebGpuCodecs(
           args[0],
           wrappers,
           manifest.layout.sequenceMaxCount,
+          manifest.webIdlVocabulary.gpuTextureFormats,
         );
       case 'gpu-render-pass-descriptor-v1':
         return convertRenderPassDescriptor(
@@ -5518,12 +5501,14 @@ export function createExecutableWebGpuCodecs(
         return convertBindGroupLayoutDescriptor(
           args[0],
           manifest.layout.sequenceMaxCount,
+          manifest.webIdlVocabulary.gpuTextureFormats,
         );
       case 'gpu-render-pipeline-descriptor-v1':
         return convertRenderPipelineDescriptor(
           args[0],
           wrappers,
           manifest.layout.sequenceMaxCount,
+          manifest.webIdlVocabulary.gpuTextureFormats,
         );
       case 'gpu-shader-module-descriptor-v1':
         return convertShaderModuleDescriptor(args[0]);
@@ -5540,7 +5525,10 @@ export function createExecutableWebGpuCodecs(
       case 'gpu-render-pipeline-handle-v1':
         return wrappers.reference(args[0], 'GPURenderPipeline');
       case 'gpu-texture-view-descriptor-v1':
-        return convertTextureViewDescriptor(args[0]);
+        return convertTextureViewDescriptor(
+          args[0],
+          manifest.webIdlVocabulary.gpuTextureFormats,
+        );
       default:
         throw new TypeError(`Unknown WebGPU public argument codec: ${codec}`);
     }
@@ -5603,6 +5591,7 @@ export function createExecutableWebGpuCodecs(
         input.sealedLocalTimeline,
         input.convertedArguments,
         manifest.layout.sequenceMaxCount,
+        manifest.webIdlVocabulary.gpuTextureFormats,
       );
     } else if (
       route.operationId ===
@@ -5998,6 +5987,7 @@ export function createExecutableWebGpuCodecs(
         sealedLocalTimeline,
         convertedArguments,
         manifest.layout.sequenceMaxCount,
+        manifest.webIdlVocabulary.gpuTextureFormats,
       );
     } else if (
       route.operationId ===

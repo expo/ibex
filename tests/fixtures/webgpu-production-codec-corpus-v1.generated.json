@@ -5,7 +5,7 @@
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "ac8ad62b85a27972298c7ee52070ff8cbfebd59df1bddf6bedafded2f2674436"
+    "manifestSha256": "e6fb12cea5ea01024128f5bf0b6d2fa8408b53418cc52501ffd2157016570acf"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
@@ -1940,6 +1940,37 @@
         ]
       },
       "bytesHex": "4942475101000f001b4c35af035000000000000000020000000000000037000000000000000100000000000000090000000000000001095600000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070200000007000000656e7472696573060100000007040000000700000062696e64696e6703000000000600000062756666657207030000001000000068617344796e616d69634f6666736574010e0000006d696e42696e64696e6753697a65030000000004000000747970650507000000756e69666f726d0700000073616d706c657207010000000400000074797065050900000066696c746572696e670a0000007669736962696c6974790307000000050000006c6162656c0500000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "semanticErrorIncludes": "violates binding, visibility, or resource closure"
+      }
+    },
+    {
+      "id": "create-bind-group-layout-zero-resource-members-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createBindGroupLayout",
+      "semanticTerminalId": "later-predicate-rejection",
+      "errorTiming": "device-timeline",
+      "providerTokenCount": 0,
+      "physicalSequenceCount": 0,
+      "rawDescriptor": {
+        "entries": [
+          {
+            "binding": 0,
+            "visibility": 7
+          }
+        ]
+      },
+      "convertedArguments": {
+        "label": "",
+        "entries": [
+          {
+            "binding": 0,
+            "visibility": 7
+          }
+        ]
+      },
+      "bytesHex": "4942475101000f001b4c35af035000000000000000020000000000000037000000000000000100000000000000090000000000000001095600000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070200000007000000656e7472696573060100000007020000000700000062696e64696e6703000000000a0000007669736962696c6974790307000000050000006c6162656c0500000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "semanticErrorIncludes": "violates binding, visibility, or resource closure"

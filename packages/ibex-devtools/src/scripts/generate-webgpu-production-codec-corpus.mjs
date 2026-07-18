@@ -1135,6 +1135,13 @@ function buildCorpus() {
       "violates binding, visibility, or resource closure",
     ),
     bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-zero-resource-members-rejected",
+      {
+        entries: [{ binding: 0, visibility: 7 }],
+      },
+      "violates binding, visibility, or resource closure",
+    ),
+    bindGroupLayoutRejectionVector(
       "create-bind-group-layout-overlong-label-rejected",
       {
         label: "💡".repeat(15),

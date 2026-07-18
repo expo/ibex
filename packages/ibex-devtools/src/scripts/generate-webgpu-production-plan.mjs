@@ -40,6 +40,10 @@ const codecOutputPath =
 const codecManifestOutputPath =
   "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json";
 const runtimeHeaderPath = "include/exact_runtime.h";
+const webGpuTypesPackagePath = "node_modules/@webgpu/types/package.json";
+const webGpuTypesDeclarationPath =
+  "node_modules/@webgpu/types/dist/index.d.ts";
+const webGpuTypesVersion = "0.1.71";
 
 function readJson(sourcePath, label) {
   const confined = assertConfinedGeneratedFile(
@@ -84,6 +88,54 @@ function canonicalJson(value) {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function readPinnedWebIdlVocabulary() {
+  const packageMetadata = JSON.parse(
+    fs.readFileSync(path.join(repositoryRoot, webGpuTypesPackagePath), "utf8"),
+  );
+  if (
+    packageMetadata.name !== "@webgpu/types" ||
+    packageMetadata.version !== webGpuTypesVersion
+  ) {
+    throw new Error(
+      `WebGPU Web IDL vocabulary requires @webgpu/types@${webGpuTypesVersion}`,
+    );
+  }
+
+  const declarationBytes = fs.readFileSync(
+    path.join(repositoryRoot, webGpuTypesDeclarationPath),
+  );
+  const declaration = declarationBytes.toString("utf8");
+  const match = /\btype\s+GPUTextureFormat\s*=\s*([\s\S]*?);/u.exec(declaration);
+  if (!match) {
+    throw new Error("pinned @webgpu/types omits GPUTextureFormat");
+  }
+  const body = match[1];
+  const gpuTextureFormats = [...body.matchAll(/\|\s*"([^"]+)"/gu)]
+    .map((entry) => entry[1]);
+  const unparsed = body.replace(/\|\s*"[^"]+"/gu, "").replace(/\s/gu, "");
+  if (
+    unparsed !== "" ||
+    gpuTextureFormats.length !== 101 ||
+    new Set(gpuTextureFormats).size !== gpuTextureFormats.length ||
+    !gpuTextureFormats.includes("r16unorm") ||
+    !gpuTextureFormats.includes("bc7-rgba-unorm") ||
+    !gpuTextureFormats.includes("astc-12x12-unorm-srgb")
+  ) {
+    throw new Error("pinned GPUTextureFormat vocabulary drifted");
+  }
+
+  return Object.freeze({
+    bindingPackage: "@webgpu/types",
+    bindingPackageVersion: webGpuTypesVersion,
+    declarationPath: webGpuTypesDeclarationPath,
+    declarationSha256: crypto
+      .createHash("sha256")
+      .update(declarationBytes)
+      .digest("hex"),
+    gpuTextureFormats: Object.freeze(gpuTextureFormats),
+  });
 }
 
 function stagingProjectionSha256(staging) {
@@ -185,7 +237,7 @@ function validateWorkloadStaging(staging, routeIds) {
   });
 }
 
-function renderPlan(authority, workloadStaging) {
+function renderPlan(authority, workloadStaging, webIdlVocabulary) {
   const { payload, computed } = validateWebGpuWrapperAuthority(authority);
   const routes = payload.operations.map((operation) => ({
     operationId: operation.operationId,
@@ -229,6 +281,7 @@ function renderPlan(authority, workloadStaging) {
     codecReadiness:
       "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
     digests: computed,
+    webIdlVocabulary,
     activeRouteSubset: {
       scopeId: payload.scopeId,
       operationCount: routes.length,
@@ -335,7 +388,7 @@ function exactGpuHeaderVocabulary() {
   };
 }
 
-function buildCodecManifest(authority, semantics) {
+function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const { payload, computed } = validateWebGpuWrapperAuthority(authority);
   const semantic = validateWebGpuWrapperSemantics(semantics);
   const headerVocabulary = exactGpuHeaderVocabulary();
@@ -614,6 +667,7 @@ function buildCodecManifest(authority, semantics) {
     objectKindAuthority: headerVocabulary.authority,
     objectKindTags: headerVocabulary.tags,
     carrierConstants: headerVocabulary.carrierConstants,
+    webIdlVocabulary,
     publicArguments: numberedCatalog(payload.codecCatalog.publicArguments),
     serviceArguments: numberedCatalog(
       payload.codecCatalog.serviceArguments,
@@ -685,8 +739,17 @@ function main() {
     workloadStagingPath,
     "TypeGPU workload staging authority",
   );
-  const renderedPlan = renderPlan(authority, workloadStaging);
-  const codecManifest = buildCodecManifest(authority, semantics);
+  const webIdlVocabulary = readPinnedWebIdlVocabulary();
+  const renderedPlan = renderPlan(
+    authority,
+    workloadStaging,
+    webIdlVocabulary,
+  );
+  const codecManifest = buildCodecManifest(
+    authority,
+    semantics,
+    webIdlVocabulary,
+  );
   const renderedCodecs = renderCodecs(codecManifest);
   const renderedCodecManifest = `${JSON.stringify(codecManifest, null, 2)}\n`;
   if (process.argv.includes("--check")) {
