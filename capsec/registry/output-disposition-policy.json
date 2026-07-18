@@ -1,7 +1,7 @@
 {
   "outputDispositionPolicySchema": "ibex/capsec-output-disposition-policy/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-MisdO-TulHpe0mLw33pVBRtDVnh85Je8jF3iVz0ZbUU",
+  "catalogKeyDigest": "sha256-pfKwYtRvBNs7G4wx_GOS9cQvQ0rYDmcxdWne7tiG4nM",
   "defaultDisposition": "non-path",
   "defaultRationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them.",
   "overrides": [
@@ -3710,74 +3710,6 @@
         "normalizedValue": "ERR_IBEX_PASSWORD_UNAVAILABLE"
       },
       "rationale": "The compatibility-only synchronous password stub has no native bcrypt/argon2 implementation in this profile and refuses with a stable error instead of fabricating password-verification output."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-        "output": "[[return]]",
-        "alias": "__OriginalPromise.prototype.catch",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "Native rejection tracking makes the compatibility-only saved Promise constructor absent in the armed profile, including its catch method."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-        "output": "[[return]]",
-        "alias": "__OriginalPromise.prototype.finally",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "Native rejection tracking makes the compatibility-only saved Promise constructor absent in the armed profile, including its finally method."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.prototype.then.01yci6j",
-        "output": "[[return]]",
-        "alias": "__OriginalPromise.prototype.then",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "Native rejection tracking makes the compatibility-only saved Promise constructor absent in the armed profile, including its then method."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.reject.1nmizxj",
-        "output": "[[return]]",
-        "alias": "__OriginalPromise.reject",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "Native rejection tracking makes the compatibility-only saved Promise constructor absent in the armed profile, including its reject method."
     },
     {
       "key": {

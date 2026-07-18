@@ -11,10 +11,12 @@
  * A current-file digest tied by device/inode to the Hermes factory mapping is
  * not a hash of the executable pages already mapped, nor proof of a
  * source-build authority. The receipt chain mechanically binds reviewed
- * package checksums (plus the NuGet repository signature) to link-selected
- * files and verifies that the Hermes file's current object is the factory
- * mapping's object. It still does not authenticate already mapped code pages,
- * separately loaded JSI, local source builds, or imported target JSON.
+ * package or source-build identities to link-selected files. Supported Unix
+ * targets also compare the file object with the factory mapping; Windows can
+ * only reopen the loader-reported pathname and therefore retains an explicit
+ * mapped-image blocker. The chain still does not authenticate already mapped
+ * code pages, separately loaded JSI, unattested local source builds, or
+ * imported target JSON.
  *
  * @ref LLP 0013#mechanism-1-lockdown — alias identity and the complete
  * inherited member graph are part of the shared-intrinsic boundary.
@@ -52,6 +54,8 @@ export const INHERITED_INTRINSIC_ALIAS_LINKED_DEPENDENCY_CODE =
   "loaded-engine-linked-dependency-provenance-unverified";
 export const INHERITED_INTRINSIC_ALIAS_LINUX_PROFILE_RECEIPT_CODE =
   "linux-source-profile-receipt-unavailable";
+export const INHERITED_INTRINSIC_ALIAS_WINDOWS_BUILD_AUTHORITY_CODE =
+  "windows-source-build-authority-unattested";
 export const INHERITED_INTRINSIC_ALIAS_WINDOWS_LOADED_IMAGE_CODE =
   "windows-loaded-engine-mapped-image-provenance-unverified";
 export const HERMES_PROFILE_PROVENANCE_RECEIPT_SCHEMA =
@@ -184,7 +188,7 @@ function auditLoadedProfileProvenance({ sourceAudit, evidence }) {
     };
   }
   const receiptFields =
-    profile.id === "windows-nuget"
+    profile.id === "windows-source-patched"
       ? [
           "artifact",
           "linkArtifact",
@@ -328,7 +332,7 @@ function auditLoadedProfileProvenance({ sourceAudit, evidence }) {
         "android-maven: receipt does not bind the reviewed linked JSI package and selected artifact",
       );
     }
-  } else {
+  } else if (profile.id === "windows-source-patched") {
     const linkArtifact = receipt.linkArtifact;
     if (
       !exactFields(linkArtifact, [
@@ -342,41 +346,26 @@ function auditLoadedProfileProvenance({ sourceAudit, evidence }) {
       linkArtifact.targetArchitecture !== identity?.targetArchitecture
     ) {
       throw new Error(
-        "windows-nuget: receipt does not bind the exact reviewed Hermes import library",
+        "windows-source-patched: receipt does not bind the exact reviewed Hermes import library",
       );
     }
     if (
       !exactFields(origin, [
+        "configuration",
+        "debugger",
         "kind",
-        "packageCoordinate",
-        "packageDigest",
-        "packageRepository",
-        "packageSignature",
         "reviewedProfileIdentity",
       ]) ||
-      origin.kind !== "nuget-package" ||
-      origin.packageDigest !== profile.identity.packageDigest ||
-      !exactFields(origin.packageSignature, [
-        "kind",
-        "serviceIndex",
-        "verification",
-      ]) ||
-      origin.packageSignature.kind !== "nuget-repository-signature" ||
-      origin.packageSignature.serviceIndex !==
-        profile.identity.repositorySignature.serviceIndex ||
-      origin.packageSignature.verification !== "dotnet-nuget-verify-all"
+      origin.kind !== "source-patched-build" ||
+      origin.configuration !== "Release" ||
+      origin.debugger !== false
     ) {
-      throw new Error("windows-nuget: malformed reviewed package provenance origin");
+      throw new Error(
+        "windows-source-patched: malformed reviewed source-build provenance origin",
+      );
     }
-    validatePackageRepository(origin.packageRepository, profile.id);
-    const expected = `${profile.identity.artifact}:${profile.identity.version}`;
-    if (
-      origin.packageCoordinate !== expected ||
-      origin.packageRepository !==
-        profile.identity.repositorySignature.serviceIndex
-    ) {
-      throw new Error("windows-nuget: receipt coordinate drifted from review");
-    }
+  } else {
+    throw new Error(`${profile.id}: unsupported reviewed Hermes profile`);
   }
   return { mechanicallyBound: true, blocker: null, receipt: clone(receipt) };
 }
@@ -575,7 +564,7 @@ function validateSourceAudit(sourceAudit) {
 function knownProvenanceDesignBlockers(sourceAudit) {
   const sourceProfile = profileFor(sourceAudit, "source-patched");
   const androidProfile = profileFor(sourceAudit, "android-maven");
-  const windowsProfile = profileFor(sourceAudit, "windows-nuget");
+  const windowsProfile = profileFor(sourceAudit, "windows-source-patched");
   return [
     {
       code: INHERITED_INTRINSIC_ALIAS_SOURCE_CACHE_AUTHORITY_CODE,
@@ -603,12 +592,20 @@ function knownProvenanceDesignBlockers(sourceAudit) {
         "the Linux source build emits a reviewed receipt for dynamic libhermesvm.so, but a statically linked Hermes archive cannot be authenticated as a standalone mapped object by the current receipt contract",
     },
     {
+      code: INHERITED_INTRINSIC_ALIAS_WINDOWS_BUILD_AUTHORITY_CODE,
+      profileId: windowsProfile.id,
+      targetVariant: windowsProfile.targetVariant,
+      originKind: "source-patched-build",
+      reviewedProfileIdentity: clone(windowsProfile.identity),
+      reason:
+        "the Windows receipt binds the pinned source, patch stack, no-debugger Release configuration, builder, installer, DLL, and import library, but local source-build fallback emits the same receipt shape without an independent build attestation",
+    },
+    {
       code: INHERITED_INTRINSIC_ALIAS_WINDOWS_LOADED_IMAGE_CODE,
       profileId: windowsProfile.id,
       targetVariant: windowsProfile.targetVariant,
-      packageCoordinate: `${windowsProfile.identity.artifact}:${windowsProfile.identity.version}`,
       reason:
-        "the Windows installer enforces the reviewed NuGet SHA-512 and repository signature, but the runtime mapped-object verifier remains unavailable on Windows",
+        "the Windows runtime obtains the loader-reported DLL pathname and reopens that pathname, so replacement after load can identify reviewed current-file bytes without authenticating the image section that supplied the mapped code",
     },
   ];
 }

@@ -2737,7 +2737,7 @@ mod tests {
         .unwrap();
         let artifact = test_artifact_with_factory(
             source_id.clone(),
-            "function ($export) { return { declare: function () {}, execute: function () { var observe = globalThis.__ibexCapsecContextObserver_eng25060; delete globalThis.__ibexCapsecContextObserver_eng25060; $export('principal', observe().principalId); } }; }",
+            "function ($export) { return { declare: function () {}, execute: function () { var observe = globalThis.__ibexCapsecContextObserver_eng25060; delete globalThis.__ibexCapsecContextObserver_eng25060; var principal = observe().principalId; globalThis.__ibexCapsecObservedPrincipal_eng25060 = principal; $export('principal', principal); } }; }",
             &["principal"],
         );
         let (source_manifest, source_bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
@@ -2820,7 +2820,23 @@ mod tests {
                     record.run_execute().unwrap(),
                     ModuleExecutionKind::Synchronous
                 );
-                assert_eq!(record.namespace_json().unwrap(), r#"{"principal":"u64:7"}"#);
+                let source = "(function () { var compartment = __compartments['package:attributed-project']; var principal = String(compartment.__ibexCapsecObservedPrincipal_eng25060); delete compartment.__ibexCapsecObservedPrincipal_eng25060; return principal; })()";
+                let source_url = CString::new("module-runner-attribution-observation.js").unwrap();
+                let mut output = std::ptr::null_mut();
+                assert_eq!(
+                    ex_hermes_eval(
+                        raw,
+                        source.as_ptr(),
+                        source.len(),
+                        source_url.as_ptr(),
+                        0,
+                        &mut output,
+                    ),
+                    0
+                );
+                assert!(!output.is_null());
+                assert_eq!(CStr::from_ptr(output).to_string_lossy(), "u64:7");
+                ex_hermes_free_string(output);
             };
 
             for generation in [1, 2] {

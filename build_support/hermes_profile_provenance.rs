@@ -61,10 +61,6 @@ fn shell_literal<'a>(text: &'a str, variable: &str) -> Result<&'a str, String> {
     assignment_value(text, &format!("{variable}=\""), "\"")
 }
 
-fn powershell_literal<'a>(text: &'a str, variable: &str) -> Result<&'a str, String> {
-    assignment_value(text, &format!("${variable} = \""), "\"")
-}
-
 fn checked_digest_hex<'a>(
     value: &'a str,
     algorithm: &str,
@@ -187,21 +183,22 @@ fn android_profile_identity(repo_root: &Path) -> Result<Value, String> {
 }
 
 fn windows_profile_identity(repo_root: &Path) -> Result<Value, String> {
-    let installer = read_text(&repo_root.join("scripts/install-windows-hermes.ps1"))?;
-    let artifact = powershell_literal(&installer, "PackageId")?;
-    let version = powershell_literal(&installer, "ReviewedVersion")?;
-    let package_hex = powershell_literal(&installer, "ReviewedPackageSha512")?;
-    let service_index = powershell_literal(&installer, "NuGetServiceIndex")?;
-    checked_digest_hex(&format!("sha512-{package_hex}"), "sha512", 128)?;
+    let source = source_profile_identity(repo_root)?;
+    let build_authority =
+        sha256_authority_file(&repo_root.join("scripts/build-hermes-windows.ps1"))?;
+    let installer_authority =
+        sha256_authority_file(&repo_root.join("scripts/install-windows-hermes.ps1"))?;
 
     Ok(json!({
-        "artifact": artifact,
-        "packageDigest": format!("sha512-{package_hex}"),
-        "repositorySignature": {
-            "serviceIndex": service_index,
-            "type": "repository",
-        },
-        "version": version,
+        "artifact": source["artifact"],
+        "patchApplicationAuthorityDigest": source["patchApplicationAuthorityDigest"],
+        "patchIdentityAuthorityDigest": source["patchIdentityAuthorityDigest"],
+        "patchStackDigest": source["patchStackDigest"],
+        "sourceBuildAuthorityDigest": build_authority,
+        "sourceCommit": source["sourceCommit"],
+        "sourceInstallerAuthorityDigest": installer_authority,
+        "sourceRef": source["sourceRef"],
+        "sourceVersion": source["sourceVersion"],
     }))
 }
 
@@ -215,7 +212,7 @@ pub fn reviewed_profile_identity(repo_root: &Path, target_os: &str) -> Result<Va
 
 /// Match the receipt architecture to the artifact Cargo selected for linking.
 /// Only the macOS source framework may legitimately be a fat/universal binary;
-/// Android Prefab and Windows NuGet artifacts are selected per target ABI.
+/// Android Prefab and Windows source artifacts are selected per target ABI.
 pub fn artifact_architecture_matches(
     target_os: &str,
     target_arch: &str,
@@ -482,44 +479,20 @@ fn validate_android_origin(origin: &Value, reviewed: &Value) -> Result<(), Strin
     Ok(())
 }
 
-fn validate_windows_origin(origin: &Value, reviewed: &Value) -> Result<(), String> {
+fn validate_windows_origin(origin: &Value, _reviewed: &Value) -> Result<(), String> {
     if !exact_object_fields(
         origin,
         &[
+            "configuration",
+            "debugger",
             "kind",
-            "packageCoordinate",
-            "packageDigest",
-            "packageRepository",
-            "packageSignature",
             "reviewedProfileIdentity",
         ],
-    ) || origin["kind"] != "nuget-package"
+    ) || origin["kind"] != "source-patched-build"
+        || origin["configuration"] != "Release"
+        || origin["debugger"] != false
     {
         return Err("Windows profile origin has malformed exact fields".to_owned());
-    }
-    let signature = &origin["packageSignature"];
-    if !exact_object_fields(signature, &["kind", "serviceIndex", "verification"])
-        || signature["kind"] != "nuget-repository-signature"
-        || signature["verification"] != "dotnet-nuget-verify-all"
-    {
-        return Err("Windows package signature has malformed exact fields".to_owned());
-    }
-    let service_index = reviewed["repositorySignature"]["serviceIndex"]
-        .as_str()
-        .ok_or_else(|| "reviewed Windows service index is not text".to_owned())?;
-    let coordinate = format!(
-        "{}:{}",
-        reviewed["artifact"].as_str().unwrap_or_default(),
-        reviewed["version"].as_str().unwrap_or_default()
-    );
-    if origin["packageCoordinate"] != coordinate
-        || origin["packageDigest"] != reviewed["packageDigest"]
-        || origin["packageRepository"] != service_index
-        || signature["serviceIndex"] != service_index
-    {
-        return Err(
-            "Windows receipt package/signature facts do not match the reviewed identity".to_owned(),
-        );
     }
     Ok(())
 }

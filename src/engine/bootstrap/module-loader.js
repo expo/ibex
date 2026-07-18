@@ -23,6 +23,8 @@
       : "";
     throw new TypeError("Runtime require options are not accepted" + suffix);
   }
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — entry remap consumption is trusted loader state, not project state
+  var consumedEntryFile = null;
   // @ref LLP 0013#phase-0 — capture the module-attribution setter into loader
   // closure scope so the escape-hatch global (`__exactSetActiveModuleId`) can be
   // deleted at end-of-bootstrap. JS control flow must not be able to impersonate
@@ -2533,9 +2535,6 @@
         };
       }
       if (name === 'uv') {
-        if (typeof globalThis === 'object' && globalThis.__exactUvEOFValue === undefined) {
-          globalThis.__exactUvEOFValue = -4095;
-        }
         return {
           UV_EACCES: -13,
             UV_EBADF: -9,
@@ -6308,9 +6307,9 @@
     // require of a user file that happens to be named `*.bundle.js` cannot
     // steal the remap.
     if (!authenticatedFileRecord && !authenticatedGeneratedBundleRecord &&
-        g.__exactEntryFile && !g.__exactEntryFileConsumed &&
+        g.__exactEntryFile && g.__exactEntryFile !== consumedEntryFile &&
         !parent && record.kind !== 'builtin') {
-      g.__exactEntryFileConsumed = true;
+      consumedEntryFile = g.__exactEntryFile;
       if (/(?:^|[\/.])bundle\.m?js$/.test(filename.replace(/\\/g, '/'))) {
         filename = g.__exactEntryFile;
       }

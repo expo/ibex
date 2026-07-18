@@ -2884,13 +2884,13 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.7a10496d4f374bc8b354f6255d78f2e503d7a13ce7355a267c594699f74ec161";
+  "hermes-evaluators.c73e7e4a835ef3cfe86cfd5aa9c0fe9301f35ea48d61b89f7c2d3fc8f45f3d9c";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
-  "windows-nuget",
+  "windows-source-patched",
 ]);
 const REVIEWED_HERMES_EVALUATOR_BRANCHES = Object.freeze([
   Object.freeze({
@@ -2906,9 +2906,9 @@ const REVIEWED_HERMES_EVALUATOR_BRANCHES = Object.freeze([
     targetVariant: "default",
   }),
   Object.freeze({
-    authorityRef: "scripts/install-windows-hermes.ps1#Version",
-    profileId: "windows-nuget",
-    routePrefix: "hermes-intrinsic-windows-nuget-",
+    authorityRef: "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+    profileId: "windows-source-patched",
+    routePrefix: "hermes-intrinsic-windows-source-patched-",
     targetVariant: "windows",
   }),
 ]);
@@ -4562,14 +4562,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "write",
   ],
   "[[dynamic-table:native-global-name]]": [""],
-  __OriginalPromise: [
-    "",
-    "prototype",
-    "prototype.catch",
-    "prototype.finally",
-    "prototype.then",
-    "reject",
-  ],
   __dirname: [""],
   __exactAccessibilityChanged: [""],
   __exactAccessibilitySnapshot: [
@@ -4583,13 +4575,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "prefersHighContrast",
     "prefersReducedMotion",
     "prefersReducedTransparency",
-  ],
-  __exactAccessibilityState: [
-    "",
-    "changeTimer",
-    "eventListeners",
-    "listeners",
-    "snapshot",
   ],
   __exactAllowNativesSyntax: [""],
   __exactAndroidCameraMetadata: [
@@ -4613,18 +4598,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactDebugModuleSource: [""],
   __exactDebugModuleSources: ["", "length"],
   __exactEnsureFilesystemModule: [""],
-  __exactEntryFileConsumed: [""],
-  __exactFinalVersionsDefineOK: [""],
-  __exactFinalVersionsError: [""],
-  __exactFinalVersionsFixRan: [""],
-  __exactFinalVersionsNewProtoOK: [""],
-  __exactFinalVersionsObj: [""],
-  __exactFinalVersionsOpenssl: [""],
-  __exactFinalVersionsOpensslAfter: [""],
-  __exactFinalVersionsProtoOK: [""],
-  __exactFinalVersionsSame: [""],
   __exactGeneratedImportGrantKeys: [""],
-  __exactHasDecompressionUnhandledFilter: [""],
   __exactInstallAsyncIpcListenerPatch: [""],
   __exactInstallProcessIpcBootstrap: [""],
   __exactInstallReadableStreamIteratorCompat: [""],
@@ -4632,7 +4606,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactLoadTimings: ["", "installGlobalsEnd", "installGlobalsStart"],
   __exactLocaleChanged: [""],
   __exactLocaleSnapshot: ["tag", "tags", "uses24Hour"],
-  __exactLocaleState: ["", "changeTimer", "listeners", "override", "snapshot"],
   __exactMemoryDebug: [
     "",
     "clearModuleDebugSources",
@@ -4644,21 +4617,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "stop",
     "summary",
   ],
-  __exactMemoryDebugState: [
-    "",
-    "lastLoggedHeapUsed",
-    "nextSampleId",
-    "options",
-    "options.includeExpensive",
-    "options.includeGCStats",
-    "options.intervalMs",
-    "options.logEvery",
-    "options.logOnGrowthBytes",
-    "options.maxSamples",
-    "sampleCount",
-    "samples",
-    "timer",
-  ],
   __exactNativeWrapState: [
     "",
     "Pipe",
@@ -4669,10 +4627,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "pipeConstants",
     "tcpConstants",
   ],
-  __exactProcessCompatFixRan: [""],
-  __exactProcessCompatFixSawProcess: [""],
   __exactProcessIpcBootstrap: ["close", "fd", "serialization"],
-  __exactReadableStreamCompatIteratorPatchScheduled: [""],
   __exactReapplyCompatPolyfills: [""],
   __exactRequire: [""],
   __exactRuntime: [
@@ -4690,7 +4645,6 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   __exactStreamWrapState: [""],
   __exactSyncTrackedIpcListenersAfterDispatch: [""],
   __exactUnhandledRejectionHandler: [""],
-  __exactUvEOFValue: [""],
   __exactWebStreamsPolyfillLoaded: [""],
   __exactWindowNotifyMediaChange: [""],
   __exactWindowNotifyResize: [""],
@@ -9351,12 +9305,15 @@ function builtinExportClassification(surface) {
   }
 
   if (source === "node_timers" || source === "node_timers_promises") {
-    if (/^clear(?:immediate|interval|timeout)$/u.test(name)) {
+    if (/^clearimmediate$/u.test(name)) {
       return closedSpec(
         "runtime:inspect",
         "WP7",
         "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner.",
       );
+    }
+    if (/^clear(?:interval|timeout)$/u.test(name)) {
+      return nonCapabilitySpec("authority-release", "WP8");
     }
     if (/close|unenroll/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP8");
@@ -12190,12 +12147,15 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   if (/^(?:import|importmodule|require)$/u.test(globalName)) {
     return nonCapabilitySpec("module-reachability-only", "WP7");
   }
-  if (/^(?:clearimmediate|cleartimeout|clearinterval)$/u.test(globalName)) {
+  if (/^clearimmediate$/u.test(globalName)) {
     return closedSpec(
       "runtime:inspect",
       "WP7",
       "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner.",
     );
+  }
+  if (/^clear(?:timeout|interval)$/u.test(globalName)) {
+    return nonCapabilitySpec("authority-release", "WP8");
   }
   if (
     /^(?:queuemicrotask|settimeout|setinterval|setimmediate|cleartimeout|clearinterval|clearimmediate)$/u.test(
@@ -13485,11 +13445,7 @@ function classifyConcreteSurface(surface) {
     });
   }
   if (/^exacttimer(?:ref|unref)$/u.test(name)) {
-    return closedSpec(
-      "runtime:inspect",
-      "WP7",
-      "Timer ref-state mutation accepts a process-global sequential identifier without authenticating the timer owner.",
-    );
+    return nonCapabilitySpec("authority-control-plane", "WP8");
   }
   if (/^exacttlsownertoken$/u.test(name)) {
     return nonCapabilitySpec("authority-control-plane", "WP8");

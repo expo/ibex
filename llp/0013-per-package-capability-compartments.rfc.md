@@ -6,6 +6,7 @@
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
 **Revised:** 2026-07-17 (cross-principal authenticated route-cache hits now carry the resolution kind and revalidate the complete immutable-snapshot edge tuple, preventing a warmed SourceId or leaked loader closure from substituting another subpath or CJS/dynamic-import edge to the same locator; same-principal file routes retain exact SourceId ownership authorization)
+**Revised:** 2026-07-17 (ENG-24933 gives Windows its own source-patched Hermes profile and exact builder/installer receipt identity while retaining independent-build and mapped-image blockers; a loader-reported pathname reopen is not mapped-code attestation)
 **Revised:** 2026-07-15 (ENG-25066 made ordinary ESM use authenticated per-principal native records; the legacy chunk path remains only for unsupported interop during the 0.1 window)
 **Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed); 2026-07-03 (adversarial review + fixes — patch 0007 fails closed on the async/deputy attribution boundary (`kNoUserPrincipal` sentinel + internal-bytecode runtime-principal stamp) so a package cannot launder a detached deputy op into trusted root; endowment config injected via `__ibexEndowRaw` not gated `process.env`; explicit `--capsec permissive` distinguished from the `Auto` default; `ceiling_configured` fails closed on lock poison; native deep-freeze per-root try/catch; chunk-basename traversal guard); 2026-07-03 (patch 0008 closes the async deputy-class laundering hole ENG-22631 — the schedule-time principal is captured at `enqueueJob` and appended to the deputy-class stack, so `Promise.resolve(x).then(deputy.method)` under `deputyClasses` is attributed to its scheduler; resolves Open question 3's schedule-time half); 2026-07-03 (deep-review fixes ENG-22681/22682/22683/22684/22621: enforce/audit auto-enable per-package chunking so a bundled dependency is attributed to its own principal, not root — plus a per-key bundle-cache subdir and the shared `rolldown-runtime.js` chunk redirect that makes chunking robust for ESM apps and safe under concurrent runs; path-scoped `fs` grants resolve symlinks before matching, and `lutimes`/`lchmod`/symlink-target/hardlink-source gates close the last path-mutator holes; `IBEX_ENDOW` can no longer widen policy endowments under enforce/audit without `--allow-env-endowments`; the generated policy emits an explicit observed `builtins` allowlist so the import axis is default-deny; and package identity is now version-distinguished end-to-end — `name@version` principals/compartments/chunks with bare-name policy selectors, so coexisting versions receive distinct policy treatment)
 **Revised:** 2026-07-04 (deep-review fixes ENG-22716/ENG-22717/ENG-22718/ENG-22720/ENG-22722: no-follow-final link metadata gates, `access(W_OK)` write gating, caller-referrer dynamic imports, `Bun.which` spawn gating, and native server/socket network gates)
@@ -18,7 +19,7 @@
 **Revised:** 2026-07-12 (ENG-24263 retirement reconciliation: the legacy binary policy suite and its string-policy fixtures were removed; every former case is mapped to a live named revision-2 test, production closure, or an explicitly migrated compatibility regression in `tests/fixtures/capsec-rev2/llp0013-retirement-map.json`)
 **Revised:** 2026-07-12 (ENG-24463 isolates post-bootstrap global property bindings and existence: native bootstrap installs a closure-private registry, the selected runtime path performs a required one-shot baseline refresh, package reads resolve against that detached view, and package lookup/binding failures refuse rather than falling back to the real global; ENG-24526 adds exact-importer lexical scope imports and strict flat chunks; shared nested descriptor values and all-free flat rewriting remain explicit follow-ups ENG-24514 and ENG-24527)
 **Revised:** 2026-07-13 (`allowed_hosts` remains a hard outbound fence but no longer conflates remote-host policy with local `network:listen` authority — ENG-24285)
-**Revised:** 2026-07-15 (Hermes profile receipts are checked against the exact checked-in source/package authorities, and post-probe engine identity verification reopens and re-hashes the mapped factory object rather than accepting the immutable pre-probe identity cache)
+**Revised:** 2026-07-15 (Hermes profile receipts are checked against the exact checked-in source/package authorities, and post-probe engine identity verification reopens and re-hashes the current artifact rather than accepting the immutable pre-probe identity cache; supported Unix targets also bind its file object to the factory mapping, while Windows remains path-based and blocked from promotion)
 **Revised:** 2026-07-15 (the carried Hermes series now uses full pre/post blob and mode identities; application verifies every sequential transition and final tree through an isolated temporary index before mutating the build checkout)
 **Revised:** 2026-07-15 (the Darwin/Linux source builders and prebuilt installer now share one kernel-backed cross-entrypoint cache lock; builders hard-reset and clean the complete build-owned source checkout before patch verification, and source cache/asset/receipt keys bind every receipt authority: both builders, patch application, and shared identity derivation)
 **Revised:** 2026-07-15 (prebuilt release mirrors were separated from the fixed `ccheever/ibex` attestation repository, signer-workflow, and `refs/heads/main` source-ref authority)
@@ -757,12 +758,17 @@ no stale-owner heuristic: kernel close-on-exit makes the next waiter eligible.
 The stable lock inode is never unlinked, eliminating owner-publication,
 quarantine, and three-party rename races. The lock coordinates these
 entrypoints; a same-uid process that deliberately ignores it is not a supported
-concurrent cache writer. Before patch replay,
-each builder hard-resets the real index to the selected commit and runs a
-whole-checkout ignored/untracked clean. Retained `build_*`, `destroot`, staged,
-or unrelated untracked state therefore cannot enter patch verification or the
-compile `[observed]` (`scripts/hermes-version.sh`; `scripts/build-hermes.sh`;
-`scripts/build-hermes-linux.sh`; `scripts/download-hermes.sh`;
+concurrent cache writer. The Windows source builder and installer use the same
+ownership model through a stable file opened with `FileShare.None`: the builder
+holds it across checkout through receipt and publication, while the installer
+joins it for installed-state checks and publication and releases it before
+delegating to the builder. Before patch replay, each builder hard-resets the
+real index to the selected commit and runs a whole-checkout ignored/untracked
+clean. Retained `build_*`, `destroot`, staged, ignored, or unrelated untracked
+state therefore cannot enter patch verification or the compile `[observed]`
+(`scripts/hermes-version.sh`; `scripts/build-hermes.sh`;
+`scripts/build-hermes-linux.sh`; `scripts/build-hermes-windows.ps1`;
+`scripts/download-hermes.sh`; `scripts/install-windows-hermes.ps1`;
 `scripts/hermes-build-lock.test.sh`).
 
 ### Artifact provenance and remaining trust boundaries
@@ -772,12 +778,12 @@ the separately linked React Android JSI AAR. The installer verifies those
 pins before extraction, its per-ABI receipt binds `libhermesvm.so` and
 `libjsi.so`, and `build.rs` re-hashes both files selected for linking. Before
 embedding a receipt, `build.rs` also reconstructs the reviewed Android,
-Windows, or source-patched identity from the checked-in package pins, source
-pin, patch stack, patch application/identity helpers, and platform build
-scripts. It requires an exact closed identity object and verifies that the
-receipt's package coordinates, digests, signature authority, linked dependency,
-and source cache key agree with those authorities. Each platform source cache
-key binds the pinned commit, patch-stack digest, **both** platform-builder
+Windows, or source-patched identity from the checked-in package pins or source
+pin, patch stack, patch application/identity helpers, and platform build and
+installer scripts. It requires an exact closed identity object and verifies
+that Android package facts, Darwin/Linux source cache keys, and Windows source
+build configuration agree with those authorities. Each Darwin/Linux source
+cache key binds the pinned commit, patch-stack digest, **both** platform-builder
 digests, patch-application-authority digest, patch-identity-authority digest,
 and an explicit target marker; the same key names a published release asset and
 is rechecked before installation. Ordinary changes to those keyed authorities
@@ -787,21 +793,27 @@ identity, so a prefix collision or a reviewed metadata change not represented
 in the abbreviated cache name rejects rather than accepting stale bytes. (The
 enclosing release tag remains the coarser commit + patch-stack artifact family.) An arbitrary object labeled
 `reviewedProfileIdentity` is not evidence. The
-Windows profile pins the NuGet package SHA-512, requires `dotnet nuget verify
---all` for its repository signature, and binds both the selected `hermes.dll`
-and `hermes.lib` in the receipt. `build.rs` rejects alternate import-library
+Windows profile is a pinned, patched, no-debugger Release source build. Its
+asset name binds patch-application and patch-identity authority prefixes plus
+the builder and installer Git blobs, its build manifest binds the exact
+builder content, and its receipt retains and validates the full source pin,
+patch stack, patch-application/identity, builder, and installer digests. The receipt
+binds both the selected `hermesvm.dll` and `hermes.lib`; `build.rs`
+independently reconstructs the full reviewed identity, rejects alternate
+import-library
 names, captures the validated import-library bytes into a content-addressed
 build path under a digest-unique filename, and emits both an absolute link
 argument for Ibex-owned binaries and a verbatim native-library dependency that
 propagates through the runtime `rlib` to downstream embedders. No linker may
-re-resolve a bare library name. These package authorities are source-reviewed inputs rather than
-checksums fetched opportunistically during installation `[observed]`
+re-resolve a bare library name. These authorities are source-reviewed inputs
+rather than checksums fetched opportunistically during installation
+`[observed]`
 (`scripts/hermes-version.sh`; `scripts/install-android-hermes.sh`;
 `scripts/install-windows-hermes.ps1`; `build.rs`).
 
-Published macOS/Linux source bundles carry GitHub build-provenance
-attestations, and the downloader constrains verification to this repository's
-`hermes-artifacts.yml` signer workflow before installation.
+Published macOS/Linux/Windows source bundles carry GitHub build-provenance
+attestations, and the platform installers constrain verification to this
+repository's `hermes-artifacts.yml` signer workflow before installation.
 `IBEX_HERMES_ARTIFACT_REPO` may redirect release-byte transport to a mirror,
 but attestation lookup and signer identity remain fixed to
 `ccheever/ibex/.github/workflows/hermes-artifacts.yml` on
@@ -811,8 +823,9 @@ branch cannot become build-authority control. A dynamic Linux
 cannot be authenticated as a standalone mapped object. These improvements do
 not close the structural account by themselves: local/forced source builds do
 not yet carry an independent attestation, runtime evidence does not yet
-authenticate the separately loaded Android JSI image, and Windows lacks the
-mapped-object verifier. The conformance ledger preserves those limitations as
+authenticate the separately loaded Android JSI image, and the Windows
+loader-reported pathname is reopened rather than retaining identity for the
+actual mapped image section. The conformance ledger preserves those limitations as
 named blockers rather than treating an installer receipt as loaded-page or
 target-record proof. Within the supported mapped-object profiles, the initial
 loaded-engine identity remains the immutable pre-probe expectation, while each

@@ -1,7 +1,7 @@
 {
   "outputDispositionDatasetSchema": "ibex/capsec-output-dispositions/2",
   "profile": "ibex/capsec/1",
-  "catalogKeyDigest": "sha256-MisdO-TulHpe0mLw33pVBRtDVnh85Je8jF3iVz0ZbUU",
+  "catalogKeyDigest": "sha256-pfKwYtRvBNs7G4wx_GOS9cQvQ0rYDmcxdWne7tiG4nM",
   "evidence": {
     "status": "unpromotable",
     "reason": "The output corpus remains unpromotable: three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes both account families; compiled registrar coverage proves only surface-account provenance and cannot satisfy either live-value requirement."
@@ -59488,91 +59488,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.native.op.exactaccessibilitystate.09y1rng",
-        "output": "[[value]]",
-        "alias": "__exactAccessibilityState",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-        "output": "[[value]]",
-        "alias": "__exactAccessibilityState.changeTimer",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-        "output": "[[value]]",
-        "alias": "__exactAccessibilityState.eventListeners",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-        "output": "[[value]]",
-        "alias": "__exactAccessibilityState.listeners",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
-        "output": "[[value]]",
-        "alias": "__exactAccessibilityState.snapshot",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
         "surfaceId": "surface.native.op.exactaescbcdecrypt.12v0if3",
         "output": "[[return]]",
         "alias": "__exactAesCbcDecrypt",
@@ -60950,23 +60865,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.native.op.exactentryfileconsumed.02ku0kb",
-        "output": "[[value]]",
-        "alias": "__exactEntryFileConsumed",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
         "surfaceId": "surface.native.op.exactevpcipherdecrypt.0ig36oe",
         "output": "[[return]]",
         "alias": "__exactEvpCipherDecrypt",
@@ -61076,159 +60974,6 @@
         "sourceKind": "native-op",
         "returnVariant": "default",
         "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsDefineOK",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionserror.19l9hx8",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsError",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionsfixran.05o62vy",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsFixRan",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionsnewprotook.03htkto",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsNewProtoOK",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionsobj.0blhx7r",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsObj",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsOpenssl",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsOpensslAfter",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionsprotook.1q93zhu",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsProtoOK",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactfinalversionssame.0n8ritg",
-        "output": "[[value]]",
-        "alias": "__exactFinalVersionsSame",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -62045,23 +61790,6 @@
         "sourceKind": "native-op",
         "returnVariant": "default",
         "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb",
-        "output": "[[value]]",
-        "alias": "__exactHasDecompressionUnhandledFilter",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -62905,91 +62633,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.native.op.exactlocalestate.0bxrb04",
-        "output": "[[value]]",
-        "alias": "__exactLocaleState",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-        "output": "[[value]]",
-        "alias": "__exactLocaleState.changeTimer",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-        "output": "[[value]]",
-        "alias": "__exactLocaleState.listeners",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactlocalestate.override.0ovx5qm",
-        "output": "[[value]]",
-        "alias": "__exactLocaleState.override",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactlocalestate.snapshot.02mz88i",
-        "output": "[[value]]",
-        "alias": "__exactLocaleState.snapshot",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
         "surfaceId": "surface.native.op.exactlstat.1c98s6l",
         "output": "[[return]]",
         "alias": "__exactLstat",
@@ -63184,227 +62827,6 @@
         "sourceKind": "native-op",
         "returnVariant": "default",
         "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.1cmr92m",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.lastLoggedHeapUsed",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.nextSampleId",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.options.1i8ok66",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.options",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.options.includeExpensive",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.options.includeGCStats",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.options.intervalMs",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.options.logEvery",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.options.logOnGrowthBytes",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.options.maxSamples",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.sampleCount",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.samples",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactmemorydebugstate.timer.1it6pzl",
-        "output": "[[value]]",
-        "alias": "__exactMemoryDebugState.timer",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -68056,40 +67478,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.native.op.exactprocesscompatfixran.0tw23io",
-        "output": "[[value]]",
-        "alias": "__exactProcessCompatFixRan",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49",
-        "output": "[[value]]",
-        "alias": "__exactProcessCompatFixSawProcess",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
         "surfaceId": "surface.native.op.exactprocessipcbootstrap.1f8twb6",
         "output": "[[value]]",
         "alias": "__exactProcessIpcBootstrap",
@@ -68165,23 +67553,6 @@
         "sourceKind": "native-op",
         "returnVariant": "default",
         "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88",
-        "output": "[[value]]",
-        "alias": "__exactReadableStreamCompatIteratorPatchScheduled",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -70307,23 +69678,6 @@
         "sourceKind": "native-op",
         "returnVariant": "default",
         "contextId": "runtime.bootstrap-native-call-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.exactuveofvalue.0l8d7x9",
-        "output": "[[value]]",
-        "alias": "__exactUvEOFValue",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
       },
       "disposition": "non-path",
       "expectation": {
@@ -108567,108 +107921,6 @@
     },
     {
       "key": {
-        "surfaceId": "surface.native.op.originalpromise.01mfxkq",
-        "output": "[[value]]",
-        "alias": "__OriginalPromise",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.prototype.14wln5e",
-        "output": "[[value]]",
-        "alias": "__OriginalPromise.prototype",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-property-read-loaded"
-      },
-      "disposition": "non-path",
-      "expectation": {
-        "outcome": "return",
-        "normalizedValue": "non-path"
-      },
-      "rationale": "Reviewed source-inventory output over the exact pinned catalog; no path-bearing semantics are assigned unless an explicit override below records them."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-        "output": "[[return]]",
-        "alias": "__OriginalPromise.prototype.catch",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "Native rejection tracking makes the compatibility-only saved Promise constructor absent in the armed profile, including its catch method."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-        "output": "[[return]]",
-        "alias": "__OriginalPromise.prototype.finally",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "Native rejection tracking makes the compatibility-only saved Promise constructor absent in the armed profile, including its finally method."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.prototype.then.01yci6j",
-        "output": "[[return]]",
-        "alias": "__OriginalPromise.prototype.then",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "Native rejection tracking makes the compatibility-only saved Promise constructor absent in the armed profile, including its then method."
-    },
-    {
-      "key": {
-        "surfaceId": "surface.native.op.originalpromise.reject.1nmizxj",
-        "output": "[[return]]",
-        "alias": "__OriginalPromise.reject",
-        "mode": "all",
-        "sourceKind": "native-op",
-        "returnVariant": "default",
-        "contextId": "javascript.package-call-loaded"
-      },
-      "disposition": "absent",
-      "expectation": {
-        "outcome": "absent",
-        "normalizedValue": "absent"
-      },
-      "rationale": "Native rejection tracking makes the compatibility-only saved Promise constructor absent in the armed profile, including its reject method."
-    },
-    {
-      "key": {
         "surfaceId": "surface.native.op.stringbuffer.05y6skt",
         "output": "[[return]]",
         "alias": "__StringBuffer",
@@ -109519,12 +108771,12 @@
     }
   ],
   "counts": {
-    "catalogRows": 6441,
-    "dispositionRows": 6441,
+    "catalogRows": 6397,
+    "dispositionRows": 6397,
     "byDisposition": {
-      "absent": 156,
+      "absent": 152,
       "closed": 28,
-      "non-path": 6109,
+      "non-path": 6069,
       "private-native-path": 5,
       "refused": 12,
       "reserved-constant": 1,

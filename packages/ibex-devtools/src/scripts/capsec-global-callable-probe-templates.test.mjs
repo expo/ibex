@@ -647,12 +647,15 @@ describe("source-bound global callable recipes", () => {
       Object.entries(Object.groupBy(recipes, (recipe) => recipe.route.operation))
         .map(([kind, rows]) => [kind, rows.length]),
     );
-    expect(recipes).toHaveLength(880);
+    // Timer cancellation is exercised through its owner-authenticated native
+    // route; the generic callable partition keeps both global aliases explicit
+    // but unexercisable so it cannot double-claim that evidence.
+    expect(recipes).toHaveLength(882);
     expect(counts).toEqual({
       call: 633,
       construct: 9,
       get: 4,
-      unexercisable: 234,
+      unexercisable: 236,
     });
   }, 30_000);
 });

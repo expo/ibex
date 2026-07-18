@@ -53,6 +53,10 @@ g.__exactTcpLocalAddr = () => JSON.stringify({ address: '127.0.0.1', port: 0, fa
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const net = require('../../../src/builtins/net.js');
 
+test('keeps the libuv EOF sentinel off globalThis', () => {
+  expect('__exactUvEOFValue' in g).toBe(false);
+});
+
 beforeEach(() => {
   currentNetPrincipal = 1;
   g.__exactTcpConnect = () => 1;

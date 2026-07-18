@@ -388,6 +388,12 @@ fn retained_http_response_owner_check_is_captured_and_revocation_safe() {
         server_state.contains("ownerStamp: _httpNetOwnerHost ? _httpNetOwnerHost('new') : null")
     );
 
+    assert_eq!(
+        http_js.matches("_httpNetOwnerHost('new')").count(),
+        2,
+        "ServerResponse and http.Server each need a fresh-owner construction path"
+    );
+
     let create_response = function_body(&http_js, "function _createServerResponse(");
     assert!(create_response.contains("serverState ? serverState.ownerStamp : null"));
     assert!(create_response.contains("_httpInternalResponseConstructionKey"));

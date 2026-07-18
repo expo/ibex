@@ -8,25 +8,62 @@ const FIXTURE_COMMAND: [&str; 10] = [
     "--bin",
     "ibex",
     "--features",
-    "capsec-conformance-observer",
+    "capsec-conformance-observer,openssl-crypto",
     "capsec_exact_fixture_evidence_batch",
     "--",
     "--test-threads=1",
     "--nocapture",
 ];
 
-// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — only
-// these independently executed Exact mechanisms earn pilot fixture credit.
-const EXACT_FIXTURE_PILOT_TERMINALS: [&str; 9] = [
-    "callback:exact-host-call-async-resolve",
-    "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
-    "host-abi:ex_hermes_resolve_exact_host_call",
-    "host-abi:ex_hermes_set_exact_host_call_async",
-    "host-abi:ex_host_authorize_exact_endowment",
-    "host-abi:ex_host_build_exact_armed_embedder_artifacts",
-    "host-abi:ex_host_prepare_armed_embedder_artifacts",
-    "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
-    "native-op:global:exact.invokeHostAsync",
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — this
+// is the reviewed Exact fixture pilot, not every scenario later promoted on
+// the same surfaces. Keep it aligned with the independent JS binding builder.
+const EXACT_PILOT_EXPECTATIONS: [(&str, &str, &str); 9] = [
+    (
+        "callback:exact-host-call-async-resolve",
+        "non-capability",
+        "exact-host-call-round-trip",
+    ),
+    (
+        "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
+        "non-capability",
+        "exact-host-call-round-trip",
+    ),
+    (
+        "host-abi:ex_hermes_resolve_exact_host_call",
+        "non-capability",
+        "exact-host-call-round-trip",
+    ),
+    (
+        "host-abi:ex_hermes_set_exact_host_call_async",
+        "non-capability",
+        "exact-endowment-install",
+    ),
+    (
+        "host-abi:ex_host_authorize_exact_endowment",
+        "non-capability",
+        "exact-endowment-authorize",
+    ),
+    (
+        "host-abi:ex_host_build_exact_armed_embedder_artifacts",
+        "non-capability",
+        "exact-artifact-prepare-round-trip",
+    ),
+    (
+        "host-abi:ex_host_prepare_armed_embedder_artifacts",
+        "non-capability",
+        "exact-artifact-prepare-round-trip",
+    ),
+    (
+        "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
+        "non-capability",
+        "exact-artifact-prepare-round-trip",
+    ),
+    (
+        "native-op:global:exact.invokeHostAsync",
+        "closed",
+        "exact-unendowed-operation",
+    ),
 ];
 
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
@@ -98,31 +135,10 @@ fn compiled_target_triple() -> String {
     }
 }
 
-fn expected_exact_mechanism(recipe: &serde_json::Value) -> &'static str {
-    let terminal = recipe["terminalObservedKey"]
+fn recipe_mechanism(recipe: &serde_json::Value) -> Option<&str> {
+    recipe["publicSurfaceProbe"]["invocation"]["sourceDescriptor"]["executionMechanism"]
         .as_str()
-        .expect("Exact recipe has no terminal observed key");
-    match terminal {
-        "callback:exact-host-call-async-resolve"
-        | "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
-        | "host-abi:ex_hermes_resolve_exact_host_call" => "exact-host-call-round-trip",
-        "host-abi:ex_hermes_set_exact_host_call_async" => "exact-endowment-install",
-        "host-abi:ex_host_authorize_exact_endowment" => "exact-endowment-authorize",
-        "host-abi:ex_host_build_exact_armed_embedder_artifacts"
-        | "host-abi:ex_host_prepare_armed_embedder_artifacts"
-        | "host-abi:ex_host_prepare_exact_armed_embedder_artifacts" => {
-            "exact-artifact-prepare-round-trip"
-        }
-        "native-op:global:exact.invokeHostAsync" => "exact-unendowed-operation",
-        other => panic!("unsupported Exact pilot terminal {other}"),
-    }
-}
-
-fn is_exact_fixture_pilot_recipe(recipe: &serde_json::Value) -> bool {
-    recipe["status"] == "fully-executable"
-        && recipe["terminalObservedKey"]
-            .as_str()
-            .is_some_and(|terminal| EXACT_FIXTURE_PILOT_TERMINALS.contains(&terminal))
+        .or_else(|| recipe["publicSurfaceProbe"]["invocation"]["operation"]["kind"].as_str())
 }
 
 fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
@@ -143,46 +159,84 @@ fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
         .as_array()
         .expect("recipe catalog has no recipes")
         .iter()
-        .filter(|recipe| is_exact_fixture_pilot_recipe(recipe))
+        .filter(|recipe| {
+            EXACT_PILOT_EXPECTATIONS
+                .iter()
+                .any(|(terminal, scenario, mechanism)| {
+                    recipe["terminalObservedKey"].as_str() == Some(*terminal)
+                        && recipe["scenario"].as_str() == Some(*scenario)
+                        && recipe["status"] == "fully-executable"
+                        && recipe_mechanism(recipe) == Some(*mechanism)
+                })
+        })
         .cloned()
         .collect::<Vec<_>>();
     recipes.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     assert_eq!(
         recipes.len(),
-        EXACT_FIXTURE_PILOT_TERMINALS.len(),
-        "Exact fixture pilot must contain nine recipes"
-    );
-    let actual_terminals = recipes
-        .iter()
-        .map(|recipe| {
-            recipe["terminalObservedKey"]
-                .as_str()
-                .expect("Exact recipe has no terminal observed key")
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let expected_terminals = EXACT_FIXTURE_PILOT_TERMINALS
-        .iter()
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(
-        actual_terminals, expected_terminals,
-        "Exact fixture pilot must contain exactly one recipe for every terminal"
+        EXACT_PILOT_EXPECTATIONS.len(),
+        "Exact fixture pilot must contain one recipe for every reviewed surface"
     );
     for recipe in &recipes {
         assert_eq!(recipe["status"], "fully-executable");
-        let mechanism = if recipe["scenario"] == "closed" {
-            recipe["publicSurfaceProbe"]["invocation"]["operation"]["kind"]
-                .as_str()
-                .expect("closed Exact recipe has no mechanism")
-        } else {
-            assert_eq!(recipe["scenario"], "non-capability");
-            recipe["publicSurfaceProbe"]["invocation"]["sourceDescriptor"]["executionMechanism"]
-                .as_str()
-                .expect("callback Exact recipe has no mechanism")
-        };
-        assert_eq!(mechanism, expected_exact_mechanism(recipe));
+        assert!(EXACT_PILOT_EXPECTATIONS
+            .iter()
+            .any(|(terminal, scenario, mechanism)| {
+                recipe["terminalObservedKey"].as_str() == Some(*terminal)
+                    && recipe["scenario"].as_str() == Some(*scenario)
+                    && recipe_mechanism(recipe) == Some(*mechanism)
+            }));
     }
     recipes
+}
+
+#[test]
+fn exact_recipe_selection_excludes_promoted_sibling_scenarios() {
+    let mut recipes = EXACT_PILOT_EXPECTATIONS
+        .iter()
+        .enumerate()
+        .map(|(index, (terminal, scenario, mechanism))| {
+            let invocation = if *scenario == "closed" {
+                serde_json::json!({ "operation": { "kind": mechanism } })
+            } else {
+                serde_json::json!({
+                    "sourceDescriptor": { "executionMechanism": mechanism }
+                })
+            };
+            serde_json::json!({
+                "fixtureId": format!("fixture.exact-pilot-{index}"),
+                "terminalObservedKey": terminal,
+                "scenario": scenario,
+                "status": "fully-executable",
+                "publicSurfaceProbe": { "invocation": invocation },
+            })
+        })
+        .collect::<Vec<_>>();
+    recipes.push(serde_json::json!({
+        "fixtureId": "fixture.promoted-sibling",
+        "terminalObservedKey": EXACT_PILOT_EXPECTATIONS[0].0,
+        "scenario": "attribution-missing-deny",
+        "status": "fully-executable",
+        "publicSurfaceProbe": {
+            "invocation": {
+                "sourceDescriptor": {
+                    "executionMechanism": "scheduled-public-attribution-guard"
+                }
+            }
+        },
+    }));
+    let mut catalog = serde_json::json!({
+        "recipeCatalogSchema": "ibex/capsec-executable-recipes/1",
+        "recipes": recipes,
+    });
+    catalog["recipeCatalogDigest"] = serde_json::Value::String(tagged_jcs_digest(&catalog));
+
+    let selected = exact_recipes(&catalog);
+
+    assert_eq!(selected.len(), EXACT_PILOT_EXPECTATIONS.len());
+    assert!(selected
+        .iter()
+        .all(|recipe| recipe["fixtureId"] != "fixture.promoted-sibling"));
 }
 
 fn validate_binding(
@@ -264,32 +318,23 @@ fn validate_binding(
         .as_array()
         .expect("Exact fixture binding has no plans")
         .clone();
-    assert_eq!(plans.len(), EXACT_FIXTURE_PILOT_TERMINALS.len());
+    assert_eq!(plans.len(), EXACT_PILOT_EXPECTATIONS.len());
     (execution_binding, binding_digest, plans)
 }
 
 #[test]
 fn exact_fixture_pilot_terminal_contract_includes_both_exact_artifact_abis() {
-    assert_eq!(EXACT_FIXTURE_PILOT_TERMINALS.len(), 9);
+    assert_eq!(EXACT_PILOT_EXPECTATIONS.len(), 9);
     for terminal in [
         "host-abi:ex_host_build_exact_armed_embedder_artifacts",
         "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
     ] {
-        assert!(EXACT_FIXTURE_PILOT_TERMINALS.contains(&terminal));
-        assert!(is_exact_fixture_pilot_recipe(&serde_json::json!({
-            "status": "fully-executable",
-            "terminalObservedKey": terminal,
-        })));
-        assert!(!is_exact_fixture_pilot_recipe(&serde_json::json!({
-            "status": "unresolved",
-            "terminalObservedKey": terminal,
-        })));
-        assert_eq!(
-            expected_exact_mechanism(&serde_json::json!({
-                "terminalObservedKey": terminal,
-            })),
-            "exact-artifact-prepare-round-trip"
-        );
+        let (_, scenario, mechanism) = EXACT_PILOT_EXPECTATIONS
+            .iter()
+            .find(|(candidate, _, _)| *candidate == terminal)
+            .expect("reviewed Exact artifact ABI must remain in the pilot");
+        assert_eq!(*scenario, "non-capability");
+        assert_eq!(*mechanism, "exact-artifact-prepare-round-trip");
     }
 }
 

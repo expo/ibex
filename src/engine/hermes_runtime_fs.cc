@@ -6210,6 +6210,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto path = args[0].toString(runtime).utf8(runtime);
         if (ex_host_is_armed() == 1) {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution —
+          // Filesystem metadata is authorized as fs:list and read from the
+          // retained target, never from a later path lookup.
           auto resolvedPath = exactResolveVfsPath(runtime, path);
           auto descriptors = openArmedListTarget(
               runtime, resolvedPath.backing, resolvedPath.virtualPath,

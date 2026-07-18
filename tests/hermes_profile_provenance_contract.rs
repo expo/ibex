@@ -59,14 +59,6 @@ fn android_receipt(root: &Path) -> Value {
 
 fn windows_receipt(root: &Path) -> Value {
     let reviewed = hermes_profile_provenance::reviewed_profile_identity(root, "windows").unwrap();
-    let coordinate = format!(
-        "{}:{}",
-        reviewed["artifact"].as_str().unwrap(),
-        reviewed["version"].as_str().unwrap()
-    );
-    let service_index = reviewed["repositorySignature"]["serviceIndex"]
-        .as_str()
-        .unwrap();
     json!({
         "linkArtifact": {
             "binaryDigest": "sha256-placeholder",
@@ -74,15 +66,9 @@ fn windows_receipt(root: &Path) -> Value {
             "targetArchitecture": "x86_64",
         },
         "origin": {
-            "kind": "nuget-package",
-            "packageCoordinate": coordinate,
-            "packageDigest": reviewed["packageDigest"],
-            "packageRepository": service_index,
-            "packageSignature": {
-                "kind": "nuget-repository-signature",
-                "serviceIndex": service_index,
-                "verification": "dotnet-nuget-verify-all",
-            },
+            "configuration": "Release",
+            "debugger": false,
+            "kind": "source-patched-build",
             "reviewedProfileIdentity": reviewed,
         }
     })
@@ -109,7 +95,7 @@ fn exact_checked_in_profile_authorities_are_accepted() {
         &root,
         &windows_receipt(&root),
         "windows",
-        "hermes.dll",
+        "hermesvm.dll",
     )
     .unwrap();
 }
@@ -125,7 +111,7 @@ fn current_installer_receipt_is_accepted_when_the_build_supplies_one() {
     let target_os = match receipt["profileId"].as_str().unwrap() {
         "source-patched" => "macos",
         "android-maven" => "android",
-        "windows-nuget" => "windows",
+        "windows-source-patched" => "windows",
         profile => panic!("unknown Hermes profile fixture {profile}"),
     };
     let selected_file_name = receipt["artifact"]["fileName"].as_str().unwrap();
@@ -144,7 +130,7 @@ fn empty_stale_and_extra_field_reviewed_identities_are_rejected_for_every_profil
     for (target_os, file_name, receipt) in [
         ("linux", "libhermesvm.so", source_receipt(&root)),
         ("android", "libhermesvm.so", android_receipt(&root)),
-        ("windows", "hermes.dll", windows_receipt(&root)),
+        ("windows", "hermesvm.dll", windows_receipt(&root)),
     ] {
         let mut empty = receipt.clone();
         empty["origin"]["reviewedProfileIdentity"] = json!({});
@@ -243,31 +229,41 @@ fn origin_facts_must_match_the_reviewed_identity_and_build_authority() {
         .contains("package facts")
     );
 
-    let mut windows = windows_receipt(&root);
-    windows["origin"]["packageSignature"]["serviceIndex"] =
-        json!("https://attacker.invalid/v3/index.json");
-    assert!(
-        hermes_profile_provenance::validate_reviewed_profile_identity(
-            &root,
-            &windows,
-            "windows",
-            "hermes.dll",
-        )
-        .unwrap_err()
-        .contains("package/signature facts")
-    );
-    for field in ["packageCoordinate", "packageDigest"] {
+    for (field, value) in [
+        ("configuration", json!("Debug")),
+        ("debugger", json!(true)),
+        ("kind", json!("nuget-package")),
+    ] {
         let mut invalid = windows_receipt(&root);
-        invalid["origin"][field] = json!("fabricated");
+        invalid["origin"][field] = value;
         assert!(
             hermes_profile_provenance::validate_reviewed_profile_identity(
                 &root,
                 &invalid,
                 "windows",
-                "hermes.dll",
+                "hermesvm.dll",
             )
             .unwrap_err()
-            .contains("package/signature facts")
+            .contains("malformed exact fields")
+        );
+    }
+
+    for field in [
+        "sourceBuildAuthorityDigest",
+        "sourceInstallerAuthorityDigest",
+        "patchStackDigest",
+    ] {
+        let mut invalid = windows_receipt(&root);
+        invalid["origin"]["reviewedProfileIdentity"][field] = json!("sha256-fabricated");
+        assert!(
+            hermes_profile_provenance::validate_reviewed_profile_identity(
+                &root,
+                &invalid,
+                "windows",
+                "hermesvm.dll",
+            )
+            .unwrap_err()
+            .contains("checked-in profile authorities")
         );
     }
 }

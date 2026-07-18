@@ -55,6 +55,8 @@ fn write_text(path: &Path, contents: &str) {
 
 fn run_app(tag: &str, app: &str, timeout: Duration) -> AppRun {
     let dir = unique_dir(tag);
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).expect("create isolated home");
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
     cmd.arg("capsec")
@@ -62,6 +64,11 @@ fn run_app(tag: &str, app: &str, timeout: Duration) -> AppRun {
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        // The runtime's bundle cache is intentionally persistent, but this
+        // fresh-process contract must not inherit cache-pruning latency from
+        // unrelated tests or the developer's machine.
+        .env("HOME", &home)
+        .env("XDG_CACHE_HOME", home.join(".cache"))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

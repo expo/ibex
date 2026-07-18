@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-# @ref LLP 0013#upstream-tracking-and-re-derivation — the Darwin/Linux source
-# builders share one kernel-backed lock from pristine checkout through publish.
+# @ref LLP 0013#upstream-tracking-and-re-derivation — every source builder and
+# prebuilt installer holds its platform kernel lock from pristine checkout or
+# validated bundle selection through artifact publication.
 
 set -euo pipefail
 
@@ -209,6 +210,63 @@ assert_pristine_before_patch_replay() {
 
 assert_pristine_before_patch_replay "$SCRIPT_DIR/build-hermes.sh"
 assert_pristine_before_patch_replay "$SCRIPT_DIR/build-hermes-linux.sh"
+
+assert_windows_locked_pristine_publication() {
+    local builder="$SCRIPT_DIR/build-hermes-windows.ps1"
+    local installer="$SCRIPT_DIR/install-windows-hermes.ps1"
+    local lock_line reset_line clean_line apply_line build_line manifest_line
+    local receipt_line publish_line release_line
+    lock_line="$(grep -nF '$buildLock = Enter-HermesSourceBuildLock "build-hermes-windows-$Arch"' "$builder" | cut -d: -f1)"
+    reset_line="$(grep -nF 'git -C $sourceDir reset --hard $checkedOutCommit' "$builder" | cut -d: -f1)"
+    clean_line="$(grep -nF 'git -C $sourceDir clean -fdxq' "$builder" | cut -d: -f1)"
+    apply_line="$(grep -nF '& bash $applyScriptUnix $sourceDirUnix' "$builder" | cut -d: -f1)"
+    build_line="$(grep -nF 'cmake --build $buildDir' "$builder" | cut -d: -f1)"
+    manifest_line="$(grep -nF '$manifest | ConvertTo-Json | Set-Content' "$builder" | cut -d: -f1)"
+    receipt_line="$(grep -nF 'Set-Content -LiteralPath (Join-Path $binDir "hermes-profile-provenance.json")' "$builder" | cut -d: -f1)"
+    publish_line="$(grep -nF 'Remove-Item -LiteralPath $targetRoot' "$builder" | cut -d: -f1)"
+    release_line="$(grep -nF 'Exit-HermesSourceBuildLock $buildLock' "$builder" | cut -d: -f1)"
+    [[ -n "$lock_line" && -n "$reset_line" && -n "$clean_line" \
+        && -n "$apply_line" && -n "$build_line" && -n "$manifest_line" \
+        && -n "$receipt_line" && -n "$publish_line" && -n "$release_line" ]] \
+        || fail "Windows builder omits the locked pristine/publication boundary"
+    (( lock_line < reset_line && reset_line < clean_line && clean_line < apply_line \
+        && apply_line < build_line && build_line < manifest_line \
+        && manifest_line < receipt_line && receipt_line < publish_line \
+        && publish_line < release_line )) \
+        || fail "Windows builder releases its lock before complete artifact publication"
+    grep -Fq '[System.IO.FileShare]::None' "$builder" \
+        || fail "Windows builder lock is not an exclusive OS file handle"
+    grep -Fq 'finally {' "$builder" \
+        || fail "Windows builder lock has no finally release path"
+
+    local check_lock_line check_release_line source_branch_line
+    local installer_publish_line installer_remove_line installer_release_line
+    check_lock_line="$(grep -nF '$installCheckLock = Enter-HermesSourceBuildLock' "$installer" | cut -d: -f1)"
+    check_release_line="$(grep -nF 'Exit-HermesSourceBuildLock $installCheckLock' "$installer" | cut -d: -f1)"
+    source_branch_line="$(grep -nF 'if ($Source -or $env:IBEX_HERMES_FORCE_BUILD -eq "1")' "$installer" | cut -d: -f1)"
+    installer_publish_line="$(grep -nF '$publishLock = Enter-HermesSourceBuildLock' "$installer" | cut -d: -f1)"
+    installer_remove_line="$(grep -nF 'Remove-Item -LiteralPath $targetRoot' "$installer" | cut -d: -f1)"
+    installer_release_line="$(grep -nF 'Exit-HermesSourceBuildLock $publishLock' "$installer" | cut -d: -f1)"
+    [[ -n "$check_lock_line" && -n "$check_release_line" && -n "$source_branch_line" \
+        && -n "$installer_publish_line" && -n "$installer_remove_line" \
+        && -n "$installer_release_line" ]] \
+        || fail "Windows installer omits its shared publication lock"
+    (( check_lock_line < check_release_line && check_release_line < source_branch_line \
+        && source_branch_line < installer_publish_line \
+        && installer_publish_line < installer_remove_line \
+        && installer_remove_line < installer_release_line )) \
+        || fail "Windows installer holds the lock while delegating or publishes outside it"
+
+    grep -Fq 'patchApplicationAuthorityDigest -eq "sha256-$patchApplicationAuthorityDigest"' "$installer" \
+        || fail "Windows installer does not validate the full patch-application authority"
+    grep -Fq 'patchIdentityAuthorityDigest -eq "sha256-$patchIdentityAuthorityDigest"' "$installer" \
+        || fail "Windows installer does not validate the full patch-identity authority"
+    grep -Fq 'windows_asset_key="${identity}-a${patch_application_hex:0:12}-i${patch_identity_hex:0:12}-bw' \
+        "$SCRIPT_DIR/../.github/workflows/hermes-artifacts.yml" \
+        || fail "Windows release asset key omits patch authority prefixes"
+}
+
+assert_windows_locked_pristine_publication
 
 RECEIPT="$TMP/receipt.json"
 printf '{\n  "origin": {\n    "cacheKey": "%s",\n    "kind": "source-patched-cache"\n  }\n}\n' \

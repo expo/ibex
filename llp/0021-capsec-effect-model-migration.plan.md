@@ -8,6 +8,28 @@
 **Revised:** 2026-07-17 (ENG-24578 binds native-public async completion to event-loop quiescence, reconciles retained-path live traces with the source-bound internal observer-stage contract, and keeps armed `mkdtemp` residual because its public entry point remains closed)
 **Revised:** 2026-07-17 (ENG-25062 was reopened after merge-prep review confirmed that graph-link receipts are produced and retained, but production source/cache/prepared-carrier reads do not yet enter the receipt-revalidated access closures; the existing Host edge authentication and exact prepared-byte comparison remain in force without claiming the stronger closure-gated boundary)
 **Revised:** 2026-07-16 (the module-runner safety review classifies exact generated manifest-builtin fan-out as closed private runtime linkage that may be eagerly materialized without a package/filesystem probe, but activation is confined to the exact builtin record's synchronous evaluation and cannot escape or re-enter through a retained `require` closure)
+**Revised:** 2026-07-17 (ENG-24933 versions the conformance cache by the no-debugger build profile and reattests every restored framework before execution)
+**Revised:** 2026-07-17 (ENG-24933 explicitly binds CI artifact selection and wrapper compilation to the Release profile and makes symbol attestation SIGPIPE-safe)
+**Revised:** 2026-07-17 (ENG-24933 binds 33 legacy-bootstrap global paths to physical absence from the armed shared runtime without dereferencing missing roots)
+**Revised:** 2026-07-17 (ENG-24933 binds all nine debugger ABI functions and their nine native-operation facets to physical null/zero/no-event results on the exact no-debugger Apple artifact)
+**Revised:** 2026-07-17 (ENG-24933 binds all 106 source and alias facets of the terminal `async_hooks`, inspector, VM, WASI, and worker-thread builtins to loaded-engine denial of every public alias under an authenticated overbroad snapshot)
+**Revised:** 2026-07-17 (ENG-24933 completes a source-, tree-, engine-, target-, and catalog-bound physical Apple Release report with 24/24 prerequisite commands passing; the report remains fail-closed with 1 conformant cell, 7,107 incomplete cells, and no advertisement)
+**Revised:** 2026-07-17 (ENG-24933 implements a pinned patched no-debugger Windows Release artifact pipeline and a loader-path reopen check while retaining independent-build and mapped-image provenance blockers)
+**Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
+**Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
+**Revised:** 2026-07-17 (ENG-24933 credits nine bounded authority-control refusals and the post-capture absence of the loader-private manifest resolver)
+**Revised:** 2026-07-17 (ENG-24933 credits six owner-authenticated refusals for unknown retained HTTP server and spawned-process identifiers)
+**Revised:** 2026-07-17 (ENG-24933 credits synchronous and asynchronous filesystem close through harness-owned, source-bound descriptors)
+**Revised:** 2026-07-17 (ENG-24933 credits two incomplete authority-call refusals and the exact invalid spawned-process handle refusal)
+**Revised:** 2026-07-17 (ENG-24933 proves immutable module-level intrinsic receivers in builtin routes, removing 404 false ambiguous-route residuals without promoting unexecuted fixtures)
+**Revised:** 2026-07-17 (ENG-24933 authenticates timer cancellation and ref-state mutation to the retained timer owner, replacing four closed native/global rows with eight executable non-capability and invariant recipes)
+**Revised:** 2026-07-17 (ENG-24933 credits 29 exact module-runner executions: four loader/source-acquisition surfaces, 24 native ABI lifecycle surfaces, and one armed namespace-inspection closure)
+**Revised:** 2026-07-16 (ENG-24933 removes thirteen closed memory-debug implementation surfaces by capturing diagnostic state behind its deliberate API)
+**Revised:** 2026-07-16 (ENG-24933 removes ten closed internal locale/accessibility state surfaces by retaining mutable state in module singletons)
+**Revised:** 2026-07-16 (ENG-24933 completes malformed, missing-attribution, and wrong-principal scenarios for bounded loopback TCP connect)
+**Revised:** 2026-07-16 (ENG-24933 completes thirty-six malformed, missing-attribution, and wrong-principal scenarios for system information, environment, and stdout)
+**Revised:** 2026-07-16 (ENG-24933 closes twelve malformed, missing-attribution, and wrong-principal scenarios for retained metadata and whole-file reads)
+**Revised:** 2026-07-16 (ENG-24933 binds direct `statfs` metadata to retained typed `fs:list` authorization and closes five exact public scenarios)
 **Revised:** 2026-07-16 (ENG-24933 binds asynchronous `chmod` and `utime` to retained files, repeats authorization on the worker, and closes twelve exact public scenarios with owned cleanup)
 **Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the Exact-bound artifact preparer while preserving empty advertisements)
 **Revised:** 2026-07-15 (ENG-25062 registered the module-runner factory, record, CJS-to-ESM edge, generation-lease, and compatibility-marker surfaces as closed non-capability control-plane operations)
@@ -599,7 +621,7 @@ must be promoted only from the checked conformance report. Missing artifacts,
 wrong targets, identity or registry mismatches, fixed/stale nonces, replayed
 input, and unadvertised rows all remain startup refusals.
 
-Implementation status (2026-07-16): the dedicated binary app/agent ingress and
+Implementation status (2026-07-17): the dedicated binary app/agent ingress and
 single-use completion path exist and are usable by an armed runtime without
 making `__hostCall` reachable. Its setter publishes an immutable method on the
 stable pre-captured `exact` object and atomically completes the one-shot package
@@ -620,22 +642,54 @@ checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed residualized catalog has 23,658
-required fixtures, 1,663 fully executable recipes, 11,530 adapter-executable
-recipes, and 21,995 unresolved fixtures. Generic callback/control-plane carriers
-remain residual unless the selected branch is authenticated; nine exact embedder
-mechanisms execute through their dedicated artifact-bound routes. The latest
-source-bound tranche adds five cached system-information
-authorization scenarios and twelve asynchronous path-operation scenarios for
-the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime` scenarios,
-plus five zlib stream lifecycle recipes, eleven TLS lifecycle recipes, and a
-principal-owned network stamp recipe. The resource recipes create, exercise,
-and release their runtime/principal-owned native state in one bounded
-invocation. Fourteen Linux/Android-only
+advertisements remain incomplete. The refreshed merged catalog has 23,859
+required fixtures, 2,079 fully executable recipes, 11,645 adapter-executable
+recipes, and 21,780 unresolved fixtures. The latest source-bound tranches add
+33 armed shared-runtime global
+absence recipes, 18 physical no-debugger ABI closure recipes, 106
+terminal-builtin closure recipes, four
+loader/source-acquisition recipes, 24 native module-runner ABI
+lifecycle recipes, one armed namespace-inspection closure, 14 asymmetric/EVP
+crypto recipes, eight
+owner-authenticated timer-control recipes, nine bounded authority-control
+refusals, six retained HTTP/process owner refusals, two owned filesystem-close
+executions, three incomplete/invalid authority-control refusals, one loader-private
+post-capture absence, five cached
+system-information authorization scenarios and twelve asynchronous path-operation scenarios for
+the `readdir` and `realpath` branches, twelve retained-file `chmod`/`utime`
+scenarios, five retained-target direct `statfs` scenarios, twelve complete
+malformed/attribution/principal scenarios for retained metadata and whole-file
+reads, thirty-six complete malformed/attribution/principal scenarios for system
+information, environment, and stdout, three complete adversarial loopback TCP
+connect scenarios, plus five zlib stream lifecycle recipes, eleven TLS lifecycle
+recipes, and a principal-owned network stamp recipe. Ten internal locale and
+accessibility state-object surfaces no longer exist: normalized mutable state is
+held in module singletons while host snapshot inputs and update hooks remain
+explicit globals. Thirteen memory-debug implementation surfaces likewise no
+longer exist: the timer, samples, counters, and options are captured behind the
+deliberate `__exactMemoryDebug` diagnostic API. Six `__OriginalPromise`
+surfaces likewise no longer exist: rejection tracking
+retains the unwrapped constructor in its install closure instead of publishing
+a project-visible bypass around the wrapped global constructor. Eleven
+write-only process-compatibility diagnostics likewise no longer publish
+bootstrap progress, fallback objects, or exception strings to project code;
+the sole control predicate is local to the compatibility IIFE. The
+decompression unhandled-rejection filter sentinel is module-local as well,
+rather than a project-writable global. Bundled-entry remap consumption is now
+tracked by exact host entry-path value in the trusted module-loader closure
+while the host entry-path input remains explicit. The libuv EOF value is now an
+immutable constant at both internal consumers rather than a project-writable
+transport sentinel. Readable-stream compatibility retry scheduling is likewise
+captured inside bootstrap rather than exposed as a mutable global. The resource
+recipes create, exercise, and release their runtime/principal-owned
+native state in one bounded invocation. Fourteen Linux/Android-only
 `node:constants` exports now carry source-bound Apple absence evidence from the
 real public module path rather than remaining generic availability residuals.
 Async evidence remains open through a bounded event-loop quiescence drain and
 binds both the dispatch edge and the worker edge actually observed at runtime.
+The armed `mkdtemp` family remains unresolved: its returned generated path is
+not yet retained and authenticated strongly enough for the executor to remove
+the created directory, so it cannot claim safe public execution or cleanup.
 The existing Apple matrix therefore remains unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
@@ -645,6 +699,21 @@ static data constants whose descriptors prove the exact property path. Runtime
 evidence records the owner depth for every path segment and requires a positive
 final depth; own-property substitution, inherited callables/accessors, instance
 members, and dynamic tables remain rejected.
+
+The builtin route analyzer now admits module bindings only when their source
+initializer is recursively proven intrinsic and the binding is never
+reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
+7,092: an opaque reassignment still fails closed, and removing false route
+ambiguity is not itself public execution evidence. The later terminal-builtin
+denial tranche resolves 106 exact source and alias facets before module evaluation,
+including 49 otherwise ambiguous call graphs. After the merged source inventory
+and exact recipe reconciliation, the current residual counts are 7,078
+ambiguous routes and 21,780 unresolved fixtures. The physical
+no-debugger tranche also executes all nine debugger ABI functions on the exact
+Apple artifact and binds their nine corresponding native-operation facets to
+the same zero, null-pointer, or no-event results. Together with the other
+closed families, the exact loaded engine passes all 320 closed fixtures with
+zero typed or legacy decisions.
 
 ### WP0 artifacts and gate
 
@@ -1515,6 +1584,60 @@ than reusing a generic malformed adapter result or a hand-labelled terminal.
 The macOS/aarch64
 candidate has exact loaded-Hermes adapter-probe evidence, but probe coverage is
 deliberately non-promotable and is not represented as fixture pass claims.
+The physical Release candidate is a universal MinSizeRel Hermes build with the
+debugger disabled, the pinned Exact patch set applied, and the expected patched
+package-attribution export. Its loaded arm64 identity is recorded independently
+from the executable probe. The first whole-report run against that artifact
+failed closed when the native public batch reached an Apple OpenSSL-backed ECDH
+fixture without the `openssl-crypto` build profile. All executable-recipe,
+fixture-evidence, public-surface, callback, closed, startup, startup-environment,
+and target-absence commands now bind that profile explicitly alongside the
+observer. A focused rerun against the same loaded Release artifact passes all
+470 native, host-ABI, and module-loader public fixtures, including the ECDH
+fixture that exposed the omission. The regenerated catalog retains 23,126
+required, 4,845 executable, and 18,281 unresolved fixtures. This corrects the
+evidence producer contract but does not promote the candidate or turn the
+remaining residuals into passes.
+The complete physical Apple Release run now succeeds at source revision
+`9329a9123a10e379d6253afb6a90a33de5de928e` with all 24 exact prerequisite
+commands passing. The execution artifact is bound to source-tree digest
+`sha256-37oyAHa_E6_FdVqKjL51CEVsmjQrmfp4QZSLePRTP6s`, the loaded arm64 engine
+digest `sha256-TI61ftuk_AoTSSNEjQOOuOEopGFCsAH38C7Qu9yxYuw`, and recipe-catalog
+digest `sha256-ocEiwJu5McEiGcypMkUBhB0q47sT8-47nTm4PYxJO_8`. The resulting
+report is intentionally `incomplete`: one of 7,108 target cells is conformant,
+7,107 remain incomplete, nine of 23,126 required fixtures pass, 23,117 are
+missing, and none fail. Its conformance digest is
+`sha256-pX31WIshSle8F2DnydGKCn_AeMw8npRyIhDtX2SG1LM`. This supplies the missing
+physical Release report without weakening the promotion rule: the target stays
+unadvertised until every required fixture and target cell conforms.
+The artifact workflow now reproduces that no-debugger Darwin Release profile
+as a separately named, checksummed bundle and rejects either a missing patch
+export or any exported debugger API. `download-hermes.sh` installs that exact
+profile into the same content-addressed build cache used by local source builds.
+The conformance workflow uses a separately versioned no-debugger cache key and
+rechecks the attribution export and debugger-symbol absence after every cache
+restore, so an older debugger-enabled framework cannot enter the matrix merely
+because it shares the source pin and patch digest. The job explicitly exports
+`HERMES_ENABLE_DEBUGGER=false`, binding both prebuilt artifact selection and the
+compiled Exact wrapper to that profile. Symbol checks capture the complete
+`nm` output before matching, so `grep -q` cannot terminate the producer with
+SIGPIPE and turn a present debugger symbol into a false absence result.
+Windows no longer has to rely on the historical unpatched NuGet artifact. Its
+installer now fetches the exact commit-plus-patch-digest Release bundle and
+falls back to the same source build; the artifact manifest binds commit, patch
+digest, architecture, configuration, debugger state, and DLL digest. At
+runtime, the C++ bridge independently locates the loader-reported pathname for
+the DLL containing `makeHermesRuntime`; Rust reopens that pathname and compares
+its Windows volume serial/file index with the pinned file used for hashing.
+That detects ordinary named-file substitution, but it does not authenticate
+the already mapped image section: a post-load replacement can make both file
+handles identify different bytes from the code supplying the running process.
+The release workflow has now built and inspected the DLL on a Windows runner
+and published the exact checksummed Release bundle; its DLL digest is
+`6f5190b9f8bf943b073e62dc5dbc2e297b77b7becbac3ca0c209b12d92828b6a`.
+WP10 must still close both the independent source-build authority and mapped
+image provenance blockers and execute a complete Windows exact-target runtime
+report before any Windows target cell or advertisement can change.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

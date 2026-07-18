@@ -258,7 +258,7 @@ fn parentless_bundle_shaped_load_keeps_opaque_filename() {
     let entry_file = dir.join("srcdir/realapp.js");
     let bundle = dir.join("fakecache/abc123.bundle.js");
     let code = format!(
-        "globalThis.__exactEntryFile={:?}; globalThis.__exactEntryFileConsumed=false; globalThis.require({:?});",
+        "globalThis.__exactEntryFile={:?}; globalThis.require({:?}); if ('__exactEntryFileConsumed' in globalThis) throw new Error('entry remap state leaked');",
         entry_file.to_string_lossy(),
         bundle.to_string_lossy()
     );

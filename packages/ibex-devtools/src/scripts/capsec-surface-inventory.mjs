@@ -4178,6 +4178,7 @@ export function scanStaticBuiltinExports(
     "ArrayExpression",
     "BigIntLiteral",
     "BooleanLiteral",
+    "NullLiteral",
     "NumericLiteral",
     "RegExpLiteral",
     "StringLiteral",
@@ -4231,6 +4232,12 @@ export function scanStaticBuiltinExports(
   const isProvenIntrinsicValue = (expression, localBindings) => {
     if (!expression) return false;
     if (isProvenIntrinsicReceiver(expression)) return true;
+    if (expression.type === "ConditionalExpression") {
+      return (
+        isProvenIntrinsicValue(expression.consequent, localBindings) &&
+        isProvenIntrinsicValue(expression.alternate, localBindings)
+      );
+    }
     if (
       expression.type === "Identifier" &&
       localBindings.has(expression.name)
@@ -4266,6 +4273,27 @@ export function scanStaticBuiltinExports(
     }
     return false;
   };
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // suppress route ambiguity only for immutable module bindings whose source
+  // initializer is recursively proven intrinsic.
+  const moduleIntrinsicBindings = new Set(staticArrays.keys());
+  let moduleIntrinsicChanged = true;
+  while (moduleIntrinsicChanged) {
+    moduleIntrinsicChanged = false;
+    walkAst(program, (node) => {
+      if (
+        node.type !== "VariableDeclarator" ||
+        node.id?.type !== "Identifier" ||
+        moduleIntrinsicBindings.has(node.id.name) ||
+        assignedIdentifiers.has(node.id.name) ||
+        !isProvenIntrinsicValue(node.init, moduleIntrinsicBindings)
+      ) {
+        return;
+      }
+      moduleIntrinsicBindings.add(node.id.name);
+      moduleIntrinsicChanged = true;
+    });
+  }
   const terminalReference = (expression) => {
     if (expression?.type === "Identifier" && isTerminalName(expression.name)) {
       return declaredIdentifiers.has(expression.name)
@@ -4410,7 +4438,7 @@ export function scanStaticBuiltinExports(
     const nextActive = new Set(active);
     nextActive.add(name);
     const owner = qualified ? name.slice(0, name.lastIndexOf(".")) : null;
-    const localIntrinsicBindings = new Set(staticArrays.keys());
+    const localIntrinsicBindings = new Set(moduleIntrinsicBindings);
     let intrinsicChanged = true;
     while (intrinsicChanged) {
       intrinsicChanged = false;
@@ -12961,7 +12989,8 @@ const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
 // emits a new identity sentinel when any authority changes; the independent
 // semantic classifier then rejects it until this snapshot is reviewed too.
 // @ref LLP 0013#upstream-tracking-and-re-derivation — the desktop pin plus
-// patch stack is the fork; Android and Windows consume separate pinned channels.
+// patch stack is the fork; Android consumes a separate pinned channel while
+// Windows uses the same source-patched identity as Apple/Linux.
 const REVIEWED_HERMES_EVALUATOR_PROFILES = [
   {
     id: "android-maven",
@@ -13006,7 +13035,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
         "scripts/build-hermes-linux.sh":
           "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
         "scripts/build-hermes.sh":
-          "sha256-e3c8efad29514c57c3eaf9f5b6acd59e49743d35a1f72ff9ad16402531733895",
+          "sha256-31584f20c5deeb86750d79a2bfbb56ec98a84861ddc2a0c681c314185e100d69",
       },
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
@@ -13019,32 +13048,36 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
       "scripts/hermes-version.sh#ibex_hermes_patch_digest",
       "scripts/apply-hermes-patches.sh#patches",
-      "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
       "scripts/build-hermes.sh#apply-hermes-patches.sh",
+      "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
       ...REVIEWED_HERMES_PATCH_PATHS.map((patchPath) =>
         sourceSymbol(patchPath, "patch-content"),
       ),
     ],
   },
   {
-    id: "windows-nuget",
+    id: "windows-source-patched",
     targetVariant: "windows",
     identity: {
-      artifact: "ReactNative.Hermes.Windows",
-      packageDigest:
-        "sha512-c6d2ba6bba442b44ce4f1d5c0e7eb2c9d3fcafe24765464e3a01607c0ccafadb4b028a4cb502e6779c7d0bf3c11d8e591d8a6150cbf9137aee70a2fe62371f74",
-      repositorySignature: {
-        serviceIndex: "https://api.nuget.org/v3/index.json",
-        type: "repository",
-      },
-      version: "0.71.1",
+      artifact: "facebook/hermes",
+      patchApplicationAuthorityDigest:
+        "sha256-4d422defe36111f1749f01c7884d942062ad54e6a7d611eee624547002bc4cdd",
+      patchIdentityAuthorityDigest:
+        "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
+      patchStackDigest:
+        "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+      sourceBuildAuthorityDigest:
+        "sha256-5978da60417a8ad3081e9139c8dc677ebe4b5fee46833589ac3d067967646fd4",
+      sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
+      sourceRef: "260318099.0.0-stable",
+      sourceVersion: "260318099.0.0",
+      sourceInstallerAuthorityDigest:
+        "sha256-c285aab2ee7a1e5b67aaa1a7881c31cd0f4398ec8b084fc130f0f0e9f3260aed",
     },
     reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
     sourceRefs: [
-      "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-      "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-      "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-      "scripts/install-windows-hermes.ps1#Version",
+      "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+      "scripts/install-windows-hermes.ps1#hermes-windows-",
     ],
   },
 ];
@@ -13184,6 +13217,7 @@ export function scanHermesEvaluatorIdentityProfiles({
   hermesVersionText,
   androidInstallerText,
   windowsInstallerText,
+  windowsSourceBuildText,
   patchApplicationText,
   appleSourceBuildText,
   linuxSourceBuildText,
@@ -13191,6 +13225,7 @@ export function scanHermesEvaluatorIdentityProfiles({
   hermesVersionPath = "scripts/hermes-version.sh",
   androidInstallerPath = "scripts/install-android-hermes.sh",
   windowsInstallerPath = "scripts/install-windows-hermes.ps1",
+  windowsSourceBuildPath = "scripts/build-hermes-windows.ps1",
   patchApplicationPath = "scripts/apply-hermes-patches.sh",
   appleSourceBuildPath = "scripts/build-hermes.sh",
   linuxSourceBuildPath = "scripts/build-hermes-linux.sh",
@@ -13263,7 +13298,7 @@ export function scanHermesEvaluatorIdentityProfiles({
       `${patchApplicationPath}#${label}`,
     );
   }
-  const sourceBuildConsumers = [
+  const patchApplicationConsumers = [
     {
       sourcePath: appleSourceBuildPath,
       text: appleSourceBuildText,
@@ -13274,8 +13309,13 @@ export function scanHermesEvaluatorIdentityProfiles({
       text: linuxSourceBuildText,
       invocation: '"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"',
     },
+    {
+      sourcePath: windowsSourceBuildPath,
+      text: windowsSourceBuildText,
+      invocation: "& bash $applyScriptUnix $sourceDirUnix",
+    },
   ];
-  for (const consumer of sourceBuildConsumers) {
+  for (const consumer of patchApplicationConsumers) {
     requireOneSourceLine(
       consumer.text,
       consumer.invocation,
@@ -13285,12 +13325,18 @@ export function scanHermesEvaluatorIdentityProfiles({
   const patchApplicationAuthorityDigest = `sha256-${sha256Hex(
     patchApplicationText,
   )}`;
+  const sourceBuildConsumers = patchApplicationConsumers.filter(
+    (consumer) => consumer.sourcePath !== windowsSourceBuildPath,
+  );
   const sourceBuildAuthorityDigests = Object.fromEntries(
     sourceBuildConsumers.map((consumer) => [
       consumer.sourcePath,
       `sha256-${sha256Hex(consumer.text)}`,
     ]),
   );
+  const windowsSourceBuildAuthorityDigest = `sha256-${sha256Hex(
+    windowsSourceBuildText,
+  )}`;
 
   const androidVersionAuthority =
     'HERMES_ANDROID_VERSION="${HERMES_ANDROID_VERSION:-$IBEX_HERMES_ANDROID_VERSION}"';
@@ -13327,26 +13373,14 @@ export function scanHermesEvaluatorIdentityProfiles({
     `${androidInstallerPath}#React-Android-Maven-coordinate`,
   );
 
-  const windowsVersion = oneSourceMatch(
-    windowsInstallerText,
-    /^\s*\[string\]\$Version\s*=\s*"([^"]+)"\s*,?$/gmu,
-    `${windowsInstallerPath}#Version`,
-  )[1];
   const windowsArtifact = oneSourceMatch(
     windowsInstallerText,
-    /^\$PackageId\s*=\s*"([A-Za-z0-9.]+)"$/gmu,
-    `${windowsInstallerPath}#PackageId`,
+    /^\$asset = "(hermes-windows-)\$Arch-\$assetKey\.zip"$/gmu,
+    `${windowsInstallerPath}#release-asset`,
   )[1];
-  const windowsPackageSha512 = oneSourceMatch(
+  const windowsInstallerAuthorityDigest = `sha256-${sha256Hex(
     windowsInstallerText,
-    /^\$ReviewedPackageSha512\s*=\s*"([a-f0-9]{128})"$/gmu,
-    `${windowsInstallerPath}#ReviewedPackageSha512`,
-  )[1];
-  const windowsServiceIndex = oneSourceMatch(
-    windowsInstallerText,
-    /^\$NuGetServiceIndex\s*=\s*"(https:\/\/[^"\r\n]+)"$/gmu,
-    `${windowsInstallerPath}#NuGetServiceIndex`,
-  )[1];
+  )}`;
 
   const discovered = [
     {
@@ -13416,23 +13450,23 @@ export function scanHermesEvaluatorIdentityProfiles({
       ],
     },
     {
-      id: "windows-nuget",
+      id: "windows-source-patched",
       targetVariant: "windows",
       identity: {
-        artifact: windowsArtifact,
-        packageDigest: `sha512-${windowsPackageSha512}`,
-        repositorySignature: {
-          serviceIndex: windowsServiceIndex,
-          type: "repository",
-        },
-        version: windowsVersion,
+        artifact: "facebook/hermes",
+        patchApplicationAuthorityDigest,
+        patchIdentityAuthorityDigest,
+        patchStackDigest: hermesPatchStackDigest(normalizedPatches),
+        sourceBuildAuthorityDigest: windowsSourceBuildAuthorityDigest,
+        sourceCommit,
+        sourceRef,
+        sourceVersion,
+        sourceInstallerAuthorityDigest: windowsInstallerAuthorityDigest,
       },
       reachableEvaluators: REVIEWED_REACHABLE_HERMES_EVALUATORS,
       sourceRefs: [
+        sourceSymbol(windowsSourceBuildPath, "apply-hermes-patches.sh"),
         sourceSymbol(windowsInstallerPath, windowsArtifact),
-        sourceSymbol(windowsInstallerPath, "ReviewedPackageSha512"),
-        sourceSymbol(windowsInstallerPath, "NuGetServiceIndex"),
-        sourceSymbol(windowsInstallerPath, "Version"),
       ],
     },
   ];
@@ -13468,6 +13502,9 @@ export function discoverHermesEvaluatorIdentityProfiles(repoRoot) {
     ),
     windowsInstallerText: readUtf8(
       path.join(repoRoot, "scripts", "install-windows-hermes.ps1"),
+    ),
+    windowsSourceBuildText: readUtf8(
+      path.join(repoRoot, "scripts", "build-hermes-windows.ps1"),
     ),
     patchApplicationText: readUtf8(
       path.join(repoRoot, "scripts", "apply-hermes-patches.sh"),

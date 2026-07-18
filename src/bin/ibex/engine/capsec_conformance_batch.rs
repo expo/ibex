@@ -78,6 +78,11 @@ enum PublicInvocation {
         #[serde(flatten)]
         details: HostAbiPublicInvocation,
     },
+    #[serde(rename = "ibex/capsec-module-loader-invocation/1")]
+    ModuleLoader {
+        #[serde(flatten)]
+        details: ModuleLoaderPublicInvocation,
+    },
     #[serde(other)]
     Other,
 }
@@ -86,14 +91,30 @@ impl PublicInvocation {
     fn native(&self) -> Option<&NativePublicInvocation> {
         match self {
             Self::NativeGlobal { details } => Some(details.as_ref()),
-            Self::BuiltinExport { .. } | Self::HostAbi { .. } | Self::Other => None,
+            Self::BuiltinExport { .. }
+            | Self::HostAbi { .. }
+            | Self::ModuleLoader { .. }
+            | Self::Other => None,
         }
     }
 
     fn host_abi(&self) -> Option<&HostAbiPublicInvocation> {
         match self {
             Self::HostAbi { details } => Some(details),
-            Self::NativeGlobal { .. } | Self::BuiltinExport { .. } | Self::Other => None,
+            Self::NativeGlobal { .. }
+            | Self::BuiltinExport { .. }
+            | Self::ModuleLoader { .. }
+            | Self::Other => None,
+        }
+    }
+
+    fn module_loader(&self) -> Option<&ModuleLoaderPublicInvocation> {
+        match self {
+            Self::ModuleLoader { details } => Some(details),
+            Self::NativeGlobal { .. }
+            | Self::BuiltinExport { .. }
+            | Self::HostAbi { .. }
+            | Self::Other => None,
         }
     }
 }
@@ -103,6 +124,21 @@ impl PublicInvocation {
 struct HostAbiPublicInvocation {
     kind: String,
     function_name: String,
+    source_descriptor: serde_json::Value,
+    source_descriptor_digest: String,
+    operation: serde_json::Value,
+    expected_result: String,
+    expected_typed_stages: Vec<String>,
+    expected_typed_decision_count: usize,
+    allowed_coverage_edge_ids: Vec<String>,
+    expected_action_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModuleLoaderPublicInvocation {
+    kind: String,
+    surface_name: String,
     source_descriptor: serde_json::Value,
     source_descriptor_digest: String,
     operation: serde_json::Value,
@@ -127,12 +163,13 @@ struct NativePublicInvocation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     expected_deny_message_fragment: Option<String>,
     arguments: Vec<NativeProbeArgument>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     completion: Option<NativeProbeCompletion>,
     #[serde(default)]
     required_floor: Vec<serde_json::Value>,
     setup: Vec<NativeProbeSetup>,
     expected_result: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     expected_cleanup: Option<String>,
     expected_typed_stages: Vec<String>,
     expected_typed_decision_count: usize,
@@ -211,6 +248,7 @@ enum NativeProbeArgument {
         value: serde_json::Value,
     },
     HarnessNoopCallback,
+    HarnessFsFileDescriptor,
     HarnessLoopbackClientHandle,
     HarnessSqliteDatabaseHandle,
     HarnessSqliteStatementHandle,
@@ -245,6 +283,14 @@ enum NativeProbeArgument {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 enum NativeProbeSetup {
+    FsReadFile {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
     InvokeNativeGlobal {
         #[serde(rename = "globalName")]
         global_name: String,
@@ -451,6 +497,110 @@ fn generated_derived_env_write_template_is_accepted_by_rust_registry() {
         .definitions
         .validate_requested_resource(&occurrence.action, &requested)
         .expect("generated occurrence must satisfy Rust action constraints");
+}
+
+#[test]
+fn native_public_probe_serialization_preserves_omitted_optional_fields() {
+    let invocation = NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: "__exactGetCwd".into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: Vec::new(),
+        completion: None,
+        required_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: "return".into(),
+        expected_cleanup: None,
+        expected_typed_stages: Vec::new(),
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: Vec::new(),
+    };
+
+    let serialized = serde_json::to_value(invocation).expect("serialize native public probe");
+    assert!(serialized.get("completion").is_none());
+    assert!(serialized.get("expectedCleanup").is_none());
+}
+
+#[test]
+fn native_async_worker_terminal_account_is_exact() {
+    assert_eq!(
+        NATIVE_ASYNC_WORKER_TERMINALS,
+        [
+            ("mkdir", "native-op:__exactMkdir"),
+            ("readdir", "native-op:__exactReaddir"),
+            ("realpath", "native-op:__exactRealpath"),
+            ("statfs", "native-op:__exactStatfs"),
+            ("truncate", "native-op:__exactTruncate"),
+        ]
+    );
+    let invocation = |global_name: &str, operation: serde_json::Value| NativePublicInvocation {
+        kind: "native-global-function".into(),
+        global_name: global_name.into(),
+        source_descriptor: serde_json::json!({}),
+        source_descriptor_digest: "sha256-test".into(),
+        public_access: None,
+        public_access_digest: None,
+        expected_deny_message_fragment: None,
+        arguments: vec![NativeProbeArgument::JsonLiteral { value: operation }],
+        completion: None,
+        required_floor: Vec::new(),
+        setup: Vec::new(),
+        expected_result: "return".into(),
+        expected_cleanup: None,
+        expected_typed_stages: Vec::new(),
+        expected_typed_decision_count: 0,
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: Vec::new(),
+    };
+
+    for (operation, terminal) in NATIVE_ASYNC_WORKER_TERMINALS {
+        assert_eq!(
+            native_async_worker_terminal(&invocation(
+                "__exactFsPathAsync",
+                serde_json::Value::String(operation.into()),
+            )),
+            Some(terminal)
+        );
+    }
+    assert_eq!(
+        native_async_worker_terminal(&invocation(
+            "__exactFsPathAsync",
+            serde_json::Value::String("mkdtemp".into()),
+        )),
+        None
+    );
+    assert_eq!(
+        native_async_worker_terminal(&invocation(
+            "__exactMkdir",
+            serde_json::Value::String("mkdir".into()),
+        )),
+        None
+    );
+    assert_eq!(
+        native_async_worker_terminal(&invocation("__exactFsPathAsync", serde_json::Value::Null,)),
+        None
+    );
+}
+
+#[test]
+fn native_async_harness_fields_are_not_published_as_runtime_results() {
+    let mut result = serde_json::json!({
+        "kind": "return",
+        "globalName": "__exactFsPathAsync",
+        "valueType": "undefined",
+        "resultString": null,
+        "cleanup": "removed-owned-file",
+    });
+
+    remove_native_async_harness_fields(&mut result);
+
+    assert!(result.get("resultString").is_none());
+    assert_eq!(result["cleanup"], "removed-owned-file");
 }
 
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
@@ -829,6 +979,7 @@ fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
 
 #[derive(Default)]
 struct NativeSetupState {
+    fs_file_descriptor: Option<f64>,
     tcp_loopback_client_handle: Option<f64>,
     sqlite_database_handle: Option<f64>,
     sqlite_statement_handle: Option<f64>,
@@ -967,6 +1118,44 @@ async fn run_native_setup(
     let mut state = NativeSetupState::default();
     for setup in &invocation.setup {
         match setup {
+            NativeProbeSetup::FsReadFile {
+                global_name,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+                // setup owns the descriptor before observation so a close
+                // recipe proves the real retained-object path without
+                // miscrediting its prerequisite open decisions.
+                assert_eq!(global_name, "__exactFsOpen");
+                assert_eq!(
+                    source_descriptor_digest,
+                    &tagged_value_digest(source_descriptor)
+                );
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 4);
+                assert!(state.fs_file_descriptor.is_none());
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[serde_json::json!("Cargo.toml"), serde_json::json!("r")],
+                    ))
+                    .await
+                    .expect("execute native filesystem descriptor setup")
+                    .expect("native filesystem descriptor setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("native filesystem descriptor setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.fs_file_descriptor = Some(
+                    result["value"]
+                        .as_f64()
+                        .expect("native filesystem setup must return a numeric descriptor"),
+                );
+            }
             NativeProbeSetup::InvokeNativeGlobal {
                 global_name,
                 arguments,
@@ -1116,6 +1305,12 @@ fn materialize_native_arguments(
             }),
             NativeProbeArgument::HarnessNoopCallback => serde_json::json!({
                 "kind": "harness-noop-callback",
+            }),
+            NativeProbeArgument::HarnessFsFileDescriptor => serde_json::json!({
+                "kind": "json-literal",
+                "value": setup_state
+                    .fs_file_descriptor
+                    .expect("filesystem descriptor argument requires file setup"),
             }),
             NativeProbeArgument::HarnessLoopbackClientHandle => serde_json::json!({
                 "kind": "json-literal",
@@ -1284,7 +1479,7 @@ fn native_invocation_script(
     );
     script.replacen(
         cleanup_marker,
-        "else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
+        "else if(n===\"__exactFsClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-fs-file-descriptor\";}else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
         1,
     )
 }
@@ -1308,22 +1503,50 @@ fn native_async_invocation_script(
         .expect("async native invocation requires a completion contract");
     assert_eq!(completion.kind, "event-loop-quiescence");
     assert_eq!(completion.timeout_milliseconds, 1_000);
-    assert!(invocation.setup.is_empty());
-    assert!(invocation
-        .arguments
+    assert!(arguments
         .iter()
-        .all(|argument| matches!(argument, NativeProbeArgument::JsonLiteral { .. })));
+        .all(|argument| argument["kind"] == "json-literal"));
     format!(
-        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:\"none\"}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        "(function(){{var slot={};var n={};var owns=Object.prototype.hasOwnProperty;if(owns.call(globalThis,slot)&&(!Reflect.deleteProperty(globalThis,slot)||owns.call(globalThis,slot)))throw new Error(\"stale native async result slot could not be removed\");Object.defineProperty(globalThis,slot,{{value:null,writable:true,enumerable:false,configurable:true}});if(!owns.call(globalThis,slot)||globalThis[slot]!==null)throw new Error(\"native async result slot was not installed\");function record(value){{if(!owns.call(globalThis,slot))throw new Error(\"native async result slot was removed while pending\");globalThis[slot]=JSON.stringify(value);}}function returned(value){{return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\"}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only source-owned JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
         serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
         serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
         serde_json::to_string(arguments).expect("serialize async native arguments"),
     )
 }
 
+fn remove_native_async_harness_fields(invocation_result: &mut serde_json::Value) {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // resultString transports an owned cleanup path inside the harness; it is
+    // not part of the exact public runtime-result evidence schema.
+    if let Some(result) = invocation_result.as_object_mut() {
+        result.remove("resultString");
+    }
+}
+
 struct NativeRuntimeValidation {
     terminal_observed_key: String,
     execution_proof: serde_json::Value,
+}
+
+const NATIVE_ASYNC_WORKER_TERMINALS: [(&str, &str); 5] = [
+    ("mkdir", "native-op:__exactMkdir"),
+    ("readdir", "native-op:__exactReaddir"),
+    ("realpath", "native-op:__exactRealpath"),
+    ("statfs", "native-op:__exactStatfs"),
+    ("truncate", "native-op:__exactTruncate"),
+];
+
+fn native_async_worker_terminal(invocation: &NativePublicInvocation) -> Option<&'static str> {
+    if invocation.global_name != "__exactFsPathAsync" {
+        return None;
+    }
+    let operation = match invocation.arguments.first() {
+        Some(NativeProbeArgument::JsonLiteral { value }) => value.as_str()?,
+        _ => return None,
+    };
+    NATIVE_ASYNC_WORKER_TERMINALS
+        .iter()
+        .find_map(|(candidate, terminal)| (*candidate == operation).then_some(*terminal))
 }
 
 fn observed_typed_values(
@@ -1494,8 +1717,8 @@ fn uses_ambient_project_prefix_authority(
             {
                 return false;
             }
-            let Some(requested_components) = effect["resource"]["requested"]["components"]
-                .as_array()
+            let Some(requested_components) =
+                effect["resource"]["requested"]["components"].as_array()
             else {
                 return false;
             };
@@ -1509,8 +1732,7 @@ fn uses_ambient_project_prefix_authority(
                 {
                     return false;
                 }
-                let Some(floor_components) =
-                    selector["resource"]["path"]["components"].as_array()
+                let Some(floor_components) = selector["resource"]["path"]["components"].as_array()
                 else {
                     return false;
                 };
@@ -1584,38 +1806,7 @@ fn validate_native_runtime_observation(
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
     // an async dispatcher may observe its source-selected worker edge, but no
     // unrelated edge may be admitted by the authored recipe.
-    let auxiliary_worker_terminal = if invocation.global_name == "__exactFsPathAsync" {
-        match invocation.arguments.first() {
-            Some(NativeProbeArgument::JsonLiteral { value })
-                if value.as_str() == Some("readdir") =>
-            {
-                Some("native-op:__exactReaddir")
-            }
-            Some(NativeProbeArgument::JsonLiteral { value })
-                if value.as_str() == Some("realpath") =>
-            {
-                Some("native-op:__exactRealpath")
-            }
-            Some(NativeProbeArgument::JsonLiteral { value })
-                if value.as_str() == Some("mkdir") =>
-            {
-                Some("native-op:__exactMkdir")
-            }
-            Some(NativeProbeArgument::JsonLiteral { value })
-                if value.as_str() == Some("statfs") =>
-            {
-                Some("native-op:__exactStatfs")
-            }
-            Some(NativeProbeArgument::JsonLiteral { value })
-                if value.as_str() == Some("truncate") =>
-            {
-                Some("native-op:__exactTruncate")
-            }
-            _ => None,
-        }
-    } else {
-        None
-    };
+    let auxiliary_worker_terminal = native_async_worker_terminal(invocation);
     let mut expected_allowed_coverage_edge_ids = recipe.edge_ids.clone();
     if let Some(worker_terminal) = auxiliary_worker_terminal {
         let worker_edges = coverage_terminals
@@ -1742,6 +1933,32 @@ fn validate_native_runtime_observation(
             );
             serde_json::json!({
                 "kind": "typed-permission-denial",
+                "bodyEntered": true,
+            })
+        }
+        "invalid-handle" => {
+            // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+            // an owner-authenticated retained-object control may prove its
+            // exact unknown-id refusal without claiming an effect decision.
+            assert_eq!(
+                invocation_result["kind"], "throw",
+                "{}: retained-object refusal did not throw: {invocation_result}",
+                recipe.fixture_id
+            );
+            assert_eq!(
+                invocation_result["errorName"], "Error",
+                "{}: retained-object refusal threw the wrong error: {invocation_result}",
+                recipe.fixture_id
+            );
+            assert!(
+                invocation_result["errorMessage"]
+                    .as_str()
+                    .is_some_and(|message| message.ends_with(": invalid handle")),
+                "{}: retained-object refusal accepted the wrong failure: {invocation_result}",
+                recipe.fixture_id
+            );
+            serde_json::json!({
+                "kind": "retained-object-refusal",
                 "bodyEntered": true,
             })
         }
@@ -2164,6 +2381,7 @@ async fn execute_native_public_recipe(
         }
         std::fs::remove_file(path).expect("remove owned retained-file fixture");
     }
+    remove_native_async_harness_fields(&mut invocation_result);
     let typed_decisions = observed_typed_values(&session_id, typed);
     let validation = validate_native_runtime_observation(
         recipe,
@@ -2423,20 +2641,683 @@ async fn execute_host_abi_public_recipe(
     })
 }
 
+async fn execute_authenticated_module_runner_public_graph(
+    project_root: &std::path::Path,
+    entry: &std::path::Path,
+    hermes_target: &str,
+    producer_digest: &capsec_semantics::model::Digest,
+    prepared_deployment_digest: Option<capsec_semantics::model::Digest>,
+    session_id: &str,
+    retain_context: bool,
+) {
+    use ibex_runtime::module_loader::runner_pipeline::{
+        build_authenticated_source_graph_v1_for_host, load_prepared_source_graph_v1,
+        publish_prepared_source_graph_v1, SourceModuleGraphBuildV1,
+    };
+
+    let relative_entry = entry
+        .strip_prefix(project_root)
+        .expect("module-runner public entry must remain beneath its project root")
+        .to_str()
+        .expect("module-runner public entry must be UTF-8")
+        .replace('\\', "/");
+    let entry_identity = format!("file:///project/{relative_entry}");
+    let snapshot_entry_identity = entry_identity.clone();
+    let (host, snapshot_digest) = build_armed_test_host_custom(
+        Some(project_root),
+        false,
+        true,
+        true,
+        Vec::new(),
+        None,
+        move |snapshot| {
+            snapshot["entry"] = serde_json::json!({
+                "kind": "file",
+                "identity": snapshot_entry_identity,
+                "mode": "program",
+            });
+        },
+    );
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create isolated module-runner host ABI engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load runtime before module-runner host ABI recipe");
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(session_id));
+
+    if retain_context {
+        let runtime = engine
+            .ensure_runtime()
+            .await
+            .expect("borrow loaded runtime for graph-context retain");
+        runtime
+            .with_runtime(|raw| -> anyhow::Result<()> {
+                use ibex_runtime::engine::module_runner::{
+                    GraphEvaluationContext, NativeModuleRuntime,
+                };
+                use ibex_runtime::module_loader::identity::SourceId;
+
+                let nonce = unsafe { ex_hermes_runtime_nonce(raw) };
+                let raw = std::ptr::NonNull::new(raw.cast())
+                    .expect("loaded Hermes runtime pointer is non-null");
+                let native = unsafe { NativeModuleRuntime::from_raw(raw, nonce)? };
+                let context = native.create_graph_context(GraphEvaluationContext::new(
+                    SourceId::synthetic("capsec-module-runner-public", "retained-context")?,
+                    0,
+                    0,
+                    [0],
+                    1,
+                )?)?;
+                let retained = context.clone();
+                drop(retained);
+                drop(context);
+                Ok(())
+            })
+            .expect("access loaded runtime for graph-context retain")
+            .expect("retain a real native graph context");
+    }
+
+    let vfs = host
+        .virtual_file_system()
+        .expect("create module-runner public virtual filesystem");
+    let namespace = vfs
+        .resolve_root_file_url(&entry_identity, None)
+        .expect("resolve authenticated module-runner public entry");
+    let session = host
+        .mint_armed_session_token()
+        .expect("mint module-runner public armed session");
+    let mut sequence = ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
+        .expect("create module-runner public submission sequence");
+    let submission = sequence
+        .mint_file(
+            namespace
+                .logical_referrer()
+                .expect("derive module-runner public logical referrer"),
+            &[],
+        )
+        .expect("mint module-runner public file submission");
+    let request = host
+        .authenticated_vfs_file_read(&vfs, namespace, submission)
+        .expect("read authenticated module-runner public entry")
+        .into_capsule()
+        .into_request()
+        .expect("construct module-runner public source request");
+
+    let graph_host = host.clone();
+    let graph_entry = entry.to_path_buf();
+    let graph_project_root = project_root.to_path_buf();
+    let graph_producer_digest = producer_digest.clone();
+    let graph_hermes_target = hermes_target.to_owned();
+    let evaluation = engine
+        .evaluate_authenticated_module_graph(
+            &session,
+            request,
+            Box::new(move |_admitted_request| {
+                // Native admission must precede graph discovery and prepared
+                // carrier selection; this callback is the production seam.
+                // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+                // @ref LLP 0027#canonical-encoding-and-validation
+                let graph = match build_authenticated_source_graph_v1_for_host(
+                    &graph_host,
+                    &graph_entry,
+                    graph_producer_digest,
+                    &graph_hermes_target,
+                )? {
+                    SourceModuleGraphBuildV1::Native(graph) => graph,
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => anyhow::bail!(
+                        "module-runner public graph unexpectedly required legacy: {}",
+                        requirement.reason
+                    ),
+                };
+                let graph = if let Some(deployment_digest) = prepared_deployment_digest {
+                    let prepared_cache = publish_prepared_source_graph_v1(
+                        &graph,
+                        &graph_project_root,
+                        deployment_digest.clone(),
+                    )?;
+                    load_prepared_source_graph_v1(&prepared_cache, &graph, &deployment_digest)?
+                } else {
+                    graph
+                };
+                Ok(crate::engine::AuthenticatedModuleGraphPreparation::Native(
+                    graph,
+                ))
+            }),
+        )
+        .await
+        .expect("execute authenticated module-runner public graph");
+    match evaluation {
+        AuthenticatedEvaluation::Empty => {}
+        AuthenticatedEvaluation::Value { receipt, .. } => {
+            if let Some(receipt) = receipt {
+                engine
+                    .release_undisplayed_value(receipt)
+                    .await
+                    .expect("release module-runner public graph display receipt");
+            }
+        }
+        AuthenticatedEvaluation::Throw(thrown) => {
+            panic!("authenticated module-runner public graph threw: {thrown:?}")
+        }
+        AuthenticatedEvaluation::Cancelled => {
+            panic!("authenticated module-runner public graph was cancelled")
+        }
+        AuthenticatedEvaluation::Lifecycle(code) => {
+            panic!("authenticated module-runner public graph exited with lifecycle code {code}")
+        }
+    }
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+    vfs.close();
+    drop(engine);
+}
+
+async fn execute_module_runner_host_abi_public_recipe(
+    recipe: &Recipe,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let probe = recipe
+        .public_surface_probe
+        .as_ref()
+        .expect("module-runner host ABI recipe must have a public probe");
+    let invocation = probe
+        .invocation
+        .host_abi()
+        .expect("module-runner host ABI executor received another schema");
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "non-capability");
+    assert_eq!(recipe.scenario, "non-capability");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert_eq!(
+        probe.surface_observed_key,
+        format!("host-abi:{}", invocation.function_name)
+    );
+    assert_eq!(probe.surface_observed_key, recipe.terminal_observed_key);
+    assert_eq!(invocation.kind, "host-abi-function");
+    assert_eq!(invocation.operation["kind"], "module-runner-source-graph");
+    assert_eq!(invocation.expected_result, "return");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+    assert_eq!(invocation.source_descriptor["kind"], "host-abi-function");
+    assert_eq!(
+        invocation.source_descriptor["functionName"],
+        invocation.function_name
+    );
+    assert_eq!(
+        invocation.source_descriptor["sourceRefs"],
+        serde_json::json!([format!(
+            "src/engine/hermes_module_runner.cc#{}",
+            invocation.function_name
+        )])
+    );
+    assert_eq!(
+        invocation.source_descriptor["sourceMetadata"]["definitions"][0]["language"],
+        "c++"
+    );
+
+    let directory = tempfile::tempdir().expect("create module-runner public graph root");
+    let project_root = std::fs::canonicalize(directory.path())
+        .expect("canonicalize module-runner public graph root");
+    let entry = project_root.join("entry.mjs");
+    std::fs::write(
+        &entry,
+        "import { value as imported } from './dep.mjs';\n\
+         export { other as forwarded } from './dep.mjs';\n\
+         export * from './star.mjs';\n\
+         export const local = imported;\n\
+         export function loadDynamic() { return import('./dynamic.mjs'); }\n",
+    )
+    .expect("write module-runner public entry");
+    std::fs::write(
+        project_root.join("dep.mjs"),
+        "export let value = 1; export const other = 2;\n",
+    )
+    .expect("write module-runner public dependency");
+    std::fs::write(project_root.join("star.mjs"), "export const star = 3;\n")
+        .expect("write module-runner public star dependency");
+    std::fs::write(
+        project_root.join("dynamic.mjs"),
+        "export const dynamicValue = 4;\n",
+    )
+    .expect("write module-runner public dynamic dependency");
+    let commonjs_entry = project_root.join("commonjs-entry.cjs");
+    std::fs::write(
+        &commonjs_entry,
+        "const peer = require('./commonjs-peer.cjs');\n\
+         const esm = require('./commonjs-esm.mjs');\n\
+         exports.total = peer.value + esm.value;\n\
+         import('./dynamic.mjs');\n",
+    )
+    .expect("write module-runner public CommonJS entry");
+    std::fs::write(
+        project_root.join("commonjs-peer.cjs"),
+        "exports.value = 2;\n",
+    )
+    .expect("write module-runner public CommonJS dependency");
+    std::fs::write(
+        project_root.join("commonjs-esm.mjs"),
+        "export const value = 3;\n",
+    )
+    .expect("write module-runner public CommonJS ESM dependency");
+    let asynchronous_entry = project_root.join("asynchronous-entry.mjs");
+    std::fs::write(
+        &asynchronous_entry,
+        "await new Promise((resolve) => setTimeout(resolve, 0));\n\
+         export const settled = true;\n",
+    )
+    .expect("write module-runner public asynchronous entry");
+
+    let _reset = HostResetGuard;
+    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
+        .expect("loaded engine digest is a canonical digest");
+    let deployment_digest = ibex_runtime::module_loader::artifact::digest_bytes(
+        "ibex/capsec-module-runner-public-prepared/1",
+        b"authenticated prepared graph",
+    )
+    .expect("digest module-runner public prepared graph");
+    unsafe { ibex_test_begin_module_runner_abi_observation() };
+    let session_id = format!("public-module-runner-host-abi:{}", recipe.plan_digest);
+    execute_authenticated_module_runner_public_graph(
+        &project_root,
+        &entry,
+        "capsec-module-runner-public-esm",
+        &producer_digest,
+        None,
+        &session_id,
+        true,
+    )
+    .await;
+    execute_authenticated_module_runner_public_graph(
+        &project_root,
+        &commonjs_entry,
+        "capsec-module-runner-public-commonjs",
+        &producer_digest,
+        None,
+        &session_id,
+        false,
+    )
+    .await;
+    execute_authenticated_module_runner_public_graph(
+        &project_root,
+        &asynchronous_entry,
+        "capsec-module-runner-public-asynchronous",
+        &producer_digest,
+        None,
+        &session_id,
+        false,
+    )
+    .await;
+    execute_authenticated_module_runner_public_graph(
+        &project_root,
+        &entry,
+        "capsec-module-runner-public-esm",
+        &producer_digest,
+        Some(deployment_digest),
+        &session_id,
+        false,
+    )
+    .await;
+    let pointer = unsafe { ibex_test_take_module_runner_abi_observation() };
+    assert!(
+        !pointer.is_null(),
+        "module-runner ABI observer returned no result"
+    );
+    let observed_text = unsafe { std::ffi::CStr::from_ptr(pointer) }
+        .to_str()
+        .expect("module-runner ABI observations must be UTF-8")
+        .to_owned();
+    unsafe { ex_hermes_free_string(pointer) };
+    let observed_function_names: Vec<String> = serde_json::from_value(
+        capsec_semantics::strict_json::parse_strict(&observed_text)
+            .expect("module-runner ABI observations must be strict JSON"),
+    )
+    .expect("module-runner ABI observations must be a string array");
+    assert!(
+        observed_function_names
+            .iter()
+            .any(|name| name == &invocation.function_name),
+        "module-runner public graph did not enter {}: {:?}",
+        invocation.function_name,
+        observed_function_names
+    );
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let invocation_result = serde_json::json!({
+        "kind": "return",
+        "functionName": invocation.function_name,
+        "operation": "module-runner-source-graph",
+        "observedFunctionNames": observed_function_names,
+        "cleanup": "released-module-graph",
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": "ibex/capsec-host-abi-invocation/1",
+            "kind": invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "functionName": invocation.function_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": invocation_result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected module-runner ABI observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": probe.surface_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), serde_json::Value::String(digest));
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-native-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+#[derive(Clone)]
+struct ModuleLoaderPublicPolicy {
+    digest: capsec_semantics::model::Digest,
+    generations: capsec_semantics::arming::SnapshotGenerations,
+}
+
+impl ibex_runtime::module_loader::security::GraphImportPolicy for ModuleLoaderPublicPolicy {
+    fn snapshot_digest(&self) -> &capsec_semantics::model::Digest {
+        &self.digest
+    }
+
+    fn snapshot_generations(&self) -> capsec_semantics::arming::SnapshotGenerations {
+        self.generations
+    }
+
+    fn authenticates_module_edge(
+        &self,
+        _importer: &capsec_semantics::model::Principal,
+        specifier: &str,
+        _imported: &capsec_semantics::model::Principal,
+        resolution_kind: &str,
+        conditions: &[String],
+        attributes: &BTreeMap<String, String>,
+    ) -> bool {
+        specifier == "dep"
+            && resolution_kind == "esm-static"
+            && conditions == ["import", "node"]
+            && attributes.is_empty()
+    }
+}
+
+fn module_loader_public_digest(label: &str) -> capsec_semantics::model::Digest {
+    use sha2::Digest as _;
+    let encoded =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(label));
+    capsec_semantics::model::Digest::new(format!("sha256-{encoded}"))
+        .expect("module-loader public fixture digest")
+}
+
+fn module_loader_public_principal(name: &str) -> capsec_semantics::model::Principal {
+    capsec_semantics::model::Principal::Package {
+        name: capsec_semantics::model::NonEmptyString::new(name)
+            .expect("module-loader public fixture package name"),
+        integrity: module_loader_public_digest(name),
+        locator: capsec_semantics::model::PackageLocator::new(format!("{name}@1.0.0"))
+            .expect("module-loader public fixture locator"),
+    }
+}
+
+// @ref LLP 0021#module-initialization-and-trusted-source-acquisition — prove
+// the authenticated loader receipt path separately from ordinary host-effect
+// DecisionSets; a successful access therefore observes no CapSec decision.
+async fn execute_module_loader_public_recipe(
+    recipe: &Recipe,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    use capsec_semantics::arming::SnapshotGenerations;
+    use capsec_semantics::model::{Generation, PathComponent, Stage};
+    use ibex_runtime::module_loader::identity::{
+        ConditionSet, ImportAttributes, ResolutionKind, SourceId,
+    };
+    use ibex_runtime::module_loader::security::{
+        GraphAuthorityContext, GraphDecisionSet, GraphOperationKind, ModuleGraphAuthorizer,
+    };
+
+    let probe = recipe
+        .public_surface_probe
+        .as_ref()
+        .expect("module-loader recipe must have a public probe");
+    let invocation = probe
+        .invocation
+        .module_loader()
+        .expect("module-loader executor received another invocation schema");
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "non-capability");
+    assert_eq!(recipe.scenario, "non-capability");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert_eq!(
+        probe.surface_observed_key,
+        format!("loader:{}", invocation.surface_name)
+    );
+    assert_eq!(probe.surface_observed_key, recipe.terminal_observed_key);
+    assert!(recipe
+        .route
+        .alternatives
+        .iter()
+        .any(|alternative| { alternative.terminal_observed_key == probe.surface_observed_key }));
+    assert_eq!(invocation.kind, "module-loader-authority");
+    assert_eq!(invocation.expected_result, "return");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+    assert_eq!(
+        invocation.source_descriptor["kind"],
+        "module-loader-function"
+    );
+    assert_eq!(
+        invocation.source_descriptor["surfaceName"],
+        invocation.surface_name
+    );
+
+    let expected = match invocation.surface_name.as_str() {
+        "module-runner-edge-authorization" => ("authorize-edge", "authorize"),
+        "module-runner-trusted-source-acquisition" => {
+            ("source-acquisition", "authorize_then_access")
+        }
+        "module-runner-cache-access" => ("cache-read", "authorize_then_access"),
+        "module-runner-prepared-carrier-access" => {
+            ("prepared-carrier-read", "authorize_then_access")
+        }
+        other => panic!("unsupported module-loader public surface {other}"),
+    };
+    assert_eq!(invocation.operation["kind"], expected.0);
+    assert_eq!(
+        invocation.source_descriptor["sourceRefs"],
+        serde_json::json!([format!("src/module_loader/security.rs#{}", expected.1)])
+    );
+
+    let generation = Generation::new(1).expect("module-loader public fixture generation");
+    let policy = ModuleLoaderPublicPolicy {
+        digest: module_loader_public_digest("module-loader-public-snapshot"),
+        generations: SnapshotGenerations {
+            policy: generation,
+            negative: generation,
+            dynamic: generation,
+            handle: generation,
+        },
+    };
+    let importer = module_loader_public_principal("app");
+    let imported = module_loader_public_principal("dep");
+    let requester = SourceId::file(
+        importer.clone(),
+        vec![PathComponent::utf8("entry.mjs").expect("fixture path component")],
+    )
+    .expect("module-loader public requester");
+    let target = SourceId::file(
+        imported,
+        vec![PathComponent::utf8("index.mjs").expect("fixture path component")],
+    )
+    .expect("module-loader public target");
+    let decision = || {
+        GraphDecisionSet::new(
+            GraphOperationKind::StaticImport,
+            GraphAuthorityContext::new(
+                requester.clone(),
+                importer.clone(),
+                importer.clone(),
+                importer.clone(),
+                vec![importer.clone()],
+                Stage::Requested,
+                7,
+            )
+            .expect("module-loader public authority context"),
+            target.clone(),
+            "dep",
+            ResolutionKind::EsmStatic,
+            ConditionSet::for_kind(ResolutionKind::EsmStatic),
+            ImportAttributes::default(),
+            None,
+            None,
+        )
+        .expect("module-loader public decision")
+    };
+    let authorizer = ModuleGraphAuthorizer::new(&policy);
+    let accessed = std::cell::Cell::new(false);
+    let session_id = format!("public-module-loader:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    match expected.0 {
+        "authorize-edge" => {
+            authorizer
+                .authorize(decision())
+                .expect("authenticated module edge must authorize");
+        }
+        operation => {
+            let access_kind = match operation {
+                "source-acquisition" => GraphOperationKind::SourceAcquisition,
+                "cache-read" => GraphOperationKind::CacheRead,
+                "prepared-carrier-read" => GraphOperationKind::PreparedCarrierRead,
+                _ => unreachable!(),
+            };
+            authorizer
+                .authorize_then_access(
+                    decision(),
+                    access_kind,
+                    module_loader_public_digest("module-loader-public-source"),
+                    (access_kind == GraphOperationKind::PreparedCarrierRead)
+                        .then(|| module_loader_public_digest("module-loader-public-carrier")),
+                    || {
+                        accessed.set(true);
+                        Ok(())
+                    },
+                )
+                .expect("authenticated module-loader access must execute");
+            assert!(accessed.get(), "module-loader access closure did not run");
+        }
+    }
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let invocation_result = serde_json::json!({
+        "kind": "return",
+        "surfaceName": invocation.surface_name,
+        "operation": expected.0,
+        "accessExecuted": accessed.get(),
+        "cleanup": "none",
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": "ibex/capsec-module-loader-invocation/1",
+            "kind": invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "surfaceName": invocation.surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": invocation_result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected module-loader observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": probe.surface_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), serde_json::Value::String(digest));
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-native-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 9] = [
     "cargo",
     "test",
     "--bin",
     "ibex",
     "--features",
-    "capsec-conformance-observer",
+    "capsec-conformance-observer,openssl-crypto",
     "capsec_public_native_recipe_batch",
     "--",
     "--test-threads=1",
 ];
 
 fn is_native_public_batch_probe(probe: &PublicSurfaceProbe) -> bool {
-    (probe.invocation.native().is_some() || probe.invocation.host_abi().is_some())
+    (probe.invocation.native().is_some()
+        || probe.invocation.host_abi().is_some()
+        || probe.invocation.module_loader().is_some())
         && probe
             .command
             .iter()
@@ -2532,20 +3413,54 @@ async fn capsec_public_native_recipe_batch() {
                 .finish()
                 .expect("finish authenticated native-public publications");
             executions.push(execution);
+        } else if probe.invocation.host_abi().is_some() {
+            if probe.invocation.host_abi().unwrap().operation["kind"]
+                == "module-runner-source-graph"
+            {
+                executions.push(
+                    execute_module_runner_host_abi_public_recipe(
+                        recipe,
+                        &identity_before.binary_digest,
+                    )
+                    .await,
+                );
+            } else {
+                let (host, snapshot_digest) = build_armed_test_host_custom(
+                    None,
+                    false,
+                    false,
+                    false,
+                    Vec::new(),
+                    None,
+                    |_| {},
+                );
+                assert_ne!(crate::host::abi::install_host(host), 0);
+                let _reset = HostResetGuard;
+                let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+                    .expect("create isolated host-ABI public recipe engine");
+                engine
+                    .load_runtime()
+                    .await
+                    .expect("load runtime before host-ABI public recipe");
+                executions.push(
+                    execute_host_abi_public_recipe(recipe, &identity_before.binary_digest).await,
+                );
+            }
         } else {
-            assert!(probe.invocation.host_abi().is_some());
+            assert!(probe.invocation.module_loader().is_some());
             let (host, snapshot_digest) =
                 build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
             assert_ne!(crate::host::abi::install_host(host), 0);
             let _reset = HostResetGuard;
             let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
-                .expect("create isolated host-ABI public recipe engine");
+                .expect("create isolated module-loader public recipe engine");
             engine
                 .load_runtime()
                 .await
-                .expect("load runtime before host-ABI public recipe");
-            executions
-                .push(execute_host_abi_public_recipe(recipe, &identity_before.binary_digest).await);
+                .expect("load runtime before module-loader public recipe");
+            executions.push(
+                execute_module_loader_public_recipe(recipe, &identity_before.binary_digest).await,
+            );
         }
         eprintln!("CapSec native public fixture passed: {}", recipe.fixture_id);
     }

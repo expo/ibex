@@ -106316,23 +106316,23 @@
     },
     {
       "id": "surface.builtin.export.node.timers.clearinterval.13z1kmz",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "builtin",
         "name": "export:node_timers:clearInterval"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.builtin.export.node.timers.cleartimeout.0gc6qy1",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "builtin",
         "name": "export:node_timers:clearTimeout"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.builtin.export.node.timers.default.00wct4q",
@@ -199252,56 +199252,6 @@
       "rationale": "Embedder accessibility and appearance mirrors disclose external application state through a shared object."
     },
     {
-      "id": "surface.native.op.exactaccessibilitystate.09y1rng",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
-      "id": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState.changeTimer"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
-      "id": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState.eventListeners"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
-      "id": "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState.listeners"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
-      "id": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactAccessibilityState.snapshot"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The accessibility state object contains process-wide listeners, timers, and mutable snapshots."
-    },
-    {
       "id": "surface.native.op.exactaescbcdecrypt.12v0if3",
       "classification": "non-capability",
       "surface": {
@@ -201247,16 +201197,6 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
-      "id": "surface.native.op.exactentryfileconsumed.02ku0kb",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactEntryFileConsumed"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
       "id": "surface.native.op.exactevpcipherdecrypt.0ig36oe",
       "classification": "non-capability",
       "surface": {
@@ -201821,96 +201761,6 @@
           "source-identity-mismatch"
         ]
       }
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsDefineOK"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionserror.19l9hx8",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsError"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsfixran.05o62vy",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsFixRan"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsnewprotook.03htkto",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsNewProtoOK"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsobj.0blhx7r",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsObj"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsOpenssl"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsOpensslAfter"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionsprotook.1q93zhu",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsProtoOK"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactfinalversionssame.0n8ritg",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactFinalVersionsSame"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
     },
     {
       "id": "surface.native.op.exactfsclose.0r6l8ou",
@@ -205832,16 +205682,6 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
-      "id": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactHasDecompressionUnhandledFilter"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
       "id": "surface.native.op.exacthashraw.13kx1ex",
       "classification": "non-capability",
       "surface": {
@@ -207563,56 +207403,6 @@
       }
     },
     {
-      "id": "surface.native.op.exactlocalestate.0bxrb04",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState.changeTimer"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState.listeners"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.override.0ovx5qm",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState.override"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
-      "id": "surface.native.op.exactlocalestate.snapshot.02mz88i",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactLocaleState.snapshot"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The locale state object contains process-wide listeners, overrides, timers, and snapshots."
-    },
-    {
       "id": "surface.native.op.exactlstat.1c98s6l",
       "classification": "effects",
       "surface": {
@@ -207875,136 +207665,6 @@
       "surface": {
         "kind": "native-op",
         "name": "__exactMemoryDebug.summary"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.1cmr92m",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.lastLoggedHeapUsed"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.nextSampleId"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.options.1i8ok66",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.options"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.options.includeExpensive"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.options.includeGCStats"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.options.intervalMs"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.options.logEvery"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.options.logOnGrowthBytes"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.options.maxSamples"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.sampleCount"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.samples"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
-    },
-    {
-      "id": "surface.native.op.exactmemorydebugstate.timer.1it6pzl",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactMemoryDebugState.timer"
       },
       "cap": "runtime:inspect",
       "rationale": "Debug source, heap, sample, and runtime-version globals expose process-wide diagnostic state."
@@ -208805,26 +208465,6 @@
       "rationale": "Process signal control is closed in the initial profile."
     },
     {
-      "id": "surface.native.op.exactprocesscompatfixran.0tw23io",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactProcessCompatFixRan"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
-      "id": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactProcessCompatFixSawProcess"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
       "id": "surface.native.op.exactprocessipcbootstrap.1f8twb6",
       "classification": "closed",
       "surface": {
@@ -208873,16 +208513,6 @@
       },
       "rationaleId": "ordinary-randomness",
       "rationale": "Random byte generation carries no external authority in the package threat model."
-    },
-    {
-      "id": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactReadableStreamCompatIteratorPatchScheduled"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.native.op.exactreaddir.0tg30vk",
@@ -213725,23 +213355,23 @@
     },
     {
       "id": "surface.native.op.exacttimerref.0o8ksen",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "native-op",
         "name": "__exactTimerRef"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer ref-state mutation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.native.op.exacttimerunref.0x3mi6y",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "native-op",
         "name": "__exactTimerUnref"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer ref-state mutation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.native.op.exacttlsengineclose.1hnajr4",
@@ -214727,16 +214357,6 @@
           "object-identity-mismatch"
         ]
       }
-    },
-    {
-      "id": "surface.native.op.exactuveofvalue.0l8d7x9",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "native-op",
-        "name": "__exactUvEOFValue"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.native.op.exactverifysync.0lsqcbn",
@@ -221089,23 +220709,23 @@
     },
     {
       "id": "surface.native.op.global.clearinterval.11pm3v5",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "native-op",
         "name": "global:clearInterval"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.native.op.global.cleartimeout.0xeg86z",
-      "classification": "closed",
+      "classification": "non-capability",
       "surface": {
         "kind": "native-op",
         "name": "global:clearTimeout"
       },
-      "cap": "runtime:inspect",
-      "rationale": "Timer cancellation accepts a process-global sequential identifier without authenticating the timer owner."
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
       "id": "surface.native.op.global.clipboarditem.1winnmg",
@@ -257628,66 +257248,6 @@
           "peer-mismatch"
         ]
       }
-    },
-    {
-      "id": "surface.native.op.originalpromise.01mfxkq",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.prototype.14wln5e",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.prototype"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.prototype.catch"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.prototype.finally"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.prototype.then.01yci6j",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.prototype.then"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
-    },
-    {
-      "id": "surface.native.op.originalpromise.reject.1nmizxj",
-      "classification": "closed",
-      "surface": {
-        "kind": "native-op",
-        "name": "__OriginalPromise.reject"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "The saved original Promise implementation can bypass patched callback-attribution behavior."
     },
     {
       "id": "surface.native.op.stringbuffer.05y6skt",

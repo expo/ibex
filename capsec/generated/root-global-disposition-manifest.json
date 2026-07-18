@@ -2,7 +2,7 @@
   "rootGlobalDispositionManifestSchema": "ibex/root-global-disposition-manifest/1",
   "profile": "ibex/capsec/1",
   "status": "enforced-by-armed-live-sweep",
-  "sourceDigest": "sha256-yJSlMTkRUadoexvxjUYa0T8eaTdrgwp9QEFUVQg9Hlw",
+  "sourceDigest": "sha256-MxKs_CCee_AK4fnlKz4RpOyMudYsYm3TVJhnZOKSWN4",
   "sweep": {
     "roots": [
       "globalThis"
@@ -40,11 +40,6 @@
       "surface.native.op.exactaccessibilitysnapshot.prefershighcontrast.17igcxc",
       "surface.native.op.exactaccessibilitysnapshot.prefersreducedmotion.0712nue",
       "surface.native.op.exactaccessibilitysnapshot.prefersreducedtransparency.1pvdb7u",
-      "surface.native.op.exactaccessibilitystate.09y1rng",
-      "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-      "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-      "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-      "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
       "surface.native.op.exactaescbcdecrypt.12v0if3",
       "surface.native.op.exactaescbcencrypt.03oymej",
       "surface.native.op.exactaesctrencrypt.1ri8myw",
@@ -120,7 +115,6 @@
       "surface.native.op.exactensurestreamenhance.137akl3",
       "surface.native.op.exactensurewebcrypto.0ld2iyi",
       "surface.native.op.exactensurewebstorage.02zkajs",
-      "surface.native.op.exactentryfileconsumed.02ku0kb",
       "surface.native.op.exactevpcipherdecrypt.0ig36oe",
       "surface.native.op.exactevpcipherencrypt.0sa6l2u",
       "surface.native.op.exactexecsync.041glur",
@@ -128,15 +122,6 @@
       "surface.native.op.exactexportkeypkcs8.1a62omb",
       "surface.native.op.exactexportkeyspki.1fcikcp",
       "surface.native.op.exactfdpollhup.0jjcx5v",
-      "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-      "surface.native.op.exactfinalversionserror.19l9hx8",
-      "surface.native.op.exactfinalversionsfixran.05o62vy",
-      "surface.native.op.exactfinalversionsnewprotook.03htkto",
-      "surface.native.op.exactfinalversionsobj.0blhx7r",
-      "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-      "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-      "surface.native.op.exactfinalversionsprotook.1q93zhu",
-      "surface.native.op.exactfinalversionssame.0n8ritg",
       "surface.native.op.exactfsclose.0r6l8ou",
       "surface.native.op.exactfscloseasync.117uwo2",
       "surface.native.op.exactfsfchmod.1fo8s7x",
@@ -186,7 +171,6 @@
       "surface.native.op.exactgrantcapability.14g0r17",
       "surface.native.op.exacthandlereadfilesync.0i8wzb6",
       "surface.native.op.exacthandlescoped.109n957",
-      "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb",
       "surface.native.op.exacthashraw.13kx1ex",
       "surface.native.op.exacthashsync.1o1ioaq",
       "surface.native.op.exacthassharedruntimebundle.1debc4m",
@@ -236,11 +220,6 @@
       "surface.native.op.exactlocalesnapshot.tag.0zrcjz1",
       "surface.native.op.exactlocalesnapshot.tags.0meghey",
       "surface.native.op.exactlocalesnapshot.uses24hour.0y3k6mz",
-      "surface.native.op.exactlocalestate.0bxrb04",
-      "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-      "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-      "surface.native.op.exactlocalestate.override.0ovx5qm",
-      "surface.native.op.exactlocalestate.snapshot.02mz88i",
       "surface.native.op.exactlstat.1c98s6l",
       "surface.native.op.exactlutimes.1rpdm4k",
       "surface.native.op.exactlutimessync.1ygj38n",
@@ -253,19 +232,6 @@
       "surface.native.op.exactmemorydebug.state.0e8548q",
       "surface.native.op.exactmemorydebug.stop.0q48uq1",
       "surface.native.op.exactmemorydebug.summary.12l4jxz",
-      "surface.native.op.exactmemorydebugstate.1cmr92m",
-      "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp",
-      "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva",
-      "surface.native.op.exactmemorydebugstate.options.1i8ok66",
-      "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l",
-      "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t",
-      "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh",
-      "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5",
-      "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3",
-      "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9",
-      "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx",
-      "surface.native.op.exactmemorydebugstate.samples.1tlcn6r",
-      "surface.native.op.exactmemorydebugstate.timer.1it6pzl",
       "surface.native.op.exactmkdir.021eaz0",
       "surface.native.op.exactmkdtemp.07xpvq5",
       "surface.native.op.exactmoduleresolve.14a0zlj",
@@ -295,14 +261,11 @@
       "surface.native.op.exactplatform.0bpr6ee",
       "surface.native.op.exactplatformversion.0xnxnuy",
       "surface.native.op.exactpollsignal.1l4dydk",
-      "surface.native.op.exactprocesscompatfixran.0tw23io",
-      "surface.native.op.exactprocesscompatfixsawprocess.1y24i49",
       "surface.native.op.exactprocessipcbootstrap.1f8twb6",
       "surface.native.op.exactprocessipcbootstrap.close.1ap2eh4",
       "surface.native.op.exactprocessipcbootstrap.fd.1yvjieu",
       "surface.native.op.exactprocessipcbootstrap.serialization.1vtmt9s",
       "surface.native.op.exactrandombytes.05df739",
-      "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88",
       "surface.native.op.exactreaddir.0tg30vk",
       "surface.native.op.exactreadfile.1cmzco7",
       "surface.native.op.exactreadlink.1p5ozx1",
@@ -417,7 +380,6 @@
       "surface.native.op.exactunixlisten.0oo86mg",
       "surface.native.op.exactunlink.1g411ke",
       "surface.native.op.exactutimes.19tvh2i",
-      "surface.native.op.exactuveofvalue.0l8d7x9",
       "surface.native.op.exactverifysync.0lsqcbn",
       "surface.native.op.exactwebstreamspolyfillloaded.0j916fs",
       "surface.native.op.exactwhich.0it66ce",
@@ -2628,12 +2590,6 @@
       "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m",
       "surface.native.op.nativefetch.17pv6n3",
       "surface.native.op.nativefetchsync.17pnac8",
-      "surface.native.op.originalpromise.01mfxkq",
-      "surface.native.op.originalpromise.prototype.14wln5e",
-      "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-      "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-      "surface.native.op.originalpromise.prototype.then.01yci6j",
-      "surface.native.op.originalpromise.reject.1nmizxj",
       "surface.native.op.stringbuffer.05y6skt",
       "surface.native.op.svget.1spmln9",
       "surface.native.op.svset.0snna21",
@@ -3267,13 +3223,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.2b6b579c27bd339c",
+      "installId": "root-global.asyncfunction.31c6929f89d9e46a",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-489be85a33fd-84bc50a29f72"
+          "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72"
         ],
         "sourceRefs": [
           "patches/hermes/0001-domain-package-principal.patch#patch-content",
@@ -3293,7 +3249,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -3318,20 +3274,18 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.asyncfunction.53a562c8abe41d98",
+      "installId": "root-global.asyncfunction.9e6f90b48699d021",
       "observedKey": "native-op:global:AsyncFunction",
       "registryEdgeId": "surface.native.op.global.asyncfunction.12527a5",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-nuget-b25ccc32799d-84bc50a29f72"
+          "hermes-intrinsic-windows-source-patched-e08d04fc9242-84bc50a29f72"
         ],
         "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
@@ -14851,7 +14805,7 @@
       "aliases": [],
       "installPhase": "native-install",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
@@ -14886,7 +14840,7 @@
       "aliases": [],
       "installPhase": "native-install",
       "privateConsumer": null,
-      "disposition": "converted",
+      "disposition": "exposed",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
@@ -21968,50 +21922,13 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.eval.24a97a1e4cabd434",
-      "observedKey": "native-op:global:eval",
-      "registryEdgeId": "surface.native.op.global.eval.018ogi5",
-      "branch": {
-        "id": "windows",
-        "routes": [
-          "hermes-intrinsic-windows-nuget-b25ccc32799d-84bc50a29f72"
-        ],
-        "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
-          "src/engine/hermes_runtime.cc#lockdownJS:eval"
-        ],
-        "targetVariant": "windows",
-        "activation": "always"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "eval"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.eval.515516432fe2ea29",
+      "installId": "root-global.eval.89b607bdefe84c52",
       "observedKey": "native-op:global:eval",
       "registryEdgeId": "surface.native.op.global.eval.018ogi5",
       "branch": {
         "id": "default",
         "routes": [
-          "hermes-intrinsic-source-patched-489be85a33fd-84bc50a29f72",
+          "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72",
           "legacy-bootstrap"
         ],
         "sourceRefs": [
@@ -22032,7 +21949,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -22055,6 +21972,41 @@
       },
       "aliases": [],
       "installPhase": "bootstrap-script",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.eval.b2b49fd5810a1a6a",
+      "observedKey": "native-op:global:eval",
+      "registryEdgeId": "surface.native.op.global.eval.018ogi5",
+      "branch": {
+        "id": "windows",
+        "routes": [
+          "hermes-intrinsic-windows-source-patched-e08d04fc9242-84bc50a29f72"
+        ],
+        "sourceRefs": [
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdownJS:eval"
+        ],
+        "targetVariant": "windows",
+        "activation": "always"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "eval"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "source-derived",
       "privateConsumer": null,
       "disposition": "converted",
       "traversal": "descend",
@@ -30125,185 +30077,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactaccessibilitystate.a873c0ae15e7507a",
-      "observedKey": "native-op:__exactAccessibilityState",
-      "registryEdgeId": "surface.native.op.exactaccessibilitystate.09y1rng",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactAccessibilityState"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactaccessibilitystate.changetimer.ec5c19bb11989f76",
-      "observedKey": "native-op:__exactAccessibilityState.changeTimer",
-      "registryEdgeId": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactAccessibilityState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "changeTimer"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactaccessibilitystate.eventlisteners.16f935bdfe691599",
-      "observedKey": "native-op:__exactAccessibilityState.eventListeners",
-      "registryEdgeId": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.eventListeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactAccessibilityState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "eventListeners"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactaccessibilitystate.listeners.a2820c357be76bb5",
-      "observedKey": "native-op:__exactAccessibilityState.listeners",
-      "registryEdgeId": "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactAccessibilityState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "listeners"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactaccessibilitystate.snapshot.7745ea0ffbd8195a",
-      "observedKey": "native-op:__exactAccessibilityState.snapshot",
-      "registryEdgeId": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactAccessibilityState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "snapshot"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.exactaescbcdecrypt.5862ef63940c1f9f",
       "observedKey": "native-op:__exactAesCbcDecrypt",
       "registryEdgeId": "surface.native.op.exactaescbcdecrypt.12v0if3",
@@ -33529,37 +33302,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactentryfileconsumed.c0a5d5eb3c9cb309",
-      "observedKey": "native-op:__exactEntryFileConsumed",
-      "registryEdgeId": "surface.native.op.exactentryfileconsumed.02ku0kb",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactEntryFileConsumed"
-        ],
-        "targetVariant": "default",
-        "activation": "post-bootstrap-lazy"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactEntryFileConsumed"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.exactevpcipherdecrypt.21ca9da800228238",
       "observedKey": "native-op:__exactEvpCipherDecrypt",
       "registryEdgeId": "surface.native.op.exactevpcipherdecrypt.0ig36oe",
@@ -33775,285 +33517,6 @@
       "liveExpectation": "reachable",
       "resolution": "static",
       "nativeImplementation": true
-    },
-    {
-      "installId": "root-global.exactfinalversionsdefineok.1bb91fe598b7a27b",
-      "observedKey": "native-op:__exactFinalVersionsDefineOK",
-      "registryEdgeId": "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsDefineOK"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsDefineOK"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactfinalversionserror.ca1f63510934f9a6",
-      "observedKey": "native-op:__exactFinalVersionsError",
-      "registryEdgeId": "surface.native.op.exactfinalversionserror.19l9hx8",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsError"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsError"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactfinalversionsfixran.7652fdddd6410272",
-      "observedKey": "native-op:__exactFinalVersionsFixRan",
-      "registryEdgeId": "surface.native.op.exactfinalversionsfixran.05o62vy",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsFixRan"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsFixRan"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactfinalversionsnewprotook.a54cb48f0e3b476e",
-      "observedKey": "native-op:__exactFinalVersionsNewProtoOK",
-      "registryEdgeId": "surface.native.op.exactfinalversionsnewprotook.03htkto",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsNewProtoOK"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsNewProtoOK"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactfinalversionsobj.022e9925950dc235",
-      "observedKey": "native-op:__exactFinalVersionsObj",
-      "registryEdgeId": "surface.native.op.exactfinalversionsobj.0blhx7r",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsObj"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsObj"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactfinalversionsopenssl.b77b2e393354a48a",
-      "observedKey": "native-op:__exactFinalVersionsOpenssl",
-      "registryEdgeId": "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpenssl"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsOpenssl"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactfinalversionsopensslafter.0a719e37707b7478",
-      "observedKey": "native-op:__exactFinalVersionsOpensslAfter",
-      "registryEdgeId": "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpensslAfter"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsOpensslAfter"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactfinalversionsprotook.7f3f1aaa10a6f3de",
-      "observedKey": "native-op:__exactFinalVersionsProtoOK",
-      "registryEdgeId": "surface.native.op.exactfinalversionsprotook.1q93zhu",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsProtoOK"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsProtoOK"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactfinalversionssame.5e1b986b93be68d7",
-      "observedKey": "native-op:__exactFinalVersionsSame",
-      "registryEdgeId": "surface.native.op.exactfinalversionssame.0n8ritg",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsSame"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactFinalVersionsSame"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
     },
     {
       "installId": "root-global.exactfsclose.766031a55dec44c9",
@@ -36389,37 +35852,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exacthasdecompressionunhandledfilter.7a9d0f1a241fd247",
-      "observedKey": "native-op:__exactHasDecompressionUnhandledFilter",
-      "registryEdgeId": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/compression/DecompressionStream.ts#installTrailingDataUnhandledFilter:globals:__exactHasDecompressionUnhandledFilter"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactHasDecompressionUnhandledFilter"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.exacthashraw.e082542aa9dec13c",
       "observedKey": "native-op:__exactHashRaw",
       "registryEdgeId": "surface.native.op.exacthashraw.13kx1ex",
@@ -38154,185 +37586,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactlocalestate.c7750a224af3c6f1",
-      "observedKey": "native-op:__exactLocaleState",
-      "registryEdgeId": "surface.native.op.exactlocalestate.0bxrb04",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactLocaleState"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactlocalestate.changetimer.5bd8e59ca21d1026",
-      "observedKey": "native-op:__exactLocaleState.changeTimer",
-      "registryEdgeId": "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactLocaleState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "changeTimer"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactlocalestate.listeners.a6690524de0635ef",
-      "observedKey": "native-op:__exactLocaleState.listeners",
-      "registryEdgeId": "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactLocaleState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "listeners"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactlocalestate.override.37d52c8915274675",
-      "observedKey": "native-op:__exactLocaleState.override",
-      "registryEdgeId": "surface.native.op.exactlocalestate.override.0ovx5qm",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.override",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactLocaleState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "override"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactlocalestate.snapshot.e7c30d7371e4aaab",
-      "observedKey": "native-op:__exactLocaleState.snapshot",
-      "registryEdgeId": "surface.native.op.exactlocalestate.snapshot.02mz88i",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "targetVariant": "all",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactLocaleState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "snapshot"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.exactlstat.3c551fed73a7d9d3",
       "observedKey": "native-op:__exactLstat",
       "registryEdgeId": "surface.native.op.exactlstat.1c98s6l",
@@ -38789,513 +38042,6 @@
           {
             "kind": "string",
             "value": "summary"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.d218d684ceda8345",
-      "observedKey": "native-op:__exactMemoryDebugState",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.1cmr92m",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap",
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState"
-        ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.lastloggedheapused.d16ce9235a969a2f",
-      "observedKey": "native-op:__exactMemoryDebugState.lastLoggedHeapUsed",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap",
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.lastLoggedHeapUsed",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.lastLoggedHeapUsed"
-        ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "lastLoggedHeapUsed"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.nextsampleid.1a398aba3ac4f0b7",
-      "observedKey": "native-op:__exactMemoryDebugState.nextSampleId",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap",
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.nextSampleId",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.nextSampleId"
-        ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "nextSampleId"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.options.7f135c92fd542f60",
-      "observedKey": "native-op:__exactMemoryDebugState.options",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.options.1i8ok66",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap",
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.options",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options"
-        ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "options"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.options.includeexpensive.fa56963a116a80a4",
-      "observedKey": "native-op:__exactMemoryDebugState.options.includeExpensive",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeExpensive"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "options"
-          },
-          {
-            "kind": "string",
-            "value": "includeExpensive"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.options.includegcstats.977441d6c902a0b9",
-      "observedKey": "native-op:__exactMemoryDebugState.options.includeGCStats",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeGCStats"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "options"
-          },
-          {
-            "kind": "string",
-            "value": "includeGCStats"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.options.intervalms.8967bfa5f1ef5b30",
-      "observedKey": "native-op:__exactMemoryDebugState.options.intervalMs",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.intervalMs"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "options"
-          },
-          {
-            "kind": "string",
-            "value": "intervalMs"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.options.logevery.7a4210f2f4af776e",
-      "observedKey": "native-op:__exactMemoryDebugState.options.logEvery",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logEvery"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "options"
-          },
-          {
-            "kind": "string",
-            "value": "logEvery"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.options.logongrowthbytes.f11a80215a603a51",
-      "observedKey": "native-op:__exactMemoryDebugState.options.logOnGrowthBytes",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logOnGrowthBytes"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "options"
-          },
-          {
-            "kind": "string",
-            "value": "logOnGrowthBytes"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.options.maxsamples.bb9084bf69fa3a41",
-      "observedKey": "native-op:__exactMemoryDebugState.options.maxSamples",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.maxSamples"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "options"
-          },
-          {
-            "kind": "string",
-            "value": "maxSamples"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.samplecount.c00fc986c2698cb0",
-      "observedKey": "native-op:__exactMemoryDebugState.sampleCount",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap",
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.sampleCount",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.sampleCount"
-        ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "sampleCount"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.samples.9925e46f93e261db",
-      "observedKey": "native-op:__exactMemoryDebugState.samples",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap",
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.samples",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.samples"
-        ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "samples"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactmemorydebugstate.timer.03595ae539011d8f",
-      "observedKey": "native-op:__exactMemoryDebugState.timer",
-      "registryEdgeId": "surface.native.op.exactmemorydebugstate.timer.1it6pzl",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap",
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.timer",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.timer"
-        ],
-        "targetVariant": "default",
-        "activation": "shared-runtime-bundle"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactMemoryDebugState"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "timer"
           }
         ]
       },
@@ -40367,68 +39113,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactprocesscompatfixran.3684e483e9b8048a",
-      "observedKey": "native-op:__exactProcessCompatFixRan",
-      "registryEdgeId": "surface.native.op.exactprocesscompatfixran.0tw23io",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixRan"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactProcessCompatFixRan"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.exactprocesscompatfixsawprocess.9ac0329c2ee9ef91",
-      "observedKey": "native-op:__exactProcessCompatFixSawProcess",
-      "registryEdgeId": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixSawProcess"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactProcessCompatFixSawProcess"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.exactprocessipcbootstrap.close.8979e0d4ab05815a",
       "observedKey": "native-op:__exactProcessIpcBootstrap.close",
       "registryEdgeId": "surface.native.op.exactprocessipcbootstrap.close.1ap2eh4",
@@ -40597,38 +39281,6 @@
       "liveExpectation": "reachable",
       "resolution": "static",
       "nativeImplementation": true
-    },
-    {
-      "installId": "root-global.exactreadablestreamcompatiteratorpatchscheduled.be0c1f4f4875beb0",
-      "observedKey": "native-op:__exactReadableStreamCompatIteratorPatchScheduled",
-      "registryEdgeId": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#__exactReadableStreamCompatIteratorPatchScheduled",
-          "src/engine/bootstrap/exact-global.js#__exactReadableStreamCompatIteratorPatchScheduled"
-        ],
-        "targetVariant": "default",
-        "activation": "legacy-runtime-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactReadableStreamCompatIteratorPatchScheduled"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
     },
     {
       "installId": "root-global.exactreaddir.b91a2edbfe1fba10",
@@ -45652,37 +44304,6 @@
       "nativeImplementation": true
     },
     {
-      "installId": "root-global.exactuveofvalue.03bef222b3528dc4",
-      "observedKey": "native-op:__exactUvEOFValue",
-      "registryEdgeId": "surface.native.op.exactuveofvalue.0l8d7x9",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "legacy-bootstrap"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactUvEOFValue"
-        ],
-        "targetVariant": "default",
-        "activation": "post-bootstrap-lazy"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__exactUvEOFValue"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "bootstrap-script",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.exactverifysync.fd6605e5ef45c856",
       "observedKey": "native-op:__exactVerifySync",
       "registryEdgeId": "surface.native.op.exactverifysync.0lsqcbn",
@@ -50335,38 +48956,22 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.309f7de7928abe6d",
+      "installId": "root-global.function.0d826c1cc9a39a66",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
-        "id": "default",
+        "id": "windows",
         "routes": [
-          "hermes-intrinsic-source-patched-489be85a33fd-84bc50a29f72"
+          "hermes-intrinsic-windows-source-patched-e08d04fc9242-84bc50a29f72"
         ],
         "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
-        "targetVariant": "default",
+        "targetVariant": "windows",
         "activation": "always"
       },
       "property": {
@@ -50426,24 +49031,38 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.function.d251732060f06965",
+      "installId": "root-global.function.8d24322a671fd1e8",
       "observedKey": "native-op:global:Function",
       "registryEdgeId": "surface.native.op.global.function.132ixh3",
       "branch": {
-        "id": "windows",
+        "id": "default",
         "routes": [
-          "hermes-intrinsic-windows-nuget-b25ccc32799d-84bc50a29f72"
+          "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72"
         ],
         "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
-        "targetVariant": "windows",
+        "targetVariant": "default",
         "activation": "always"
       },
       "property": {
@@ -50494,57 +49113,6 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.1b01950e497f2685",
-      "observedKey": "native-op:global:GeneratorFunction",
-      "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
-      "branch": {
-        "id": "default",
-        "routes": [
-          "hermes-intrinsic-source-patched-489be85a33fd-84bc50a29f72"
-        ],
-        "sourceRefs": [
-          "patches/hermes/0001-domain-package-principal.patch#patch-content",
-          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
-          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
-          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
-          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
-          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
-          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
-          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
-          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
-          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
-          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
-          "scripts/apply-hermes-patches.sh#patches",
-          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
-          "scripts/build-hermes.sh#apply-hermes-patches.sh",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
-          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
-          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
-          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
-          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
-          "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
-        ],
-        "targetVariant": "default",
-        "activation": "intrinsic-reference-only"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "GeneratorFunction"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "source-derived",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
       "installId": "root-global.generatorfunction.b033710f2bfca3a0",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
@@ -50585,20 +49153,69 @@
       "nativeImplementation": false
     },
     {
-      "installId": "root-global.generatorfunction.b60903b371f612bf",
+      "installId": "root-global.generatorfunction.c1c2e9e91e974208",
+      "observedKey": "native-op:global:GeneratorFunction",
+      "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
+      "branch": {
+        "id": "default",
+        "routes": [
+          "hermes-intrinsic-source-patched-afb724557d11-84bc50a29f72"
+        ],
+        "sourceRefs": [
+          "patches/hermes/0001-domain-package-principal.patch#patch-content",
+          "patches/hermes/0002-frame-attribution-helper.patch#patch-content",
+          "patches/hermes/0003-capability-bridge-exports.patch#patch-content",
+          "patches/hermes/0004-native-compartment-globals.patch#patch-content",
+          "patches/hermes/0005-native-compartment-refinements.patch#patch-content",
+          "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
+          "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
+          "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-raw-throw-capture.patch#patch-content",
+          "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
+          "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "scripts/apply-hermes-patches.sh#patches",
+          "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
+          "scripts/build-hermes.sh#apply-hermes-patches.sh",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
+          "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
+          "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
+          "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
+        ],
+        "targetVariant": "default",
+        "activation": "intrinsic-reference-only"
+      },
+      "property": {
+        "root": {
+          "kind": "string",
+          "value": "GeneratorFunction"
+        },
+        "path": []
+      },
+      "aliases": [],
+      "installPhase": "source-derived",
+      "privateConsumer": null,
+      "disposition": "converted",
+      "traversal": "descend",
+      "liveExpectation": "reachable",
+      "resolution": "static",
+      "nativeImplementation": false
+    },
+    {
+      "installId": "root-global.generatorfunction.ceeaabfea52b3ada",
       "observedKey": "native-op:global:GeneratorFunction",
       "registryEdgeId": "surface.native.op.global.generatorfunction.05wtx3w",
       "branch": {
         "id": "windows",
         "routes": [
-          "hermes-intrinsic-windows-nuget-b25ccc32799d-84bc50a29f72"
+          "hermes-intrinsic-windows-source-patched-e08d04fc9242-84bc50a29f72"
         ],
         "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
@@ -69633,234 +68250,6 @@
       "installPhase": "bootstrap-script",
       "privateConsumer": null,
       "disposition": "exposed",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.originalpromise.4a4d9fa3344cc614",
-      "observedKey": "native-op:__OriginalPromise",
-      "registryEdgeId": "surface.native.op.originalpromise.01mfxkq",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "targetVariant": "all",
-        "activation": "diagnostic-unarmed-promise-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__OriginalPromise"
-        },
-        "path": []
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.originalpromise.prototype.0171ed8c5f4f7aa1",
-      "observedKey": "native-op:__OriginalPromise.prototype",
-      "registryEdgeId": "surface.native.op.originalpromise.prototype.14wln5e",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "targetVariant": "all",
-        "activation": "diagnostic-unarmed-promise-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__OriginalPromise"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "prototype"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.originalpromise.prototype.catch.3a4ba69466803896",
-      "observedKey": "native-op:__OriginalPromise.prototype.catch",
-      "registryEdgeId": "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.catch",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "targetVariant": "all",
-        "activation": "diagnostic-unarmed-promise-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__OriginalPromise"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "prototype"
-          },
-          {
-            "kind": "string",
-            "value": "catch"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.originalpromise.prototype.finally.909064f79537341a",
-      "observedKey": "native-op:__OriginalPromise.prototype.finally",
-      "registryEdgeId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.finally",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "targetVariant": "all",
-        "activation": "diagnostic-unarmed-promise-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__OriginalPromise"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "prototype"
-          },
-          {
-            "kind": "string",
-            "value": "finally"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.originalpromise.prototype.then.8ec058e0deda0f76",
-      "observedKey": "native-op:__OriginalPromise.prototype.then",
-      "registryEdgeId": "surface.native.op.originalpromise.prototype.then.01yci6j",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "targetVariant": "all",
-        "activation": "diagnostic-unarmed-promise-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__OriginalPromise"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "prototype"
-          },
-          {
-            "kind": "string",
-            "value": "then"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
-      "traversal": "descend",
-      "liveExpectation": "reachable",
-      "resolution": "static",
-      "nativeImplementation": false
-    },
-    {
-      "installId": "root-global.originalpromise.reject.594dd9034e1b0a6a",
-      "observedKey": "native-op:__OriginalPromise.reject",
-      "registryEdgeId": "surface.native.op.originalpromise.reject.1nmizxj",
-      "branch": {
-        "id": "all",
-        "routes": [
-          "shared-runtime"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.reject",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "targetVariant": "all",
-        "activation": "diagnostic-unarmed-promise-fallback"
-      },
-      "property": {
-        "root": {
-          "kind": "string",
-          "value": "__OriginalPromise"
-        },
-        "path": [
-          {
-            "kind": "string",
-            "value": "reject"
-          }
-        ]
-      },
-      "aliases": [],
-      "installPhase": "shared-runtime",
-      "privateConsumer": null,
-      "disposition": "converted",
       "traversal": "descend",
       "liveExpectation": "reachable",
       "resolution": "static",
@@ -103917,10 +102306,10 @@
     }
   ],
   "counts": {
-    "installBranches": 2765,
-    "logicalGlobals": 2618,
-    "registryEdges": 2618,
+    "installBranches": 2721,
+    "logicalGlobals": 2574,
+    "registryEdges": 2574,
     "sealedOrPrivate": 49,
-    "permittedReachable": 2716
+    "permittedReachable": 2672
   }
 }

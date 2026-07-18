@@ -43,6 +43,8 @@ const CDP_RUST_PATH = "src/bin/ibex/cdp/mod.rs";
 const RUNTIME_RUST_PATH = "src/bin/ibex/runtime.rs";
 const HOST_ABI_OUTPUT_TEST_PATH =
   "src/bin/ibex/engine/capsec_host_abi_output_batch.test.rs";
+const PUBLIC_CLOSED_TEST_PATH =
+  "src/bin/ibex/engine/capsec_public_closed_batch.rs";
 
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
@@ -846,6 +848,11 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
     typeof hostAbiOutputTest === "string",
     `debugger native alias Rust audit lacks ${HOST_ABI_OUTPUT_TEST_PATH}`,
   );
+  const publicClosedTest = compactByPath.get(PUBLIC_CLOSED_TEST_PATH);
+  requireCondition(
+    typeof publicClosedTest === "string",
+    `debugger native alias Rust audit lacks ${PUBLIC_CLOSED_TEST_PATH}`,
+  );
 
   // The conformance-only Host-ABI executor is compiled solely as a Rust test
   // child module. It may call the exported debugger ABI to observe its real
@@ -890,6 +897,40 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
     ],
     compactRust,
     "Host ABI diagnostic output executor",
+  );
+  const closedDebuggerMap = extractRegion(
+    publicClosedTest,
+    compactRust(
+      "fn reviewed_debugger_abi(function_name: &str) -> Option<(&'static str, &'static str)>",
+      "closed debugger ABI map token",
+    ),
+    "closed debugger ABI map",
+  );
+  const closedDebuggerExecutor = extractRegion(
+    publicClosedTest,
+    compactRust(
+      "async fn execute_closed_debugger_abi(",
+      "closed debugger ABI executor token",
+    ),
+    "closed debugger ABI executor",
+  );
+  const closedDebuggerMatched = orderedTokens(
+    closedDebuggerExecutor,
+    [
+      "begin_installed_conformance_observation",
+      "engine.eval_immediate",
+      "engine.ensure_runtime()",
+      "ex_hermes_debugger_enable(raw)",
+      'match function_name.as_str()',
+      '"ex_hermes_debugger_eval" =>',
+      '"ex_hermes_debugger_get_script_source" =>',
+      '"ex_hermes_debugger_get_scripts" =>',
+      '"ex_hermes_debugger_next_event" =>',
+      '"ex_hermes_debugger_set_breakpoint" =>',
+      '"ex_hermes_debugger_next_event after closed call"',
+    ],
+    compactRust,
+    "closed debugger ABI executor",
   );
 
   const runtimeSink = extractRegion(
@@ -1097,13 +1138,20 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
     }
     const diagnosticTestCount =
       spec.symbol === "ex_hermes_debugger_enable" ? 7 : 2;
+    const closedTestCount =
+      spec.symbol === "ex_hermes_debugger_next_event" ? 5 : 3;
     requireCondition(
       identifierOccurrences(diagnosticOutputExecutor, spec.symbol) ===
         diagnosticTestCount &&
         identifierOccurrences(hostAbiOutputTest, spec.symbol) ===
           diagnosticTestCount &&
-        total === 2 + diagnosticTestCount &&
-        sites.length === 2 &&
+        identifierOccurrences(closedDebuggerMap, spec.symbol) +
+            identifierOccurrences(closedDebuggerExecutor, spec.symbol) ===
+          closedTestCount &&
+        identifierOccurrences(publicClosedTest, spec.symbol) ===
+          closedTestCount &&
+        total === 2 + diagnosticTestCount + closedTestCount &&
+        sites.length === 3 &&
         sites.some(
           (site) =>
             site.path === HERMES_RUST_PATH && site.count === 2,
@@ -1112,8 +1160,13 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
           (site) =>
             site.path === HOST_ABI_OUTPUT_TEST_PATH &&
             site.count === diagnosticTestCount,
+        ) &&
+        sites.some(
+          (site) =>
+            site.path === PUBLIC_CLOSED_TEST_PATH &&
+            site.count === closedTestCount,
         ),
-      `${spec.nativeName}: expected one Rust declaration, one guarded production call, and only the bounded diagnostic test calls of ${spec.symbol}`,
+      `${spec.nativeName}: expected one Rust declaration, one guarded production call, and only the bounded diagnostic/closed-target test calls of ${spec.symbol}`,
     );
     const backendCount = identifierOccurrences(backend, spec.symbol);
     const enableCount = identifierOccurrences(maybeEnable, spec.symbol);
@@ -1142,6 +1195,7 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
       cdpMatched,
       diagnosticRuntimeMatched,
       diagnosticOutputMatched,
+      closedDebuggerMatched,
     }),
     assertions: [
       {
@@ -1166,6 +1220,11 @@ function auditGuardAndRustReachability(requiredSources, binaryRustSources) {
           diagnosticRuntimeMatched,
           diagnosticOutputMatched,
         }),
+      },
+      {
+        id: "test-only-closed-debugger-executor",
+        path: PUBLIC_CLOSED_TEST_PATH,
+        digest: taggedDigest({ closedDebuggerMatched }),
       },
     ],
     symbolEvidence,

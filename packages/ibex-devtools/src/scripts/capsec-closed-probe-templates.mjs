@@ -16,7 +16,7 @@ const CLOSED_BATCH_COMMAND = Object.freeze([
   "--bin",
   "ibex",
   "--features",
-  "capsec-conformance-observer",
+  "capsec-conformance-observer,openssl-crypto",
   "capsec_public_closed_recipe_batch",
   "--",
   "--test-threads=1",
@@ -80,6 +80,73 @@ const TAMED_EVALUATOR_ACCESS = new Map([
   ["global:Function", "global-function"],
   ["global:AsyncFunction", "async-function-constructor"],
   ["global:GeneratorFunction", "generator-function-constructor"],
+]);
+
+const TERMINAL_BUILTIN_SPECIFIERS = new Map([
+  ["node_async_hooks", ["async_hooks", "node:async_hooks"]],
+  [
+    "node_inspector",
+    [
+      "inspector",
+      "inspector/promises",
+      "node:inspector",
+      "node:inspector/promises",
+    ],
+  ],
+  ["node_vm", ["node:vm", "vm"]],
+  ["node_wasi", ["node:wasi", "wasi"]],
+  ["node_worker_threads", ["node:worker_threads", "worker_threads"]],
+]);
+
+const DEBUGGER_ABI_FUNCTIONS = new Map([
+  ["enable", ["ex_hermes_debugger_enable", "integer-zero"]],
+  ["eval", ["ex_hermes_debugger_eval", "null-pointer"]],
+  ["get-script-source", ["ex_hermes_debugger_get_script_source", "null-pointer"]],
+  ["get-scripts", ["ex_hermes_debugger_get_scripts", "null-pointer"]],
+  ["next-event", ["ex_hermes_debugger_next_event", "null-pointer"]],
+  ["pause", ["ex_hermes_debugger_pause", "no-event"]],
+  [
+    "remove-breakpoint",
+    ["ex_hermes_debugger_remove_breakpoint", "no-event"],
+  ],
+  ["resume", ["ex_hermes_debugger_resume", "no-event"]],
+  ["set-breakpoint", ["ex_hermes_debugger_set_breakpoint", "null-pointer"]],
+]);
+
+const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
+  "__exactAllowNativesSyntax",
+  "__exactCompatEval",
+  "__exactDebugModuleSource",
+  "__exactDebugModuleSources",
+  "__exactDebugModuleSources.length",
+  "__exactInstallAsyncIpcListenerPatch",
+  "__exactInstallProcessIpcBootstrap",
+  "__exactNativeWrapState",
+  "__exactNativeWrapState.Pipe",
+  "__exactNativeWrapState.TCP",
+  "__exactNativeWrapState.TCPConnectWrap",
+  "__exactNativeWrapState.UV_EINVAL",
+  "__exactNativeWrapState.byFd",
+  "__exactNativeWrapState.pipeConstants",
+  "__exactNativeWrapState.tcpConstants",
+  "__exactStreamWrapState",
+  "__exactSyncTrackedIpcListenersAfterDispatch",
+  "global:Bun.gc",
+  "global:Cache",
+  "global:Cache.add",
+  "global:Cache.addAll",
+  "global:Cache.delete",
+  "global:Cache.keys",
+  "global:Cache.match",
+  "global:Cache.matchAll",
+  "global:Cache.put",
+  "global:CacheStorage",
+  "global:CacheStorage.delete",
+  "global:CacheStorage.has",
+  "global:CacheStorage.keys",
+  "global:CacheStorage.match",
+  "global:CacheStorage.open",
+  "global:Exact.gc",
 ]);
 
 const EXACT_OPERATION_MANIFEST_DIGEST =
@@ -260,6 +327,71 @@ function tamedEvaluatorProbe({
         kind: "tamed-evaluator",
         globalName: metadata.exportName,
         accessMode,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function moduleRunnerNamespaceProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const surfaceName = "ex_hermes_module_record_namespace_json";
+  if (surfaceObservedKey !== `host-abi:${surfaceName}`) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "host-abi" ||
+    live.name !== surfaceName ||
+    !Array.isArray(live.sourceRefs) ||
+    canonicalJson(live.sourceRefs) !==
+      canonicalJson([`src/engine/hermes_module_runner.cc#${surfaceName}`]) ||
+    live.metadata?.definitions?.length !== 1 ||
+    live.metadata.definitions[0].language !== "c++" ||
+    live.metadata.definitions[0].sourceRef !== live.sourceRefs[0] ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "runtime:inspect" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-module-runner-namespace",
+    surfaceObservedKey,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "host-abi",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "module-runner-namespace",
+        expectedError:
+          "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup",
       },
       expectedResult: "closed",
       expectedTypedDecisionCount: 0,
@@ -537,6 +669,281 @@ function loaderExecutableKindProbe({
   return null;
 }
 
+function terminalBuiltinImportProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length > 1
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (!surfaceObservedKey.startsWith("builtin:")) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const moduleSpecifiers = TERMINAL_BUILTIN_SPECIFIERS.get(
+    metadata?.sourceKey,
+  );
+  if (!moduleSpecifiers) return null;
+  const terminalBuiltinRoot = moduleSpecifiers[0]
+    .replace(/^node:/u, "")
+    .split("/")[0];
+  const exportSurface = metadata.surfaceType === "export";
+  const expectedSurfaceName = exportSurface
+    ? `export:${metadata.sourceKey}:${metadata.exportName}`
+    : live.name;
+  if (
+    live.kind !== "builtin" ||
+    live.name !== expectedSurfaceName ||
+    live.observedKey !== `builtin:${expectedSurfaceName}` ||
+    metadata.importReachability !== "public" ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    (exportSurface
+      ? canonicalJson(metadata.publicModuleSpecifiers) !==
+        canonicalJson(moduleSpecifiers)
+      : metadata.moduleBuiltin !== true ||
+        metadata.bundleExternal !== true ||
+        !moduleSpecifiers.includes(live.name)) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    (route.alternatives.length === 1 &&
+      route.alternatives[0].terminalObservedKey !== surfaceObservedKey)
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-terminal-builtin",
+    surfaceObservedKey,
+    sourceKey: metadata.sourceKey,
+    ...(exportSurface ? { exportName: metadata.exportName } : {}),
+    moduleSpecifiers: [...moduleSpecifiers],
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "builtin",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "terminal-builtin-import",
+        terminalBuiltinRoot,
+        moduleSpecifiers: [...moduleSpecifiers],
+        expectedRejectionFragment: "Import denied:",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function debuggerAbiDisabledProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    target?.triple !== "aarch64-apple-darwin" ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const hostAbi = surfaceObservedKey.startsWith("host-abi:");
+  const nativePrefix = "native-op:inspector.debugger-";
+  const selected = hostAbi
+    ? [...DEBUGGER_ABI_FUNCTIONS].find(
+        ([, [functionName]]) =>
+          surfaceObservedKey === `host-abi:${functionName}`,
+      )
+    : surfaceObservedKey.startsWith(nativePrefix)
+      ? [
+          surfaceObservedKey.slice(nativePrefix.length),
+          DEBUGGER_ABI_FUNCTIONS.get(
+            surfaceObservedKey.slice(nativePrefix.length),
+          ),
+        ]
+      : null;
+  if (!selected) return null;
+  const [operationSlug, operation] = selected;
+  if (!operation) return null;
+  const [functionName, expectedCallResult] = operation;
+  const defaultSourceRef =
+    `src/engine/hermes_runtime_debugger.cc#${functionName}`;
+  const windowsSourceRef =
+    `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+  if (
+    !live ||
+    live.observedKey !== surfaceObservedKey ||
+    !new Set(["host-abi", "native-op"]).has(live.kind) ||
+    canonicalJson(live.sourceRefs) !==
+      canonicalJson([defaultSourceRef, windowsSourceRef]) ||
+    (hostAbi
+      ? live.name !== functionName ||
+        canonicalJson(
+          live.metadata?.definitions?.map((definition) => [
+            definition.targetVariant,
+            definition.sourceRef,
+          ]),
+        ) !==
+          canonicalJson([
+            ["default", defaultSourceRef],
+            ["windows", windowsSourceRef],
+          ])
+      : live.name !== `inspector.debugger-${operationSlug}` ||
+        live.metadata != null) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-debugger-abi",
+    surfaceObservedKey,
+    functionName,
+    selectedSourceRef: defaultSourceRef,
+    targetTriple: target.triple,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata ?? null),
+  };
+  const expectedError =
+    `debugger ABI ${functionName} is unavailable in the no-debugger exact target`;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: live.kind,
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "debugger-abi-disabled",
+        functionName,
+        expectedCallResult,
+        expectedError,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
+function sharedRuntimeGlobalAbsenceProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+  target,
+}) {
+  if (
+    target?.triple !== "aarch64-apple-darwin" ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  if (!SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName)) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const branches = metadata?.installationBranches;
+  const expectedExportName =
+    metadata?.memberName == null
+      ? metadata?.globalName
+      : `${metadata?.globalName}.${metadata?.memberName}`;
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== surfaceName ||
+    metadata?.surfaceType !== "global-api" ||
+    typeof metadata.globalName !== "string" ||
+    !["string", "object"].includes(typeof metadata.memberName) ||
+    (metadata.memberName !== null && typeof metadata.memberName !== "string") ||
+    metadata.exportName !== expectedExportName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(branches) ||
+    branches.length !== 1 ||
+    branches[0].route !== "legacy-bootstrap" ||
+    branches[0].targetVariant !== "default" ||
+    canonicalJson(branches[0].sourceRefs) !== canonicalJson(live.sourceRefs) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-shared-runtime-global-absence",
+    surfaceObservedKey,
+    globalName: metadata.globalName,
+    ...(metadata.memberName === null
+      ? {}
+      : { memberName: metadata.memberName }),
+    targetTriple: target.triple,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  const expectedError =
+    `armed shared runtime does not expose ${metadata.exportName}`;
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "shared-runtime-global-absence",
+        globalName: metadata.globalName,
+        memberName: metadata.memberName,
+        expectedError,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredClosedPublicProbe(options) {
   const { plan, scenario } = options;
   if (
@@ -553,7 +960,11 @@ export function authoredClosedPublicProbe(options) {
     cliControlProbe(options) ??
     exactUnendowedOperationProbe(options) ??
     tamedEvaluatorProbe(options) ??
-    loaderExecutableKindProbe(options)
+    moduleRunnerNamespaceProbe(options) ??
+    loaderExecutableKindProbe(options) ??
+    terminalBuiltinImportProbe(options) ??
+    debuggerAbiDisabledProbe(options) ??
+    sharedRuntimeGlobalAbsenceProbe(options)
   );
 }
 

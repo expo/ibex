@@ -25,7 +25,12 @@ use std::sync::OnceLock;
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
-    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        windows
+    ))]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
 }
 
@@ -64,7 +69,10 @@ fn capture_loaded_engine_identity() -> Result<LoadedEngineBinaryIdentity, String
 
 fn capture_engine_artifact_identity(
     candidate_path: &std::path::Path,
-    verify_mapping: impl FnOnce(&std::fs::Metadata) -> Result<(), String>,
+    verify_mapping: impl FnOnce(
+        &std::fs::Metadata,
+        &capsec_semantics::model::ObjectIdentity,
+    ) -> Result<(), String>,
 ) -> Result<LoadedEngineBinaryIdentity, String> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
@@ -101,8 +109,8 @@ fn capture_engine_artifact_identity(
     if !metadata.is_file() {
         return Err("loaded Hermes artifact is not a regular file".into());
     }
-    verify_mapping(&metadata)?;
-    let object = engine_object_identity(&metadata)?;
+    let object = engine_object_identity(&file, &metadata)?;
+    verify_mapping(&metadata, &object)?;
     let mut hash = Sha256::new();
     let mut chunk = [0u8; 64 * 1024];
     loop {
@@ -117,7 +125,8 @@ fn capture_engine_artifact_identity(
     let after = file
         .metadata()
         .map_err(|error| format!("failed to revalidate loaded Hermes artifact: {error}"))?;
-    let mut changed = engine_object_identity(&after)? != object || after.len() != metadata.len();
+    let mut changed =
+        engine_object_identity(&file, &after)? != object || after.len() != metadata.len();
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
@@ -153,10 +162,12 @@ pub fn loaded_engine_structural_features() -> Vec<String> {
 }
 
 fn engine_object_identity(
+    file: &std::fs::File,
     metadata: &std::fs::Metadata,
 ) -> Result<capsec_semantics::model::ObjectIdentity, String> {
     #[cfg(unix)]
     {
+        let _ = file;
         use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
         use std::os::unix::fs::MetadataExt;
         Ok(ObjectIdentity {
@@ -174,15 +185,18 @@ fn engine_object_identity(
     #[cfg(windows)]
     {
         let _ = metadata;
-        Err(
-            "Windows cannot derive a stable loaded-engine object identity on this build; refusing pathname-only identity"
-                .into(),
-        )
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+        // — bind the report to the pinned file handle, never just its path.
+        crate::host::object_identity_for_open_file(file)
+            .map_err(|error| format!("failed to identify pinned Windows Hermes artifact: {error}"))
     }
 }
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
-fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
+fn verify_loaded_mapping_object(
+    metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
 
     let mut device = 0u64;
@@ -199,11 +213,29 @@ fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), Stri
 }
 
 #[cfg(windows)]
-fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), String> {
-    Err(
-        "Windows cannot attest the loaded Hermes section's file identity on this build; refusing pathname-only identity"
-            .into(),
-    )
+fn verify_loaded_mapping_object(
+    _metadata: &std::fs::Metadata,
+    object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
+    use capsec_semantics::model::ObjectPlatform;
+
+    // Windows exposes only the loader-reported module pathname here. The
+    // native helper reopens that pathname, so this is a diagnostic
+    // current-file consistency check, not identity for the image section that
+    // supplied already mapped code. CapSec promotion retains a separate
+    // Windows mapped-image blocker.
+    let mut volume = 0u64;
+    let mut file = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut volume, &mut file) } != 1 {
+        return Err("failed to identify the current Windows Hermes pathname object".into());
+    }
+    if object.platform != ObjectPlatform::Windows
+        || object.volume.as_str() != format!("volume:{volume}")
+        || object.file.as_str() != format!("file:{file}")
+    {
+        return Err("loaded Hermes path names a different current Windows file object".into());
+    }
+    Ok(())
 }
 
 #[cfg(not(any(
@@ -212,15 +244,19 @@ fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), Str
     target_os = "macos",
     windows
 )))]
-fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), String> {
+fn verify_loaded_mapping_object(
+    _metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
     Err("this target cannot attest the loaded Hermes image object".into())
 }
 
 /// Initial identity of the artifact that supplied the linked Hermes runtime
 /// factory. This expected build identity is immutable for the process; callers
 /// that need a post-probe recheck use `verify_loaded_engine_binary_identity`,
-/// which reopens and re-hashes the mapped object instead of consulting this
-/// cache.
+/// which reopens and re-hashes the current named file instead of consulting
+/// this cache. Supported Unix targets additionally bind that file to the
+/// mapped object; Windows retains pathname-reopen identity only.
 pub fn loaded_engine_binary_path() -> Result<std::path::PathBuf, String> {
     expected_loaded_engine_identity()
         .as_ref()
@@ -244,8 +280,9 @@ pub fn loaded_engine_binary_identity() -> Result<LoadedEngineBinaryIdentity, Str
 
 /// Installer-origin assertion embedded only after build.rs independently
 /// matches it to the exact Hermes artifact selected for linking. Returning it
-/// rechecks the current file bytes of the device/inode object containing the
-/// Hermes factory against that receipt.
+/// rechecks the current named file bytes against that receipt. Supported Unix
+/// targets additionally bind that file to the mapping containing the Hermes
+/// factory; Windows only reopens the loader-reported pathname.
 ///
 /// This does not hash the executable pages already mapped by the loader. It is
 /// therefore a mechanical file/object binding, not a complete loaded-code
@@ -258,7 +295,8 @@ pub fn loaded_engine_binary_identity() -> Result<LoadedEngineBinaryIdentity, Str
 /// instead of reaching this state.
 // @ref LLP 0013#upstream-tracking-and-re-derivation — a pin/coordinate only
 // identifies the candidate loaded profile after link-time selection and the
-// mapped-factory-object/current-file check described above.
+// platform-specific mapping/current-file check described above. Windows keeps
+// an explicit mapped-image promotion blocker because its check is path-based.
 pub fn loaded_engine_profile_provenance() -> Result<Option<serde_json::Value>, String> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
@@ -292,7 +330,7 @@ pub fn loaded_engine_profile_provenance() -> Result<Option<serde_json::Value>, S
     }
     if expected != loaded_hex {
         return Err(
-            "embedded Hermes profile receipt does not match the mapped factory object's current file bytes"
+            "embedded Hermes profile receipt does not match the current Hermes artifact bytes"
                 .to_owned(),
         );
     }
@@ -415,11 +453,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let artifact = directory.path().join("libhermesvm-test.so");
         std::fs::write(&artifact, b"before-probe").unwrap();
-        let expected = super::capture_engine_artifact_identity(&artifact, |_| Ok(())).unwrap();
+        let expected = super::capture_engine_artifact_identity(&artifact, |_, _| Ok(())).unwrap();
 
         assert_eq!(
             super::verify_engine_binary_identity_with(&expected, || {
-                super::capture_engine_artifact_identity(&artifact, |_| Ok(()))
+                super::capture_engine_artifact_identity(&artifact, |_, _| Ok(()))
             })
             .unwrap(),
             expected
@@ -429,11 +467,11 @@ mod tests {
         // cached path, digest, or pre-probe Metadata snapshot would accept it;
         // a required post-probe recheck must reopen and hash it again.
         std::fs::write(&artifact, b"after--probe").unwrap();
-        let changed = super::capture_engine_artifact_identity(&artifact, |_| Ok(())).unwrap();
+        let changed = super::capture_engine_artifact_identity(&artifact, |_, _| Ok(())).unwrap();
         assert_eq!(changed.object, expected.object);
         assert_ne!(changed.binary_digest, expected.binary_digest);
         assert!(super::verify_engine_binary_identity_with(&expected, || {
-            super::capture_engine_artifact_identity(&artifact, |_| Ok(()))
+            super::capture_engine_artifact_identity(&artifact, |_, _| Ok(()))
         })
         .is_err());
 
@@ -444,11 +482,11 @@ mod tests {
         let replacement = directory.path().join("replacement.so");
         std::fs::write(&replacement, b"before-probe").unwrap();
         std::fs::rename(&replacement, &artifact).unwrap();
-        let replaced = super::capture_engine_artifact_identity(&artifact, |_| Ok(())).unwrap();
+        let replaced = super::capture_engine_artifact_identity(&artifact, |_, _| Ok(())).unwrap();
         assert_eq!(replaced.binary_digest, expected.binary_digest);
         assert_ne!(replaced.object, expected.object);
         assert!(super::verify_engine_binary_identity_with(&expected, || {
-            super::capture_engine_artifact_identity(&artifact, |_| Ok(()))
+            super::capture_engine_artifact_identity(&artifact, |_, _| Ok(()))
         })
         .is_err());
     }
@@ -470,7 +508,7 @@ mod tests {
         );
         let expected_profile = match std::env::consts::OS {
             "android" => "android-maven",
-            "windows" => "windows-nuget",
+            "windows" => "windows-source-patched",
             _ => "source-patched",
         };
         assert_eq!(receipt["profileId"], expected_profile);

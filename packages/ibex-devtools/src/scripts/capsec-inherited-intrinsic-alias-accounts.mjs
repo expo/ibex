@@ -48,9 +48,9 @@ const RUNTIME_BOOTSTRAP_PATH = "packages/ibex-runtime-js/src/bootstrap.ts";
 const COMPAT_BOOTSTRAP_PATH = "src/engine/bootstrap/compat-polyfills.js";
 
 const REVIEWED_PROFILE_DIGEST =
-  "sha256-ff985a2fab9e0dd5c5b09dd7557609ad83bdf87927ba73bdd806de6f17788b45";
+  "sha256-86442e1921dcf5e31e96bf9c74db7eb07535a9c806fb89a8444bd47f01f83f57";
 const REVIEWED_SOURCE_REVIEW_DIGEST =
-  "sha256-be3a17613a05f74b5f3dd6513af967c8889b32625dc9d23beb02f3378c968f9e";
+  "sha256-607e84c0a4c2408f8ae731286cd340d8a7fd55442859429ed2dc1037fbac62ee";
 
 const REVIEWED_SOURCE_NODE_DIGESTS = Object.freeze({
   bufferImplementation:
@@ -72,12 +72,12 @@ const REVIEWED_SOURCE_NODE_DIGESTS = Object.freeze({
 const PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
-  "windows-nuget",
+  "windows-source-patched",
 ]);
 const PROFILE_TARGET_VARIANTS = Object.freeze({
   "android-maven": "android",
   "source-patched": "default",
-  "windows-nuget": "windows",
+  "windows-source-patched": "windows",
 });
 
 const allTrue = (names) =>

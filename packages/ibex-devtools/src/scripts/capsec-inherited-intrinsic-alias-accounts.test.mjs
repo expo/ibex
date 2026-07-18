@@ -33,6 +33,7 @@ import {
   INHERITED_INTRINSIC_ALIAS_SOURCE_CACHE_AUTHORITY_CODE,
   INHERITED_INTRINSIC_ALIAS_TARGET_RECORD_ATTESTATION_CODE,
   INHERITED_INTRINSIC_ALIAS_TARGET_RECORD_SCHEMA,
+  INHERITED_INTRINSIC_ALIAS_WINDOWS_BUILD_AUTHORITY_CODE,
   INHERITED_INTRINSIC_ALIAS_WINDOWS_LOADED_IMAGE_CODE,
   HERMES_PROFILE_PROVENANCE_RECEIPT_SCHEMA,
 } from "./capsec-inherited-intrinsic-alias-conformance.mjs";
@@ -193,7 +194,7 @@ const TARGETS = Object.freeze({
     triple: "aarch64-apple-darwin",
     features: ["hermes-frame-attribution", "native-lockdown"],
   },
-  "windows-nuget": {
+  "windows-source-patched": {
     triple: "x86_64-pc-windows-msvc",
     features: ["hermes-frame-attribution", "native-lockdown"],
   },
@@ -298,19 +299,15 @@ function syntheticProfileReceipt(sourceAudit, execution) {
       },
       reviewedProfileIdentity: structuredClone(profile.identity),
     };
-  } else {
+  } else if (profile.id === "windows-source-patched") {
     origin = {
-      kind: "nuget-package",
-      packageCoordinate: `${profile.identity.artifact}:${profile.identity.version}`,
-      packageDigest: profile.identity.packageDigest,
-      packageRepository: profile.identity.repositorySignature.serviceIndex,
-      packageSignature: {
-        kind: "nuget-repository-signature",
-        serviceIndex: profile.identity.repositorySignature.serviceIndex,
-        verification: "dotnet-nuget-verify-all",
-      },
+      configuration: "Release",
+      debugger: false,
+      kind: "source-patched-build",
       reviewedProfileIdentity: structuredClone(profile.identity),
     };
+  } else {
+    throw new Error(`unsupported synthetic Hermes profile ${profile.id}`);
   }
   const receipt = {
     schema: HERMES_PROFILE_PROVENANCE_RECEIPT_SCHEMA,
@@ -323,7 +320,7 @@ function syntheticProfileReceipt(sourceAudit, execution) {
     },
     origin,
   };
-  if (profile.id === "windows-nuget") {
+  if (profile.id === "windows-source-patched") {
     receipt.linkArtifact = {
       binaryDigest: `sha256-${crypto
         .createHash("sha256")
@@ -455,7 +452,7 @@ describe("source-bound inherited intrinsic alias review", () => {
     expect(sourceAudit.profiles.map((profile) => profile.id)).toEqual([
       "android-maven",
       "source-patched",
-      "windows-nuget",
+      "windows-source-patched",
     ]);
     expect(sourceAudit.profiles.map((profile) => profile.targetVariant)).toEqual(
       ["android", "default", "windows"],
@@ -536,8 +533,9 @@ describe("source-bound inherited intrinsic alias review", () => {
     ).toThrow(/identity or authority drifted/);
 
     const targetDrift = structuredClone(engineProfiles);
-    targetDrift.find((profile) => profile.id === "windows-nuget").targetVariant =
-      "default";
+    targetDrift.find(
+      (profile) => profile.id === "windows-source-patched",
+    ).targetVariant = "default";
     expect(() =>
       auditInheritedIntrinsicAliasSources({
         sourceFiles,
@@ -717,7 +715,7 @@ describe("descriptor-only loaded-Hermes probe contract", () => {
       inheritedIntrinsicAliasProbe({
         sourceAudit,
         profileId: "android-maven",
-        target: TARGETS["windows-nuget"],
+        target: TARGETS["windows-source-patched"],
       }),
     ).toThrow(/does not match profile/);
   });
@@ -751,12 +749,12 @@ describe("loaded inherited intrinsic structural accounts", () => {
     expect(buffer.profileProofs.map((proof) => proof.profileId)).toEqual([
       "android-maven",
       "source-patched",
-      "windows-nuget",
+      "windows-source-patched",
     ]);
     expect(float16.profileProofs.map((proof) => proof.profileId)).toEqual([
       "android-maven",
       "source-patched",
-      "windows-nuget",
+      "windows-source-patched",
     ]);
     expect(shared.profileProofs.map((proof) => proof.profileId)).toEqual([
       "android-maven",
@@ -1148,7 +1146,7 @@ describe("exact-target inherited intrinsic conformance ledger", () => {
     expect(ledger.acceptedProfileIds).toEqual(["source-patched"]);
     expect(ledger.missingProfileIds).toEqual([
       "android-maven",
-      "windows-nuget",
+      "windows-source-patched",
     ]);
     expect(ledger.blockers.map((blocker) => blocker.code)).toEqual([
       INHERITED_INTRINSIC_ALIAS_MISSING_EXECUTION_CODE,
@@ -1157,6 +1155,7 @@ describe("exact-target inherited intrinsic conformance ledger", () => {
       INHERITED_INTRINSIC_ALIAS_SOURCE_CACHE_AUTHORITY_CODE,
       INHERITED_INTRINSIC_ALIAS_LINKED_DEPENDENCY_CODE,
       INHERITED_INTRINSIC_ALIAS_LINUX_PROFILE_RECEIPT_CODE,
+      INHERITED_INTRINSIC_ALIAS_WINDOWS_BUILD_AUTHORITY_CODE,
       INHERITED_INTRINSIC_ALIAS_WINDOWS_LOADED_IMAGE_CODE,
     ]);
     expect(ledger.eligibleForStructuralAccounts).toBe(false);
@@ -1185,6 +1184,7 @@ describe("exact-target inherited intrinsic conformance ledger", () => {
       INHERITED_INTRINSIC_ALIAS_SOURCE_CACHE_AUTHORITY_CODE,
       INHERITED_INTRINSIC_ALIAS_LINKED_DEPENDENCY_CODE,
       INHERITED_INTRINSIC_ALIAS_LINUX_PROFILE_RECEIPT_CODE,
+      INHERITED_INTRINSIC_ALIAS_WINDOWS_BUILD_AUTHORITY_CODE,
       INHERITED_INTRINSIC_ALIAS_WINDOWS_LOADED_IMAGE_CODE,
     ]);
     const provenanceReasons = Object.fromEntries(
@@ -1200,8 +1200,11 @@ describe("exact-target inherited intrinsic conformance ledger", () => {
       provenanceReasons[INHERITED_INTRINSIC_ALIAS_LINUX_PROFILE_RECEIPT_CODE],
     ).toMatch(/emits a reviewed receipt for dynamic libhermesvm\.so/);
     expect(
+      provenanceReasons[INHERITED_INTRINSIC_ALIAS_WINDOWS_BUILD_AUTHORITY_CODE],
+    ).toMatch(/without an independent build attestation/);
+    expect(
       provenanceReasons[INHERITED_INTRINSIC_ALIAS_WINDOWS_LOADED_IMAGE_CODE],
-    ).toMatch(/enforces the reviewed NuGet SHA-512 and repository signature/);
+    ).toMatch(/loader-reported DLL pathname.*without authenticating/);
     expect(ledger.accountSet).toBeNull();
   });
 
@@ -1226,6 +1229,7 @@ describe("exact-target inherited intrinsic conformance ledger", () => {
       INHERITED_INTRINSIC_ALIAS_SOURCE_CACHE_AUTHORITY_CODE,
       INHERITED_INTRINSIC_ALIAS_LINKED_DEPENDENCY_CODE,
       INHERITED_INTRINSIC_ALIAS_LINUX_PROFILE_RECEIPT_CODE,
+      INHERITED_INTRINSIC_ALIAS_WINDOWS_BUILD_AUTHORITY_CODE,
       INHERITED_INTRINSIC_ALIAS_WINDOWS_LOADED_IMAGE_CODE,
     ]);
     expect(ledger.accountSet).toBeNull();
@@ -1281,14 +1285,13 @@ describe("exact-target inherited intrinsic conformance ledger", () => {
     ).toThrow(/reviewed linked JSI package/);
 
     const windowsEvidence = syntheticBatchEvidence(sourceAudit, executions[2]);
-    windowsEvidence.loadedEngineProfileProvenance.origin.packageSignature.verification =
-      "self-asserted";
+    windowsEvidence.loadedEngineProfileProvenance.origin.debugger = true;
     expect(() =>
       auditInheritedIntrinsicAliasBatchEvidence({
         sourceAudit,
         evidence: windowsEvidence,
       }),
-    ).toThrow(/reviewed package provenance/);
+    ).toThrow(/reviewed source-build provenance/);
 
     const commandForgery = structuredClone(targetRecord);
     commandForgery.executionCommand.commandEvidence.exitCode = 1;

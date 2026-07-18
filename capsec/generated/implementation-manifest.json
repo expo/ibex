@@ -71582,9 +71582,9 @@
       "sourceRefs": [
         "src/builtins/timers.js#exports:clearInterval"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.builtin.export.node.timers.clearinterval.13z1kmz.main.closed"
+        "surface.builtin.export.node.timers.clearinterval.13z1kmz.main.non-capability"
       ]
     },
     {
@@ -71613,9 +71613,9 @@
       "sourceRefs": [
         "src/builtins/timers.js#exports:clearTimeout"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.builtin.export.node.timers.cleartimeout.0gc6qy1.main.closed"
+        "surface.builtin.export.node.timers.cleartimeout.0gc6qy1.main.non-capability"
       ]
     },
     {
@@ -154573,173 +154573,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactaccessibilitystate.09y1rng",
-      "observedKey": "native-op:__exactAccessibilityState",
-      "branchId": "surface.native.op.exactaccessibilitystate.09y1rng.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.09y1rng.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.09y1rng.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-      "observedKey": "native-op:__exactAccessibilityState.changeTimer",
-      "branchId": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState.changeTimer"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState.changeTimer"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.changeTimer",
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-      "observedKey": "native-op:__exactAccessibilityState.eventListeners",
-      "branchId": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState.eventListeners"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.eventListeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.eventListeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState.eventListeners"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.eventListeners",
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-      "observedKey": "native-op:__exactAccessibilityState.listeners",
-      "branchId": "surface.native.op.exactaccessibilitystate.listeners.0d34we3.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.listeners.0d34we3.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState.listeners"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState.listeners"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.listeners",
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.listeners.0d34we3.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
-      "observedKey": "native-op:__exactAccessibilityState.snapshot",
-      "branchId": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy.all",
-      "enforcementBranchId": "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactAccessibilityState.snapshot"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-        ],
-        "terminalObservedKey": "native-op:__exactAccessibilityState.snapshot"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#createDefaultState.snapshot",
-        "packages/ibex-runtime-js/src/core/accessibility-state.ts#getAccessibilityState:globals:__exactAccessibilityState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy.all.closed"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactaescbcdecrypt.12v0if3",
       "observedKey": "native-op:__exactAesCbcDecrypt",
       "branchId": "surface.native.op.exactaescbcdecrypt.12v0if3.default",
@@ -158044,37 +157877,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactentryfileconsumed.02ku0kb",
-      "observedKey": "native-op:__exactEntryFileConsumed",
-      "branchId": "surface.native.op.exactentryfileconsumed.02ku0kb.default",
-      "enforcementBranchId": "surface.native.op.exactentryfileconsumed.02ku0kb.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactEntryFileConsumed"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactEntryFileConsumed"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactEntryFileConsumed"
-        ],
-        "terminalObservedKey": "native-op:__exactEntryFileConsumed"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/module-loader.js#__exactEntryFileConsumed"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactentryfileconsumed.02ku0kb.default.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactevpcipherdecrypt.0ig36oe",
       "observedKey": "native-op:__exactEvpCipherDecrypt",
       "branchId": "surface.native.op.exactevpcipherdecrypt.0ig36oe.default",
@@ -158341,285 +158143,6 @@
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7.malformed",
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7.missing-attribution",
         "enforcement.src.engine.hermes.runtime.fs.cc.exactfdpollhup.0ekdaj7.wrong-principal"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-      "observedKey": "native-op:__exactFinalVersionsDefineOK",
-      "branchId": "surface.native.op.exactfinalversionsdefineok.0r9u3a7.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsdefineok.0r9u3a7.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsDefineOK"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsDefineOK"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsDefineOK"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsDefineOK"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsDefineOK"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsdefineok.0r9u3a7.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionserror.19l9hx8",
-      "observedKey": "native-op:__exactFinalVersionsError",
-      "branchId": "surface.native.op.exactfinalversionserror.19l9hx8.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionserror.19l9hx8.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsError"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsError"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsError"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsError"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsError"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionserror.19l9hx8.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsfixran.05o62vy",
-      "observedKey": "native-op:__exactFinalVersionsFixRan",
-      "branchId": "surface.native.op.exactfinalversionsfixran.05o62vy.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsfixran.05o62vy.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsFixRan"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsFixRan"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsFixRan"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsFixRan"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsFixRan"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsfixran.05o62vy.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsnewprotook.03htkto",
-      "observedKey": "native-op:__exactFinalVersionsNewProtoOK",
-      "branchId": "surface.native.op.exactfinalversionsnewprotook.03htkto.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsnewprotook.03htkto.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsNewProtoOK"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsNewProtoOK"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsNewProtoOK"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsNewProtoOK"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsNewProtoOK"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsnewprotook.03htkto.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsobj.0blhx7r",
-      "observedKey": "native-op:__exactFinalVersionsObj",
-      "branchId": "surface.native.op.exactfinalversionsobj.0blhx7r.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsobj.0blhx7r.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsObj"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsObj"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsObj"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsObj"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsObj"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsobj.0blhx7r.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-      "observedKey": "native-op:__exactFinalVersionsOpenssl",
-      "branchId": "surface.native.op.exactfinalversionsopenssl.0fh3xv8.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsopenssl.0fh3xv8.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsOpenssl"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpenssl"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpenssl"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsOpenssl"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpenssl"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsopenssl.0fh3xv8.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-      "observedKey": "native-op:__exactFinalVersionsOpensslAfter",
-      "branchId": "surface.native.op.exactfinalversionsopensslafter.1qabgvy.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsopensslafter.1qabgvy.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsOpensslAfter"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpensslAfter"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpensslAfter"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsOpensslAfter"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsOpensslAfter"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsopensslafter.1qabgvy.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionsprotook.1q93zhu",
-      "observedKey": "native-op:__exactFinalVersionsProtoOK",
-      "branchId": "surface.native.op.exactfinalversionsprotook.1q93zhu.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionsprotook.1q93zhu.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsProtoOK"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsProtoOK"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsProtoOK"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsProtoOK"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsProtoOK"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionsprotook.1q93zhu.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactfinalversionssame.0n8ritg",
-      "observedKey": "native-op:__exactFinalVersionsSame",
-      "branchId": "surface.native.op.exactfinalversionssame.0n8ritg.default",
-      "enforcementBranchId": "surface.native.op.exactfinalversionssame.0n8ritg.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactFinalVersionsSame"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsSame"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsSame"
-        ],
-        "terminalObservedKey": "native-op:__exactFinalVersionsSame"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactFinalVersionsSame"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactfinalversionssame.0n8ritg.default.closed"
       ]
     },
     {
@@ -161780,37 +161303,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb",
-      "observedKey": "native-op:__exactHasDecompressionUnhandledFilter",
-      "branchId": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb.all",
-      "enforcementBranchId": "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactHasDecompressionUnhandledFilter"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/compression/DecompressionStream.ts#installTrailingDataUnhandledFilter:globals:__exactHasDecompressionUnhandledFilter"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/compression/DecompressionStream.ts#installTrailingDataUnhandledFilter:globals:__exactHasDecompressionUnhandledFilter"
-        ],
-        "terminalObservedKey": "native-op:__exactHasDecompressionUnhandledFilter"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/compression/DecompressionStream.ts#installTrailingDataUnhandledFilter:globals:__exactHasDecompressionUnhandledFilter"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exacthasdecompressionunhandledfilter.08o2upb.all.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exacthashraw.13kx1ex",
       "observedKey": "native-op:__exactHashRaw",
       "branchId": "surface.native.op.exacthashraw.13kx1ex.default",
@@ -163848,173 +163340,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactlocalestate.0bxrb04",
-      "observedKey": "native-op:__exactLocaleState",
-      "branchId": "surface.native.op.exactlocalestate.0bxrb04.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.0bxrb04.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.0bxrb04.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-      "observedKey": "native-op:__exactLocaleState.changeTimer",
-      "branchId": "surface.native.op.exactlocalestate.changetimer.1wvq6ob.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.changetimer.1wvq6ob.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState.changeTimer"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.changeTimer",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState.changeTimer"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.changeTimer",
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.changetimer.1wvq6ob.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-      "observedKey": "native-op:__exactLocaleState.listeners",
-      "branchId": "surface.native.op.exactlocalestate.listeners.0tfhbkj.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.listeners.0tfhbkj.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState.listeners"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.listeners",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState.listeners"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.listeners",
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.listeners.0tfhbkj.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.override.0ovx5qm",
-      "observedKey": "native-op:__exactLocaleState.override",
-      "branchId": "surface.native.op.exactlocalestate.override.0ovx5qm.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.override.0ovx5qm.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState.override"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.override",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.override",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState.override"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.override",
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.override.0ovx5qm.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactlocalestate.snapshot.02mz88i",
-      "observedKey": "native-op:__exactLocaleState.snapshot",
-      "branchId": "surface.native.op.exactlocalestate.snapshot.02mz88i.all",
-      "enforcementBranchId": "surface.native.op.exactlocalestate.snapshot.02mz88i.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactLocaleState.snapshot"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.snapshot",
-          "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-        ],
-        "terminalObservedKey": "native-op:__exactLocaleState.snapshot"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/core/locale-state.ts#createDefaultState.snapshot",
-        "packages/ibex-runtime-js/src/core/locale-state.ts#getLocaleState:globals:__exactLocaleState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactlocalestate.snapshot.02mz88i.all.closed"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactlstat.1c98s6l",
       "observedKey": "native-op:__exactLstat",
       "branchId": "surface.native.op.exactlstat.1c98s6l.default",
@@ -164495,448 +163820,6 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.native.op.exactmemorydebug.summary.12l4jxz.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.1cmr92m",
-      "observedKey": "native-op:__exactMemoryDebugState",
-      "branchId": "surface.native.op.exactmemorydebugstate.1cmr92m.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.1cmr92m.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.1cmr92m.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp",
-      "observedKey": "native-op:__exactMemoryDebugState.lastLoggedHeapUsed",
-      "branchId": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.lastLoggedHeapUsed"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.lastLoggedHeapUsed",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.lastLoggedHeapUsed"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.lastLoggedHeapUsed",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.lastLoggedHeapUsed"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.lastLoggedHeapUsed"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.lastLoggedHeapUsed",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.lastLoggedHeapUsed"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva",
-      "observedKey": "native-op:__exactMemoryDebugState.nextSampleId",
-      "branchId": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.nextSampleId"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.nextSampleId",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.nextSampleId"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.nextSampleId",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.nextSampleId"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.nextSampleId"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.nextSampleId",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.nextSampleId"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.1i8ok66",
-      "observedKey": "native-op:__exactMemoryDebugState.options",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.1i8ok66.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.1i8ok66.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.options",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.options",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.options",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.1i8ok66.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l",
-      "observedKey": "native-op:__exactMemoryDebugState.options.includeExpensive",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.includeExpensive"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeExpensive"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeExpensive"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.includeExpensive"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeExpensive"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t",
-      "observedKey": "native-op:__exactMemoryDebugState.options.includeGCStats",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.includeGCStats"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeGCStats"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeGCStats"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.includeGCStats"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.includeGCStats"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh",
-      "observedKey": "native-op:__exactMemoryDebugState.options.intervalMs",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.intervalMs"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.intervalMs"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.intervalMs"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.intervalMs"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.intervalMs"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5",
-      "observedKey": "native-op:__exactMemoryDebugState.options.logEvery",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.logEvery"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logEvery"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logEvery"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.logEvery"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logEvery"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3",
-      "observedKey": "native-op:__exactMemoryDebugState.options.logOnGrowthBytes",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.logOnGrowthBytes"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logOnGrowthBytes"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logOnGrowthBytes"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.logOnGrowthBytes"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.logOnGrowthBytes"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9",
-      "observedKey": "native-op:__exactMemoryDebugState.options.maxSamples",
-      "branchId": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.options.maxSamples"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.maxSamples"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.maxSamples"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.options.maxSamples"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.options.maxSamples"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx",
-      "observedKey": "native-op:__exactMemoryDebugState.sampleCount",
-      "branchId": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.sampleCount"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.sampleCount",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.sampleCount"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.sampleCount",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.sampleCount"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.sampleCount"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.sampleCount",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.sampleCount"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r",
-      "observedKey": "native-op:__exactMemoryDebugState.samples",
-      "branchId": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.samples.1tlcn6r.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.samples"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.samples",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.samples"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.samples",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.samples"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.samples"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.samples",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.samples"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.samples.1tlcn6r.default.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactmemorydebugstate.timer.1it6pzl",
-      "observedKey": "native-op:__exactMemoryDebugState.timer",
-      "branchId": "surface.native.op.exactmemorydebugstate.timer.1it6pzl.default",
-      "enforcementBranchId": "surface.native.op.exactmemorydebugstate.timer.1it6pzl.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactMemoryDebugState.timer"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.timer",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.timer"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.timer",
-          "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-          "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.timer"
-        ],
-        "terminalObservedKey": "native-op:__exactMemoryDebugState.timer"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals.timer",
-        "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:__exactMemoryDebugState",
-        "src/engine/bootstrap/exact-global.js#__exactMemoryDebugState.timer"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.exactmemorydebugstate.timer.1it6pzl.default.closed"
       ]
     },
     {
@@ -166291,68 +165174,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactprocesscompatfixran.0tw23io",
-      "observedKey": "native-op:__exactProcessCompatFixRan",
-      "branchId": "surface.native.op.exactprocesscompatfixran.0tw23io.default",
-      "enforcementBranchId": "surface.native.op.exactprocesscompatfixran.0tw23io.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactProcessCompatFixRan"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixRan"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixRan"
-        ],
-        "terminalObservedKey": "native-op:__exactProcessCompatFixRan"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixRan"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactprocesscompatfixran.0tw23io.default.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49",
-      "observedKey": "native-op:__exactProcessCompatFixSawProcess",
-      "branchId": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49.default",
-      "enforcementBranchId": "surface.native.op.exactprocesscompatfixsawprocess.1y24i49.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactProcessCompatFixSawProcess"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixSawProcess"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixSawProcess"
-        ],
-        "terminalObservedKey": "native-op:__exactProcessCompatFixSawProcess"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/process-compat-fix.js#__exactProcessCompatFixSawProcess"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactprocesscompatfixsawprocess.1y24i49.default.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactprocessipcbootstrap.1f8twb6",
       "observedKey": "native-op:__exactProcessIpcBootstrap",
       "branchId": "surface.native.op.exactprocessipcbootstrap.1f8twb6.default",
@@ -166511,40 +165332,6 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exactrandombytes.05df739.default.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88",
-      "observedKey": "native-op:__exactReadableStreamCompatIteratorPatchScheduled",
-      "branchId": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88.default",
-      "enforcementBranchId": "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactReadableStreamCompatIteratorPatchScheduled"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#__exactReadableStreamCompatIteratorPatchScheduled",
-          "src/engine/bootstrap/exact-global.js#__exactReadableStreamCompatIteratorPatchScheduled"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#__exactReadableStreamCompatIteratorPatchScheduled",
-          "src/engine/bootstrap/exact-global.js#__exactReadableStreamCompatIteratorPatchScheduled"
-        ],
-        "terminalObservedKey": "native-op:__exactReadableStreamCompatIteratorPatchScheduled"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/compat-polyfills.js#__exactReadableStreamCompatIteratorPatchScheduled",
-        "src/engine/bootstrap/exact-global.js#__exactReadableStreamCompatIteratorPatchScheduled"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactreadablestreamcompatiteratorpatchscheduled.0d4sy88.default.non-capability"
       ]
     },
     {
@@ -171075,9 +169862,11 @@
         "src/engine/hermes_runtime_timers.cc#__exactTimerRef",
         "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerRef"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exacttimerref.0o8ksen.default.closed"
+        "surface.native.op.exacttimerref.0o8ksen.default.cannot-widen-authority",
+        "surface.native.op.exacttimerref.0o8ksen.default.non-capability",
+        "surface.native.op.exacttimerref.0o8ksen.default.post-lockdown-invariant"
       ]
     },
     {
@@ -171109,9 +169898,11 @@
         "src/engine/hermes_runtime_timers.cc#__exactTimerUnref",
         "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerUnref"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exacttimerunref.0x3mi6y.default.closed"
+        "surface.native.op.exacttimerunref.0x3mi6y.default.cannot-widen-authority",
+        "surface.native.op.exacttimerunref.0x3mi6y.default.non-capability",
+        "surface.native.op.exacttimerunref.0x3mi6y.default.post-lockdown-invariant"
       ]
     },
     {
@@ -172730,37 +171521,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.exactuveofvalue.0l8d7x9",
-      "observedKey": "native-op:__exactUvEOFValue",
-      "branchId": "surface.native.op.exactuveofvalue.0l8d7x9.default",
-      "enforcementBranchId": "surface.native.op.exactuveofvalue.0l8d7x9.default",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__exactUvEOFValue"
-        ],
-        "proofSourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactUvEOFValue"
-        ],
-        "sourceRefs": [
-          "src/engine/bootstrap/module-loader.js#__exactUvEOFValue"
-        ],
-        "terminalObservedKey": "native-op:__exactUvEOFValue"
-      },
-      "branchKind": "single",
-      "targetVariant": "default",
-      "targetApplicability": {
-        "kind": "fallback"
-      },
-      "sourceRefs": [
-        "src/engine/bootstrap/module-loader.js#__exactUvEOFValue"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.native.op.exactuveofvalue.0l8d7x9.default.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.exactverifysync.0lsqcbn",
       "observedKey": "native-op:__exactVerifySync",
       "branchId": "surface.native.op.exactverifysync.0lsqcbn.default",
@@ -174221,7 +172981,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -174244,7 +173004,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -174275,7 +173035,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -174296,20 +173056,16 @@
           "native-op:global:AsyncFunction"
         ],
         "proofSourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
@@ -174323,11 +173079,9 @@
       },
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
-        "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-        "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-        "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-        "scripts/install-windows-hermes.ps1#Version",
-        "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+        "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+        "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
       ],
@@ -184824,9 +183578,9 @@
         "src/engine/bootstrap/module-loader.js#clearInterval",
         "src/engine/hermes_runtime_timers.cc#jsi-global:clearInterval"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.global.clearinterval.11pm3v5.default.closed"
+        "surface.native.op.global.clearinterval.11pm3v5.default.non-capability"
       ]
     },
     {
@@ -184864,9 +183618,9 @@
         "src/engine/bootstrap/module-loader.js#clearTimeout",
         "src/engine/hermes_runtime_timers.cc#jsi-global:clearTimeout"
       ],
-      "implementationOwner": "WP7",
+      "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.global.cleartimeout.0xeg86z.default.closed"
+        "surface.native.op.global.cleartimeout.0xeg86z.default.non-capability"
       ]
     },
     {
@@ -191825,7 +190579,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -191854,7 +190608,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -191891,7 +190645,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/bootstrap/compat-polyfills.js#eval",
         "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -191918,20 +190672,16 @@
           "native-op:global:eval"
         ],
         "proofSourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
@@ -191945,11 +190695,9 @@
       },
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
-        "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-        "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-        "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-        "scripts/install-windows-hermes.ps1#Version",
-        "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+        "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+        "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
       ],
@@ -203199,7 +201947,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -203222,7 +201970,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -203253,7 +202001,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -203274,20 +202022,16 @@
           "native-op:global:Function"
         ],
         "proofSourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
@@ -203301,11 +202045,9 @@
       },
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
-        "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-        "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-        "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-        "scripts/install-windows-hermes.ps1#Version",
-        "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+        "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+        "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
       ],
@@ -203433,7 +202175,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -203456,7 +202198,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -203487,7 +202229,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-489be85a33fd2e32cc4559dc19f1903c75a51b3d9f5d276b30545bc017ba6c7b",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -203508,20 +202250,16 @@
           "native-op:global:GeneratorFunction"
         ],
         "proofSourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "sourceRefs": [
-          "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-          "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-          "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-          "scripts/install-windows-hermes.ps1#Version",
-          "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+          "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+          "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
@@ -203535,11 +202273,9 @@
       },
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
-        "scripts/install-windows-hermes.ps1#NuGetServiceIndex",
-        "scripts/install-windows-hermes.ps1#ReactNative.Hermes.Windows",
-        "scripts/install-windows-hermes.ps1#ReviewedPackageSha512",
-        "scripts/install-windows-hermes.ps1#Version",
-        "scripts/install-windows-hermes.ps1#evaluator-identity:sha256-b25ccc32799d330b612ad1c35a82e3580026c63bf99bfa28ca875d117ec8741b",
+        "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e08d04fc92426e63aec7f2188170f6b9c2c025463be652666cf2549f03d26335",
+        "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
       ],
@@ -257390,207 +256126,6 @@
       ]
     },
     {
-      "edgeId": "surface.native.op.originalpromise.01mfxkq",
-      "observedKey": "native-op:__OriginalPromise",
-      "branchId": "surface.native.op.originalpromise.01mfxkq.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.01mfxkq.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.01mfxkq.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.prototype.14wln5e",
-      "observedKey": "native-op:__OriginalPromise.prototype",
-      "branchId": "surface.native.op.originalpromise.prototype.14wln5e.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.prototype.14wln5e.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.prototype"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.prototype"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.prototype.14wln5e.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-      "observedKey": "native-op:__OriginalPromise.prototype.catch",
-      "branchId": "surface.native.op.originalpromise.prototype.catch.0eezlaj.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.prototype.catch.0eezlaj.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.prototype.catch"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.catch",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.catch",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.prototype.catch"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.catch",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.prototype.catch.0eezlaj.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-      "observedKey": "native-op:__OriginalPromise.prototype.finally",
-      "branchId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.prototype.finally.1b4v5zv.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.prototype.finally"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.finally",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.finally",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.prototype.finally"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.finally",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.prototype.finally.1b4v5zv.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.prototype.then.01yci6j",
-      "observedKey": "native-op:__OriginalPromise.prototype.then",
-      "branchId": "surface.native.op.originalpromise.prototype.then.01yci6j.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.prototype.then.01yci6j.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.prototype.then"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.prototype.then"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.prototype.then",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.prototype.then.01yci6j.all.closed"
-      ]
-    },
-    {
-      "edgeId": "surface.native.op.originalpromise.reject.1nmizxj",
-      "observedKey": "native-op:__OriginalPromise.reject",
-      "branchId": "surface.native.op.originalpromise.reject.1nmizxj.all",
-      "enforcementBranchId": "surface.native.op.originalpromise.reject.1nmizxj.all",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "native-op:__OriginalPromise.reject"
-        ],
-        "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.reject",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "sourceRefs": [
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.reject",
-          "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-        ],
-        "terminalObservedKey": "native-op:__OriginalPromise.reject"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:Promise.reject",
-        "packages/ibex-runtime-js/src/promise-rejection-tracking.ts#installPromiseRejectionTracking:globals:__OriginalPromise"
-      ],
-      "implementationOwner": "WP7",
-      "fixtureObligations": [
-        "surface.native.op.originalpromise.reject.1nmizxj.all.closed"
-      ]
-    },
-    {
       "edgeId": "surface.native.op.stringbuffer.05y6skt",
       "observedKey": "native-op:__StringBuffer",
       "branchId": "surface.native.op.stringbuffer.05y6skt.default",
@@ -271358,8 +269893,6 @@
         "surface.builtin.export.node.stream.web.default.0stlus5",
         "surface.builtin.export.node.stream.writable.dynamic.table.inherited.2c961e573353.propert.05po12y",
         "surface.builtin.export.node.timers.clearimmediate.10mojbb",
-        "surface.builtin.export.node.timers.clearinterval.13z1kmz",
-        "surface.builtin.export.node.timers.cleartimeout.0gc6qy1",
         "surface.builtin.export.node.tls.default.1aoobk3",
         "surface.builtin.export.node.tls.server.dynamic.table.inherited.8fceba302352.properties.09ac9h4",
         "surface.builtin.export.node.tls.setdefaultcacertificates.0hy3qyj",
@@ -271499,32 +270032,13 @@
         "surface.host.abi.ex.hermes.value.kind.1p2efiz",
         "surface.host.abi.ex.worklet.install.metrics.1d5ipuc",
         "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4",
-        "surface.native.op.exactaccessibilitystate.09y1rng",
-        "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
-        "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
-        "surface.native.op.exactaccessibilitystate.listeners.0d34we3",
-        "surface.native.op.exactaccessibilitystate.snapshot.16gpqqy",
         "surface.native.op.exactdebugmodulesource.17ymgg1",
         "surface.native.op.exactdebugmodulesources.0897z1y",
         "surface.native.op.exactdebugmodulesources.length.0srmigk",
-        "surface.native.op.exactfinalversionsdefineok.0r9u3a7",
-        "surface.native.op.exactfinalversionserror.19l9hx8",
-        "surface.native.op.exactfinalversionsfixran.05o62vy",
-        "surface.native.op.exactfinalversionsnewprotook.03htkto",
-        "surface.native.op.exactfinalversionsobj.0blhx7r",
-        "surface.native.op.exactfinalversionsopenssl.0fh3xv8",
-        "surface.native.op.exactfinalversionsopensslafter.1qabgvy",
-        "surface.native.op.exactfinalversionsprotook.1q93zhu",
-        "surface.native.op.exactfinalversionssame.0n8ritg",
         "surface.native.op.exactgeneratedimportgrantkeys.dynamic.table.call.result.354b628423c4.pro.13qg8i8",
         "surface.native.op.exactgetgcstats.1ay069w",
         "surface.native.op.exactgetheapinfo.0kb2eh1",
         "surface.native.op.exactgetsourcecachestats.16llubz",
-        "surface.native.op.exactlocalestate.0bxrb04",
-        "surface.native.op.exactlocalestate.changetimer.1wvq6ob",
-        "surface.native.op.exactlocalestate.listeners.0tfhbkj",
-        "surface.native.op.exactlocalestate.override.0ovx5qm",
-        "surface.native.op.exactlocalestate.snapshot.02mz88i",
         "surface.native.op.exactmemorydebug.0fduxil",
         "surface.native.op.exactmemorydebug.clearmoduledebugsources.058wjyh",
         "surface.native.op.exactmemorydebug.formatbytes.09utsnx",
@@ -271534,24 +270048,9 @@
         "surface.native.op.exactmemorydebug.state.0e8548q",
         "surface.native.op.exactmemorydebug.stop.0q48uq1",
         "surface.native.op.exactmemorydebug.summary.12l4jxz",
-        "surface.native.op.exactmemorydebugstate.1cmr92m",
-        "surface.native.op.exactmemorydebugstate.lastloggedheapused.0409xqp",
-        "surface.native.op.exactmemorydebugstate.nextsampleid.1ry8nva",
-        "surface.native.op.exactmemorydebugstate.options.1i8ok66",
-        "surface.native.op.exactmemorydebugstate.options.includeexpensive.0gw5u1l",
-        "surface.native.op.exactmemorydebugstate.options.includegcstats.068ps6t",
-        "surface.native.op.exactmemorydebugstate.options.intervalms.1kvpufh",
-        "surface.native.op.exactmemorydebugstate.options.logevery.02kkgz5",
-        "surface.native.op.exactmemorydebugstate.options.logongrowthbytes.1jsgcf3",
-        "surface.native.op.exactmemorydebugstate.options.maxsamples.0eju7l9",
-        "surface.native.op.exactmemorydebugstate.samplecount.0ip68qx",
-        "surface.native.op.exactmemorydebugstate.samples.1tlcn6r",
-        "surface.native.op.exactmemorydebugstate.timer.1it6pzl",
         "surface.native.op.exactrequire.1drfx1s",
         "surface.native.op.exactsignalnamesmap.14b2x87",
         "surface.native.op.exactsignalnumbersmap.07bwgwd",
-        "surface.native.op.exacttimerref.0o8ksen",
-        "surface.native.op.exacttimerunref.0x3mi6y",
         "surface.native.op.exactuncaughtexceptionhandler.14eg6fx",
         "surface.native.op.exactunhandledrejectionhandler.1ydicmt",
         "surface.native.op.global.buffer.dynamic.table.inherited.uint8.array.6128693053.properties.1s02ea6",
@@ -271560,8 +270059,6 @@
         "surface.native.op.global.bun.unsafe.038dg58",
         "surface.native.op.global.bun.unsafe.gcaggressionlevel.1n42dw2",
         "surface.native.op.global.clearimmediate.0tcktxp",
-        "surface.native.op.global.clearinterval.11pm3v5",
-        "surface.native.op.global.cleartimeout.0xeg86z",
         "surface.native.op.global.dynamic.table.native.global.name.0p79adi",
         "surface.native.op.global.exact.gc.04rah6y",
         "surface.native.op.global.exact.haskernelinspector.0otez5q",
@@ -271636,12 +270133,6 @@
         "surface.native.op.inspector.debugger.get.script.source.008qeft",
         "surface.native.op.inspector.debugger.get.scripts.11hvbu6",
         "surface.native.op.inspector.debugger.next.event.026owqh",
-        "surface.native.op.originalpromise.01mfxkq",
-        "surface.native.op.originalpromise.prototype.14wln5e",
-        "surface.native.op.originalpromise.prototype.catch.0eezlaj",
-        "surface.native.op.originalpromise.prototype.finally.1b4v5zv",
-        "surface.native.op.originalpromise.prototype.then.01yci6j",
-        "surface.native.op.originalpromise.reject.1nmizxj",
         "surface.startup.env.ex.skip.startup.bootstrap.globals.1c5lfzg",
         "surface.startup.env.ex.skip.startup.compat.polyfills.1idjlwm",
         "surface.startup.env.ex.skip.startup.console.enhance.1fh7hx5",
@@ -271661,7 +270152,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 482 observed surface edges."
+      "rationale": "Closed by 438 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -272625,59 +271116,59 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-y8mQDNGf-lOFkDAYocUXHK1KoG4AzN8qQ8knZ9azHzc"
+      "rawContentDigest": "sha256-obIw-MatBGGoH__eFYFvmb_bhRHqZ1J-5tlQhStFEQQ"
     },
     {
       "kind": "output-disposition-dataset",
       "path": "capsec/generated/output-dispositions.json",
-      "rawContentDigest": "sha256-mNx7IE4AVpmg4TpLkIQ1NWE3QQfLNv7QcPS05lJHbRk"
+      "rawContentDigest": "sha256-m05xCYH5umwbcs58DSS9PERPQQndn1u1aUHlVSHubRo"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/output-dispositions.md",
-      "rawContentDigest": "sha256-QBPCh_Kvv1CbudH576HHCqMhHdMC5VEkDEY2QK24ZeA"
+      "rawContentDigest": "sha256-xTt4huTPCmReSqjrZ0zVtca9ACiTmFNmB2S7TArz92s"
     },
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-WEbgVSR4RqzuPZyrgKEjRGTUhxMwp4cXwyzK-AhHJkk"
+      "rawContentDigest": "sha256-B0BtwAuFDG5iA_szEnTG9winItHlUMATXZCUbAvdjG8"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-WEAGh8jIpAWK_GMn5poQEXeomyHg4YWPc9UfBIsG5dk"
+      "rawContentDigest": "sha256-ubXHqgQse04KDST7QAbc8fA5DQkURVFGiJlgfa9hzxE"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-LekqwvcPMUECrY9guy2By9eTVvWF1ET-vc3FmKmY8EI"
+      "rawContentDigest": "sha256-GGc35QkP-nncEpVy0tPUihsuHGFWOubP-Rm7RF8cwH4"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-oa3CAVTjpZa8Ob5MeNVmeo3FyZ3Gmx5GAyVUd3-AnBI"
+      "rawContentDigest": "sha256-DBwAmRfz7V6bjiygeRmuya3yLHjd1Oql9yPBZKCqAOQ"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-swmm6ZxevjyBbnwTJRZA-pqeaxAASgPCjDfqlpECuvY"
+      "rawContentDigest": "sha256-7GBo1pxPufxVjXnbtaKSVeCPvDQ7CQk8_6Kj2SvA-8Q"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-TiLuiC2H83gesU9MaZ1KREBtshu4PnrlgOX9PxxlrYQ"
+      "rawContentDigest": "sha256-L1vxUjhWn9Ulwkeq2vnwgWfa-cOrtBH5erghl5eLS1M"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-DmEieEPVtUIY6vXMuhz2LuDxo1z2PWZWq-i35o-K6VU"
+      "rawContentDigest": "sha256-jH0-MyJxGR2qnZfm1COgl9U2wUKXMzk-1QVTzQMX1vU"
     }
   ],
   "counts": {
-    "observedReferences": 12845,
-    "logicalSurfaces": 7327,
-    "enforcementBranches": 7546,
-    "coverageEdges": 7327,
-    "targetCells": 7327
+    "observedReferences": 12766,
+    "logicalSurfaces": 7283,
+    "enforcementBranches": 7502,
+    "coverageEdges": 7283,
+    "targetCells": 7283
   }
 }

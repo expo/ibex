@@ -663,6 +663,10 @@ extern "C" {
         callbacks_queued: *mut u64,
         callbacks_delivered: *mut u64,
     ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_begin_module_runner_abi_observation();
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_take_module_runner_abi_observation() -> *mut std::os::raw::c_char;
     fn ex_hermes_debugger_enable(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_debugger_get_scripts(
         runtime: *mut HermesRuntimeOpaque,
@@ -13088,8 +13092,6 @@ module.exports = JSON.stringify({
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn concurrent_destroy_waits_for_an_inflight_fs_worker_pin() {
-        use std::io::Write as _;
-
         const CHILD_ENV: &str = "IBEX_TEST_INFLIGHT_FS_PIN_TEARDOWN_CHILD";
         const TEST_NAME: &str =
             "engine::hermes::tests::concurrent_destroy_waits_for_an_inflight_fs_worker_pin";
@@ -13119,8 +13121,26 @@ module.exports = JSON.stringify({
             .await
             .unwrap();
         assert_eq!(started.as_deref(), Some("started"));
+
+        // A nonblocking FIFO writer succeeds only after the worker has opened
+        // the read end. Retain that writer through teardown so the committed
+        // read stays blocked until the release thread writes to it.
+        let release_fd = {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                let fd = unsafe { libc::open(fifo_c.as_ptr(), libc::O_WRONLY | libc::O_NONBLOCK) };
+                if fd >= 0 {
+                    break fd;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "filesystem worker did not commit its FIFO read"
+                );
+                std::thread::yield_now();
+            }
+        };
+
         let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
-        let fifo_for_writer = fifo.clone();
         let shutdown_returned = Arc::new(AtomicBool::new(false));
         let shutdown_returned_for_writer = Arc::clone(&shutdown_returned);
         let raw_for_writer = shared.raw.load(Ordering::SeqCst) as usize;
@@ -13138,11 +13158,11 @@ module.exports = JSON.stringify({
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
             let returned_before_release = shutdown_returned_for_writer.load(Ordering::Acquire);
-            let mut writer = std::fs::OpenOptions::new()
-                .write(true)
-                .open(fifo_for_writer)
-                .unwrap();
-            writer.write_all(b"release").unwrap();
+            assert_eq!(
+                unsafe { libc::write(release_fd, b"release".as_ptr().cast(), 7) },
+                7
+            );
+            assert_eq!(unsafe { libc::close(release_fd) }, 0);
             assert!(
                 !returned_before_release,
                 "owner-thread destroy returned while the worker still held a runtime lifetime pin"

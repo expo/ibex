@@ -5,6 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Android, Web APIs
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-27
+**Revised:** 2026-07-16
 **Related:** LLP 0000; LLP 0003; LLP 0008
 
 ## Summary
@@ -30,12 +31,12 @@ facing namespaces and callbacks.
 Locale and accessibility are split into state-only modules and public API
 modules:
 
-- `core/locale-state.ts` owns `__exactLocaleState`, reads
+- `core/locale-state.ts` owns module-local normalized state, reads
   `__exactLocaleSnapshot` / legacy locale globals, normalizes tags and
   direction, stores overrides, and emits locale listeners `[observed]`.
 - `core/locale.ts` installs `Exact.locale` and wires
   `__exactLocaleChanged(snapshot)` to update the shared state `[observed]`.
-- `core/accessibility-state.ts` owns `__exactAccessibilityState`, reads
+- `core/accessibility-state.ts` owns module-local normalized state, reads
   `__exactAccessibilitySnapshot` and `__exactAppearanceState`, mirrors
   appearance state, and emits accessibility / appearance-related listeners
   `[observed]`.
@@ -47,6 +48,12 @@ modules:
 and React Native compatibility read or subscribe to the same normalized state
 without forcing every public `Exact.*` namespace or host-call helper to install
 at import time.]`
+
+The mutable listener/snapshot containers are module singletons rather than
+properties of `globalThis` `[observed]`. Host-readable snapshot inputs and
+notification functions remain global, but project code cannot reach into the
+runtime's listener sets, pending timers, overrides, or cached snapshots through
+an internal state object.
 
 ## Host Snapshot Contract
 

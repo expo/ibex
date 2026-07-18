@@ -639,6 +639,9 @@ const harnessNoopCallbackArgument = () => ({ kind: "harness-noop-callback" });
 const harnessLoopbackClientHandleArgument = () => ({
   kind: "harness-loopback-client-handle",
 });
+const harnessFsFileDescriptorArgument = () => ({
+  kind: "harness-fs-file-descriptor",
+});
 const harnessSqliteDatabaseHandleArgument = () => ({
   kind: "harness-sqlite-database-handle",
 });
@@ -668,6 +671,16 @@ const sqliteMemorySetup = (withStatement = false) => [
         },
       ]
     : []),
+];
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// retained filesystem controls receive a source-bound descriptor created by
+// the harness before the zero-decision invocation is observed.
+const fsReadFileSetup = () => [
+  {
+    kind: "fs-read-file",
+    globalName: "__exactFsOpen",
+    requiredSourceArity: 4,
+  },
 ];
 const nativeResultArgument = (
   globalName,
@@ -735,11 +748,26 @@ const nativeSystemInfoTemplate = (name) =>
   Object.freeze({
     actionIds: ["sys:read"],
     arguments: [],
-    expectedDecisionCounts: { allow: 2, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
     },
     requiredFloor: [
       {
@@ -811,11 +839,26 @@ const nativeEnvironmentReadTemplate = (name) =>
   Object.freeze({
     actionIds: ["env:read"],
     arguments: [literalArgument(name)],
-    expectedDecisionCounts: { allow: 2, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 2,
+      deny: 1,
+      malformed: 2,
+      "missing-attribution": 2,
+      "wrong-principal": 2,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit"],
       deny: ["requested"],
+      malformed: ["requested", "commit"],
+      "missing-attribution": ["requested", "commit"],
+      "wrong-principal": ["requested", "commit"],
     },
     requiredFloor: [
       {
@@ -834,11 +877,26 @@ const nativePrintTemplate = () =>
   Object.freeze({
     actionIds: ["stdio:write"],
     arguments: [literalArgument("ibex-capsec-print")],
-    expectedDecisionCounts: { allow: 3, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedStages: {
       allow: ["requested", "commit", "repeat"],
       deny: ["requested"],
+      malformed: ["requested", "commit", "repeat"],
+      "missing-attribution": ["requested", "commit", "repeat"],
+      "wrong-principal": ["requested", "commit", "repeat"],
     },
     requiredFloor: [
       {
@@ -866,12 +924,27 @@ const nativeProjectMetadataTemplate = (
   Object.freeze({
     actionIds: ["fs:list"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: allowStages.length, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: allowStages.length,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
     expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
       allow: allowStages,
       deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat"],
     },
     requiredFloor: [
       {
@@ -882,12 +955,61 @@ const nativeProjectMetadataTemplate = (
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectStatfsTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [literalArgument("Cargo.toml")],
+    expectedDecisionCounts: {
+      allow: 3,
+      deny: 1,
+      malformed: 3,
+      "missing-attribution": 3,
+      "wrong-principal": 3,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+  });
 const nativeProjectReadFileTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:read"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
-    expectedDecisionCounts: { allow: 6, deny: 1 },
-    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDecisionCounts: {
+      allow: 6,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:read"],
+    },
     expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
       allow: [
@@ -899,6 +1021,9 @@ const nativeProjectReadFileTemplate = () =>
         "repeat",
       ],
       deny: ["requested"],
+      malformed: ["requested", "discovery", "commit", "repeat"],
+      "missing-attribution": ["requested", "discovery", "commit", "repeat"],
+      "wrong-principal": ["requested", "discovery", "commit", "repeat"],
     },
     requiredFloor: [
       {
@@ -931,6 +1056,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
   ["__exactEnsureWebStorage", 0],
   ["__exactGrantCapability", 2],
   ["__exactRegisterPackage", 4],
+  ["__exactResolveManifestBuiltinInternal", 1],
   ["__exactSetActiveModuleId", 1],
   ["__exactSetPendingPackageId", 1],
   ["__hostCall", 2],
@@ -940,6 +1066,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  ["__exactStatfs", nativeProjectStatfsTemplate()],
   [
     "__exactAuthorizeSystemInfo",
     nativeCachedSystemInfoTemplate("platform", 11),
@@ -963,6 +1090,156 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "clearTimeout",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "clearInterval",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setInterval", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "__exactTimerRef",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "__exactTimerUnref",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("setTimeout", 2, [
+        harnessNoopCallbackArgument(),
+        literalArgument(60_000),
+      ]),
+    ]),
+  ],
+  [
+    "__exactHandleScoped",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument("fs:read")]),
+  ],
+  ["__exactRevokeHandle", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  [
+    "__exactPermissionRequest",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactPermissionRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactPermissionStatus",
+    nativeNoEffectTemplate(1, [literalArgument("capsec:unknown")]),
+  ],
+  [
+    "__exactTypedPermissionRequest",
+    nativeNoEffectTemplate(1, [literalArgument({})]),
+  ],
+  [
+    "__exactTypedPermissionRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("unknown-grant")]),
+  ],
+  [
+    "__exactTypedHandleMint",
+    nativeNoEffectTemplate(1, [literalArgument({})]),
+  ],
+  [
+    "__exactTypedHandleRevoke",
+    nativeNoEffectTemplate(1, [literalArgument("unknown-handle")]),
+  ],
+  ["__exactHttpOwner", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  [
+    "__exactHttpRespondAbort",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactHttpClose",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactHttpSetRef",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument(0)]),
+  ],
+  [
+    "__exactSpawnCloseStdin",
+    nativeNoEffectTemplate(2, [literalArgument(0), literalArgument("stdin")]),
+  ],
+  ["__exactSpawnDispose", nativeNoEffectTemplate(1, [literalArgument(0)])],
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // authority helpers must prove their exact refusal branches without
+  // fabricating a capability or retained process handle.
+  ["__exactCapabilityCheck", nativeNoEffectTemplate(1)],
+  ["__exactCreateHandle", nativeNoEffectTemplate(1)],
+  [
+    "__exactSpawnSetReferenced",
+    Object.freeze({
+      actionIds: [],
+      arguments: [literalArgument(0), literalArgument(false)],
+      expectedDecisionCounts: { "non-capability": 0 },
+      expectedResults: { "non-capability": "invalid-handle" },
+      expectedStages: { "non-capability": [] },
+      requiredSourceArity: 2,
+      setup: [],
+    }),
+  ],
+  [
+    "__exactFsClose",
+    Object.freeze({
+      ...nativeNoEffectTemplate(
+        1,
+        [harnessFsFileDescriptorArgument()],
+        fsReadFileSetup(),
+        "consumed-fs-file-descriptor",
+      ),
+      requiredFloor: [
+        {
+          cap: "fs:list",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+        {
+          cap: "fs:read",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+      ],
+    }),
+  ],
+  [
+    "__exactFsCloseAsync",
+    Object.freeze({
+      ...nativeNoEffectTemplate(
+        1,
+        [harnessFsFileDescriptorArgument()],
+        fsReadFileSetup(),
+        "consumed-fs-file-descriptor",
+      ),
+      completion: {
+        kind: "event-loop-quiescence",
+        timeoutMilliseconds: 1_000,
+      },
+      requiredFloor: [
+        {
+          cap: "fs:list",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+        {
+          cap: "fs:read",
+          resource: projectPathExactResource("Cargo.toml"),
+        },
+      ],
+    }),
+  ],
+  [
     "__exactTcpConnect",
     Object.freeze({
       actionIds: ["network:connect"],
@@ -973,9 +1250,24 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       expectedStages: {
         allow: ["requested", "candidate", "commit"],
         deny: ["requested"],
+        malformed: ["requested", "candidate", "commit"],
+        "missing-attribution": ["requested", "candidate", "commit"],
+        "wrong-principal": ["requested", "candidate", "commit"],
       },
-      expectedDecisionCounts: { allow: 3, deny: 1 },
-      expectedResults: { allow: "return", deny: "permission-denied" },
+      expectedDecisionCounts: {
+        allow: 3,
+        deny: 1,
+        malformed: 3,
+        "missing-attribution": 3,
+        "wrong-principal": 3,
+      },
+      expectedResults: {
+        allow: "return",
+        deny: "permission-denied",
+        malformed: "return",
+        "missing-attribution": "return",
+        "wrong-principal": "return",
+      },
       requiredSourceArity: 4,
       setup: [{ kind: "tcp-loopback-listener" }],
     }),
@@ -1059,6 +1351,142 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       ]),
       literalArgument("fixture-aad"),
       literalArgument(128),
+    ]),
+  ],
+  [
+    "__exactEcdhDeriveBits",
+    nativeNoEffectTemplate(3, [
+      literalArgument("P-256"),
+      generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+      generatedKeyArgument("ec", "publicKey", { namedCurve: "P-256" }),
+    ]),
+  ],
+  [
+    "__exactEcdsaSign",
+    nativeNoEffectTemplate(4, [
+      literalArgument("P-256"),
+      literalArgument("SHA-256"),
+      generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEcdsaVerify",
+    nativeNoEffectTemplate(5, [
+      literalArgument("P-256"),
+      literalArgument("SHA-256"),
+      generatedKeyArgument("ec", "publicKey", { namedCurve: "P-256" }),
+      nativeResultArgument("__exactEcdsaSign", 4, [
+        literalArgument("P-256"),
+        literalArgument("SHA-256"),
+        generatedKeyArgument("ec", "privateKey", { namedCurve: "P-256" }),
+        literalArgument("ibex"),
+      ]),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEd25519Sign",
+    nativeNoEffectTemplate(2, [
+      generatedKeyArgument("ed25519", "privateKey"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEd25519Verify",
+    nativeNoEffectTemplate(3, [
+      generatedKeyArgument("ed25519", "publicKey"),
+      nativeResultArgument("__exactEd25519Sign", 2, [
+        generatedKeyArgument("ed25519", "privateKey"),
+        literalArgument("ibex"),
+      ]),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEvpCipherEncrypt",
+    nativeNoEffectTemplate(4, [
+      literalArgument("aes-128-cbc"),
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactEvpCipherDecrypt",
+    nativeNoEffectTemplate(5, [
+      literalArgument("aes-128-cbc"),
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      nativeResultArgument("__exactEvpCipherEncrypt", 4, [
+        literalArgument("aes-128-cbc"),
+        literalArgument("0123456789abcdef"),
+        literalArgument("fedcba9876543210"),
+        literalArgument("ibex"),
+      ]),
+      literalArgument(null),
+    ]),
+  ],
+  [
+    "__exactExportKeyPkcs8",
+    nativeNoEffectTemplate(2, [
+      literalArgument("rsa"),
+      generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+    ]),
+  ],
+  [
+    "__exactExportKeySpki",
+    nativeNoEffectTemplate(2, [
+      literalArgument("rsa"),
+      generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+    ]),
+  ],
+  [
+    "__exactImportKeyPkcs8",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactExportKeyPkcs8", 2, [
+        literalArgument("rsa"),
+        generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+      ]),
+    ]),
+  ],
+  [
+    "__exactImportKeySpki",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactExportKeySpki", 2, [
+        literalArgument("rsa"),
+        generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+      ]),
+    ]),
+  ],
+  [
+    "__exactRsaOaepEncrypt",
+    nativeNoEffectTemplate(4, [
+      generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+      literalArgument("SHA-256"),
+      literalArgument(""),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactRsaOaepDecrypt",
+    nativeNoEffectTemplate(4, [
+      generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+      literalArgument("SHA-256"),
+      literalArgument(""),
+      nativeResultArgument("__exactRsaOaepEncrypt", 4, [
+        generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+        literalArgument("SHA-256"),
+        literalArgument(""),
+        literalArgument("ibex"),
+      ]),
+    ]),
+  ],
+  [
+    "__exactX25519DeriveBits",
+    nativeNoEffectTemplate(2, [
+      generatedKeyArgument("x25519", "privateKey"),
+      generatedKeyArgument("x25519", "publicKey"),
     ]),
   ],
   [
@@ -2014,8 +2442,10 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
   ) {
     return clone(argument);
   }
-  const producer = liveByObservedKey.get(`native-op:${argument.globalName}`)
-    ?.metadata?.publicInvocation;
+  const producer = (
+    liveByObservedKey.get(`native-op:${argument.globalName}`) ??
+    liveByObservedKey.get(`native-op:global:${argument.globalName}`)
+  )?.metadata?.publicInvocation;
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -2043,6 +2473,7 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
 function bindNativeSetupSources(setup, liveByObservedKey) {
   if (
     !new Set([
+      "fs-read-file",
       "sqlite-memory-database",
       "sqlite-memory-statement",
       "tcp-loopback-client",
@@ -2135,7 +2566,7 @@ function nativePublicProbeForPlan({
           "--bin",
           "ibex",
           "--features",
-          "capsec-conformance-observer",
+          "capsec-conformance-observer,openssl-crypto",
           "capsec_public_native_recipe_batch",
           "--",
           "--test-threads=1",
@@ -2330,7 +2761,7 @@ function nativePublicProbeForPlan({
         "--bin",
         "ibex",
         "--features",
-        "capsec-conformance-observer",
+        "capsec-conformance-observer,openssl-crypto",
         "capsec_public_native_recipe_batch",
         "--",
         "--test-threads=1",
@@ -2470,7 +2901,7 @@ function conditionalHostAbiProbeForPlan({
       "--bin",
       "ibex",
       "--features",
-      "capsec-conformance-observer",
+      "capsec-conformance-observer,openssl-crypto",
       "capsec_public_native_recipe_batch",
       "--",
       "--test-threads=1",
@@ -2485,6 +2916,183 @@ function conditionalHostAbiProbeForPlan({
         kind: "sqlite-memory",
         selectedBranch: clone(sourceDescriptor.selectedBranch),
       },
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: clone(plan.edgeIds),
+      expectedActionIds: [],
+    },
+  };
+}
+
+// @ref LLP 0021#module-initialization-and-trusted-source-acquisition — loader
+// admission and source/cache/carrier reads are control-plane operations, so
+// their public proof must execute with zero host-effect decisions.
+const MODULE_RUNNER_LOADER_OPERATIONS = new Map([
+  ["module-runner-edge-authorization", "authorize-edge"],
+  ["module-runner-trusted-source-acquisition", "source-acquisition"],
+  ["module-runner-cache-access", "cache-read"],
+  ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
+]);
+
+const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
+  "ex_hermes_commonjs_create_record",
+  "ex_hermes_commonjs_record_create_esm_adapter",
+  "ex_hermes_commonjs_record_declare_export",
+  "ex_hermes_commonjs_record_evaluate",
+  "ex_hermes_commonjs_record_link_dynamic_import",
+  "ex_hermes_commonjs_record_link_require",
+  "ex_hermes_commonjs_record_link_require_esm",
+  "ex_hermes_graph_context_create",
+  "ex_hermes_graph_context_retain",
+  "ex_hermes_module_compile_factory",
+  "ex_hermes_module_create_record",
+  "ex_hermes_module_load_carrier_factory",
+  "ex_hermes_module_pin_generation",
+  "ex_hermes_module_record_declare_export",
+  "ex_hermes_module_record_instantiate",
+  "ex_hermes_module_record_link_dependency",
+  "ex_hermes_module_record_link_dynamic_import",
+  "ex_hermes_module_record_link_export",
+  "ex_hermes_module_record_link_import",
+  "ex_hermes_module_record_poll_evaluation",
+  "ex_hermes_module_record_run_declare",
+  "ex_hermes_module_record_run_execute",
+  "ex_hermes_module_release_handle",
+  "ex_hermes_module_unpin_generation",
+]);
+
+function moduleRunnerLoaderProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+}) {
+  if (
+    plan.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "loader:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  const operation = MODULE_RUNNER_LOADER_OPERATIONS.get(surfaceName);
+  if (!operation) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "loader" ||
+    live.name !== surfaceName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "module-loader-function",
+    surfaceName,
+    sourceRefs: clone(live.sourceRefs),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [
+      "cargo",
+      "test",
+      "--bin",
+      "ibex",
+      "--features",
+      "capsec-conformance-observer,openssl-crypto",
+      "capsec_public_native_recipe_batch",
+      "--",
+      "--test-threads=1",
+    ],
+    invocation: {
+      invocationSchema: "ibex/capsec-module-loader-invocation/1",
+      kind: "module-loader-authority",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: { kind: operation },
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: clone(plan.edgeIds),
+      expectedActionIds: [],
+    },
+  };
+}
+
+function moduleRunnerHostAbiProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+}) {
+  if (
+    plan.classification !== "non-capability" ||
+    scenario !== "non-capability" ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "host-abi:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const functionName = surfaceObservedKey.slice(prefix.length);
+  if (!MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS.has(functionName)) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "host-abi" ||
+    live.name !== functionName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    !Array.isArray(live.metadata?.definitions) ||
+    live.metadata.definitions.length !== 1 ||
+    live.metadata.definitions[0].language !== "c++" ||
+    live.metadata.definitions[0].sourceRef !== live.sourceRefs[0] ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "host-abi-function",
+    functionName,
+    sourceRefs: clone(live.sourceRefs),
+    sourceMetadata: clone(live.metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [
+      "cargo",
+      "test",
+      "--bin",
+      "ibex",
+      "--features",
+      "capsec-conformance-observer,openssl-crypto",
+      "capsec_public_native_recipe_batch",
+      "--",
+      "--test-threads=1",
+    ],
+    invocation: {
+      invocationSchema: "ibex/capsec-host-abi-invocation/1",
+      kind: "host-abi-function",
+      functionName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: { kind: "module-runner-source-graph" },
       expectedResult: "return",
       expectedTypedStages: [],
       expectedTypedDecisionCount: 0,
@@ -2517,6 +3125,11 @@ function residualReasons({
     publicSurfaceProbe.invocation.expectedTypedDecisionCount > 0 &&
     Array.isArray(publicSurfaceProbe.invocation.allowedCoverageEdgeIds) &&
     publicSurfaceProbe.invocation.allowedCoverageEdgeIds.length > 0;
+  const terminalBuiltinClosureProbe =
+    publicSurfaceProbe?.invocation?.invocationSchema ===
+      "ibex/capsec-closed-surface-invocation/1" &&
+    publicSurfaceProbe?.invocation?.operation?.kind ===
+      "terminal-builtin-import";
   if (plan.expectedObservation.kind === "target-absence") {
     if (!publicSurfaceProbe) {
       reasons.push("target-absence-probe-not-authored");
@@ -2571,7 +3184,8 @@ function residualReasons({
   if (
     route.alternatives.length === 0 &&
     plan.expectedObservation.kind !== "target-absence" &&
-    !callbackInvariantProbe
+    !callbackInvariantProbe &&
+    !terminalBuiltinClosureProbe
   ) {
     reasons.push("no-static-enforcement-terminal");
   }
@@ -2584,7 +3198,8 @@ function residualReasons({
   if (
     route.ambiguousCallees.length > 0 &&
     !callbackInvariantProbe &&
-    !effectBuiltinProbe
+    !effectBuiltinProbe &&
+    !terminalBuiltinClosureProbe
   ) {
     reasons.push("ambiguous-static-enforcement-route");
   }
@@ -2692,6 +3307,7 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
       coverageByObservedKey,
+      target,
     });
     const startupPublicSurfaceProbe = authoredStartupPublicProbe({
       plan,
@@ -2750,6 +3366,18 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       coverageByEdge,
     });
+    const moduleRunnerLoaderProbe = moduleRunnerLoaderProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+    });
+    const moduleRunnerHostAbiProbe = moduleRunnerHostAbiProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+    });
     const rationaleOnlyCallbackScenario =
       RATIONALE_ONLY_CALLBACK_SCENARIOS.has(scenario);
     // These fixtures require the bound carrier's exact callback/control
@@ -2769,6 +3397,8 @@ export function buildConformanceRecipeCatalog({
             effectBuiltinPublicSurfaceProbe,
             nonCapabilityBuiltinPublicSurfaceProbe,
             conditionalHostAbiProbe,
+            moduleRunnerLoaderProbe,
+            moduleRunnerHostAbiProbe,
             nativePublicSurface.probe,
           ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {

@@ -1,8 +1,10 @@
 // Exact loaded-engine executor for inherited intrinsic alias membership.
 // The JavaScript plan is authored and content-addressed by the devtools
 // source-review module. This executor binds it to the compiled target and the
-// mapped Hermes factory object's current file snapshot before and after
-// evaluating it. This is not a hash of already-mapped executable pages.
+// loader-selected Hermes artifact's current-file snapshot before and after
+// evaluating it. Supported Unix targets also bind that file to the mapped
+// factory object; Windows remains a loader-path snapshot with an explicit
+// mapped-image blocker. This is not a hash of mapped executable pages.
 //
 // @ref LLP 0013#mechanism-1-lockdown
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
@@ -85,7 +87,7 @@ fn runtime_target_triple() -> String {
 fn runtime_profile() -> (&'static str, &'static str) {
     match std::env::consts::OS {
         "android" => ("android-maven", "android"),
-        "windows" => ("windows-nuget", "windows"),
+        "windows" => ("windows-source-patched", "windows"),
         _ => ("source-patched", "default"),
     }
 }
@@ -255,13 +257,13 @@ async fn capsec_inherited_intrinsic_alias_loaded_engine_preflight() {
     };
     let _lock = hermes_engine_test_lock().lock().await;
     let identity = HermesEngine::loaded_engine_identity()
-        .expect("identify mapped Hermes factory object for intrinsic preflight");
+        .expect("identify current Hermes artifact for intrinsic preflight");
     let verified = ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity)
-        .expect("recheck Hermes factory-object file snapshot for intrinsic preflight");
+        .expect("recheck current Hermes artifact snapshot for intrinsic preflight");
     assert_eq!(verified, identity);
     let (profile_id, target_variant) = runtime_profile();
     let provenance = ibex_runtime::engine::loaded_engine_profile_provenance()
-        .expect("compare Hermes factory-object file snapshot with its embedded receipt")
+        .expect("compare current Hermes artifact snapshot with its embedded receipt")
         .expect("loaded intrinsic conformance requires a profile provenance receipt");
     assert_eq!(provenance["profileId"], profile_id);
     assert_eq!(provenance["targetVariant"], target_variant);
@@ -293,7 +295,7 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
 
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
-        .expect("identify Hermes factory-object file snapshot before intrinsic probe");
+        .expect("identify current Hermes artifact before intrinsic probe");
     let provenance_before = ibex_runtime::engine::loaded_engine_profile_provenance()
         .expect("check Hermes file snapshot/profile receipt before intrinsic probe")
         .expect("loaded intrinsic conformance requires a profile provenance receipt");
@@ -340,19 +342,19 @@ async fn capsec_inherited_intrinsic_alias_loaded_execution() {
         .expect("finish authenticated inherited-intrinsic publications");
 
     let identity_after = HermesEngine::loaded_engine_identity()
-        .expect("identify Hermes factory-object file snapshot after intrinsic probe");
+        .expect("identify current Hermes artifact after intrinsic probe");
     assert_eq!(
         identity_after, identity_before,
-        "mapped Hermes identity changed during inherited intrinsic probe"
+        "current Hermes artifact identity changed during inherited intrinsic probe"
     );
     ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
-        .expect("recheck Hermes factory-object file snapshot after intrinsic probe");
+        .expect("recheck current Hermes artifact snapshot after intrinsic probe");
     let provenance_after = ibex_runtime::engine::loaded_engine_profile_provenance()
         .expect("recheck Hermes file snapshot/profile receipt after intrinsic probe")
         .expect("loaded intrinsic conformance requires a profile provenance receipt");
     assert_eq!(
         provenance_after, provenance_before,
-        "mapped Hermes provenance changed during inherited intrinsic probe"
+        "current Hermes artifact provenance changed during inherited intrinsic probe"
     );
 
     write_new_json(

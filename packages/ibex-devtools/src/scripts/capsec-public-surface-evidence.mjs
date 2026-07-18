@@ -52,11 +52,37 @@ const PRIVATE_CWD_FACADE_SOURCE_REFS = Object.freeze([
   "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
 ]);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
+  "__exactFsPathAsync",
   "__exactLstat",
   "__exactReadFile",
   "__exactRealpath",
   "__exactStat",
 ]);
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
+// dispatcher remains the public surface, while typed evidence must select its
+// exact source-chosen worker rather than any allowed auxiliary edge.
+const NATIVE_ASYNC_WORKER_TERMINALS = new Map([
+  ["mkdir", "native-op:__exactMkdir"],
+  ["readdir", "native-op:__exactReaddir"],
+  ["realpath", "native-op:__exactRealpath"],
+  ["statfs", "native-op:__exactStatfs"],
+  ["truncate", "native-op:__exactTruncate"],
+]);
+
+export function nativeAsyncWorkerTerminal(authored) {
+  if (
+    authored?.invocationSchema !==
+      "ibex/capsec-native-global-invocation/1" ||
+    authored.kind !== "native-global-function" ||
+    authored.globalName !== "__exactFsPathAsync"
+  ) {
+    return null;
+  }
+  const operation = authored.arguments?.[0];
+  return operation?.kind === "json-literal"
+    ? NATIVE_ASYNC_WORKER_TERMINALS.get(operation.value) ?? null
+    : null;
+}
 
 // Independent verifier authority for the small curated startup family. Keep
 // this separate from recipe authorship so descriptor tampering cannot change
@@ -910,18 +936,63 @@ function validateRuntimeInvocation(observation, recipe) {
       [...commonKeys, "functionName"],
       `${recipe.fixtureId}: host ABI runtime invocation`,
     );
+    const sqliteMemory = authored.operation?.kind === "sqlite-memory";
+    const moduleRunner =
+      authored.operation?.kind === "module-runner-source-graph";
     if (
       invocation.kind !== "host-abi-function" ||
       invocation.functionName !== authored.functionName ||
-      authored.operation?.kind !== "sqlite-memory" ||
-      authored.operation?.selectedBranch?.id !== "memory" ||
+      (!sqliteMemory && !moduleRunner) ||
       authored.sourceDescriptor?.kind !== "host-abi-function" ||
       authored.sourceDescriptor?.functionName !== authored.functionName ||
-      canonicalJson(authored.sourceDescriptor?.selectedBranch) !==
-        canonicalJson(authored.operation?.selectedBranch)
+      (sqliteMemory &&
+        (authored.operation?.selectedBranch?.id !== "memory" ||
+          canonicalJson(authored.sourceDescriptor?.selectedBranch) !==
+            canonicalJson(authored.operation?.selectedBranch))) ||
+      (moduleRunner &&
+        canonicalJson(authored.sourceDescriptor?.sourceRefs) !==
+          canonicalJson([
+            `src/engine/hermes_module_runner.cc#${authored.functionName}`,
+          ]))
     ) {
       throw new Error(
         `${recipe.fixtureId}: host ABI runtime invocation descriptor drift`,
+      );
+    }
+  } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-module-loader-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "surfaceName"],
+      `${recipe.fixtureId}: module-loader runtime invocation`,
+    );
+    const operations = new Map([
+      ["module-runner-edge-authorization", "authorize-edge"],
+      ["module-runner-trusted-source-acquisition", "source-acquisition"],
+      ["module-runner-cache-access", "cache-read"],
+      ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
+    ]);
+    const expectedOperation = operations.get(authored.surfaceName);
+    const expectedFunction =
+      expectedOperation === "authorize-edge"
+        ? "authorize"
+        : "authorize_then_access";
+    if (
+      invocation.kind !== "module-loader-authority" ||
+      invocation.surfaceName !== authored.surfaceName ||
+      !expectedOperation ||
+      authored.operation?.kind !== expectedOperation ||
+      authored.sourceDescriptor?.kind !== "module-loader-function" ||
+      authored.sourceDescriptor?.surfaceName !== authored.surfaceName ||
+      canonicalJson(authored.sourceDescriptor?.sourceRefs) !==
+        canonicalJson([
+          `src/module_loader/security.rs#${expectedFunction}`,
+        ])
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: module-loader runtime invocation descriptor drift`,
       );
     }
   } else if (
@@ -1160,10 +1231,340 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: closed-surface runtime invocation descriptor drift`,
       );
     }
+    if (authored.operation?.kind === "module-runner-namespace") {
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed module-runner source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "expectedError"],
+        `${recipe.fixtureId}: closed module-runner operation`,
+      );
+      const functionName = "ex_hermes_module_record_namespace_json";
+      if (
+        authored.surfaceKind !== "host-abi" ||
+        authored.surfaceName !== functionName ||
+        descriptor.kind !== "closed-module-runner-namespace" ||
+        descriptor.surfaceObservedKey !== `host-abi:${functionName}` ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([
+            `src/engine/hermes_module_runner.cc#${functionName}`,
+          ]) ||
+        descriptor.sourceMetadata?.definitions?.length !== 1 ||
+        descriptor.sourceMetadata.definitions[0].language !== "c++" ||
+        descriptor.sourceMetadata.definitions[0].sourceRef !==
+          descriptor.sourceRefs[0] ||
+        authored.operation.expectedError !==
+          "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: closed module-runner descriptor drift`,
+        );
+      }
+    }
     if (authored.operation?.kind === "loader-executable-file") {
       throw new Error(
         `${recipe.fixtureId}: authenticated VFS imports cannot prove the legacy loader facet`,
       );
+    }
+    if (authored.operation?.kind === "terminal-builtin-import") {
+      const terminalBuiltin = new Map([
+        ["node_async_hooks", ["async_hooks", ["async_hooks", "node:async_hooks"]]],
+        [
+          "node_inspector",
+          [
+            "inspector",
+            [
+              "inspector",
+              "inspector/promises",
+              "node:inspector",
+              "node:inspector/promises",
+            ],
+          ],
+        ],
+        ["node_vm", ["vm", ["node:vm", "vm"]]],
+        ["node_wasi", ["wasi", ["node:wasi", "wasi"]]],
+        [
+          "node_worker_threads",
+          ["worker_threads", ["node:worker_threads", "worker_threads"]],
+        ],
+      ]).get(authored.sourceDescriptor?.sourceKey);
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceKey",
+          ...(descriptor.exportName === undefined ? [] : ["exportName"]),
+          "moduleSpecifiers",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed terminal builtin source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        [
+          "kind",
+          "terminalBuiltinRoot",
+          "moduleSpecifiers",
+          "expectedRejectionFragment",
+        ],
+        `${recipe.fixtureId}: closed terminal builtin operation`,
+      );
+      const exportSurface = descriptor.exportName !== undefined;
+      const expectedSurfaceName = exportSurface
+        ? `export:${descriptor.sourceKey}:${descriptor.exportName}`
+        : descriptor.surfaceObservedKey?.slice("builtin:".length);
+      if (
+        terminalBuiltin === undefined ||
+        authored.surfaceKind !== "builtin" ||
+        authored.surfaceName !== expectedSurfaceName ||
+        recipe.terminalObservedKey !== `builtin:${expectedSurfaceName}` ||
+        descriptor.kind !== "closed-terminal-builtin" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        canonicalJson(descriptor.moduleSpecifiers) !==
+          canonicalJson(terminalBuiltin[1]) ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length !== 1 ||
+        descriptor.sourceMetadata?.sourceKey !== descriptor.sourceKey ||
+        descriptor.sourceMetadata?.importReachability !== "public" ||
+        authored.operation.terminalBuiltinRoot !== terminalBuiltin[0] ||
+        canonicalJson(authored.operation.moduleSpecifiers) !==
+          canonicalJson(terminalBuiltin[1]) ||
+        authored.operation.expectedRejectionFragment !== "Import denied:" ||
+        (exportSurface
+          ? descriptor.sourceMetadata?.surfaceType !== "export" ||
+            descriptor.sourceMetadata?.exportName !== descriptor.exportName ||
+            canonicalJson(
+              descriptor.sourceMetadata?.publicModuleSpecifiers,
+            ) !== canonicalJson(terminalBuiltin[1])
+          : descriptor.sourceMetadata?.surfaceType !== undefined ||
+            descriptor.sourceMetadata?.moduleBuiltin !== true ||
+            descriptor.sourceMetadata?.bundleExternal !== true ||
+            !terminalBuiltin[1].includes(expectedSurfaceName) ||
+            descriptor.sourceRefs[0] !==
+              `modules.ts#specifiers:${descriptor.sourceKey}`)
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: terminal builtin closure is not bound to the authenticated import gate`,
+        );
+      }
+    }
+    if (authored.operation?.kind === "debugger-abi-disabled") {
+      const debuggerExpectation = new Map([
+        ["enable", ["ex_hermes_debugger_enable", "integer-zero"]],
+        ["eval", ["ex_hermes_debugger_eval", "null-pointer"]],
+        [
+          "get-script-source",
+          ["ex_hermes_debugger_get_script_source", "null-pointer"],
+        ],
+        ["get-scripts", ["ex_hermes_debugger_get_scripts", "null-pointer"]],
+        ["next-event", ["ex_hermes_debugger_next_event", "null-pointer"]],
+        ["pause", ["ex_hermes_debugger_pause", "no-event"]],
+        [
+          "remove-breakpoint",
+          ["ex_hermes_debugger_remove_breakpoint", "no-event"],
+        ],
+        ["resume", ["ex_hermes_debugger_resume", "no-event"]],
+        [
+          "set-breakpoint",
+          ["ex_hermes_debugger_set_breakpoint", "null-pointer"],
+        ],
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "functionName",
+          "selectedSourceRef",
+          "targetTriple",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed debugger ABI source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "functionName", "expectedCallResult", "expectedError"],
+        `${recipe.fixtureId}: closed debugger ABI operation`,
+      );
+      const operationSlug = [...debuggerExpectation].find(
+        ([, [functionName]]) =>
+          functionName === authored.operation.functionName,
+      )?.[0];
+      const expected = debuggerExpectation.get(operationSlug);
+      const functionName = authored.operation.functionName;
+      const defaultSourceRef =
+        `src/engine/hermes_runtime_debugger.cc#${functionName}`;
+      const windowsSourceRef =
+        `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+      const expectedSurfaceName =
+        authored.surfaceKind === "host-abi"
+          ? functionName
+          : `inspector.debugger-${operationSlug}`;
+      const alternative = (targetVariant, sourceRef) => ({
+        id: targetVariant,
+        kind: "alternative",
+        sourceRefs: [sourceRef],
+        stubDisposition: "not-structurally-proven",
+        targetVariant,
+      });
+      const alternatives = [
+        alternative("default", defaultSourceRef),
+        alternative("windows", windowsSourceRef),
+      ];
+      const expectedMetadata =
+        authored.surfaceKind === "host-abi"
+          ? {
+              alternatives,
+              branches: structuredClone(alternatives),
+              definitions: [
+                {
+                  language: "c++",
+                  sourceRef: defaultSourceRef,
+                  targetVariant: "default",
+                  unsafe: false,
+                  weak: false,
+                },
+                {
+                  language: "c++",
+                  sourceRef: windowsSourceRef,
+                  targetVariant: "windows",
+                  unsafe: false,
+                  weak: false,
+                },
+              ],
+              provenanceLimitation:
+                "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
+            }
+          : null;
+      if (
+        expected === undefined ||
+        !["host-abi", "native-op"].includes(authored.surfaceKind) ||
+        authored.surfaceName !== expectedSurfaceName ||
+        recipe.terminalObservedKey !==
+          `${authored.surfaceKind}:${expectedSurfaceName}` ||
+        descriptor.kind !== "closed-debugger-abi" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.functionName !== functionName ||
+        descriptor.selectedSourceRef !== defaultSourceRef ||
+        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([defaultSourceRef, windowsSourceRef]) ||
+        canonicalJson(descriptor.sourceMetadata) !==
+          canonicalJson(expectedMetadata) ||
+        authored.operation.expectedCallResult !== expected[1] ||
+        authored.operation.expectedError !==
+          `debugger ABI ${functionName} is unavailable in the no-debugger exact target`
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: debugger ABI closure is not bound to the physical no-debugger target`,
+        );
+      }
+    }
+    if (authored.operation?.kind === "shared-runtime-global-absence") {
+      const reviewedSurfaces = new Set([
+        "__exactAllowNativesSyntax",
+        "__exactCompatEval",
+        "__exactDebugModuleSource",
+        "__exactDebugModuleSources",
+        "__exactDebugModuleSources.length",
+        "__exactInstallAsyncIpcListenerPatch",
+        "__exactInstallProcessIpcBootstrap",
+        "__exactNativeWrapState",
+        "__exactNativeWrapState.Pipe",
+        "__exactNativeWrapState.TCP",
+        "__exactNativeWrapState.TCPConnectWrap",
+        "__exactNativeWrapState.UV_EINVAL",
+        "__exactNativeWrapState.byFd",
+        "__exactNativeWrapState.pipeConstants",
+        "__exactNativeWrapState.tcpConstants",
+        "__exactStreamWrapState",
+        "__exactSyncTrackedIpcListenersAfterDispatch",
+        "global:Bun.gc",
+        "global:Cache",
+        "global:Cache.add",
+        "global:Cache.addAll",
+        "global:Cache.delete",
+        "global:Cache.keys",
+        "global:Cache.match",
+        "global:Cache.matchAll",
+        "global:Cache.put",
+        "global:CacheStorage",
+        "global:CacheStorage.delete",
+        "global:CacheStorage.has",
+        "global:CacheStorage.keys",
+        "global:CacheStorage.match",
+        "global:CacheStorage.open",
+        "global:Exact.gc",
+      ]);
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "globalName",
+          ...(descriptor.memberName === undefined ? [] : ["memberName"]),
+          "targetTriple",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed shared-runtime global descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "globalName", "memberName", "expectedError"],
+        `${recipe.fixtureId}: closed shared-runtime global operation`,
+      );
+      const metadata = descriptor.sourceMetadata;
+      const memberName = authored.operation.memberName;
+      const exportName =
+        memberName === null
+          ? authored.operation.globalName
+          : `${authored.operation.globalName}.${memberName}`;
+      const branches = metadata?.installationBranches;
+      if (
+        !reviewedSurfaces.has(authored.surfaceName) ||
+        authored.surfaceKind !== "native-op" ||
+        descriptor.kind !== "closed-shared-runtime-global-absence" ||
+        descriptor.surfaceObservedKey !==
+          `native-op:${authored.surfaceName}` ||
+        recipe.terminalObservedKey !== descriptor.surfaceObservedKey ||
+        descriptor.globalName !== authored.operation.globalName ||
+        (descriptor.memberName ?? null) !== memberName ||
+        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        !Array.isArray(descriptor.sourceRefs) ||
+        descriptor.sourceRefs.length === 0 ||
+        metadata?.surfaceType !== "global-api" ||
+        metadata.globalName !== authored.operation.globalName ||
+        metadata.memberName !== memberName ||
+        metadata.exportName !== exportName ||
+        !Array.isArray(branches) ||
+        branches.length !== 1 ||
+        branches[0].route !== "legacy-bootstrap" ||
+        branches[0].targetVariant !== "default" ||
+        canonicalJson(branches[0].sourceRefs) !==
+          canonicalJson(descriptor.sourceRefs) ||
+        authored.operation.expectedError !==
+          `armed shared runtime does not expose ${exportName}`
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: shared-runtime global closure is not bound to the reviewed legacy-only path`,
+        );
+      }
     }
     if (authored.operation?.kind === "exact-unendowed-operation") {
       const descriptor = authored.sourceDescriptor;
@@ -1523,19 +1924,68 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
-    if (authored.invocationSchema === "ibex/capsec-host-abi-invocation/1") {
+    if (
+      authored.invocationSchema === "ibex/capsec-host-abi-invocation/1"
+    ) {
+      if (authored.operation.kind === "sqlite-memory") {
+        exactKeys(
+          invocation.result,
+          ["kind", "functionName", "operation", "cleanup"],
+          `${recipe.fixtureId}: host ABI runtime result`,
+        );
+        if (
+          invocation.result.functionName !== authored.functionName ||
+          invocation.result.operation !== "sqlite-memory" ||
+          invocation.result.cleanup !== "released-sqlite-memory-state"
+        ) {
+          throw new Error(
+            `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+          );
+        }
+      } else {
+        exactKeys(
+          invocation.result,
+          [
+            "kind",
+            "functionName",
+            "operation",
+            "observedFunctionNames",
+            "cleanup",
+          ],
+          `${recipe.fixtureId}: module-runner host ABI runtime result`,
+        );
+        if (
+          invocation.result.functionName !== authored.functionName ||
+          invocation.result.operation !== "module-runner-source-graph" ||
+          invocation.result.cleanup !== "released-module-graph" ||
+          !Array.isArray(invocation.result.observedFunctionNames) ||
+          !invocation.result.observedFunctionNames.includes(
+            authored.functionName,
+          )
+        ) {
+          throw new Error(
+            `${recipe.fixtureId}: module-runner graph did not enter the exact host ABI`,
+          );
+        }
+      }
+    } else if (
+      authored.invocationSchema ===
+      "ibex/capsec-module-loader-invocation/1"
+    ) {
       exactKeys(
         invocation.result,
-        ["kind", "functionName", "operation", "cleanup"],
-        `${recipe.fixtureId}: host ABI runtime result`,
+        ["kind", "surfaceName", "operation", "accessExecuted", "cleanup"],
+        `${recipe.fixtureId}: module-loader runtime result`,
       );
+      const isAccess = authored.operation.kind !== "authorize-edge";
       if (
-        invocation.result.functionName !== authored.functionName ||
-        invocation.result.operation !== "sqlite-memory" ||
-        invocation.result.cleanup !== "released-sqlite-memory-state"
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.operation !== authored.operation.kind ||
+        invocation.result.accessExecuted !== isAccess ||
+        invocation.result.cleanup !== "none"
       ) {
         throw new Error(
-          `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+          `${recipe.fixtureId}: module-loader runtime result did not prove its exact access`,
         );
       }
     } else if (
@@ -1629,6 +2079,23 @@ function validateRuntimeInvocation(observation, recipe) {
       !invocation.result.errorMessage.includes(expectedFragment)
     ) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
+    }
+  } else if (authored.expectedResult === "invalid-handle") {
+    exactKeys(
+      invocation.result,
+      ["kind", "globalName", "errorName", "errorMessage"],
+      `${recipe.fixtureId}: retained-object refusal result`,
+    );
+    if (
+      invocation.result.kind !== "throw" ||
+      invocation.result.globalName !== authored.globalName ||
+      invocation.result.errorName !== "Error" ||
+      typeof invocation.result.errorMessage !== "string" ||
+      !invocation.result.errorMessage.endsWith(": invalid handle")
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: public invocation did not prove its exact retained-object refusal`,
+      );
     }
   } else if (authored.expectedResult === "absent") {
     if (
@@ -1825,6 +2292,54 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: Exact invocation did not fail closed before the embedder callback`,
       );
     }
+    if (
+      authored.operation?.kind === "module-runner-namespace" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed module namespace inspection did not fail closed`,
+      );
+    }
+    if (
+      authored.operation?.kind === "terminal-builtin-import" &&
+      (invocation.result.engineExecuted !== true ||
+        !invocation.result.errorMessage.includes(
+          authored.operation.expectedRejectionFragment,
+        ) ||
+        !authored.operation.moduleSpecifiers.every(
+          (specifier) =>
+            invocation.result.errorMessage
+              .split("\n")
+              .some(
+                (line) =>
+                  line.startsWith(`${specifier}: `) &&
+                  line.includes(authored.operation.expectedRejectionFragment),
+              ),
+        ))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: terminal builtin aliases did not fail closed at the authenticated import gate`,
+      );
+    }
+    if (
+      authored.operation?.kind === "debugger-abi-disabled" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: debugger ABI did not prove the no-debugger physical result`,
+      );
+    }
+    if (
+      authored.operation?.kind === "shared-runtime-global-absence" &&
+      (invocation.result.engineExecuted !== true ||
+        invocation.result.errorMessage !== authored.operation.expectedError)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: armed shared-runtime global was not physically absent`,
+      );
+    }
     const loaderExecutableExpectation = new Map([
       [
         "native-addon",
@@ -1889,6 +2404,8 @@ function validateRuntimeInvocation(observation, recipe) {
           ]
         : authored.expectedResult === "permission-denied"
           ? ["typed-permission-denial", true]
+          : authored.expectedResult === "invalid-handle"
+            ? ["retained-object-refusal", true]
           : ["exact-global-absence", false];
     if (
       invocation.executionProof.kind !== expectedProof[0] ||
@@ -1943,6 +2460,7 @@ export function validatePublicFixtureRuntimeObservation(
     authored.invocationSchema ===
     "ibex/capsec-startup-environment-invocation/1";
   const auxiliaryCarrier = callbackInvariant || startupEnvironment;
+  const nativeWorkerTerminal = nativeAsyncWorkerTerminal(authored);
   if (callbackInvariant) {
     // Callback/control surfaces are non-capabilities, but their invariant can
     // exercise one separately reviewed effect edge. Bind that auxiliary
@@ -2272,6 +2790,16 @@ export function validatePublicFixtureRuntimeObservation(
       : sourceVariantAbsence
         ? `${observation.invocation.result.surfaceKind}:${observation.invocation.result.surfaceName}`
         : observation.invocation.surfaceObservedKey;
+  } else if (nativeWorkerTerminal !== null) {
+    if (
+      terminals.size !== 1 ||
+      !terminals.has(nativeWorkerTerminal)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: async invocation did not remain on its source-selected worker`,
+      );
+    }
+    terminalObservedKey = observation.invocation.surfaceObservedKey;
   } else {
     if (terminals.size !== 1) {
       throw new Error(

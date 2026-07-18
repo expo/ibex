@@ -135,8 +135,10 @@ describe("exact-target CapSec executable recipes", () => {
         "ibex/capsec-native-global-invocation/1",
     );
     // Callback-invariant probes intentionally take precedence for native
-    // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(342);
+    // routes that this harness could otherwise claim structurally. The three
+    // armed mkdtemp scenarios remain residual until their generated paths can
+    // be authenticated strongly enough for safe cleanup.
+    expect(nativePublicFixtures).toHaveLength(433);
     expect(
       nativePublicFixtures
         .filter(
@@ -151,6 +153,9 @@ describe("exact-target CapSec executable recipes", () => {
     ).toEqual([
       ["__exactTcpConnect", "allow"],
       ["__exactTcpConnect", "deny"],
+      ["__exactTcpConnect", "malformed"],
+      ["__exactTcpConnect", "missing-attribution"],
+      ["__exactTcpConnect", "wrong-principal"],
     ]);
     expect(
       nativePublicFixtures.filter(
@@ -158,13 +163,13 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(207);
+    ).toHaveLength(243);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.expectedResult === "absent",
       ),
-    ).toHaveLength(40);
+    ).toHaveLength(41);
     expect(recipes.summary.fullyExecutableFixtures).toBe(
       authoredPublicFixtures,
     );
@@ -403,7 +408,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(3_014);
+    expect(rationaleOnly).toHaveLength(3_018);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -416,8 +421,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 557,
       "principal-restore": 557,
       "snapshot-mismatch-deny": 557,
-      "cannot-widen-authority": 393,
-      "post-lockdown-invariant": 393,
+      "cannot-widen-authority": 395,
+      "post-lockdown-invariant": 395,
     });
     expect(
       rationaleOnly.every(
@@ -512,7 +517,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.globalName ===
         "__exactTcpConnect",
     );
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(5);
     for (const recipe of rows) {
       expect(recipe.publicSurfaceProbe.command).toEqual([
         "cargo",
@@ -520,7 +525,7 @@ describe("exact-target CapSec executable recipes", () => {
         "--bin",
         "ibex",
         "--features",
-        "capsec-conformance-observer",
+        "capsec-conformance-observer,openssl-crypto",
         "capsec_public_native_recipe_batch",
         "--",
         "--test-threads=1",
@@ -543,12 +548,12 @@ describe("exact-target CapSec executable recipes", () => {
       });
       expect(invocation.sourceDescriptorDigest).toMatch(/^sha256-/u);
       expect(invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow"
-          ? ["requested", "candidate", "commit"]
-          : ["requested"],
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "candidate", "commit"],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "allow" ? 3 : 1,
+        recipe.scenario === "deny" ? 1 : 3,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
@@ -894,6 +899,31 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("executes the direct native statfs metadata surface", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactStatfs",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "Cargo.toml" },
+      ]);
+      expect(invocation.expectedActionIds).toEqual(["fs:list"]);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 3,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
   test("executes the typed cached-system-info authorization surface", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
@@ -1217,7 +1247,7 @@ describe("exact-target CapSec executable recipes", () => {
         "--bin",
         "ibex",
         "--features",
-        "capsec-conformance-observer",
+        "capsec-conformance-observer,openssl-crypto",
         "capsec_public_closed_recipe_batch",
         "--",
         "--test-threads=1",
@@ -1515,6 +1545,288 @@ describe("exact-target CapSec executable recipes", () => {
         ],
       });
     }
+  });
+
+  test("binds every terminal builtin source facet to the authenticated import denial", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "terminal-builtin-import",
+    );
+    expect(rows).toHaveLength(106);
+    expect(
+      Object.entries(
+        Object.groupBy(
+          rows,
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.operation.terminalBuiltinRoot,
+        ),
+      )
+        .map(([root, grouped]) => [root, grouped.length])
+        .sort(),
+    ).toEqual([
+      ["async_hooks", 25],
+      ["inspector", 22],
+      ["vm", 11],
+      ["wasi", 7],
+      ["worker_threads", 41],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs
+            .length === 1,
+      ),
+    ).toBe(true);
+    const module = rows.find(
+      (recipe) => recipe.terminalObservedKey === "builtin:async_hooks",
+    );
+    expect(module).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          surfaceKind: "builtin",
+          surfaceName: "async_hooks",
+          sourceDescriptor: {
+            kind: "closed-terminal-builtin",
+            sourceKey: "node_async_hooks",
+            moduleSpecifiers: ["async_hooks", "node:async_hooks"],
+            sourceRefs: ["modules.ts#specifiers:node_async_hooks"],
+          },
+          operation: {
+            kind: "terminal-builtin-import",
+            terminalBuiltinRoot: "async_hooks",
+            moduleSpecifiers: ["async_hooks", "node:async_hooks"],
+            expectedRejectionFragment: "Import denied:",
+          },
+        },
+      },
+    });
+    const exported = rows.find(
+      (recipe) =>
+        recipe.terminalObservedKey ===
+        "builtin:export:node_vm:runInNewContext",
+    );
+    expect(exported).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          surfaceName: "export:node_vm:runInNewContext",
+          sourceDescriptor: {
+            kind: "closed-terminal-builtin",
+            sourceKey: "node_vm",
+            exportName: "runInNewContext",
+            moduleSpecifiers: ["node:vm", "vm"],
+            sourceRefs: ["src/builtins/vm.js#exports:runInNewContext"],
+          },
+        },
+      },
+    });
+  });
+
+  test("binds every debugger ABI facet to the physical no-debugger Apple target", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "debugger-abi-disabled",
+    );
+    expect(rows).toHaveLength(18);
+    expect(
+      Object.entries(
+        Object.groupBy(
+          rows,
+          (recipe) => recipe.publicSurfaceProbe.invocation.surfaceKind,
+        ),
+      )
+        .map(([kind, grouped]) => [kind, grouped.length])
+        .sort(),
+    ).toEqual([
+      ["host-abi", 9],
+      ["native-op", 9],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
+            "aarch64-apple-darwin",
+      ),
+    ).toBe(true);
+    const host = rows.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "host-abi:ex_hermes_debugger_eval",
+    );
+    expect(host).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          surfaceKind: "host-abi",
+          surfaceName: "ex_hermes_debugger_eval",
+          sourceDescriptor: {
+            kind: "closed-debugger-abi",
+            selectedSourceRef:
+              "src/engine/hermes_runtime_debugger.cc#ex_hermes_debugger_eval",
+          },
+          operation: {
+            kind: "debugger-abi-disabled",
+            functionName: "ex_hermes_debugger_eval",
+            expectedCallResult: "null-pointer",
+          },
+        },
+      },
+    });
+    const native = rows.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:inspector.debugger-pause",
+    );
+    expect(native).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          surfaceKind: "native-op",
+          surfaceName: "inspector.debugger-pause",
+          sourceDescriptor: {
+            kind: "closed-debugger-abi",
+            sourceMetadata: null,
+          },
+          operation: {
+            kind: "debugger-abi-disabled",
+            functionName: "ex_hermes_debugger_pause",
+            expectedCallResult: "no-event",
+          },
+        },
+      },
+    });
+  });
+
+  test("binds reviewed legacy globals to armed shared-runtime absence", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "shared-runtime-global-absence",
+    );
+    expect(rows).toHaveLength(33);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
+            "aarch64-apple-darwin" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches.every(
+            (branch) => branch.route === "legacy-bootstrap",
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:__exactAllowNativesSyntax",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            kind: "closed-shared-runtime-global-absence",
+            globalName: "__exactAllowNativesSyntax",
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "__exactAllowNativesSyntax",
+            memberName: null,
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey === "native-op:global:CacheStorage.open",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "CacheStorage",
+            memberName: "open",
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "CacheStorage",
+            memberName: "open",
+          },
+        },
+      },
+    });
+  });
+
+  test("executes module-runner authority and trusted-access loader surfaces", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-module-loader-invocation/1",
+    );
+    expect(rows).toHaveLength(4);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.surfaceName,
+        recipe.publicSurfaceProbe.invocation.operation.kind,
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs[0],
+      ]),
+    ).toEqual([
+      [
+        "module-runner-cache-access",
+        "cache-read",
+        "src/module_loader/security.rs#authorize_then_access",
+      ],
+      [
+        "module-runner-edge-authorization",
+        "authorize-edge",
+        "src/module_loader/security.rs#authorize",
+      ],
+      [
+        "module-runner-prepared-carrier-access",
+        "prepared-carrier-read",
+        "src/module_loader/security.rs#authorize_then_access",
+      ],
+      [
+        "module-runner-trusted-source-acquisition",
+        "source-acquisition",
+        "src/module_loader/security.rs#authorize_then_access",
+      ],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.actionIds.length === 0 &&
+          recipe.adapterProbe === null &&
+          recipe.publicSurfaceProbe.invocation.expectedResult === "return" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages.length ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedActionIds.length === 0,
+      ),
+    ).toBe(true);
   });
 
   test("leaves cache-order-dependent builtin alias initialization residual", () => {
@@ -2075,6 +2387,255 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 
+  test("executes bounded asymmetric and EVP crypto pairs with shared key material", () => {
+    const globalNames = [
+      "__exactEcdhDeriveBits",
+      "__exactEcdsaSign",
+      "__exactEcdsaVerify",
+      "__exactEd25519Sign",
+      "__exactEd25519Verify",
+      "__exactEvpCipherDecrypt",
+      "__exactEvpCipherEncrypt",
+      "__exactExportKeyPkcs8",
+      "__exactExportKeySpki",
+      "__exactImportKeyPkcs8",
+      "__exactImportKeySpki",
+      "__exactRsaOaepDecrypt",
+      "__exactRsaOaepEncrypt",
+      "__exactX25519DeriveBits",
+    ];
+    const rows = recipes.recipes.filter((recipe) =>
+      globalNames.includes(recipe.publicSurfaceProbe?.invocation?.globalName),
+    );
+    expect(rows.map((recipe) => recipe.terminalObservedKey).sort()).toEqual(
+      globalNames.map((name) => `native-op:${name}`).sort(),
+    );
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedResult === "return" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount === 0,
+      ),
+    ).toBe(true);
+
+    const ecdsaVerify = rows.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.globalName ===
+        "__exactEcdsaVerify",
+    ).publicSurfaceProbe.invocation;
+    const ecdsaPublicKey = ecdsaVerify.arguments[2];
+    const ecdsaPrivateKey = ecdsaVerify.arguments[3].arguments[2];
+    expect(ecdsaPublicKey).toMatchObject({
+      kind: "native-global-result-property",
+      globalName: "__exactGenerateKeyPairSync",
+      property: "publicKey",
+    });
+    expect(ecdsaPrivateKey).toMatchObject({
+      kind: "native-global-result-property",
+      globalName: "__exactGenerateKeyPairSync",
+      property: "privateKey",
+    });
+    expect(ecdsaPublicKey.arguments).toEqual(ecdsaPrivateKey.arguments);
+    expect(ecdsaPublicKey.sourceDescriptorDigest).toBe(
+      ecdsaPrivateKey.sourceDescriptorDigest,
+    );
+
+    const rsaDecrypt = rows.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.globalName ===
+        "__exactRsaOaepDecrypt",
+    ).publicSurfaceProbe.invocation;
+    expect(rsaDecrypt.arguments[3]).toMatchObject({
+      kind: "native-global-result",
+      globalName: "__exactRsaOaepEncrypt",
+      sourceDescriptor: {
+        arity: 4,
+        globalName: "__exactRsaOaepEncrypt",
+        kind: "native-global-function",
+      },
+    });
+    expect(rsaDecrypt.arguments[0].arguments).toEqual(
+      rsaDecrypt.arguments[3].arguments[0].arguments,
+    );
+  });
+
+  test("executes bounded authority-control refusals without minting authority", () => {
+    const expectedArguments = new Map([
+      ["__exactHandleScoped", [0, "fs:read"]],
+      ["__exactRevokeHandle", [0]],
+      ["__exactPermissionRequest", ["capsec:unknown"]],
+      ["__exactPermissionRevoke", ["capsec:unknown"]],
+      ["__exactPermissionStatus", ["capsec:unknown"]],
+      ["__exactTypedPermissionRequest", [{}]],
+      ["__exactTypedPermissionRevoke", ["unknown-grant"]],
+      ["__exactTypedHandleMint", [{}]],
+      ["__exactTypedHandleRevoke", ["unknown-handle"]],
+    ]);
+    for (const [globalName, values] of expectedArguments) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+          },
+        },
+      });
+      expect(
+        recipe.publicSurfaceProbe.invocation.arguments.map(
+          (argument) => argument.value,
+        ),
+      ).toEqual(values);
+    }
+
+    const loaderPrivate = recipes.recipes.find(
+      (candidate) =>
+        candidate.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactResolveManifestBuiltinInternal",
+    );
+    expect(loaderPrivate).toMatchObject({
+      classification: "non-capability",
+      scenario: "non-capability",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          expectedResult: "absent",
+          expectedTypedDecisionCount: 0,
+          expectedTypedStages: [],
+        },
+      },
+    });
+  });
+
+  test("refuses unknown retained HTTP and process ids without external effects", () => {
+    const expectedArguments = new Map([
+      ["__exactHttpOwner", [0]],
+      ["__exactHttpRespondAbort", [0, 0]],
+      ["__exactHttpClose", [0, 0]],
+      ["__exactHttpSetRef", [0, 0]],
+      ["__exactSpawnCloseStdin", [0, "stdin"]],
+      ["__exactSpawnDispose", [0]],
+    ]);
+    for (const [globalName, values] of expectedArguments) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+          },
+        },
+      });
+      expect(
+        recipe.publicSurfaceProbe.invocation.arguments.map(
+          (argument) => argument.value,
+        ),
+      ).toEqual(values);
+    }
+  });
+
+  test("closes harness-owned filesystem descriptors outside typed observation", () => {
+    for (const globalName of ["__exactFsClose", "__exactFsCloseAsync"]) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [{ kind: "harness-fs-file-descriptor" }],
+            expectedCleanup: "consumed-fs-file-descriptor",
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+            setup: [
+              {
+                kind: "fs-read-file",
+                globalName: "__exactFsOpen",
+                sourceDescriptor: {
+                  arity: 4,
+                  globalName: "__exactFsOpen",
+                  kind: "native-global-function",
+                },
+              },
+            ],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.requiredFloor).toHaveLength(
+        2,
+      );
+    }
+  });
+
+  test("executes incomplete authority calls and exact spawn owner refusal without decisions", () => {
+    for (const globalName of [
+      "__exactCapabilityCheck",
+      "__exactCreateHandle",
+    ]) {
+      expect(
+        recipes.recipes.find(
+          (candidate) =>
+            candidate.publicSurfaceProbe?.invocation?.globalName ===
+              globalName && candidate.scenario === "non-capability",
+        ),
+      ).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [],
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+          },
+        },
+      });
+    }
+    expect(
+      recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName ===
+            "__exactSpawnSetReferenced" &&
+          candidate.scenario === "non-capability",
+      ),
+    ).toMatchObject({
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: {
+          arguments: [{ value: 0 }, { value: false }],
+          expectedResult: "invalid-handle",
+          expectedTypedDecisionCount: 0,
+        },
+      },
+    });
+  });
+
   test("supplies owned callbacks and bounded delays to native timers", () => {
     for (const globalName of ["queueMicrotask", "setInterval", "setTimeout"]) {
       const recipe = recipes.recipes.find(
@@ -2104,6 +2665,46 @@ describe("exact-target CapSec executable recipes", () => {
           value: 60_000,
         });
       }
+    }
+
+    for (const [globalName, producerName] of [
+      ["clearInterval", "setInterval"],
+      ["clearTimeout", "setTimeout"],
+      ["__exactTimerRef", "setTimeout"],
+      ["__exactTimerUnref", "setTimeout"],
+    ]) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        scenario: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+            arguments: [
+              {
+                kind: "native-global-result",
+                globalName: producerName,
+                sourceDescriptor: {
+                  arity: 2,
+                  globalName: producerName,
+                  kind: "native-global-function",
+                },
+                arguments: [
+                  { kind: "harness-noop-callback" },
+                  { kind: "json-literal", value: 60_000 },
+                ],
+              },
+            ],
+          },
+        },
+      });
     }
   });
 
@@ -2257,7 +2858,9 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
-        "ibex/capsec-host-abi-invocation/1",
+          "ibex/capsec-host-abi-invocation/1" &&
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+          "sqlite-memory",
     );
     expect(rows).toHaveLength(14);
     expect(
@@ -2290,16 +2893,111 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
+  test("executes source-defined module-runner host ABIs through one real graph", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "module-runner-source-graph",
+    );
+    expect(rows).toHaveLength(24);
+    expect(
+      rows.map((recipe) => recipe.publicSurfaceProbe.invocation.functionName),
+    ).toEqual([
+      "ex_hermes_commonjs_create_record",
+      "ex_hermes_commonjs_record_create_esm_adapter",
+      "ex_hermes_commonjs_record_declare_export",
+      "ex_hermes_commonjs_record_evaluate",
+      "ex_hermes_commonjs_record_link_dynamic_import",
+      "ex_hermes_commonjs_record_link_require",
+      "ex_hermes_commonjs_record_link_require_esm",
+      "ex_hermes_graph_context_create",
+      "ex_hermes_graph_context_retain",
+      "ex_hermes_module_compile_factory",
+      "ex_hermes_module_create_record",
+      "ex_hermes_module_load_carrier_factory",
+      "ex_hermes_module_pin_generation",
+      "ex_hermes_module_record_declare_export",
+      "ex_hermes_module_record_instantiate",
+      "ex_hermes_module_record_link_dependency",
+      "ex_hermes_module_record_link_dynamic_import",
+      "ex_hermes_module_record_link_export",
+      "ex_hermes_module_record_link_import",
+      "ex_hermes_module_record_poll_evaluation",
+      "ex_hermes_module_record_run_declare",
+      "ex_hermes_module_record_run_execute",
+      "ex_hermes_module_release_handle",
+      "ex_hermes_module_unpin_generation",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.actionIds.length === 0 &&
+          recipe.adapterProbe === null &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
+            "host-abi-function" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor
+            .sourceRefs[0] ===
+            `src/engine/hermes_module_runner.cc#${recipe.publicSurfaceProbe.invocation.functionName}` &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount === 0,
+      ),
+    ).toBe(true);
+  });
+
+  test("closes module namespace inspection on an armed runtime", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "module-runner-namespace",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      classification: "closed",
+      scenario: "closed",
+      status: "fully-executable",
+      residualReasons: [],
+      terminalObservedKey: "host-abi:ex_hermes_module_record_namespace_json",
+      publicSurfaceProbe: {
+        surfaceObservedKey: "host-abi:ex_hermes_module_record_namespace_json",
+        invocation: {
+          invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+          kind: "closed-surface",
+          surfaceKind: "host-abi",
+          surfaceName: "ex_hermes_module_record_namespace_json",
+          sourceDescriptor: {
+            kind: "closed-module-runner-namespace",
+            sourceRefs: [
+              "src/engine/hermes_module_runner.cc#ex_hermes_module_record_namespace_json",
+            ],
+          },
+          operation: {
+            kind: "module-runner-namespace",
+            expectedError:
+              "native ModuleRecord namespace read refused (-1): module namespace inspection is closed under armed startup",
+          },
+          expectedResult: "closed",
+          expectedTypedDecisionCount: 0,
+        },
+      },
+    });
+  });
+
   test("binds OS-info calls to exact typed selectors and stages", () => {
     const hostname = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
         "__exactGetHostname",
     );
-    expect(hostname).toHaveLength(2);
+    expect(hostname).toHaveLength(5);
     expect(hostname.map((recipe) => recipe.scenario)).toEqual([
       "allow",
       "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
     ]);
     for (const recipe of hostname) {
       expect(recipe).toMatchObject({
@@ -2319,11 +3017,11 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow" ? ["requested", "commit"] : ["requested"],
+        recipe.scenario === "deny" ? ["requested"] : ["requested", "commit"],
       );
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(recipe.scenario === "allow" ? 2 : 1);
+      ).toBe(recipe.scenario === "deny" ? 1 : 2);
     }
   });
 
@@ -2357,10 +3055,13 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
       );
-      expect(directSystemInfo).toHaveLength(2);
+      expect(directSystemInfo).toHaveLength(5);
       expect(directSystemInfo.map((recipe) => recipe.scenario)).toEqual([
         "allow",
         "deny",
+        "malformed",
+        "missing-attribution",
+        "wrong-principal",
       ]);
       for (const recipe of directSystemInfo) {
         expect(recipe).toMatchObject({
@@ -2382,11 +3083,11 @@ describe("exact-target CapSec executable recipes", () => {
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedStages,
         ).toEqual(
-          recipe.scenario === "allow" ? ["requested", "commit"] : ["requested"],
+          recipe.scenario === "deny" ? ["requested"] : ["requested", "commit"],
         );
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-        ).toBe(recipe.scenario === "allow" ? 2 : 1);
+        ).toBe(recipe.scenario === "deny" ? 1 : 2);
       }
     }
   });
@@ -2453,10 +3154,13 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName === "__exactGetEnv",
     );
-    expect(environmentRead).toHaveLength(2);
+    expect(environmentRead).toHaveLength(5);
     expect(environmentRead.map((recipe) => recipe.scenario)).toEqual([
       "allow",
       "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
     ]);
     for (const recipe of environmentRead) {
       expect(recipe).toMatchObject({
@@ -2481,7 +3185,7 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow" ? ["requested", "commit"] : ["requested"],
+        recipe.scenario === "deny" ? ["requested"] : ["requested", "commit"],
       );
     }
   });
@@ -2490,8 +3194,14 @@ describe("exact-target CapSec executable recipes", () => {
     const print = recipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.invocation?.globalName === "print",
     );
-    expect(print).toHaveLength(2);
-    expect(print.map((recipe) => recipe.scenario)).toEqual(["allow", "deny"]);
+    expect(print).toHaveLength(5);
+    expect(print.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
     for (const recipe of print) {
       expect(recipe).toMatchObject({
         actionIds: ["stdio:write"],
@@ -2518,13 +3228,13 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow"
-          ? ["requested", "commit", "repeat"]
-          : ["requested"],
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "commit", "repeat"],
       );
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(recipe.scenario === "allow" ? 3 : 1);
+      ).toBe(recipe.scenario === "deny" ? 1 : 3);
     }
   });
 
@@ -2538,10 +3248,13 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
       );
-      expect(metadataReads).toHaveLength(2);
+      expect(metadataReads).toHaveLength(5);
       expect(metadataReads.map((recipe) => recipe.scenario)).toEqual([
         "allow",
         "deny",
+        "malformed",
+        "missing-attribution",
+        "wrong-principal",
       ]);
       for (const recipe of metadataReads) {
         expect(recipe).toMatchObject({
@@ -2573,20 +3286,28 @@ describe("exact-target CapSec executable recipes", () => {
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedStages,
         ).toEqual(
-          recipe.scenario === "allow"
-            ? globalName === "__exactRealpath"
-              ? [
-                  "requested",
-                  "discovery",
-                  "requested",
-                  "repeat",
-                  "repeat",
-                  "repeat",
-                ]
-              : globalName === "__exactStat"
-                ? ["requested", "discovery", "requested", "repeat", "repeat"]
-                : ["requested", "discovery", "requested", "repeat"]
-            : ["requested"],
+          recipe.scenario === "deny"
+            ? ["requested"]
+            : recipe.scenario === "allow"
+              ? globalName === "__exactRealpath"
+                ? [
+                    "requested",
+                    "discovery",
+                    "requested",
+                    "repeat",
+                    "repeat",
+                    "repeat",
+                  ]
+                : globalName === "__exactStat"
+                  ? [
+                      "requested",
+                      "discovery",
+                      "requested",
+                      "repeat",
+                      "repeat",
+                    ]
+                  : ["requested", "discovery", "requested", "repeat"]
+              : ["requested", "discovery", "repeat"],
         );
       }
     }
@@ -2597,10 +3318,13 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName === "__exactReadFile",
     );
-    expect(readFile).toHaveLength(2);
+    expect(readFile).toHaveLength(5);
     expect(readFile.map((recipe) => recipe.scenario)).toEqual([
       "allow",
       "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
     ]);
     for (const recipe of readFile) {
       expect(recipe).toMatchObject({
@@ -2639,23 +3363,31 @@ describe("exact-target CapSec executable recipes", () => {
         },
       });
       expect(recipe.publicSurfaceProbe.invocation.expectedActionIds).toEqual(
-        recipe.scenario === "allow" ? ["fs:list", "fs:read"] : ["fs:list"],
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:read"],
       );
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow"
-          ? [
-              "requested",
-              "discovery",
-              "requested",
-              "repeat",
-              "commit",
-              "repeat",
-            ]
-          : ["requested"],
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : recipe.scenario === "allow"
+            ? [
+                "requested",
+                "discovery",
+                "requested",
+                "repeat",
+                "commit",
+                "repeat",
+              ]
+            : ["requested", "discovery", "commit", "repeat"],
       );
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(recipe.scenario === "allow" ? 6 : 1);
+      ).toBe(
+        recipe.scenario === "deny"
+          ? 1
+          : recipe.scenario === "allow"
+            ? 6
+            : 4,
+      );
     }
   });
 

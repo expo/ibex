@@ -104,8 +104,10 @@ uint32_t ex_hermes_finish_bootstrap(ExactHermesRuntime* runtime);
 int32_t ex_hermes_engine_binary_path(char* out, size_t out_len);
 
 /// Return the device/inode identity of the mapping containing the Hermes
-/// factory when the platform can report it (macOS, Linux, and Android). This
-/// does not hash mapped executable pages. Returns 1 or -1.
+/// factory when the platform can report it (macOS, Linux, and Android). On
+/// Windows, return only the current object reached by reopening the
+/// loader-reported pathname; that diagnostic does not authenticate the mapped
+/// image section. This does not hash mapped executable pages. Returns 1 or -1.
 int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
                                       uint64_t* out_inode);
 
@@ -413,9 +415,11 @@ int32_t ex_hermes_module_record_poll_evaluation(
     char** out_error,
     uint64_t* out_error_token);
 
-/// Diagnostic serialization of the stable namespace. The namespace itself
-/// never crosses the ABI; TDZ reads fail through the same checked getters used
-/// by imports.
+/// Diagnostic serialization of the stable namespace. Armed runtimes reject
+/// this inspection before reading the record; explicitly diagnostic runtimes
+/// retain it for tests and embedder diagnostics. The namespace itself never
+/// crosses the ABI; TDZ reads fail through the same checked getters used by
+/// imports.
 int32_t ex_hermes_module_record_namespace_json(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,

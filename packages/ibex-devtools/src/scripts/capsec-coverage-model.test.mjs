@@ -173,8 +173,8 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       targetVariant: "default",
     },
     {
-      authorityRef: "scripts/install-windows-hermes.ps1#Version",
-      profileId: "windows-nuget",
+      authorityRef: "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+      profileId: "windows-source-patched",
       targetVariant: "windows",
     },
   ].map(({ authorityRef, profileId, targetVariant }) => {
@@ -206,7 +206,11 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       branches,
       evidenceType: "hermes-evaluator-reachability",
       engineIdentityReviewId: HERMES_EVALUATOR_REVIEW_ID,
-      engineProfileIds: ["android-maven", "source-patched", "windows-nuget"],
+      engineProfileIds: [
+        "android-maven",
+        "source-patched",
+        "windows-source-patched",
+      ],
       installationBranches: branches,
       lockdownTamingDigest: REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST,
       tamingEvidence: "lockdownJS",
@@ -2074,8 +2078,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["node_module", "Module", "runtime:inspect"],
       ["node_module", "createRequire", "runtime:inspect"],
       ["node_timers", "clearImmediate", "runtime:inspect"],
-      ["node_timers", "clearInterval", "runtime:inspect"],
-      ["node_timers", "clearTimeout", "runtime:inspect"],
     ]) {
       const classified = classifyObservedSurface(
         builtinExport(sourceKey, exportName),
@@ -2089,11 +2091,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ]);
     }
 
-    for (const name of [
-      "__exactTimerRef",
-      "__exactTimerUnref",
-      "__exactUncaughtExceptionHandler",
-    ]) {
+    for (const name of ["__exactUncaughtExceptionHandler"]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
         context,
@@ -2114,6 +2112,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["__exactZlibParams", "internal-data-transform"],
       ["__exactZlibClose", "authority-release"],
       ["__exactZlibCheckOwner", "authority-control-plane"],
+      ["__exactTimerRef", "authority-control-plane"],
+      ["__exactTimerUnref", "authority-control-plane"],
     ]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
@@ -2140,17 +2140,47 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       rationaleId: "authority-control-plane",
     });
 
-    for (const globalName of [
-      "clearImmediate",
-      "clearTimeout",
-      "clearInterval",
-    ]) {
+    for (const globalName of ["clearImmediate"]) {
       const classified = classifyObservedSurface(
         globalApi(globalName),
         context,
       );
       expect(classified.edge.classification, globalName).toBe("closed");
       expect(edgeActions(classified), globalName).toEqual(["runtime:inspect"]);
+    }
+
+    for (const globalName of ["clearTimeout", "clearInterval"]) {
+      const global = classifyObservedSurface(globalApi(globalName), context);
+      expect(global.edge.classification, globalName).toBe("non-capability");
+      expect(global.edge.rationaleId, globalName).toBe("authority-release");
+
+      const builtin = classifyObservedSurface(
+        builtinExport("node_timers", globalName),
+        context,
+      );
+      expect(builtin.edge.classification, globalName).toBe("non-capability");
+      expect(builtin.edge.rationaleId, globalName).toBe("authority-release");
+    }
+  });
+
+  test("owner-authenticated timer controls are authority-reducing", () => {
+    const timerRuntime = fs.readFileSync(
+      path.join(repoRoot, "src/engine/hermes_runtime_timers.cc"),
+      "utf8",
+    );
+    expect(
+      timerRuntime.match(/it->second\.principal == currentPrincipalId\(\)/gu),
+    ).toHaveLength(4);
+
+    for (const name of ["__exactTimerRef", "__exactTimerUnref"]) {
+      const classified = classifyObservedSurface(
+        surface("native-op", name),
+        context,
+      );
+      expect(classified.edge).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "authority-control-plane",
+      });
     }
   });
 

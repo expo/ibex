@@ -6,7 +6,7 @@ Evidence status: **unpromotable**.
 
 Reason: The output corpus remains unpromotable: three inherited-intrinsic alias surface accounts are unresolved, and one rowless parameterized process.env binding lacks complete live exact-name observations. The loaded-engine output-shape-sweep-v3 harness has not emitted exact source-tree-, target-, and loaded-engine-bound evidence that closes both account families; compiled registrar coverage proves only surface-account provenance and cannot satisfy either live-value requirement.
 
-The machine dataset contains 6441 canonical rows; 6109 are explicit `non-path` decisions pinned by catalog digest `sha256-MisdO-TulHpe0mLw33pVBRtDVnh85Je8jF3iVz0ZbUU`.
+The machine dataset contains 6397 canonical rows; 6069 are explicit `non-path` decisions pinned by catalog digest `sha256-pfKwYtRvBNs7G4wx_GOS9cQvQ0rYDmcxdWne7tiG4nM`.
 
 The table below projects every material (non-`non-path`) decision. The JSON artifact is normative and total.
 
@@ -312,10 +312,6 @@ The table below projects every material (non-`non-path`) decision. The JSON arti
 | `surface.native.op.ibextamed.1miuye7` | `[[value]]` | `Object.getPrototypeOf(function*(){}).constructor.__ibexTamed` | `no-lockdown` | `native-op` | `absent` | `javascript.package-property-read-loaded` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
 | `surface.native.op.ibextamed.1miuye7` | `[[value]]` | `globalThis.Function.__ibexTamed` | `no-lockdown` | `native-op` | `absent` | `javascript.package-property-read-loaded` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
 | `surface.native.op.ibextamed.1miuye7` | `[[value]]` | `globalThis.eval.__ibexTamed` | `no-lockdown` | `native-op` | `absent` | `javascript.package-property-read-loaded` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
-| `surface.native.op.originalpromise.prototype.catch.0eezlaj` | `[[return]]` | `__OriginalPromise.prototype.catch` | `all` | `native-op` | `default` | `javascript.package-call-loaded` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
-| `surface.native.op.originalpromise.prototype.finally.1b4v5zv` | `[[return]]` | `__OriginalPromise.prototype.finally` | `all` | `native-op` | `default` | `javascript.package-call-loaded` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
-| `surface.native.op.originalpromise.prototype.then.01yci6j` | `[[return]]` | `__OriginalPromise.prototype.then` | `all` | `native-op` | `default` | `javascript.package-call-loaded` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
-| `surface.native.op.originalpromise.reject.1nmizxj` | `[[return]]` | `__OriginalPromise.reject` | `all` | `native-op` | `default` | `javascript.package-call-loaded` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
 | `surface.startup.module.loader.install.0qrm04y` | `field:__exactPackageRoot` | `module.__exactPackageRoot` | `all` | `package` | `present` | `javascript.package-module-load` | `typed-logical` | `{"normalizedValue":"ibex/logical-path/1","outcome":"typed-return"}` |
 | `surface.startup.module.loader.install.0qrm04y` | `field:__exactPackageRoot` | `module.__exactPackageRoot` | `all` | `project` | `absent` | `javascript.package-module-load` | `absent` | `{"normalizedValue":"absent","outcome":"absent"}` |
 | `surface.startup.module.loader.install.0qrm04y` | `field:__exactPackageRoot.logicalPath` | `module.__exactPackageRoot.logicalPath` | `all` | `package` | `present` | `javascript.package-module-load` | `typed-logical` | `{"normalizedValue":"ibex/logical-path/1","outcome":"typed-return"}` |

@@ -106,6 +106,10 @@ function liveHermesEvaluatorIdentityInputs() {
       path.join(repoRoot, "scripts", "install-windows-hermes.ps1"),
       "utf8",
     ),
+    windowsSourceBuildText: fs.readFileSync(
+      path.join(repoRoot, "scripts", "build-hermes-windows.ps1"),
+      "utf8",
+    ),
     patchApplicationText: fs.readFileSync(
       path.join(repoRoot, "scripts", "apply-hermes-patches.sh"),
       "utf8",
@@ -1402,10 +1406,23 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           return Object.keys({safe: values.join(',')});
         }
         function dynamicReceiver() { return service.run(); }
+        var intrinsicRegistry = typeof WeakMap === 'function'
+          ? new WeakMap()
+          : null;
+        var mutableRegistry = new Map();
+        mutableRegistry = service;
+        function intrinsicRegistryRead() {
+          if (intrinsicRegistry) intrinsicRegistry.get(service);
+          return globalThis.__exactReadFile('/tmp/input');
+        }
+        function mutableRegistryRead() {
+          mutableRegistry.get('unsafe');
+          return globalThis.__exactReadFile('/tmp/input');
+        }
         module.exports = {
           shadowed, dynamicTerminal, computed, aliased,
           Reader, Writer, staticObject, mutableObject, intrinsic,
-          dynamicReceiver
+          dynamicReceiver, intrinsicRegistryRead, mutableRegistryRead
         };
       `,
       {
@@ -1436,6 +1453,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "dynamic-call-receiver:read",
     );
     expect(evidence("intrinsic").ambiguousCallees).toEqual([]);
+    expect(evidence("intrinsicRegistryRead")).toMatchObject({
+      ambiguousCallees: [],
+      terminals: ["__exactReadFile"],
+    });
+    expect(evidence("mutableRegistryRead").ambiguousCallees).toContain(
+      "dynamic-call-receiver:get",
+    );
   });
 
   test("builtin routes follow only immutable constructor and callable provenance", () => {
@@ -3125,7 +3149,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(profiles.map((profile) => profile.id)).toEqual([
       "android-maven",
       "source-patched",
-      "windows-nuget",
+      "windows-source-patched",
     ]);
     expect(profiles.map((profile) => profile.targetVariant)).toEqual([
       "android",
@@ -3166,8 +3190,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       {
         ...inputs,
         windowsInstallerText: inputs.windowsInstallerText.replace(
-          '[string]$Version = "0.71.1"',
-          '[string]$Version = "0.71.2"',
+          '"ccheever/ibex"',
+          '"example/reviewed-fork"',
         ),
       },
       {
@@ -3202,6 +3226,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ...inputs,
         linuxSourceBuildText: `${inputs.linuxSourceBuildText}\n# reviewed consumer mutation\n`,
       },
+      {
+        ...inputs,
+        windowsSourceBuildText: `${inputs.windowsSourceBuildText}\n# reviewed consumer mutation\n`,
+      },
     ]) {
       const mutatedProfiles = scanHermesEvaluatorIdentityProfiles(mutated);
       const mutatedRows = scanLockdownEvaluatorSurfaces(
@@ -3234,6 +3262,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       [
         "linuxSourceBuildText",
         '"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"',
+      ],
+      [
+        "windowsSourceBuildText",
+        "& bash $applyScriptUnix $sourceDirUnix",
       ],
     ]) {
       expect(() =>
@@ -6474,7 +6506,7 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       expect(evaluator.metadata.engineProfileIds).toEqual([
         "android-maven",
         "source-patched",
-        "windows-nuget",
+        "windows-source-patched",
       ]);
       expect(
         evaluator.metadata.branches.map((branch) => branch.targetVariant),

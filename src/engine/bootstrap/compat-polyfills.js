@@ -4271,6 +4271,8 @@
     return wrapper;
   };
 
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — retry scheduling is bootstrap-private state
+  var readableStreamIteratorPatchScheduled = false;
   var installReadableStreamIteratorCompat = function () {
     if (
       typeof globalThis.ReadableStream === 'function' &&
@@ -4316,13 +4318,17 @@
     (!globalThis.ReadableStream ||
       !globalThis.ReadableStream.prototype ||
       !globalThis.ReadableStream.prototype.__exactReadableStreamCompatIteratorPatched) &&
-    !globalThis.__exactReadableStreamCompatIteratorPatchScheduled
+    !readableStreamIteratorPatchScheduled
   ) {
-    globalThis.__exactReadableStreamCompatIteratorPatchScheduled = true;
+    readableStreamIteratorPatchScheduled = true;
+    var installReadableStreamIteratorCompatRetry = function () {
+      readableStreamIteratorPatchScheduled = false;
+      installReadableStreamIteratorCompat();
+    };
     if (typeof queueMicrotask === 'function') {
-      queueMicrotask(installReadableStreamIteratorCompat);
+      queueMicrotask(installReadableStreamIteratorCompatRetry);
     } else if (typeof setTimeout === 'function') {
-      setTimeout(installReadableStreamIteratorCompat, 0);
+      setTimeout(installReadableStreamIteratorCompatRetry, 0);
     }
   }
 

@@ -212,6 +212,7 @@ fn install_hermes_profile_provenance(install: HermesProfileProvenanceInstall<'_>
         "scripts/apply-hermes-patches.sh",
         "scripts/build-hermes.sh",
         "scripts/build-hermes-linux.sh",
+        "scripts/build-hermes-windows.ps1",
         "scripts/install-windows-hermes.ps1",
         "patches/hermes",
     ] {
@@ -286,7 +287,7 @@ fn install_hermes_profile_provenance(install: HermesProfileProvenanceInstall<'_>
     }
     let (profile_id, target_variant, origin_kind) = match target_os {
         "android" => ("android-maven", "android", "maven-aar"),
-        "windows" => ("windows-nuget", "windows", "nuget-package"),
+        "windows" => ("windows-source-patched", "windows", "source-patched-build"),
         _ => ("source-patched", "default", "source-patched-cache"),
     };
     if receipt["profileId"] != profile_id
@@ -712,7 +713,7 @@ fn main() {
             None,
         )),
         "windows" => Some((
-            hermes_bin_dir.join("hermes.dll"),
+            hermes_bin_dir.join("hermesvm.dll"),
             hermes_bin_dir.join("hermes-profile-provenance.json"),
             None,
             Some(hermes_lib_dir.join("hermes.lib")),
@@ -903,6 +904,12 @@ fn main() {
         "linux" => [
             hermes_lib_dir.join("libhermesvm.so"),
             hermes_lib_dir.join("libhermesvm.a"),
+        ]
+        .into_iter()
+        .find(|path| path.is_file()),
+        "windows" => [
+            hermes_bin_dir.join("hermesvm.dll"),
+            hermes_bin_dir.join("hermes.dll"),
         ]
         .into_iter()
         .find(|path| path.is_file()),
@@ -1652,14 +1659,21 @@ fn main() {
 
     // @ref LLP 0013#mechanism-3 — frame-derived capability attribution is only
     // available when the linked Hermes library carries the bridge exports from
-    // the carried patch stack (patches/hermes/0003). Probe the exact macOS or
-    // Linux link artifact for the exported symbol; when absent (iOS/Android/
-    // Windows engines, or a stale desktop bundle) the engine falls back to the
-    // legacy thread-local module id and still links.
-    let enable_frame_attribution = target_os != "windows"
-        && hermes_frame_attribution_binary
-            .as_deref()
-            .is_some_and(|path| hermes_has_frame_attribution(&target_os, path));
+    // the carried patch stack (patches/hermes/0003). Probe the exact macOS,
+    // Linux, or Windows link artifact for the exported symbol. Android/iOS and
+    // an explicitly supplied legacy desktop engine retain the compatibility
+    // fallback; the managed Windows artifact must be patched and fails loud.
+    let enable_frame_attribution = hermes_frame_attribution_binary
+        .as_deref()
+        .is_some_and(|path| hermes_has_frame_attribution(&target_os, path));
+    if target_os == "windows"
+        && hermes_frame_attribution_binary.is_some()
+        && !enable_frame_attribution
+    {
+        panic!(
+            "Windows Hermes DLL does not expose ex_hermes_vm_current_package_id; install the pinned patched artifact with scripts/install-windows-hermes.ps1 and run Cargo from an MSVC developer shell"
+        );
+    }
     if enable_frame_attribution {
         build.define("EXACT_HAVE_FRAME_ATTRIBUTION", None);
         println!("cargo:rustc-cfg=exact_frame_attribution");
@@ -3106,6 +3120,18 @@ fn macos_hermes_has_debugger_symbols(binary_path: &Path) -> bool {
 // to link. Linux shared objects need the dynamic symbol table; macOS frameworks
 // use the same global/undefined filter as the debugger-symbol probe above.
 fn hermes_has_frame_attribution(target_os: &str, binary_path: &Path) -> bool {
+    if target_os == "windows" {
+        let output = std::process::Command::new("dumpbin")
+            .arg("/exports")
+            .arg(binary_path)
+            .output();
+        let Ok(output) = output else {
+            return false;
+        };
+        return output.status.success()
+            && String::from_utf8_lossy(&output.stdout).contains("ex_hermes_vm_current_package_id");
+    }
+
     let mut command = std::process::Command::new("nm");
     match target_os {
         "macos" => {
