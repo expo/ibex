@@ -2,15 +2,27 @@
   "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-c2PF2NBi74Kq-NPCUE06ernXxTvWxEuYwPCKWyNDJ4U",
-  "registryDigest": "sha256-CNfbmG9VS7uLYFWlK1qkPyDPxWPc9VSvf6gDCdT9XqA",
-  "policyDigest": "sha256-E71Bf72BfLcY_qRzVWCEAe-KB8hcHEJm7tUZwwxJLHs",
+  "vocabDigest": "sha256-LNCHXMy4CDwaczGtUSpbnof3JBSK1ac_2myXnr8hG68",
+  "registryDigest": "sha256-7AmEA3dhf2HO_dgfio47DFUBiyNaor9SE6lGL6d38cg",
+  "policyDigest": "sha256-hR9w_mBcEGYNSRDLVLsz4kZ6w4Qyf4ue3AHqlWKIxdA",
   "purpose": "production",
   "mode": "enforce",
-  "graphIdentity": "sha256-OepnNHMD4TolOoXCctQ_PeaDbzLJRBsB3L4AgnXkB5c",
+  "graphIdentity": "sha256-OakTnAN47WIkh7BvZm_bKaPB_v6impkegfo8Bmshmjg",
   "entryIdentity": {
     "root": "project",
     "components": [
+      {
+        "encoding": "utf8",
+        "value": "examples"
+      },
+      {
+        "encoding": "utf8",
+        "value": "capsec-demo"
+      },
+      {
+        "encoding": "utf8",
+        "value": "01-supply-chain"
+      },
       {
         "encoding": "utf8",
         "value": "app.js"

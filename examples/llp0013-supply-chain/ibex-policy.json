@@ -2,15 +2,23 @@
   "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-c2PF2NBi74Kq-NPCUE06ernXxTvWxEuYwPCKWyNDJ4U",
-  "registryDigest": "sha256-CNfbmG9VS7uLYFWlK1qkPyDPxWPc9VSvf6gDCdT9XqA",
-  "policyDigest": "sha256-II6B0H68hk-6wua3TLr8RObapoP4df-oTXoGHFvc660",
+  "vocabDigest": "sha256-LNCHXMy4CDwaczGtUSpbnof3JBSK1ac_2myXnr8hG68",
+  "registryDigest": "sha256-7AmEA3dhf2HO_dgfio47DFUBiyNaor9SE6lGL6d38cg",
+  "policyDigest": "sha256-j6IjJpYFu43MeZYDSr1QXlKz9EX-JZwBH5JB8MxTbN0",
   "purpose": "production",
   "mode": "enforce",
-  "graphIdentity": "sha256-CsrXvrA4_p_gk6tSL6g9btBBF2ZOgDdmDDHmnTJyMaY",
+  "graphIdentity": "sha256-_TKDSpUuwDYZkjO0_gQOEgxMCQk25yKNMxcL5MW64SM",
   "entryIdentity": {
     "root": "project",
     "components": [
+      {
+        "encoding": "utf8",
+        "value": "examples"
+      },
+      {
+        "encoding": "utf8",
+        "value": "llp0013-supply-chain"
+      },
       {
         "encoding": "utf8",
         "value": "app.mjs"
@@ -67,7 +75,7 @@
           "provenance": [
             {
               "kind": "import-site",
-              "source": "app.mjs:5"
+              "source": "examples/llp0013-supply-chain/app.mjs:5"
             }
           ]
         }

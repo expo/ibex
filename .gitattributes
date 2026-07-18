@@ -7,6 +7,16 @@ src/builtins/helpers/capsec-registry.generated.cjs text eol=lf
 src/capsec_registry_generated.rs text eol=lf
 src/engine/capsec_registry_generated.h text eol=lf
 
+# Checked example policies authenticate their complete source trees and compare
+# the rendered artifact byte-for-byte. Keep those portable-v1 authorities
+# canonical across Git checkout platforms.
+# @ref LLP 0014#the-generated-artifact — one reviewed policy binds exact source
+# integrity and must not drift solely because Git selected CRLF on Windows.
+examples/llp0013-supply-chain/** text eol=lf
+examples/capsec-demo/01-supply-chain/** text eol=lf
+examples/capsec-demo/02-least-privilege/** text eol=lf
+examples/capsec-demo/04-defense-in-depth/** text eol=lf
+
 # Evaluator identity review hashes these checked-in bytes. Keep a Windows
 # checkout byte-identical to the reviewed LF source and patch authorities.
 patches/hermes/*.patch text eol=lf

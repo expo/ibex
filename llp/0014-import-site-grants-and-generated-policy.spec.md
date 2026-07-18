@@ -5,7 +5,7 @@
 **Systems:** Build, Module Loader, Runtime, CLI
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-18 (Snapback's 0.2 requirement activates computed imports: the generator joins reviewed manifest declarations to producer-owned `ibex:site` correspondence rows and authenticates the exact materialized sidecars); 2026-07-17 (canonical policy v2 binds graph, entry, deployment profile, normalized root ceiling, and closed computed-candidate materialization for LLP 0028/0029); 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
+**Revised:** 2026-07-18 (checked portable policy examples pin their authenticated source trees and rendered artifacts to LF across Git checkout platforms); 2026-07-18 (Snapback's 0.2 requirement activates computed imports: the generator joins reviewed manifest declarations to producer-owned `ibex:site` correspondence rows and authenticates the exact materialized sidecars); 2026-07-17 (canonical policy v2 binds graph, entry, deployment profile, normalized root ceiling, and closed computed-candidate materialization for LLP 0028/0029); 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
 **Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests); LLP 0026 (module-runner initialization authority)
 
 > **Current implementation (2026-07-17):** authoring produces the versioned,
@@ -301,7 +301,10 @@ Normative properties:
   sets. `entryIdentity` is a normalized project-relative `PathComponent` path
   plus source integrity. Both fields participate in `policyDigest`; a policy
   cannot be reused for another graph or entry merely because its package rows
-  happen to look alike.
+  happen to look alike. Checked `portable-v1` examples pin every tracked source
+  and rendered policy artifact to LF through `.gitattributes`; otherwise Git's
+  Windows checkout conversion would change the authenticated graph bytes and
+  make one committed review artifact platform-dependent.
 - **One deployment profile.** `targetProfile` is tagged as either source
   (`portable-v1`) or compiled (`sfe-v1` plus a normalized target triple), and
   `mountProfile` is `project-v1` or `compiled-app-work-v1`. The pair is part of

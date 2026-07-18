@@ -2,15 +2,27 @@
   "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-c2PF2NBi74Kq-NPCUE06ernXxTvWxEuYwPCKWyNDJ4U",
-  "registryDigest": "sha256-CNfbmG9VS7uLYFWlK1qkPyDPxWPc9VSvf6gDCdT9XqA",
-  "policyDigest": "sha256-dj_KBzzjHpphjAK_m73Su9iUDguBGZ77nU_aAh46KU4",
+  "vocabDigest": "sha256-LNCHXMy4CDwaczGtUSpbnof3JBSK1ac_2myXnr8hG68",
+  "registryDigest": "sha256-7AmEA3dhf2HO_dgfio47DFUBiyNaor9SE6lGL6d38cg",
+  "policyDigest": "sha256-IpgUvvRFSUADENmUusAXcQjjY_Z3uPPFhjRtCOUAb34",
   "purpose": "production",
   "mode": "enforce",
-  "graphIdentity": "sha256-2zWkBCx3zBMN20JQv1xpGFlj1MmUTtm9yukKOebokqo",
+  "graphIdentity": "sha256-luOVMl9V4PSBiHTYl2XIdQbEEUlaJf8Ls_-Pxf6tTP0",
   "entryIdentity": {
     "root": "project",
     "components": [
+      {
+        "encoding": "utf8",
+        "value": "examples"
+      },
+      {
+        "encoding": "utf8",
+        "value": "capsec-demo"
+      },
+      {
+        "encoding": "utf8",
+        "value": "02-least-privilege"
+      },
       {
         "encoding": "utf8",
         "value": "app.mjs"
@@ -51,7 +63,7 @@
           "provenance": [
             {
               "kind": "import-site",
-              "source": "app.mjs:3"
+              "source": "examples/capsec-demo/02-least-privilege/app.mjs:3"
             }
           ]
         }
