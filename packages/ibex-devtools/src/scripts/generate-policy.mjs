@@ -592,7 +592,7 @@ function surfacesFor(pkg) {
 
 rootSiteLists.sort((a, b) => compareCanonicalBytes(a.file, b.file));
 for (const { file, sites } of rootSiteLists) {
-  const rel = path.relative(root, file);
+  const rel = path.relative(root, file).split(path.sep).join('/');
   for (const site of sites) {
     const where = `${rel}:${site.line}`;
     if (site.capabilities.length || Object.keys(site.also).length) {
