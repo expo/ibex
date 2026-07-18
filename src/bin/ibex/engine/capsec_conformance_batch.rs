@@ -1806,6 +1806,25 @@ async fn execute_native_public_recipe(
                 .expect("create owned mkdtemp fixture parent");
         }
     }
+    let direct_mkdir_fixture = if invocation.global_name == "__exactMkdir" {
+        match (invocation.arguments.first(), invocation.arguments.get(1)) {
+            (
+                Some(NativeProbeArgument::JsonLiteral { value: path }),
+                Some(NativeProbeArgument::JsonLiteral { value: recursive }),
+            ) if recursive == &serde_json::Value::Bool(false) => Some(
+                path.as_str()
+                    .expect("direct mkdir fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_mkdir_fixture {
+        assert_eq!(path, "target/ibex-capsec-mkdir");
+        let _ = std::fs::remove_dir(path);
+    }
     let fs_path_async_file_fixture = if invocation.global_name == "__exactFsPathAsync" {
         match (
             invocation.arguments.first(),
@@ -1915,6 +1934,13 @@ async fn execute_native_public_recipe(
         }
         if operation == "mkdtemp" {
             std::fs::remove_dir(path).expect("remove owned mkdtemp fixture parent");
+        }
+    }
+    if let Some(path) = &direct_mkdir_fixture {
+        if invocation_result["kind"] == "return" {
+            std::fs::remove_dir(path).expect("remove directory created by direct mkdir fixture");
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-created-directory".into());
         }
     }
     if let Some((operation, path)) = &fs_path_async_file_fixture {

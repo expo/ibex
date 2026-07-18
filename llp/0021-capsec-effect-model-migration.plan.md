@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 binds direct non-recursive directory creation to an exact harness-owned floor and proves post-operation cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct terminal-builtin import-gate closure when the static route has no downstream alternative, after the complete Apple run exposed the validator mismatch)
 **Revised:** 2026-07-17 (ENG-24933 closes the armed Exact/Bun accessibility application-state namespace after trusted bootstrap and binds its source-derived cells to physical absence)
 **Revised:** 2026-07-17 (ENG-24933 restamps the reviewed Hermes evaluator identity after the Release artifact builder changed, preserving fail-closed source-authority drift detection)
@@ -1536,6 +1537,14 @@ postcondition; the probe then executes a project marker and requires zero
 legacy or typed decisions. Scanner-only script URLs, evaluation/call-site
 facets, installer definitions, skipped legacy bootstraps, and platform-only
 routes remain residual rather than inheriting these stage results.
+Direct non-recursive `__exactMkdir` now uses a separate harness-owned path under
+`target/`, an exact `fs:list` and `fs:write` floor, and source-authored boolean
+arguments. Successful public execution must emit requested, retained-parent
+discovery, leaf discovery, and commit decisions, and the harness must remove
+the created directory before
+the fixture can pass. Denial occurs at requested before creation. This closes
+the direct Apple and Windows surface cells independently from the asynchronous
+dispatcher route; recursive creation remains closed under armed startup.
 The runtime-create descriptor binds `ex_hermes_create_armed`, not the historical
 `ex_hermes_create` symbol that production deliberately leaves non-executable.
 

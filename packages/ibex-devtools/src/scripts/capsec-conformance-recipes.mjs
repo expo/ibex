@@ -928,6 +928,61 @@ const nativeProjectReadFileTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectMkdirTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-mkdir"),
+      literalArgument(false),
+    ],
+    expectedCleanup: "removed-created-directory",
+    expectedDecisionCounts: {
+      allow: 4,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit"],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+      ],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-mkdir"),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource("target", "ibex-capsec-mkdir"),
+      },
+    ],
+    requiredSourceArity: 2,
+    setup: [],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -956,6 +1011,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  ["__exactMkdir", nativeProjectMkdirTemplate()],
   ["__exactStatfs", nativeProjectStatfsTemplate()],
   [
     "__exactAuthorizeSystemInfo",
