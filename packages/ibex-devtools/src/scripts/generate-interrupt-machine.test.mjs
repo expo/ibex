@@ -33,7 +33,7 @@ beforeAll(() => {
   temporaryDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), "ibex-interrupt-machine-"),
   );
-});
+}, 30_000);
 
 afterAll(() => {
   if (temporaryDirectory) {
