@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 executes all three direct descriptor-open access branches against exact pre-seeded files, closes returned descriptors, proves non-mutation, and removes the fixtures)
 **Revised:** 2026-07-18 (ENG-24933 binds direct append to an exact pre-seeded file, proves preserved prefix bytes and denial non-mutation, and removes the owned fixture)
 **Revised:** 2026-07-18 (ENG-24933 executes direct directory enumeration against one harness-owned entry with retained repeat evidence and unconditional cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct whole-file creation to source-derived bytes, an exact harness-owned floor, and verified content cleanup)
@@ -1561,6 +1562,13 @@ prefix, append all source-derived suffix bytes, observe requested, two
 discovery, commit, and repeat decisions, and then remove the file. Denial stops
 at requested, leaves the prefix byte-identical, and still removes the harness
 fixture outside the observation.
+Direct `__exactFsOpen` covers its read, write, and read-write logical branches
+with non-mutating `r`, `a`, and `r+` flags against three exact pre-seeded files.
+Successful and branch-selection evidence must emit requested, discovery,
+target discovery, and commit decisions, close the returned descriptor through
+`__exactFsClose`, prove the fixture bytes unchanged, and remove the file.
+Denial stops at requested and still proves unchanged bytes before harness
+cleanup.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
 harness-owned file. Passing evidence must select requested, discovery, and two
 repeat decisions: one retained-target authorization and one generation-bound

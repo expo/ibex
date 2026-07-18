@@ -1196,7 +1196,7 @@ fn native_invocation_script(
     );
     script.replacen(
         cleanup_marker,
-        "else if(n===\"__exactFsClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-fs-file-descriptor\";}else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
+        "else if(n===\"__exactFsOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}else if(n===\"__exactFsClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-fs-file-descriptor\";}else if(n===\"__exactZlibCreate\"&&typeof value===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(value);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactZlibClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-zlib-stream\";}else if((n===\"__exactZlibCheckOwner\"||n===\"__exactZlibParams\"||n===\"__exactZlibWrite\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactZlibClose===\"function\"){globalThis.__exactZlibClose(args[0]);cleanup=\"closed-zlib-stream\";}else if(n===\"__exactTlsOwnerToken\"&&args[0]===\"new\"&&typeof value===\"number\"){globalThis.__exactTlsOwnerToken(\"close\",value);cleanup=\"closed-tls-owner-token\";}else if(n===\"__exactTlsEngineNew\"&&typeof value===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(value);cleanup=\"closed-tls-engine\";}else if(n===\"__exactTlsEngineClose\"&&typeof args[0]===\"number\"){cleanup=\"consumed-tls-engine\";}else if((n===\"__exactTlsEnginePeerCerts\"||n===\"__exactTlsEngineReadPlain\"||n===\"__exactTlsEngineReadTls\"||n===\"__exactTlsEngineShutdown\"||n===\"__exactTlsEngineStatus\"||n===\"__exactTlsEngineTransportEof\"||n===\"__exactTlsEngineWritePlain\"||n===\"__exactTlsEngineWriteTls\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTlsEngineClose===\"function\"){globalThis.__exactTlsEngineClose(args[0]);cleanup=\"closed-tls-engine\";}else if(n===\"setTimeout\"",
         1,
     )
 }
@@ -1648,28 +1648,49 @@ fn validate_native_runtime_observation(
         let authority_evidence = decision["evidence"]["evidence"]
             .as_array()
             .expect("observed typed decision has no authority evidence");
-        assert_eq!(
-            authority_evidence.len(),
-            1,
-            "{}: public network probe must have one decisive root authority row: {authority_evidence:?}",
-            recipe.fixture_id
-        );
-        let authority = &authority_evidence[0];
         let (expected_stratum, expected_source_prefix) =
             if invocation.expected_result == "permission-denied" {
                 ("principal-denial", "principal.000000.denial.")
             } else {
                 ("static-floor", "principal.000000.floor.")
             };
-        assert_eq!(authority["stratum"], expected_stratum);
-        assert_eq!(authority["reason"], expected_stratum);
-        assert!(
-            authority["sourceId"]
-                .as_str()
-                .is_some_and(|source| source.starts_with(expected_source_prefix)),
-            "{}: public native decision used the wrong authority source: {authority}",
+        assert_eq!(
+            authority_evidence.len(),
+            effects.len(),
+            "{}: public native decision must have one decisive authority row per effect: {authority_evidence:?}",
             recipe.fixture_id
         );
+        let mut authority_effect_indexes = BTreeSet::new();
+        for authority in authority_evidence {
+            let effect_index = authority["effectIndex"]
+                .as_u64()
+                .and_then(|index| usize::try_from(index).ok())
+                .filter(|index| *index < effects.len())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{}: public native authority row has an invalid effect index: {authority}",
+                        recipe.fixture_id
+                    )
+                });
+            assert!(
+                authority_effect_indexes.insert(effect_index),
+                "{}: public native authority rows duplicate effect {effect_index}",
+                recipe.fixture_id
+            );
+            assert_eq!(
+                authority["principal"],
+                serde_json::json!({ "kind": "root", "identity": "project-root" })
+            );
+            assert_eq!(authority["stratum"], expected_stratum);
+            assert_eq!(authority["reason"], expected_stratum);
+            assert!(
+                authority["sourceId"]
+                    .as_str()
+                    .is_some_and(|source| source.starts_with(expected_source_prefix)),
+                "{}: public native decision used the wrong authority source: {authority}",
+                recipe.fixture_id
+            );
+        }
     }
     if invocation.expected_result == "absent" {
         assert!(
@@ -1858,6 +1879,26 @@ async fn execute_native_public_recipe(
         std::fs::write(path, b"ibex-capsec-append-prefix:")
             .expect("create direct append-file fixture");
     }
+    let direct_fs_open_fixture = if invocation.global_name == "__exactFsOpen" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+                path.as_str()
+                    .expect("direct fs-open fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_fs_open_fixture {
+        assert!(
+            path.starts_with("target/ibex-capsec-fsopen-"),
+            "direct fs-open fixture escaped its owned target prefix"
+        );
+        std::fs::write(path, b"ibex-capsec-fsopen-owned")
+            .expect("create direct fs-open fixture");
+    }
     let direct_readdir_fixture = if invocation.global_name == "__exactReaddir" {
         match invocation.arguments.first() {
             Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
@@ -2021,6 +2062,19 @@ async fn execute_native_public_recipe(
         if invocation_result["kind"] == "return" {
             invocation_result["cleanup"] =
                 serde_json::Value::String("removed-owned-file".into());
+        }
+    }
+    if let Some(path) = &direct_fs_open_fixture {
+        assert_eq!(
+            std::fs::read(path).expect("read direct fs-open fixture"),
+            b"ibex-capsec-fsopen-owned"
+        );
+        std::fs::remove_file(path).expect("remove direct fs-open fixture");
+        if invocation_result["kind"] == "return" {
+            assert_eq!(invocation_result["cleanup"], "closed-fs-file-descriptor");
+            invocation_result["cleanup"] = serde_json::Value::String(
+                "closed-fs-file-descriptor-removed-owned-file".into(),
+            );
         }
     }
     if let Some(path) = &direct_readdir_fixture {

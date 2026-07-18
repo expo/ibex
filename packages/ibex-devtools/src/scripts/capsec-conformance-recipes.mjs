@@ -1115,6 +1115,55 @@ const nativeProjectAppendFileTemplate = () =>
     requiredSourceArity: 3,
     setup: [],
   });
+const nativeProjectFsOpenTemplate = ({ actionIds, flags, fixture }) =>
+  Object.freeze({
+    actionIds,
+    arguments: [
+      literalArgument(`target/${fixture}`),
+      literalArgument(flags),
+      literalArgument(0o666),
+      literalArgument(null),
+    ],
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 4,
+      "branch-selection": 4,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedObservedActionIds: {
+      malformed: actionIds,
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit"],
+      "branch-selection": ["requested", "discovery", "discovery", "commit"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit"],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+      ],
+      "wrong-principal": ["requested", "discovery", "discovery", "commit"],
+    },
+    requiredFloor: actionIds.map((cap) => ({
+      cap,
+      resource: projectPathExactResource("target", fixture),
+    })),
+    requiredSourceArity: 4,
+    setup: [],
+  });
 const nativeProjectReaddirTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -1984,6 +2033,35 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
 ]);
 
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
+  [
+    "__exactFsOpen",
+    new Map([
+      [
+        "read",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read"],
+          flags: "r",
+          fixture: "ibex-capsec-fsopen-read",
+        }),
+      ],
+      [
+        "read-write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read", "fs:write"],
+          flags: "r+",
+          fixture: "ibex-capsec-fsopen-read-write",
+        }),
+      ],
+      [
+        "write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:write"],
+          flags: "a",
+          fixture: "ibex-capsec-fsopen-write",
+        }),
+      ],
+    ]),
+  ],
   [
     "__exactFsPathAsync",
     new Map([
