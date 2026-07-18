@@ -3949,7 +3949,7 @@ cp \"$input\" \"$out\"\n";
             // Unix object identity in a Windows snapshot would make every exact
             // project path fail closed before its public operation executes.
             value["rootBindings"][1]["object"] = serde_json::to_value(
-                crate::host::object_identity_for_host_path(project_root)
+                ibex_runtime::host::object_identity_for_host_path(project_root)
                     .expect("derive physical test project-root identity"),
             )
             .expect("serialize physical test project-root identity");
