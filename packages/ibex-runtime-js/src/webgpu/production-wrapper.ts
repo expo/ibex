@@ -79,6 +79,8 @@ interface WrapperState {
   textureExpired: boolean;
   materialized: boolean;
   currentOrigin: Readonly<Record<string, unknown>> | undefined;
+  bufferUsage: number | undefined;
+  bufferMapState: 'mapped' | 'pending' | 'unmapped' | undefined;
 }
 
 interface PendingPromiseCall {
@@ -299,6 +301,7 @@ function createPrototypeTable(): Record<ProductionGpuWrapperKind, object> {
     GPU: Object.create(null),
     GPUAdapter: Object.create(null),
     GPUBindGroupLayout: Object.create(null),
+    GPUBuffer: Object.create(null),
     GPUPipelineLayout: Object.create(null),
     GPUCanvasContext: Object.create(null),
     GPUCommandBuffer: Object.create(null),
@@ -480,6 +483,8 @@ export function createProductionWebGpuPrivateBinding(
       textureExpired: false,
       materialized: false,
       currentOrigin: undefined,
+      bufferUsage: undefined,
+      bufferMapState: undefined,
     };
     realm.wrappers.set(wrapper, state);
     return state;
@@ -1070,6 +1075,22 @@ export function createProductionWebGpuPrivateBinding(
     return layout.wrapper;
   });
 
+  defineMethod(mutablePrototypes.GPUDevice, 'createBuffer', function (
+    this: object,
+    descriptor: unknown,
+  ) {
+    const state = requireState(this, 'GPUDevice');
+    const converted = convert('GPUDevice.createBuffer', [descriptor]) as Readonly<{
+      mappedAtCreation: boolean;
+      usage: number;
+    }>;
+    const buffer = allocateWrapper('GPUBuffer', state.device);
+    buffer.bufferUsage = converted.usage;
+    buffer.bufferMapState = converted.mappedAtCreation ? 'mapped' : 'unmapped';
+    submitService('GPUDevice.createBuffer', state, buffer, converted, false);
+    return buffer.wrapper;
+  });
+
   defineMethod(mutablePrototypes.GPUDevice, 'createPipelineLayout', function (
     this: object,
     descriptor: unknown,
@@ -1474,6 +1495,24 @@ export function createProductionWebGpuPrivateBinding(
     texture.destroyed = true;
   });
 
+  // These are exact wrapper-local metadata reads. They deliberately do not
+  // enter the service and remain private while the CapSec publication edge is
+  // absent.
+  defineGetter(mutablePrototypes.GPUBuffer, 'usage', function (this: object) {
+    const buffer = requireState(this, 'GPUBuffer');
+    if (buffer.bufferUsage === undefined) {
+      throw new TypeError('GPUBuffer usage metadata is unavailable');
+    }
+    return buffer.bufferUsage;
+  });
+  defineGetter(mutablePrototypes.GPUBuffer, 'mapState', function (this: object) {
+    const buffer = requireState(this, 'GPUBuffer');
+    if (buffer.bufferMapState === undefined) {
+      throw new TypeError('GPUBuffer mapState metadata is unavailable');
+    }
+    return buffer.bufferMapState;
+  });
+
   for (const prototype of Object.values(mutablePrototypes)) Object.freeze(prototype);
 
   const gpuErrorPrototype = Object.freeze(
@@ -1486,6 +1525,7 @@ export function createProductionWebGpuPrivateBinding(
       'GPUBindGroupLayout',
       mutablePrototypes.GPUBindGroupLayout,
     ),
+    GPUBuffer: makeIllegalConstructor('GPUBuffer', mutablePrototypes.GPUBuffer),
     GPUPipelineLayout: makeIllegalConstructor(
       'GPUPipelineLayout',
       mutablePrototypes.GPUPipelineLayout,
@@ -1607,6 +1647,7 @@ const PUBLIC_INTERFACE_NAMES = Object.freeze([
   'GPU',
   'GPUAdapter',
   'GPUBindGroupLayout',
+  'GPUBuffer',
   'GPUPipelineLayout',
   'GPUCanvasContext',
   'GPUCommandBuffer',

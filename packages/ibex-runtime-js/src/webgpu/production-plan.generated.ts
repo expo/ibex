@@ -6,13 +6,13 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
+  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
   "digests": {
-    "operationSet": "b0190dfee00d4c7b3f29147a37bee8304f69d2cd82ae72df949fc5af42c6b66f",
-    "semanticProgramSet": "9ceb5fb5d9a1e8fb91715d2bb2ca64313efdd47c80d65eb80df337931e1c8030",
-    "runtimeRouting": "9af920f47b8ba28bcc66d10d85c88355ff3176fd8c199cafd0c605340e789dad",
-    "webgpuCVocabulary": "f627ed658ccab48eeb24008364ad23f09913b449a840e0c54d84801dcd857211",
-    "projection": "846ab45a6d4dc89ec410c8c85c9df8d457cbb8a3ba8017f3a8adeb92a68a4384"
+    "operationSet": "52131b02df0ecc91b0d4d28cc0a6cb6d2ac30ff47cf87cde62a41c1091d6b11d",
+    "semanticProgramSet": "fe6d766216a77bbc9c1e8221294414280e10e3f82cdd1629a21d25d32e0b5648",
+    "runtimeRouting": "7822220e6269e973472d7eb4d4fa2d296a56d986eef14706195d8ff424adbbf8",
+    "webgpuCVocabulary": "4d0bbbbf764298af9cd95f090da304011f1fb5c3e78d0fbd15efbe5a1a337866",
+    "projection": "19bd2f5f7802b179903df823f0b6f8e4d1fb0be12b103c60ad627c75fa127067"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -125,7 +125,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-    "operationCount": 27,
+    "operationCount": 28,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
@@ -137,6 +137,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUCommandEncoder.beginRenderPass",
       "GPUCommandEncoder.finish",
       "GPUDevice.createBindGroupLayout",
+      "GPUDevice.createBuffer",
       "GPUDevice.createPipelineLayout",
       "GPUDevice.createCommandEncoder",
       "GPUDevice.createRenderPipeline",
@@ -163,12 +164,12 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
     "source": {
       "path": "tests/gpu/typegpu-workload-closure-v1.json",
-      "normalizedProjectionSha256": "511a74db5808ac4105c1bde8e08693f8bbf86665cf7403b87b5f2c3587ae78d8",
+      "normalizedProjectionSha256": "899f273bdbe385441879a899537129a80723b940bb471520169a3174e3ea06ce",
       "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
     },
     "typegpuVersion": "0.11.9",
     "operationCount": 51,
-    "additionalOperationCount": 28,
+    "additionalOperationCount": 27,
     "additionalOperations": [
       {
         "operationId": "GPUBuffer.destroy",
@@ -188,7 +189,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       {
         "operationId": "GPUBuffer.mapState",
         "memberKind": "property",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "private-wrapper-local-metadata-read-no-dispatch"
       },
       {
         "operationId": "GPUBuffer.unmap",
@@ -198,7 +199,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       {
         "operationId": "GPUBuffer.usage",
         "memberKind": "property",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "private-wrapper-local-metadata-read-no-dispatch"
       },
       {
         "operationId": "GPUCommandEncoder.beginComputePass",
@@ -242,11 +243,6 @@ export const WEBGPU_PRODUCTION_PLAN = {
       },
       {
         "operationId": "GPUDevice.createBindGroup",
-        "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
-      },
-      {
-        "operationId": "GPUDevice.createBuffer",
         "memberKind": "method",
         "disposition": "staged-unroutable-no-prototype-member"
       },
@@ -629,6 +625,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-create-bind-group-layout-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "gpu-bind-group-layout-handle-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+      "promiseIdentity": "zero-non-applicable"
+    },
+    {
+      "operationId": "GPUDevice.createBuffer",
+      "wireId": 1497473481,
+      "interfaceName": "GPUDevice",
+      "memberName": "createBuffer",
+      "memberKind": "method",
+      "dispatchClass": "service-submit",
+      "logicalExecutionKind": "service-enqueue",
+      "resultTiming": "synchronous-logical-identity-service-enqueued",
+      "providerSubmission": "semantic-call-device-timeline",
+      "receiverHandleKind": "GPUDevice",
+      "wrapperAllocatedTargetHandleKind": "GPUBuffer",
+      "resultHandleKind": "GPUBuffer",
+      "serviceReceiverProjection": {
+        "source": "wrapper-full-reference",
+        "kind": "GPUDevice",
+        "flags": 0,
+        "objectIdSource": "wrapperReceiver.logicalHandle",
+        "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+      },
+      "publicArgumentCodec": "gpu-buffer-descriptor-v1",
+      "serviceArgumentCodec": "gpu-create-buffer-service-request-v1",
+      "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
+      "publicResultCodec": "gpu-buffer-handle-v1",
       "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },

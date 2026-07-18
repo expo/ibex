@@ -245,7 +245,7 @@ function isolatedGlobal(): typeof globalThis {
 describe('production-private WebGPU wrapper gate', () => {
   test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
+      'generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {
@@ -365,17 +365,17 @@ describe('production-private WebGPU wrapper factory', () => {
     missing.revoke();
   });
 
-  test('keeps the audited TypeGPU delta descriptive and absent from prototypes', () => {
+  test('keeps the audited TypeGPU delta non-dispatchable with only reviewed metadata reads', () => {
     const staging = describeProductionWebGpuWorkloadStaging();
     expect(staging.supportClaim).toBe('none');
     expect(staging.nativeExecutionEvidence).toBe(
       'none-recording-provider-is-inventory-only',
     );
     expect(staging.typegpuVersion).toBe('0.11.9');
-    expect(staging.activeRouteOperationCount).toBe(27);
+    expect(staging.activeRouteOperationCount).toBe(28);
     expect(staging.workloadOperationCount).toBe(51);
-    expect(staging.additionalOperationCount).toBe(28);
-    expect(staging.additionalOperations).toHaveLength(28);
+    expect(staging.additionalOperationCount).toBe(27);
+    expect(staging.additionalOperations).toHaveLength(27);
     expect(staging.blockers).toHaveLength(5);
     expect(staging.embeddedCodecRule).toBe(
       'EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined',
@@ -395,22 +395,32 @@ describe('production-private WebGPU wrapper factory', () => {
       const interfaceObject = binding.interfaceObjects[interfaceName] as
         | { readonly prototype: object }
         | undefined;
-      expect(
-        interfaceObject === undefined
-          ? undefined
-          : Object.getOwnPropertyDescriptor(interfaceObject.prototype, memberName),
-      ).toBeUndefined();
+      const descriptor = interfaceObject === undefined
+        ? undefined
+        : Object.getOwnPropertyDescriptor(interfaceObject.prototype, memberName);
+      if (
+        operation.disposition ===
+          'private-wrapper-local-metadata-read-no-dispatch'
+      ) {
+        expect(['GPUBuffer.mapState', 'GPUBuffer.usage']).toContain(
+          operation.operationId,
+        );
+        expect(descriptor?.get).toBeFunction();
+        expect(descriptor?.set).toBeUndefined();
+      } else {
+        expect(descriptor).toBeUndefined();
+      }
     }
     binding.revoke();
   });
 
-  test('materializes exactly the reviewed 27-operation interface shape', () => {
+  test('materializes exactly the reviewed 28-operation interface shape', () => {
     const binding = createProductionWebGpuPrivateBinding(
       createFakeBridge(),
       createFakeCodecs(),
     );
-    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(27);
-    expect(Object.keys(binding.interfaceObjects)).toHaveLength(22);
+    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(28);
+    expect(Object.keys(binding.interfaceObjects)).toHaveLength(23);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
     for (const selected of WEBGPU_PRODUCTION_PLAN.routes) {
       const interfaceObject = binding.interfaceObjects[selected.interfaceName] as {
@@ -460,6 +470,10 @@ describe('production-private WebGPU wrapper factory', () => {
       pushErrorScope(filter: unknown): void;
       popErrorScope(): Promise<unknown>;
       createBindGroupLayout(descriptor: unknown): object;
+      createBuffer(descriptor: unknown): {
+        readonly usage: number;
+        readonly mapState: 'mapped' | 'pending' | 'unmapped';
+      };
       createPipelineLayout(descriptor: unknown): object;
       createShaderModule(descriptor: unknown): object;
       createRenderPipeline(descriptor: unknown): object;
@@ -492,6 +506,37 @@ describe('production-private WebGPU wrapper factory', () => {
     )!;
     expect(bindGroupLayoutEncoding.target).toMatchObject({
       kind: 'GPUBindGroupLayout',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    const mappedBuffer = device.createBuffer({
+      label: 'mapped-buffer',
+      mappedAtCreation: true,
+      size: 128,
+      usage: 9,
+    });
+    expect(mappedBuffer.usage).toBe(9);
+    expect(mappedBuffer.mapState).toBe('mapped');
+    const unmappedBuffer = device.createBuffer({
+      label: 'unmapped-buffer',
+      size: 72,
+      usage: 76,
+    });
+    expect(unmappedBuffer.usage).toBe(76);
+    expect(unmappedBuffer.mapState).toBe('unmapped');
+    expect(() => {
+      (unmappedBuffer as { usage: number }).usage = 1;
+    }).toThrow();
+    expect(log.filter((entry) => entry === 'convert:GPUDevice.createBuffer')).toHaveLength(2);
+    expect(log.filter((entry) => entry === 'encode:GPUDevice.createBuffer')).toHaveLength(2);
+    const bufferEncoding = codecs.encodings.find(
+      (encoding) => encoding.operationId === 'GPUDevice.createBuffer',
+    )!;
+    expect(bufferEncoding.target).toEqual({
+      kind: 'GPUBuffer',
+      objectId: expect.any(String),
+      objectGeneration: '1',
       logicalDeviceId: '301',
       logicalDeviceGeneration: '1',
       providerGeneration: '7',

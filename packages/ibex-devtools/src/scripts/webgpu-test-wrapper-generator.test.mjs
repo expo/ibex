@@ -134,6 +134,48 @@ describe("test-only WebGPU wrapper generator", () => {
       "authenticate-wrapper-allocated-bind-group-layout-target",
       "select-provider-admission-and-physical-sequence",
     ]);
+    const createBuffer = nativeRoute(authority, "GPUDevice.createBuffer");
+    expect(createBuffer.wireId).toBe(1497473481);
+    expect(createBuffer.request.catalog.wireTag).toBe(17);
+    expect(createBuffer.completion.catalog.wireTag).toBe(2);
+    expect(createBuffer.request.executablePrerequisites).toEqual([]);
+    expect(createBuffer.request.carrierConstraints.find(
+      (constraint) => constraint.carrierPath === "target.kind",
+    )?.valueFrom).toBe("objectKindTags.GPUBuffer");
+    expect(createBuffer.request.semanticServiceBoundary.requiredAfterDecode).toEqual([
+      "authenticate-contiguous-sealed-local-timeline-prefix",
+      "validate-current-live-device-generation",
+      "validate-operation-coverage",
+      "validate-authorized-live-account-and-aggregate-envelope",
+      "validate-buffer-descriptor-under-reviewed-workload",
+      "validate-buffer-size-under-logical-max-and-structural-ceiling",
+      "validate-buffer-usage-closed-bits",
+      "validate-buffer-map-usage-combination",
+      "validate-buffer-mapped-at-creation-alignment",
+      "authenticate-wrapper-allocated-buffer-target-provenance",
+      "validate-wrapper-allocated-buffer-target-generation",
+      "reserve-buffer-table-and-dual-ledger-capacity",
+      "reserve-buffer-provider-request-completion-and-physical-sequence",
+      "validate-buffer-label-under-reviewed-workload",
+    ]);
+    expect(nativePrograms.types.bufferDescriptorV1).toMatchObject({
+      kind: "closed-dictionary",
+      trust: "untrusted-webidl-converted-semantic-service-ingress-only",
+      providerBoundary: "forbidden-raw-descriptor-must-not-reach-provider",
+      fields: [
+        { name: "label", required: true, value: { kind: "string" } },
+        { name: "mappedAtCreation", required: true, value: { kind: "boolean" } },
+        {
+          name: "size",
+          required: true,
+          value: {
+            kind: "u64",
+            constraints: ["js-safe-integer", "maximum-268435456"],
+          },
+        },
+        { name: "usage", required: true, value: { kind: "u32" } },
+      ],
+    });
     const bindGroupLayoutType = nativePrograms.types.bindGroupLayoutDescriptorV1;
     expect(bindGroupLayoutType).toMatchObject({
       trust: "untrusted-webidl-converted-semantic-service-ingress-only",
@@ -565,6 +607,22 @@ describe("test-only WebGPU wrapper generator", () => {
       .bindGroupLayoutDescriptorV1.fields[1].value.maxCountFrom =
         "semanticProjection.typeGpuEntryMaximum";
     mutations.push(nativeBindGroupLayoutSequenceBound);
+
+    const nativeBufferValidationOrder = clone(authority);
+    const nativeBufferValidationSteps = nativeRoute(
+      nativeBufferValidationOrder,
+      "GPUDevice.createBuffer",
+    ).request.semanticServiceBoundary.requiredAfterDecode;
+    [nativeBufferValidationSteps[11], nativeBufferValidationSteps[12]] = [
+      nativeBufferValidationSteps[12],
+      nativeBufferValidationSteps[11],
+    ];
+    mutations.push(nativeBufferValidationOrder);
+
+    const nativeBufferCeiling = clone(authority);
+    nativeBufferCeiling.payload.wireEnvelope.nativeCodecPrograms.types
+      .bufferDescriptorV1.fields[2].value.constraints[1] = "maximum-16777216";
+    mutations.push(nativeBufferCeiling);
 
     const nativeShaderDescriptor = clone(authority);
     nativeShaderDescriptor.payload.wireEnvelope.nativeCodecPrograms.types

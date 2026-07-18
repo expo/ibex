@@ -149,6 +149,8 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [{ label: 'buffer' }];
     case 'GPUDevice.createBindGroupLayout':
       return [bindGroupLayoutDescriptor()];
+    case 'GPUDevice.createBuffer':
+      return [{ label: 'corpus-buffer', mappedAtCreation: false, size: 128, usage: 76 }];
     case 'GPUDevice.createPipelineLayout':
       return [{
         label: 'pipeline-layout',
@@ -207,6 +209,13 @@ function serviceInput(
     })
     : operationId === 'GPUDevice.createBindGroupLayout'
     ? convertedBindGroupLayoutDescriptor()
+    : operationId === 'GPUDevice.createBuffer'
+    ? Object.freeze({
+      label: 'corpus-buffer',
+      mappedAtCreation: false,
+      size: 128,
+      usage: 76,
+    })
     : operationId === 'GPUDevice.createPipelineLayout'
     ? Object.freeze({
       label: 'pipeline-layout',
@@ -371,11 +380,11 @@ function completeLimits(value = 4): Record<string, number> {
 }
 
 describe('generated injection-only WebGPU executable codecs', () => {
-  test('pins one generated catalog over the exact reviewed 27-operation profile', () => {
+  test('pins one generated catalog over the exact reviewed 28-operation profile', () => {
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationCount).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
     );
-    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(27);
+    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(28);
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).toEqual(
       WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     );
@@ -391,7 +400,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -409,6 +418,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
+        { operationId: 'GPUDevice.createBuffer', wireId: 1497473481 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
@@ -1070,6 +1080,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       ['GPUCanvasContext.configure', [{ device: {}, format: 'bgra8unorm' }]],
       ['GPUCommandEncoder.beginRenderPass', [{ colorAttachments: [{ view: {} }] }]],
       ['GPUDevice.createBindGroupLayout', [{}]],
+      ['GPUDevice.createBuffer', [{}]],
       ['GPUDevice.createPipelineLayout', [{}]],
       ['GPUDevice.createRenderPipeline', [{}]],
       ['GPUDevice.createShaderModule', [{}]],
@@ -1142,6 +1153,13 @@ describe('generated injection-only WebGPU executable codecs', () => {
             ? null
             : route.operationId === 'GPUDevice.createBindGroupLayout'
             ? convertedBindGroupLayoutDescriptor()
+            : route.operationId === 'GPUDevice.createBuffer'
+            ? {
+              label: 'corpus-buffer',
+              mappedAtCreation: false,
+              size: 128,
+              usage: 76,
+            }
             : route.operationId === 'GPUDevice.createPipelineLayout'
             ? {
               label: 'pipeline-layout',
@@ -1834,6 +1852,225 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(inspectedMaximum.convertedArguments.label).toBe('');
     expect(inspectedMaximum.convertedArguments.entries)
       .toHaveLength(sequenceMaximum);
+  });
+
+  test('executes createBuffer with exact WebIDL order, six-field targets, and structural-only narrowing', () => {
+    const operationId = 'GPUDevice.createBuffer';
+    const nativeRoute = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes
+      .find((candidate) => candidate.operationId === operationId)!;
+    const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) => candidate.tag === 'gpu-create-buffer-service-request-v1',
+    )!;
+    expect(nativeRoute.wireId).toBe(1497473481);
+    expect(nativeRoute.request.catalog.wireTag).toBe(17);
+    expect(nativeRoute.completion.catalog.wireTag).toBe(2);
+    expect(nativeRoute.request.executablePrerequisites).toEqual([]);
+    expect(nativeRoute.request.semanticServiceBoundary.requiredAfterDecode).toEqual([
+      'authenticate-contiguous-sealed-local-timeline-prefix',
+      'validate-current-live-device-generation',
+      'validate-operation-coverage',
+      'validate-authorized-live-account-and-aggregate-envelope',
+      'validate-buffer-descriptor-under-reviewed-workload',
+      'validate-buffer-size-under-logical-max-and-structural-ceiling',
+      'validate-buffer-usage-closed-bits',
+      'validate-buffer-map-usage-combination',
+      'validate-buffer-mapped-at-creation-alignment',
+      'authenticate-wrapper-allocated-buffer-target-provenance',
+      'validate-wrapper-allocated-buffer-target-generation',
+      'reserve-buffer-table-and-dual-ledger-capacity',
+      'reserve-buffer-provider-request-completion-and-physical-sequence',
+      'validate-buffer-label-under-reviewed-workload',
+    ]);
+    expect(codec.nativeProgramPrerequisitesRepresented).toBe(true);
+    expect(codec.executableFromCurrentAuthenticatedInputs).toBe(true);
+    expect(codec.unavailableSemanticFields).toEqual([]);
+
+    const effects: string[] = [];
+    const counts = { label: 0, mappedAtCreation: 0, size: 0, usage: 0 };
+    const descriptor = Object.defineProperties({}, {
+      label: {
+        enumerable: true,
+        get() {
+          counts.label += 1;
+          effects.push('get-label');
+          return {
+            toString() {
+              effects.push('convert-label');
+              return 'ordered-buffer';
+            },
+          };
+        },
+      },
+      mappedAtCreation: {
+        enumerable: true,
+        get() {
+          counts.mappedAtCreation += 1;
+          effects.push('get-mappedAtCreation');
+          return 1;
+        },
+      },
+      size: {
+        enumerable: true,
+        get() {
+          counts.size += 1;
+          effects.push('get-size');
+          return {
+            [Symbol.toPrimitive]() {
+              effects.push('convert-size');
+              return 128.9;
+            },
+          };
+        },
+      },
+      usage: {
+        enumerable: true,
+        get() {
+          counts.usage += 1;
+          effects.push('get-usage');
+          return {
+            [Symbol.toPrimitive]() {
+              effects.push('convert-usage');
+              return 76.9;
+            },
+          };
+        },
+      },
+    });
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(operationId, [descriptor], wrappers);
+    expect(converted).toEqual({
+      label: 'ordered-buffer',
+      mappedAtCreation: true,
+      size: 128,
+      usage: 76,
+    });
+    expect(counts).toEqual({ label: 1, mappedAtCreation: 1, size: 1, usage: 1 });
+    expect(effects).toEqual([
+      'get-label',
+      'convert-label',
+      'get-mappedAtCreation',
+      'get-size',
+      'convert-size',
+      'get-usage',
+      'convert-usage',
+    ]);
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [{ size: 4, usage: 9 }],
+      wrappers,
+    )).toEqual({ label: '', mappedAtCreation: false, size: 4, usage: 9 });
+
+    let laterGetCount = 0;
+    const missingSize = Object.defineProperty({}, 'usage', {
+      get() {
+        laterGetCount += 1;
+        return 9;
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [missingSize],
+      wrappers,
+    )).toThrow('size is required');
+    expect(laterGetCount).toBe(0);
+    const overCeiling = Object.defineProperties({}, {
+      size: { get: () => 268_435_457 },
+      usage: {
+        get() {
+          laterGetCount += 1;
+          return 9;
+        },
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [overCeiling],
+      wrappers,
+    )).toThrow('structural ceiling');
+    expect(laterGetCount).toBe(0);
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [{ size: 4n, usage: 9 }],
+      wrappers,
+    )).toThrow(TypeError);
+
+    const input = serviceInput(operationId, converted);
+    const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(input);
+    expect(new DataView(
+      payload.buffer,
+      payload.byteOffset,
+      payload.byteLength,
+    ).getUint16(6, true)).toBe(17);
+    expect(new DataView(
+      payload.buffer,
+      payload.byteOffset,
+      payload.byteLength,
+    ).getUint32(8, true)).toBe(1497473481);
+    expect(Array.from(payload.slice(53, 55))).toEqual([
+      1,
+      WEBGPU_OBJECT_KIND_TAGS.GPUBuffer,
+    ]);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      payload,
+    )).toMatchObject({
+      operationId,
+      codec: 'gpu-create-buffer-service-request-v1',
+      receiver: {
+        kind: 'GPUDevice',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      target: {
+        kind: 'GPUBuffer',
+        objectId: '11',
+        objectGeneration: '1',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      convertedArguments: converted,
+    });
+
+    for (const semanticOnlyDescriptor of [
+      { label: '', mappedAtCreation: false, size: 0, usage: 9 },
+      { label: '', mappedAtCreation: false, size: 4, usage: 0 },
+      { label: '', mappedAtCreation: true, size: 12, usage: 3 },
+      { label: 'x'.repeat(44), mappedAtCreation: false, size: 128, usage: 76 },
+    ]) {
+      const semanticPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .encodeNativeCodegenRequest(serviceInput(operationId, semanticOnlyDescriptor));
+      expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        semanticPayload,
+      )).toMatchObject({ convertedArguments: semanticOnlyDescriptor });
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, {
+        label: '', mappedAtCreation: false, size: 268_435_457, usage: 9,
+      }))).toThrow('structural transport bounds');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, {
+        label: '', mappedAtCreation: false, size: 4, usage: 9, extra: true,
+      }))).toThrow('canonical descriptor');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({ ...input, target: undefined }))
+      .toThrow('wrapper-allocated target');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({ ...input, target: reference('GPUTexture') }))
+      .toThrow('authenticated device provenance');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        target: { ...input.target!, logicalDeviceGeneration: '2' },
+      })).toThrow('authenticated device provenance');
+
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeServiceResult(operationId, { kind: 'none' }).byteLength).toBe(0);
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      operationId,
+      { kind: 'null' },
+    )).toThrow('wrong shape');
   });
 
   test('converts createBindGroupLayout dictionaries in observable WebIDL order with one Get each', () => {

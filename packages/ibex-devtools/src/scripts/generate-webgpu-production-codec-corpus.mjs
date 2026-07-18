@@ -39,6 +39,7 @@ const outputPath =
 const operationId = "GPU.requestAdapter";
 const requestDeviceOperationId = "GPUAdapter.requestDevice";
 const createBindGroupLayoutOperationId = "GPUDevice.createBindGroupLayout";
+const createBufferOperationId = "GPUDevice.createBuffer";
 const createPipelineLayoutOperationId = "GPUDevice.createPipelineLayout";
 const createCommandEncoderOperationId = "GPUDevice.createCommandEncoder";
 const createShaderModuleOperationId = "GPUDevice.createShaderModule";
@@ -1193,6 +1194,297 @@ function buildCorpus() {
     ),
   ]);
 
+  const createBufferRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === createBufferOperationId,
+  );
+  const createBufferRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) => candidate.tag === createBufferRoute?.serviceArgumentCodec,
+    );
+  const createBufferCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) => candidate.tag === createBufferRoute?.serviceCompletionCodec,
+    );
+  const createBufferNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === createBufferOperationId,
+    );
+  if (
+    !createBufferRoute ||
+    !createBufferRequestCodec?.executableFromCurrentAuthenticatedInputs ||
+    !createBufferRequestCodec.nativeProgramPrerequisitesRepresented ||
+    createBufferRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !createBufferCompletionCodec ||
+    !createBufferNativeRoute ||
+    createBufferNativeRoute.request.catalog.wireTag !== 17 ||
+    createBufferNativeRoute.request.catalog.wireTag !==
+      createBufferRequestCodec.wireTag ||
+    createBufferNativeRoute.completion.catalog.wireTag !==
+      createBufferCompletionCodec.wireTag
+  ) {
+    fail(
+      "GPUDevice.createBuffer native codegen program is not executable from authenticated inputs",
+    );
+  }
+  const createBufferReceiver = createBindGroupLayoutReceiver;
+  const reviewedBufferSizes = Object.freeze([
+    22_020_096,
+    22_020_096,
+    2_621_440,
+    2_621_440,
+    262_144,
+    4,
+    4,
+    4,
+    4,
+    12,
+    12,
+    12,
+    12,
+    12,
+    16,
+    16,
+    72,
+    72,
+    72,
+    128,
+    136,
+  ]);
+  const reviewedBufferUsages = Object.freeze([9, 76, 140, 172]);
+  const reviewedBufferRawDescriptors = Object.freeze(
+    reviewedBufferSizes.map((size, index) => Object.freeze({
+      label: index === 0
+        ? "typegpu-buffer-max-21"
+        : `typegpu-buffer-${String(index + 1).padStart(2, "0")}`,
+      ...(index % 3 === 0
+        ? { mappedAtCreation: true }
+        : index % 3 === 1
+          ? { mappedAtCreation: false }
+          : {}),
+      size,
+      usage: reviewedBufferUsages[index % reviewedBufferUsages.length],
+    })),
+  );
+  if (
+    reviewedBufferRawDescriptors.length !== 21 ||
+    reviewedBufferSizes.reduce((sum, size) => sum + size, 0) !== 49_545_804 ||
+    canonicalJson([...new Set(reviewedBufferSizes)].sort((a, b) => a - b)) !==
+      canonicalJson([4, 12, 16, 72, 128, 136, 262144, 2621440, 22020096]) ||
+    Math.max(...reviewedBufferRawDescriptors.map(
+      (descriptor) => Buffer.byteLength(descriptor.label, "utf8"),
+    )) !== 21
+  ) {
+    fail("GPUDevice.createBuffer reviewed 21-call workload evidence drifted");
+  }
+  const createBufferTarget = (index) => Object.freeze({
+    kind: "GPUBuffer",
+    objectId: String(87 + index),
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const createBufferInput = (convertedArguments, index = 0) => Object.freeze({
+    operationId: createBufferOperationId,
+    wireId: createBufferRoute.wireId,
+    convertedArguments,
+    receiver: createBufferReceiver,
+    target: createBufferTarget(index),
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: String(4 + index),
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+  });
+  const createBufferRequestCarrier = (index) => Object.freeze({
+    operation_id: createBufferRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: String(16 + index),
+    promise_id: "0",
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: String(4 + index),
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+      flags: 0,
+      object_id: "80",
+      object_generation: "2",
+    }),
+    target: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUBuffer,
+      flags: 0,
+      object_id: String(87 + index),
+      object_generation: "1",
+    }),
+  });
+  const createBufferWorkloadVectors = Object.freeze(
+    reviewedBufferRawDescriptors.map((rawDescriptor, index) => {
+      const convertedArguments =
+        WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+          createBufferOperationId,
+          [rawDescriptor],
+          wrapperAccess,
+        );
+      const expectedConvertedArguments = Object.freeze({
+        label: rawDescriptor.label,
+        mappedAtCreation: rawDescriptor.mappedAtCreation === true,
+        size: rawDescriptor.size,
+        usage: rawDescriptor.usage,
+      });
+      if (
+        canonicalJson(convertedArguments) !==
+          canonicalJson(expectedConvertedArguments)
+      ) {
+        fail(`GPUDevice.createBuffer workload call ${index + 1} conversion drifted`);
+      }
+      const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .encodeNativeCodegenRequest(createBufferInput(convertedArguments, index));
+      const expected = Object.freeze({
+        receiver: createBufferReceiver,
+        target: createBufferTarget(index),
+        capturedScopeId: "2",
+        adapterOrdinal: "0",
+        deviceIngressOrdinal: String(4 + index),
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline: Object.freeze([]),
+        convertedArguments: expectedConvertedArguments,
+      });
+      const inspected = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .inspectServiceRequest(bytes);
+      if (
+        canonicalJson(inspected) !== canonicalJson({
+          operationId: createBufferOperationId,
+          codec: createBufferRequestCodec.tag,
+          ...expected,
+        })
+      ) {
+        fail(`GPUDevice.createBuffer workload call ${index + 1} round-trip drifted`);
+      }
+      return Object.freeze({
+        id: `create-buffer-workload-call-${String(index + 1).padStart(2, "0")}`,
+        kind: "request",
+        carrierProjection: createBufferRequestCarrier(index),
+        trust:
+          "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
+        semanticOwner: "native-semantic-service-before-provider-admission",
+        bytesHex: toHex(bytes),
+        expected,
+        accountingEvidence: Object.freeze({
+          resourceBytes: rawDescriptor.size,
+          mappedExtentBytes:
+            rawDescriptor.mappedAtCreation === true ? rawDescriptor.size : 0,
+          stagingBytes: 0,
+          backingChargeRule:
+            "mapped-extent-is-observability-only-and-does-not-double-charge-resource-bytes",
+        }),
+      });
+    }),
+  );
+  const createBufferCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createBufferOperationId,
+      { kind: "none" },
+    );
+  if (createBufferCompletion.byteLength !== 0) {
+    fail("GPUDevice.createBuffer terminal receipt must have an empty payload");
+  }
+  const createBufferCompletionCarrier = Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: createBufferRoute.wireId,
+          operation_instance_id: "16",
+          promise_id: "0",
+          provider_admission: 1,
+          physical_sequence: "11",
+          captured_scope_id: "2",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "4",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: createBufferRequestCarrier(0).ingress_device,
+          result_device: createBufferRequestCarrier(0).ingress_device,
+          provider_generation: "9",
+          receiver: createBufferRequestCarrier(0).receiver,
+          target: createBufferRequestCarrier(0).target,
+        }),
+      }),
+    }),
+  });
+  const createBufferSemanticSteps = Object.freeze(
+    createBufferNativeRoute.request.semanticServiceBoundary.requiredAfterDecode,
+  );
+  const expectedCreateBufferSemanticSteps = Object.freeze([
+    "authenticate-contiguous-sealed-local-timeline-prefix",
+    "validate-current-live-device-generation",
+    "validate-operation-coverage",
+    "validate-authorized-live-account-and-aggregate-envelope",
+    "validate-buffer-descriptor-under-reviewed-workload",
+    "validate-buffer-size-under-logical-max-and-structural-ceiling",
+    "validate-buffer-usage-closed-bits",
+    "validate-buffer-map-usage-combination",
+    "validate-buffer-mapped-at-creation-alignment",
+    "authenticate-wrapper-allocated-buffer-target-provenance",
+    "validate-wrapper-allocated-buffer-target-generation",
+    "reserve-buffer-table-and-dual-ledger-capacity",
+    "reserve-buffer-provider-request-completion-and-physical-sequence",
+    "validate-buffer-label-under-reviewed-workload",
+  ]);
+  if (canonicalJson(createBufferSemanticSteps) !== canonicalJson(
+    expectedCreateBufferSemanticSteps,
+  )) {
+    fail("GPUDevice.createBuffer semantic step order drifted");
+  }
+  const positiveBufferVector = createBufferWorkloadVectors[19];
+  const createBufferAdversarialMutations = Object.freeze([
+    ["sealed-timeline-gap", { sealedLocalTimelinePrefixContiguous: false }],
+    ["stale-device-generation", { deviceGeneration: "stale" }],
+    ["coverage-absent", { operationCoverageInstalled: false }],
+    ["aggregate-envelope-not-live", { aggregateEnvelopeState: "CLOSED" }],
+    ["unreviewed-workload-size", { descriptor: { size: 8 } }],
+    ["logical-max-below-size", { logicalMaxBufferSize: 64 }],
+    ["closed-usage-mask-mismatch", { allowedBufferUsageMask: 12 }],
+    ["illegal-map-usage-combination", { reviewedUsageSetAdds: 3, usage: 3 }],
+    ["mapped-size-misaligned", { reviewedSizeSetAdds: 6, size: 6 }],
+    ["foreign-target-provenance", { targetLogicalDeviceId: "56" }],
+    ["stale-target-generation", { targetSlotGeneration: "2" }],
+    ["dual-ledger-capacity-exhausted", { aggregateEnvelopeResourceCredit: 0 }],
+    ["provider-completion-credit-exhausted", { completionCredit: 0 }],
+    ["overlong-label", { label: "x".repeat(44) }],
+  ]);
+  const createBufferAdversarialVectors = Object.freeze(
+    createBufferAdversarialMutations.map(([suffix, mutation], index) =>
+      Object.freeze({
+        id: `create-buffer-${suffix}-rejected`,
+        kind: "semantic-rejection",
+        operationId: createBufferOperationId,
+        semanticTerminalId: "later-predicate-rejection",
+        semanticStepIndex: index + 1,
+        firstFailingSemanticStep: createBufferSemanticSteps[index],
+        earlierSemanticStepsMustPass: createBufferSemanticSteps.slice(0, index),
+        mutation,
+        bytesHex: positiveBufferVector.bytesHex,
+        expected: Object.freeze({
+          codegenDisposition: "encoded-for-post-decode-semantic-validation",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        }),
+      })),
+  );
+
   const createPipelineLayoutRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === createPipelineLayoutOperationId,
   );
@@ -2084,7 +2376,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -2143,6 +2435,32 @@ function buildCorpus() {
         productionExecutableFromCurrentAuthenticatedInputs: true,
         semanticTerminalMapping:
           createBindGroupLayoutNativeRoute.completion.semanticTerminalMapping,
+      },
+      {
+        operationId: createBufferOperationId,
+        wireId: createBufferRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createBufferRequestCodec.tag,
+        requestCodecTag: createBufferRequestCodec.wireTag,
+        completionCodec: createBufferCompletionCodec.tag,
+        completionCodecTag: createBufferCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createBufferNativeRoute.completion.semanticTerminalMapping,
+        reviewedWorkloadEvidence: {
+          callCount: 21,
+          totalResourceBytes: 49_545_804,
+          distinctSizes: [
+            4, 12, 16, 72, 128, 136, 262144, 2621440, 22020096,
+          ],
+          distinctUsages: [9, 76, 140, 172],
+          mappedAtCreationForms: ["omitted", false, true],
+          maximumLabelUtf8Bytes: 21,
+          runtimeQuotaRule:
+            "evidence-only-not-mutable-runtime-count-or-aggregate-quota",
+        },
+        semanticStepOrder: createBufferSemanticSteps,
       },
       {
         operationId: createPipelineLayoutOperationId,
@@ -2416,6 +2734,16 @@ function buildCorpus() {
         expected: { kind: "terminal-receipt", value: "undefined" },
       },
       ...bindGroupLayoutRejectionVectors,
+      ...createBufferWorkloadVectors,
+      {
+        id: "create-buffer-operation-success-result",
+        kind: "result",
+        semanticTerminalId: "operation-success",
+        carrierProjection: createBufferCompletionCarrier,
+        bytesHex: toHex(createBufferCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      ...createBufferAdversarialVectors,
       {
         id: "create-pipeline-layout-request",
         kind: "request",
@@ -2519,7 +2847,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroupLayout and createPipelineLayout positive/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }

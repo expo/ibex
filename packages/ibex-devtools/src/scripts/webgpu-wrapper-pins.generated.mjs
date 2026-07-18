@@ -2,14 +2,14 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "846ab45a6d4dc89ec410c8c85c9df8d457cbb8a3ba8017f3a8adeb92a68a4384",
-  "operationSet": "b0190dfee00d4c7b3f29147a37bee8304f69d2cd82ae72df949fc5af42c6b66f",
-  "semanticProgramSet": "9ceb5fb5d9a1e8fb91715d2bb2ca64313efdd47c80d65eb80df337931e1c8030",
-  "runtimeRouting": "9af920f47b8ba28bcc66d10d85c88355ff3176fd8c199cafd0c605340e789dad",
-  "webgpuCVocabulary": "f627ed658ccab48eeb24008364ad23f09913b449a840e0c54d84801dcd857211"
+  "projection": "19bd2f5f7802b179903df823f0b6f8e4d1fb0be12b103c60ad627c75fa127067",
+  "operationSet": "52131b02df0ecc91b0d4d28cc0a6cb6d2ac30ff47cf87cde62a41c1091d6b11d",
+  "semanticProgramSet": "fe6d766216a77bbc9c1e8221294414280e10e3f82cdd1629a21d25d32e0b5648",
+  "runtimeRouting": "7822220e6269e973472d7eb4d4fa2d296a56d986eef14706195d8ff424adbbf8",
+  "webgpuCVocabulary": "4d0bbbbf764298af9cd95f090da304011f1fb5c3e78d0fbd15efbe5a1a337866"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
-  "semanticProjection": "4bb7d6eeabf900640e55b1bf4afdff91881eafb0a93b7a502191e4ae972e8932",
+  "semanticProjection": "179c41d2bbc271adf04d9916838db2728547d8b1a328b59e80f9c5df1c566e20",
   "fakeClientData": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
 });
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
@@ -71,6 +71,12 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "GPUDevice.createBindGroupLayout",
     "GPUDevice",
     "createBindGroupLayout",
+    "method"
+  ],
+  [
+    "GPUDevice.createBuffer",
+    "GPUDevice",
+    "createBuffer",
     "method"
   ],
   [
@@ -180,6 +186,7 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPU.requestAdapter",
   "GPUAdapter.requestDevice",
   "GPUDevice.createBindGroupLayout",
+  "GPUDevice.createBuffer",
   "GPUDevice.createPipelineLayout",
   "GPUDevice.createCommandEncoder",
   "GPUDevice.createShaderModule",
@@ -191,6 +198,7 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUCanvasContext.configure",
   "GPUCanvasContext.unconfigure",
   "GPUDevice.createBindGroupLayout",
+  "GPUDevice.createBuffer",
   "GPUDevice.createCommandEncoder",
   "GPUDevice.createPipelineLayout",
   "GPUDevice.createRenderPipeline",
@@ -201,5 +209,5 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUTexture.createView",
   "GPUTexture.destroy"
 ]);
-export const WRAPPER_ROUTE_COUNT = 27;
-export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 14;
+export const WRAPPER_ROUTE_COUNT = 28;
+export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 15;

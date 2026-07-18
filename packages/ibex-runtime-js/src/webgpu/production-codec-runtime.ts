@@ -58,17 +58,19 @@ interface NativeCodecField {
     | 'requestAdapterOptionsV1'
     | 'requestDeviceDescriptorV1'
     | 'bindGroupLayoutDescriptorV1'
+    | 'bufferDescriptorV1'
     | 'pipelineLayoutDescriptorV1'
     | 'commandEncoderDescriptorV1'
     | 'shaderModuleDescriptorV1';
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15 | 16;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15 | 16 | 17;
     operationWireId:
       | 1660448199
       | 194635792
       | 206890944
+      | 1497473481
       | 2544948076
       | 3373402978
       | 599085487
@@ -140,6 +142,7 @@ interface NativeCodecCarrierConstraint {
     | 'objectKindTags.GPU'
     | 'objectKindTags.GPUAdapter'
     | 'objectKindTags.GPUDevice'
+    | 'objectKindTags.GPUBuffer'
     | 'objectKindTags.GPUBindGroupLayout'
     | 'objectKindTags.GPUPipelineLayout'
     | 'objectKindTags.GPUCommandEncoder'
@@ -166,12 +169,13 @@ interface NativeCodecCatalogReference {
     | 'gpu-request-device-service-request-v1'
     | 'gpu-device-service-completion-v1'
     | 'gpu-create-bind-group-layout-service-request-v1'
+    | 'gpu-create-buffer-service-request-v1'
     | 'gpu-create-pipeline-layout-service-request-v1'
     | 'gpu-create-command-encoder-service-request-v1'
     | 'gpu-create-shader-module-service-request-v1'
     | 'gpu-device-cleanup-service-request-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15 | 16;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15 | 16 | 17;
 }
 
 interface NativeCodecCompletionVariant {
@@ -336,6 +340,13 @@ interface NativeCodecCreatePipelineLayoutRoute {
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
 
+interface NativeCodecCreateBufferRoute {
+  readonly operationId: 'GPUDevice.createBuffer';
+  readonly wireId: 1497473481;
+  readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
+  readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
+}
+
 interface NativeCodecCreateShaderModuleRoute {
   readonly operationId: 'GPUDevice.createShaderModule';
   readonly wireId: 599085487;
@@ -405,7 +416,7 @@ interface NativeCodecDeviceDestroyRoute {
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -480,6 +491,7 @@ export interface NativeCodecProgramsV2 {
     }>;
     requestDeviceDescriptorV1: Readonly<Record<string, unknown>>;
     bindGroupLayoutDescriptorV1: Readonly<Record<string, unknown>>;
+    bufferDescriptorV1: Readonly<Record<string, unknown>>;
     pipelineLayoutDescriptorV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
     shaderModuleDescriptorV1: Readonly<Record<string, unknown>>;
@@ -494,6 +506,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecRequestAdapterRoute
     | NativeCodecRequestDeviceRoute
     | NativeCodecCreateBindGroupLayoutRoute
+    | NativeCodecCreateBufferRoute
     | NativeCodecCreatePipelineLayoutRoute
     | NativeCodecCreateCommandEncoderRoute
     | NativeCodecCreateShaderModuleRoute
@@ -593,6 +606,7 @@ const PRODUCTION_WRAPPER_KINDS = Object.freeze([
   'GPU',
   'GPUAdapter',
   'GPUBindGroupLayout',
+  'GPUBuffer',
   'GPUPipelineLayout',
   'GPUDevice',
   'GPUQueue',
@@ -622,6 +636,11 @@ const CREATE_BIND_GROUP_LAYOUT_WIRE_ID = 2544948076;
 const CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC =
   'gpu-create-bind-group-layout-service-request-v1';
 const CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
+const CREATE_BUFFER_OPERATION_ID = 'GPUDevice.createBuffer';
+const CREATE_BUFFER_WIRE_ID = 1497473481;
+const CREATE_BUFFER_REQUEST_CODEC = 'gpu-create-buffer-service-request-v1';
+const CREATE_BUFFER_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_PIPELINE_LAYOUT_OPERATION_ID =
   'GPUDevice.createPipelineLayout';
@@ -714,7 +733,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -1111,6 +1130,30 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
             },
           },
         },
+      ],
+    },
+    bufferDescriptorV1: {
+      kind: 'closed-dictionary',
+      encodingType: 'canonicalValueV1',
+      trust: 'untrusted-webidl-converted-semantic-service-ingress-only',
+      providerBoundary: 'forbidden-raw-descriptor-must-not-reach-provider',
+      unknownFields: 'reject',
+      fields: [
+        { name: 'label', required: true, value: { kind: 'string' } },
+        {
+          name: 'mappedAtCreation',
+          required: true,
+          value: { kind: 'boolean' },
+        },
+        {
+          name: 'size',
+          required: true,
+          value: {
+            kind: 'u64',
+            constraints: ['js-safe-integer', 'maximum-268435456'],
+          },
+        },
+        { name: 'usage', required: true, value: { kind: 'u32' } },
       ],
     },
     pipelineLayoutDescriptorV1: {
@@ -2414,6 +2457,7 @@ interface ValidatedNativeCodecProgram {
   readonly route: NativeCodecRequestAdapterRoute;
   readonly requestDeviceRoute: NativeCodecRequestDeviceRoute;
   readonly createBindGroupLayoutRoute: NativeCodecCreateBindGroupLayoutRoute;
+  readonly createBufferRoute: NativeCodecCreateBufferRoute;
   readonly createPipelineLayoutRoute: NativeCodecCreatePipelineLayoutRoute;
   readonly createCommandEncoderRoute: NativeCodecCreateCommandEncoderRoute;
   readonly createShaderModuleRoute: NativeCodecCreateShaderModuleRoute;
@@ -2438,6 +2482,7 @@ function validateNativeCodecProgram(
     routes: manifest.nativeCodecPrograms.routes.filter(
       (candidate) =>
         candidate.operationId !== CREATE_BIND_GROUP_LAYOUT_OPERATION_ID &&
+        candidate.operationId !== CREATE_BUFFER_OPERATION_ID &&
         candidate.operationId !== CREATE_PIPELINE_LAYOUT_OPERATION_ID &&
         candidate.operationId !== CREATE_COMMAND_ENCODER_OPERATION_ID &&
         candidate.operationId !== CREATE_SHADER_MODULE_OPERATION_ID,
@@ -2462,6 +2507,10 @@ function validateNativeCodecProgram(
   const createBindGroupLayoutRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreateBindGroupLayoutRoute =>
       candidate.operationId === CREATE_BIND_GROUP_LAYOUT_OPERATION_ID,
+  );
+  const createBufferRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCreateBufferRoute =>
+      candidate.operationId === CREATE_BUFFER_OPERATION_ID,
   );
   const createPipelineLayoutRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreatePipelineLayoutRoute =>
@@ -2505,6 +2554,15 @@ function validateNativeCodecProgram(
   );
   const createBindGroupLayoutCompletionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC,
+  );
+  const createBufferPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === CREATE_BUFFER_OPERATION_ID,
+  );
+  const createBufferRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === CREATE_BUFFER_REQUEST_CODEC,
+  );
+  const createBufferCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === CREATE_BUFFER_COMPLETION_CODEC,
   );
   const createPipelineLayoutPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === CREATE_PIPELINE_LAYOUT_OPERATION_ID,
@@ -3145,14 +3203,27 @@ function validateNativeCodecProgram(
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-bind-group-layout-descriptor-under-logical-device-capabilities","reserve-bind-group-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-bind-group-layout-target","select-provider-admission-and-physical-sequence"]',
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-pipeline-layout-group-count-under-reviewed-workload","validate-pipeline-layout-count-under-logical-max-bind-groups","validate-pipeline-layout-non-null-group-positions","authenticate-pipeline-layout-bind-group-layout-full-references","validate-current-live-nonexclusive-bind-group-layout-generations","validate-pipeline-layout-aggregate-binding-slots-under-logical-limits","validate-pipeline-layout-immediate-alignment","validate-pipeline-layout-immediate-size-under-logical-limit","validate-pipeline-layout-label-under-reviewed-workload","reserve-pipeline-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-pipeline-layout-target","select-provider-admission-and-physical-sequence"]',
     );
+  const expectedCreateBufferCanonical = expectedCreateBindGroupLayoutCanonical
+    .replaceAll(CREATE_BIND_GROUP_LAYOUT_OPERATION_ID, CREATE_BUFFER_OPERATION_ID)
+    .replaceAll(CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC, CREATE_BUFFER_REQUEST_CODEC)
+    .replaceAll('GPUBindGroupLayout', 'GPUBuffer')
+    .replaceAll('bindGroupLayoutDescriptorV1', 'bufferDescriptorV1')
+    .replaceAll(String(CREATE_BIND_GROUP_LAYOUT_WIRE_ID), String(CREATE_BUFFER_WIRE_ID))
+    .replaceAll('"codecTag":15', '"codecTag":17')
+    .replaceAll('"wireTag":15', '"wireTag":17')
+    .replace(
+      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-bind-group-layout-descriptor-under-logical-device-capabilities","reserve-bind-group-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-bind-group-layout-target","select-provider-admission-and-physical-sequence"]',
+      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","validate-buffer-mapped-at-creation-alignment","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
+    );
   if (
-    manifest.nativeCodecPrograms.routes.length !== 7 ||
+    manifest.nativeCodecPrograms.routes.length !== 8 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 7 ||
+    ).size !== 8 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupLayoutRoute ||
+    !createBufferRoute ||
     !createPipelineLayoutRoute ||
     !createCommandEncoderRoute ||
     !createShaderModuleRoute ||
@@ -3163,6 +3234,8 @@ function validateNativeCodecProgram(
       canonicalManifestJson(expectedCreateShaderModuleRoute) ||
     canonicalManifestJson(createBindGroupLayoutRoute) !==
       expectedCreateBindGroupLayoutCanonical ||
+    canonicalManifestJson(createBufferRoute) !==
+      expectedCreateBufferCanonical ||
     canonicalManifestJson(createPipelineLayoutRoute) !==
       expectedCreatePipelineLayoutCanonical ||
     !planRoute ||
@@ -3202,6 +3275,17 @@ function validateNativeCodecProgram(
     createBindGroupLayoutRequestCodec.unavailableSemanticFields.length !== 0 ||
     createBindGroupLayoutCompletionCodec?.wireTag !==
       createBindGroupLayoutRoute.completion.catalog.wireTag ||
+    !createBufferPlanRoute ||
+    createBufferPlanRoute.wireId !== CREATE_BUFFER_WIRE_ID ||
+    createBufferPlanRoute.serviceArgumentCodec !== CREATE_BUFFER_REQUEST_CODEC ||
+    createBufferPlanRoute.serviceCompletionCodec !==
+      CREATE_BUFFER_COMPLETION_CODEC ||
+    createBufferRequestCodec?.wireTag !== createBufferRoute.request.catalog.wireTag ||
+    createBufferRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    createBufferRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    createBufferRequestCodec.unavailableSemanticFields.length !== 0 ||
+    createBufferCompletionCodec?.wireTag !==
+      createBufferRoute.completion.catalog.wireTag ||
     !createPipelineLayoutPlanRoute ||
     createPipelineLayoutPlanRoute.wireId !== CREATE_PIPELINE_LAYOUT_WIRE_ID ||
     createPipelineLayoutPlanRoute.serviceArgumentCodec !==
@@ -3260,6 +3344,7 @@ function validateNativeCodecProgram(
     manifest.objectKindTags.GPU !== 1 ||
     manifest.objectKindTags.GPUAdapter !== 2 ||
     manifest.objectKindTags.GPUDevice !== 3 ||
+    manifest.objectKindTags.GPUBuffer !== 5 ||
     manifest.objectKindTags.GPUBindGroupLayout !== 9 ||
     manifest.objectKindTags.GPUPipelineLayout !== 11 ||
     manifest.objectKindTags.GPUShaderModule !== 12 ||
@@ -3267,6 +3352,7 @@ function validateNativeCodecProgram(
     expectedObjectKindTags.GPU !== 1 ||
     expectedObjectKindTags.GPUAdapter !== 2 ||
     expectedObjectKindTags.GPUDevice !== 3 ||
+    expectedObjectKindTags.GPUBuffer !== 5 ||
     expectedObjectKindTags.GPUBindGroupLayout !== 9 ||
     expectedObjectKindTags.GPUPipelineLayout !== 11 ||
     expectedObjectKindTags.GPUShaderModule !== 12 ||
@@ -3281,6 +3367,8 @@ function validateNativeCodecProgram(
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createBindGroupLayoutRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    createBufferRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createPipelineLayoutRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createShaderModuleRoute.completion.commonCarrierConstraints.at(-1)?.value !==
@@ -3292,6 +3380,7 @@ function validateNativeCodecProgram(
     route,
     requestDeviceRoute,
     createBindGroupLayoutRoute,
+    createBufferRoute,
     createPipelineLayoutRoute,
     createCommandEncoderRoute,
     createShaderModuleRoute,
@@ -3792,6 +3881,29 @@ function convertBindGroupLayoutDescriptor(
     label,
     entries: Object.freeze(entries),
   });
+}
+
+function convertBufferDescriptor(value: unknown): unknown {
+  const source = dictionary(value, 'GPUBufferDescriptor');
+  // GPUObjectDescriptorBase is inherited before the own dictionary members.
+  // Convert immediately after each single Get so user code cannot reorder the
+  // pinned label -> mappedAtCreation -> size -> usage observation sequence.
+  const label = optionalLabel(source);
+  const mappedAtCreation = Boolean(source.mappedAtCreation);
+  const sizeValue = source.size;
+  if (sizeValue === undefined) {
+    throw new TypeError('GPUBufferDescriptor.size is required');
+  }
+  const size = u64Number(sizeValue, 'GPUBufferDescriptor.size');
+  if (size > 268_435_456) {
+    throw new TypeError('GPUBufferDescriptor.size exceeds the structural ceiling');
+  }
+  const usageValue = source.usage;
+  if (usageValue === undefined) {
+    throw new TypeError('GPUBufferDescriptor.usage is required');
+  }
+  const usage = u32(usageValue, 'GPUBufferDescriptor.usage');
+  return frozenRecord({ label, mappedAtCreation, size, usage });
 }
 
 function convertPipelineLayoutDescriptor(
@@ -5111,6 +5223,34 @@ function validateCreatePipelineLayoutDescriptorForService(
   });
 }
 
+function validateCreateBufferDescriptorForService(value: unknown): void {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    !hasExactOwnProperties(
+      value as Readonly<Record<string, unknown>>,
+      ['label', 'mappedAtCreation', 'size', 'usage'],
+    )
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBuffer converted arguments must be a canonical descriptor',
+    );
+  }
+  const descriptor = value as Readonly<Record<string, unknown>>;
+  if (
+    typeof descriptor.label !== 'string' ||
+    typeof descriptor.mappedAtCreation !== 'boolean' ||
+    !isConvertedU64(descriptor.size) ||
+    descriptor.size > 268_435_456 ||
+    !isConvertedU32(descriptor.usage)
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBuffer converted descriptor exceeds structural transport bounds',
+    );
+  }
+}
+
 function validateCreateBindGroupLayoutRequestFields(
   receiver: RequestAdapterReferenceLike,
   target: unknown,
@@ -5271,6 +5411,83 @@ function validateCreatePipelineLayoutRequestFields(
     convertedArguments,
     sequenceMaximum,
   );
+}
+
+function validateCreateBufferRequestFields(
+  receiver: RequestAdapterReferenceLike,
+  target: unknown,
+  adapterOrdinal: unknown,
+  deviceIngressOrdinal: unknown,
+  queueIngressOrdinal: unknown,
+  sealedLocalTimeline: unknown,
+  convertedArguments: unknown,
+  sequenceMaximum: number,
+): void {
+  if (
+    receiver.kind !== 'GPUDevice' ||
+    typeof receiver.objectId !== 'string' ||
+    typeof receiver.objectGeneration !== 'string' ||
+    typeof receiver.logicalDeviceId !== 'string' ||
+    typeof receiver.logicalDeviceGeneration !== 'string' ||
+    typeof receiver.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBuffer requires an authenticated GPUDevice receiver',
+    );
+  }
+  for (const [identity, label] of [
+    [receiver.objectId, 'receiver.objectId'],
+    [receiver.objectGeneration, 'receiver.objectGeneration'],
+    [receiver.logicalDeviceId, 'receiver.logicalDeviceId'],
+    [receiver.logicalDeviceGeneration, 'receiver.logicalDeviceGeneration'],
+    [receiver.providerGeneration, 'receiver.providerGeneration'],
+  ] as const) {
+    positiveIdentity(identity, `GPUDevice.createBuffer ${label}`);
+  }
+  if (typeof target !== 'object' || target === null || Array.isArray(target)) {
+    throw new TypeError(
+      'GPUDevice.createBuffer requires a wrapper-allocated target',
+    );
+  }
+  const targetReference = target as RequestAdapterReferenceLike;
+  if (
+    targetReference.kind !== 'GPUBuffer' ||
+    typeof targetReference.objectId !== 'string' ||
+    typeof targetReference.objectGeneration !== 'string' ||
+    targetReference.logicalDeviceId !== receiver.logicalDeviceId ||
+    targetReference.logicalDeviceGeneration !== receiver.logicalDeviceGeneration ||
+    targetReference.providerGeneration !== receiver.providerGeneration
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBuffer target must share the authenticated device provenance',
+    );
+  }
+  positiveIdentity(
+    targetReference.objectId,
+    'GPUDevice.createBuffer target.objectId',
+  );
+  positiveIdentity(
+    targetReference.objectGeneration,
+    'GPUDevice.createBuffer target.objectGeneration',
+  );
+  if (adapterOrdinal !== '0' || queueIngressOrdinal !== '0') {
+    throw new TypeError(
+      'GPUDevice.createBuffer adapter and queue ingress ordinals must be zero',
+    );
+  }
+  positiveIdentity(
+    String(deviceIngressOrdinal),
+    'GPUDevice.createBuffer deviceIngressOrdinal',
+  );
+  if (
+    !Array.isArray(sealedLocalTimeline) ||
+    sealedLocalTimeline.length > sequenceMaximum
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBuffer sealed local timeline must be a bounded sequence',
+    );
+  }
+  validateCreateBufferDescriptorForService(convertedArguments);
 }
 
 function validateCreateCommandEncoderRequestFields(
@@ -5605,7 +5822,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -5779,6 +5996,8 @@ export function createExecutableWebGpuCodecs(
           manifest.layout.sequenceMaxCount,
           manifest.webIdlVocabulary.gpuTextureFormats,
         );
+      case 'gpu-buffer-descriptor-v1':
+        return convertBufferDescriptor(args[0]);
       case 'gpu-pipeline-layout-descriptor-v1':
         return convertPipelineLayoutDescriptor(
           args[0],
@@ -5874,6 +6093,19 @@ export function createExecutableWebGpuCodecs(
         input.convertedArguments,
         manifest.layout.sequenceMaxCount,
         manifest.webIdlVocabulary.gpuTextureFormats,
+      );
+    } else if (
+      route.operationId === requestAdapterNativeProgram.createBufferRoute.operationId
+    ) {
+      validateCreateBufferRequestFields(
+        input.receiver,
+        input.target,
+        input.adapterOrdinal,
+        input.deviceIngressOrdinal,
+        input.queueIngressOrdinal,
+        input.sealedLocalTimeline,
+        input.convertedArguments,
+        manifest.layout.sequenceMaxCount,
       );
     } else if (
       route.operationId ===
@@ -5982,6 +6214,7 @@ export function createExecutableWebGpuCodecs(
         requestAdapterNativeProgram.requestDeviceRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId &&
+      input.operationId !== requestAdapterNativeProgram.createBufferRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createPipelineLayoutRoute.operationId &&
       input.operationId !==
@@ -6288,6 +6521,19 @@ export function createExecutableWebGpuCodecs(
         manifest.webIdlVocabulary.gpuTextureFormats,
       );
     } else if (
+      route.operationId === requestAdapterNativeProgram.createBufferRoute.operationId
+    ) {
+      validateCreateBufferRequestFields(
+        receiver,
+        target,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
+      );
+    } else if (
       route.operationId ===
         requestAdapterNativeProgram.createPipelineLayoutRoute.operationId
     ) {
@@ -6380,6 +6626,7 @@ export function createExecutableWebGpuCodecs(
     if (
       (route.operationId ===
           requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId ||
+        route.operationId === requestAdapterNativeProgram.createBufferRoute.operationId ||
         route.operationId ===
           requestAdapterNativeProgram.createPipelineLayoutRoute.operationId ||
         route.operationId ===

@@ -61,6 +61,10 @@ const REQUIRED_WORKLOAD_BLOCKERS = Object.freeze([
   "generated-capsec-edge-and-supported-target-cell",
   "native-conformance-and-platform-evidence",
 ]);
+const WRAPPER_LOCAL_METADATA_OPERATION_IDS = Object.freeze([
+  "GPUBuffer.mapState",
+  "GPUBuffer.usage",
+]);
 const IMMUTABLE_TRIANGLE_ROUTE_IDS = Object.freeze([
   "GPU.getPreferredCanvasFormat",
   "GPU.requestAdapter",
@@ -229,6 +233,7 @@ function validateWorkloadStaging(staging, routeIds, activeScopeId) {
   }
   const routeSet = new Set(routeIds);
   const triangleSet = new Set(IMMUTABLE_TRIANGLE_ROUTE_IDS);
+  const wrapperLocalMetadataSet = new Set(WRAPPER_LOCAL_METADATA_OPERATION_IDS);
   if (triangleSet.size !== 25) {
     throw new Error("immutable TypeGPU triangle route set drifted");
   }
@@ -276,6 +281,8 @@ function validateWorkloadStaging(staging, routeIds, activeScopeId) {
       ? "active-private-triangle-route"
       : graduatedRouteSet.has(operation.operationId)
         ? "active-private-graduated-route"
+        : wrapperLocalMetadataSet.has(operation.operationId)
+          ? "private-wrapper-local-metadata-read-no-dispatch"
         : "staged-unroutable-no-prototype-member";
     if (
       !["method", "property"].includes(operation.memberKind) ||
@@ -346,7 +353,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     webIdlVocabulary,
     activeRouteSubset: {
@@ -469,6 +476,9 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const createBindGroupLayoutProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createBindGroupLayout",
   );
+  const createBufferProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUDevice.createBuffer",
+  );
   const createPipelineLayoutProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createPipelineLayout",
   );
@@ -493,6 +503,10 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createBindGroupLayout",
     );
+  const createBufferSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUDevice.createBuffer",
+    );
   const createPipelineLayoutSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createPipelineLayout",
@@ -511,11 +525,13 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     !requestAdapterProgram ||
     !requestDeviceProgram ||
     !createBindGroupLayoutProgram ||
+    !createBufferProgram ||
     !createPipelineLayoutProgram ||
     !createCommandEncoderProgram ||
     !createShaderModuleProgram ||
     !deviceDestroyProgram ||
     !createBindGroupLayoutSemanticProgram ||
+    !createBufferSemanticProgram ||
     !createPipelineLayoutSemanticProgram ||
     !createCommandEncoderSemanticProgram ||
     !createShaderModuleSemanticProgram ||
@@ -523,6 +539,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     headerVocabulary.tags.GPU !== 1 ||
     headerVocabulary.tags.GPUAdapter !== 2 ||
     headerVocabulary.tags.GPUDevice !== 3 ||
+    headerVocabulary.tags.GPUBuffer !== 5 ||
     headerVocabulary.tags.GPUBindGroupLayout !== 9 ||
     headerVocabulary.tags.GPUPipelineLayout !== 11 ||
     headerVocabulary.tags.GPUShaderModule !== 12 ||
@@ -543,6 +560,8 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createBindGroupLayoutProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      createBufferProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createPipelineLayoutProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createShaderModuleProgram.completion.commonCarrierConstraints.at(-1)?.value ||
@@ -555,6 +574,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     requestDeviceProgram.request.executablePrerequisites.join(",") !==
       "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity" ||
     createBindGroupLayoutProgram.request.executablePrerequisites.length !== 0 ||
+    createBufferProgram.request.executablePrerequisites.length !== 0 ||
     createPipelineLayoutProgram.request.executablePrerequisites.length !== 0 ||
     createCommandEncoderProgram.request.executablePrerequisites.length !== 0 ||
     createShaderModuleProgram.request.executablePrerequisites.length !== 0 ||
@@ -660,6 +680,29 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
       "GPUDevice.createBindGroupLayout native completion mapping differs from semantic terminals",
     );
   }
+  const expectedCreateBufferTerminalMapping = {
+    authorityPath:
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createBuffer]",
+    terminals: createBufferSemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+      event: createCommandEncoderCompletionEvents[terminal.terminalId],
+    })),
+  };
+  if (
+    canonicalJson(createBufferProgram.completion.semanticTerminalMapping) !==
+      canonicalJson(expectedCreateBufferTerminalMapping) ||
+    expectedCreateBufferTerminalMapping.terminals.some(
+      (terminal) => !terminal.event,
+    )
+  ) {
+    throw new Error(
+      "GPUDevice.createBuffer native completion mapping differs from semantic terminals",
+    );
+  }
   const expectedCreatePipelineLayoutTerminalMapping = {
     authorityPath:
       "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createPipelineLayout]",
@@ -756,7 +799,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,

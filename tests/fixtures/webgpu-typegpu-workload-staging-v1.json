@@ -9,7 +9,7 @@
   "typegpuVersion": "0.11.9",
   "activeRouteSubset": {
     "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-    "operationCount": 27,
+    "operationCount": 28,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
@@ -21,6 +21,7 @@
       "GPUCommandEncoder.beginRenderPass",
       "GPUCommandEncoder.finish",
       "GPUDevice.createBindGroupLayout",
+      "GPUDevice.createBuffer",
       "GPUDevice.createCommandEncoder",
       "GPUDevice.createPipelineLayout",
       "GPUDevice.createRenderPipeline",
@@ -42,7 +43,7 @@
   },
   "workloadClosure": {
     "operationCount": 51,
-    "additionalOperationCount": 28,
+    "additionalOperationCount": 27,
     "operations": [
       {
         "operationId": "GPU.getPreferredCanvasFormat",
@@ -77,7 +78,7 @@
       {
         "operationId": "GPUBuffer.mapState",
         "memberKind": "property",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "private-wrapper-local-metadata-read-no-dispatch"
       },
       {
         "operationId": "GPUBuffer.unmap",
@@ -87,7 +88,7 @@
       {
         "operationId": "GPUBuffer.usage",
         "memberKind": "property",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "private-wrapper-local-metadata-read-no-dispatch"
       },
       {
         "operationId": "GPUCanvasContext.configure",
@@ -167,7 +168,7 @@
       {
         "operationId": "GPUDevice.createBuffer",
         "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUDevice.createCommandEncoder",
@@ -352,7 +353,7 @@
   "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined",
   "source": {
     "path": "tests/gpu/typegpu-workload-closure-v1.json",
-    "normalizedProjectionSha256": "511a74db5808ac4105c1bde8e08693f8bbf86665cf7403b87b5f2c3587ae78d8",
+    "normalizedProjectionSha256": "899f273bdbe385441879a899537129a80723b940bb471520169a3174e3ea06ce",
     "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
   }
 }
