@@ -66,10 +66,27 @@ describe("exact loaded engine identity", () => {
     ).toBe(`/repo/ios/Frameworks${path.delimiter}/prior`);
     expect(
       engineLoaderEnvironment("/opt/ibex/lib/libhermesvm.so", {
-        baseEnvironment: {},
+        baseEnvironment: { ld_library_path: "/case-sensitive" },
         platform: "linux",
       }).LD_LIBRARY_PATH,
     ).toBe("/opt/ibex/lib");
+    expect(
+      engineLoaderEnvironment("/opt/ibex/lib/libhermesvm.so", {
+        baseEnvironment: { ld_library_path: "/case-sensitive" },
+        platform: "linux",
+      }).ld_library_path,
+    ).toBe("/case-sensitive");
+    const windowsEnvironment = engineLoaderEnvironment(
+      "/opt/ibex/bin/hermesvm.dll",
+      {
+        baseEnvironment: { Path: "/runner/bin", PATH: "/ambiguous" },
+        platform: "win32",
+      },
+    );
+    expect(windowsEnvironment.Path).toBe(
+      `/opt/ibex/bin${path.delimiter}/runner/bin`,
+    );
+    expect(windowsEnvironment.PATH).toBeUndefined();
   });
 
   test("derives Windows volume and file identity from the named artifact", () => {

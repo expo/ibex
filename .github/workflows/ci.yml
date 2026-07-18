@@ -77,9 +77,14 @@ jobs:
           # bind a product module before another file installs its own hooks.
           bun test packages/ibex-devtools/src/scripts
           mapfile -t runtime_tests < <(
-            rg --files packages/ibex-runtime-js/src |
-              rg '\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$' |
-              sort
+            find packages/ibex-runtime-js/src -type f \
+              \( -name '*.test.ts' -o -name '*.test.tsx' \
+                 -o -name '*.test.js' -o -name '*.test.jsx' \
+                 -o -name '*.test.mjs' -o -name '*.test.cjs' \
+                 -o -name '*.spec.ts' -o -name '*.spec.tsx' \
+                 -o -name '*.spec.js' -o -name '*.spec.jsx' \
+                 -o -name '*.spec.mjs' -o -name '*.spec.cjs' \) \
+              -print | sort
           )
           test "${#runtime_tests[@]}" -gt 0
           for test_file in "${runtime_tests[@]}"; do

@@ -88,8 +88,18 @@ export function engineLoaderEnvironment(
 ) {
   const env = { ...baseEnvironment };
   const prepend = (name, directory) => {
-    env[name] = env[name]
-      ? `${directory}${path.delimiter}${env[name]}`
+    const matchingNames =
+      platform === "win32"
+        ? Object.keys(env).filter(
+            (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+          )
+        : [];
+    const existingName = matchingNames[0] ?? name;
+    for (const duplicateName of matchingNames.slice(1)) {
+      delete env[duplicateName];
+    }
+    env[existingName] = env[existingName]
+      ? `${directory}${path.delimiter}${env[existingName]}`
       : directory;
   };
   if (platform === "darwin") {
