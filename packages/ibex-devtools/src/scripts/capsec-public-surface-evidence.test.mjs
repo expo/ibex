@@ -865,6 +865,53 @@ function completeClosedSqliteExtensionCatalog() {
   return catalog;
 }
 
+function completeClosedSqliteCrSqliteCatalog() {
+  const catalog = structuredClone(completeClosedSqliteExtensionCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName = "Database.enableCrSqlite";
+  const sourceDescriptor = recipe.publicSurfaceProbe.invocation.sourceDescriptor;
+  Object.assign(sourceDescriptor, {
+    kind: "closed-sqlite-crsqlite-enable",
+    surfaceObservedKey:
+      "builtin:export:exact_sqlite:Database.enableCrSqlite",
+    exportName,
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/sqlite/module.js#exports:Database.enableCrSqlite",
+    ],
+  });
+  Object.assign(sourceDescriptor.sourceMetadata, {
+    exportName,
+    enforcementRouteEvidence: {
+      terminals: [
+        "__exactCrSqlitePath",
+        "__exactSqliteLoadCrSqlite",
+        "__exactSqliteLoadExtension",
+      ],
+    },
+  });
+  recipe.fixtureId = "fixture.builtin.sqlite.enable-crsqlite.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceName: "export:exact_sqlite:Database.enableCrSqlite",
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "sqlite-cr-sqlite-enable",
+      constructorExportName: "Database",
+      methodName: "enableCrSqlite",
+      moduleSpecifiers: ["bun:sqlite", "exact:sqlite"],
+      databasePath: ":memory:",
+      expectedRejectionFragment:
+        "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedDebuggerAbiCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -1226,6 +1273,13 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
                   `${specifier}: ${invocation.operation.expectedRejectionFragment}`,
               )
               .join("\n")
+        : invocation.operation.kind === "sqlite-cr-sqlite-enable"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment}`,
+              )
+              .join("\n")
         : invocation.operation.kind === "debugger-abi-disabled"
           ? invocation.operation.expectedError
         : invocation.operation.kind === "shared-runtime-global-absence"
@@ -1255,6 +1309,7 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
           invocation.operation.kind === "loader-executable-file" ||
           invocation.operation.kind === "terminal-builtin-import" ||
           invocation.operation.kind === "sqlite-extension-load" ||
+          invocation.operation.kind === "sqlite-cr-sqlite-enable" ||
           invocation.operation.kind === "debugger-abi-disabled" ||
           invocation.operation.kind === "shared-runtime-global-absence" ||
           invocation.operation.kind === "armed-native-global-absence" ||
@@ -2423,6 +2478,43 @@ describe("CapSec public-surface promotion evidence", () => {
     const drifted = structuredClone(recipe);
     drifted.publicSurfaceProbe.invocation.operation.databasePath =
       "fixture.sqlite";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/public memory-database call/);
+  });
+
+  test("accepts cr-sqlite closure only through both public aliases", () => {
+    const catalog = completeClosedSqliteCrSqliteCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "exact:sqlite: cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/every public alias/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.operation.methodName =
+      "loadExtension";
     expect(() =>
       buildPublicFixtureEvidence({
         recipe: drifted,

@@ -102,9 +102,18 @@ const CLOSED_SQLITE_EXTENSION_EXPORTS = new Map([
   ["Database.loadExtension", "Database"],
   ["default.loadExtension", "default"],
 ]);
+const CLOSED_SQLITE_CRSQLITE_EXPORTS = new Map([
+  ["Database.enableCrSqlite", "Database"],
+  ["default.enableCrSqlite", "default"],
+]);
 const CLOSED_SQLITE_MODULE_SPECIFIERS = Object.freeze([
   "bun:sqlite",
   "exact:sqlite",
+]);
+const CLOSED_SQLITE_CRSQLITE_TERMINALS = Object.freeze([
+  "__exactCrSqlitePath",
+  "__exactSqliteLoadCrSqlite",
+  "__exactSqliteLoadExtension",
 ]);
 
 const DEBUGGER_ABI_FUNCTIONS = new Map([
@@ -1022,6 +1031,98 @@ function sqliteExtensionLoadProbe({
   };
 }
 
+function sqliteCrSqliteEnableProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== CLOSED_SQLITE_CRSQLITE_TERMINALS.length ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const constructorExportName = CLOSED_SQLITE_CRSQLITE_EXPORTS.get(
+    metadata?.exportName,
+  );
+  const expectedSourceRef =
+    `packages/ibex-runtime-js/src/sqlite/module.js#exports:${metadata?.exportName}`;
+  const routeTerminals = route.alternatives
+    .map((alternative) => alternative.terminalObservedKey)
+    .sort();
+  const expectedRouteTerminals = CLOSED_SQLITE_CRSQLITE_TERMINALS.map(
+    (terminal) => `native-op:${terminal}`,
+  ).sort();
+  if (
+    constructorExportName === undefined ||
+    live?.kind !== "builtin" ||
+    live.name !== `export:exact_sqlite:${metadata.exportName}` ||
+    live.observedKey !== `builtin:${live.name}` ||
+    metadata.sourceKey !== "exact_sqlite" ||
+    metadata.surfaceType !== "export" ||
+    metadata.valueShape !== "callable" ||
+    metadata.importReachability !== "public" ||
+    canonicalJson(metadata.publicModuleSpecifiers) !==
+      canonicalJson(CLOSED_SQLITE_MODULE_SPECIFIERS) ||
+    canonicalJson(metadata.moduleSpecifiers) !==
+      canonicalJson(CLOSED_SQLITE_MODULE_SPECIFIERS) ||
+    canonicalJson(
+      [...(metadata.enforcementRouteEvidence?.terminals ?? [])].sort(),
+    ) !==
+      canonicalJson([...CLOSED_SQLITE_CRSQLITE_TERMINALS].sort()) ||
+    canonicalJson(live.sourceRefs) !== canonicalJson([expectedSourceRef]) ||
+    canonicalJson(routeTerminals) !== canonicalJson(expectedRouteTerminals) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "ffi:load"
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-sqlite-crsqlite-enable",
+    surfaceObservedKey,
+    sourceKey: metadata.sourceKey,
+    exportName: metadata.exportName,
+    constructorExportName,
+    moduleSpecifiers: [...CLOSED_SQLITE_MODULE_SPECIFIERS],
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "builtin",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "sqlite-cr-sqlite-enable",
+        constructorExportName,
+        methodName: "enableCrSqlite",
+        moduleSpecifiers: [...CLOSED_SQLITE_MODULE_SPECIFIERS],
+        databasePath: ":memory:",
+        expectedRejectionFragment:
+          "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 function debuggerAbiDisabledProbe({
   plan,
   route,
@@ -1381,6 +1482,7 @@ export function authoredClosedPublicProbe(options) {
     moduleRunnerNamespaceProbe(options) ??
     loaderExecutableKindProbe(options) ??
     sqliteExtensionLoadProbe(options) ??
+    sqliteCrSqliteEnableProbe(options) ??
     terminalBuiltinImportProbe(options) ??
     debuggerAbiDisabledProbe(options) ??
     armedNativeGlobalAbsenceProbe(options) ??

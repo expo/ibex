@@ -179,6 +179,18 @@ enum ClosedOperation {
         #[serde(rename = "expectedRejectionFragment")]
         expected_rejection_fragment: String,
     },
+    SqliteCrSqliteEnable {
+        #[serde(rename = "constructorExportName")]
+        constructor_export_name: String,
+        #[serde(rename = "methodName")]
+        method_name: String,
+        #[serde(rename = "moduleSpecifiers")]
+        module_specifiers: Vec<String>,
+        #[serde(rename = "databasePath")]
+        database_path: String,
+        #[serde(rename = "expectedRejectionFragment")]
+        expected_rejection_fragment: String,
+    },
     DebuggerAbiDisabled {
         #[serde(rename = "functionName")]
         function_name: String,
@@ -216,6 +228,7 @@ impl ClosedOperation {
             Self::ModuleRunnerNamespace { .. } => "module-runner-namespace",
             Self::TerminalBuiltinImport { .. } => "terminal-builtin-import",
             Self::SqliteExtensionLoad { .. } => "sqlite-extension-load",
+            Self::SqliteCrSqliteEnable { .. } => "sqlite-cr-sqlite-enable",
             Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
             Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
             Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
@@ -232,6 +245,7 @@ impl ClosedOperation {
             | Self::ModuleRunnerNamespace { .. }
             | Self::TerminalBuiltinImport { .. }
             | Self::SqliteExtensionLoad { .. }
+            | Self::SqliteCrSqliteEnable { .. }
             | Self::DebuggerAbiDisabled { .. } => None,
             Self::SharedRuntimeGlobalAbsence { .. }
             | Self::ArmedNativeGlobalAbsence { .. } => None,
@@ -1390,7 +1404,7 @@ async fn execute_closed_terminal_builtin_import(
 }
 
 #[cfg(test)]
-async fn execute_closed_sqlite_extension_load(
+async fn execute_closed_sqlite_extension_refusal(
     engine: &HermesEngine,
     recipe: &Recipe,
     probe: &ClosedSurfaceProbe,
@@ -1398,16 +1412,54 @@ async fn execute_closed_sqlite_extension_load(
     engine_binary_digest: &str,
 ) -> serde_json::Value {
     let invocation = &probe.invocation;
-    let ClosedOperation::SqliteExtensionLoad {
+    let (
         constructor_export_name,
         method_name,
         module_specifiers,
         database_path,
-        extension_path,
+        method_arguments,
         expected_rejection_fragment,
-    } = &invocation.operation
-    else {
-        panic!("SQLite extension probe has the wrong operation")
+        expected_descriptor_kind,
+        expected_terminals,
+    ) = match &invocation.operation {
+        ClosedOperation::SqliteExtensionLoad {
+            constructor_export_name,
+            method_name,
+            module_specifiers,
+            database_path,
+            extension_path,
+            expected_rejection_fragment,
+        } => (
+            constructor_export_name,
+            method_name,
+            module_specifiers,
+            database_path,
+            serde_json::json!([extension_path]),
+            expected_rejection_fragment,
+            "closed-sqlite-extension-load",
+            vec!["__exactSqliteLoadExtension"],
+        ),
+        ClosedOperation::SqliteCrSqliteEnable {
+            constructor_export_name,
+            method_name,
+            module_specifiers,
+            database_path,
+            expected_rejection_fragment,
+        } => (
+            constructor_export_name,
+            method_name,
+            module_specifiers,
+            database_path,
+            serde_json::json!([]),
+            expected_rejection_fragment,
+            "closed-sqlite-crsqlite-enable",
+            vec![
+                "__exactCrSqlitePath",
+                "__exactSqliteLoadCrSqlite",
+                "__exactSqliteLoadExtension",
+            ],
+        ),
+        _ => panic!("SQLite extension probe has the wrong operation"),
     };
     assert_eq!(recipe.status, "fully-executable");
     assert_eq!(recipe.classification, "closed");
@@ -1432,10 +1484,22 @@ async fn execute_closed_sqlite_extension_load(
     assert!(invocation.allowed_coverage_edge_ids.is_empty());
     assert!(invocation.expected_action_ids.is_empty());
     assert_eq!(module_specifiers, &["bun:sqlite", "exact:sqlite"]);
-    assert_eq!(method_name, "loadExtension");
     assert_eq!(database_path, ":memory:");
-    assert_eq!(extension_path, "ibex-capsec-closed-extension");
-    assert_eq!(expected_rejection_fragment, "Extension loading not supported");
+    match &invocation.operation {
+        ClosedOperation::SqliteExtensionLoad { extension_path, .. } => {
+            assert_eq!(method_name, "loadExtension");
+            assert_eq!(extension_path, "ibex-capsec-closed-extension");
+            assert_eq!(expected_rejection_fragment, "Extension loading not supported");
+        }
+        ClosedOperation::SqliteCrSqliteEnable { .. } => {
+            assert_eq!(method_name, "enableCrSqlite");
+            assert_eq!(
+                expected_rejection_fragment,
+                "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support."
+            );
+        }
+        _ => unreachable!(),
+    }
     assert_eq!(
         invocation.source_descriptor_digest,
         tagged_value_digest(&invocation.source_descriptor)
@@ -1449,6 +1513,8 @@ async fn execute_closed_sqlite_extension_load(
     let expected_constructor = match export_name {
         "Database.loadExtension" => "Database",
         "default.loadExtension" => "default",
+        "Database.enableCrSqlite" => "Database",
+        "default.enableCrSqlite" => "default",
         other => panic!("unreviewed SQLite extension export {other}"),
     };
     assert_eq!(constructor_export_name, expected_constructor);
@@ -1456,7 +1522,7 @@ async fn execute_closed_sqlite_extension_load(
         descriptor.constructor_export_name.as_deref(),
         Some(expected_constructor)
     );
-    assert_eq!(descriptor.kind, "closed-sqlite-extension-load");
+    assert_eq!(descriptor.kind, expected_descriptor_kind);
     assert_eq!(
         descriptor.surface_observed_key.as_deref(),
         Some(probe.surface_observed_key.as_str())
@@ -1482,10 +1548,21 @@ async fn execute_closed_sqlite_extension_load(
         descriptor.source_metadata["publicModuleSpecifiers"],
         serde_json::json!(module_specifiers)
     );
-    assert_eq!(
-        descriptor.source_metadata["enforcementRouteEvidence"]["terminals"],
-        serde_json::json!(["__exactSqliteLoadExtension"])
-    );
+    let mut descriptor_terminals = descriptor.source_metadata["enforcementRouteEvidence"]
+        ["terminals"]
+        .as_array()
+        .expect("SQLite extension source terminals must be an array")
+        .iter()
+        .map(|terminal| {
+            terminal
+                .as_str()
+                .expect("SQLite extension source terminal must be a string")
+        })
+        .collect::<Vec<_>>();
+    descriptor_terminals.sort_unstable();
+    let mut expected_terminals = expected_terminals;
+    expected_terminals.sort_unstable();
+    assert_eq!(descriptor_terminals, expected_terminals);
     assert_eq!(
         invocation.surface_name,
         format!("export:exact_sqlite:{export_name}")
@@ -1502,7 +1579,7 @@ async fn execute_closed_sqlite_extension_load(
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let script = format!(
-        r#"JSON.stringify((function(specifiers, constructorName, methodName, databasePath, extensionPath) {{
+        r#"JSON.stringify((function(specifiers, constructorName, methodName, databasePath, methodArguments) {{
   return specifiers.map(function(specifier) {{
     var namespace = require(specifier);
     var Constructor = namespace[constructorName];
@@ -1510,7 +1587,7 @@ async fn execute_closed_sqlite_extension_load(
     var database = new Constructor(databasePath);
     var errorName = null;
     var errorMessage = null;
-    try {{ database[methodName](extensionPath); }}
+    try {{ database[methodName].apply(database, methodArguments); }}
     catch (error) {{
       errorName = String(error && error.name || 'Error');
       errorMessage = String(error && error.message || error);
@@ -1523,13 +1600,13 @@ async fn execute_closed_sqlite_extension_load(
         serde_json::to_string(constructor_export_name).unwrap(),
         serde_json::to_string(method_name).unwrap(),
         serde_json::to_string(database_path).unwrap(),
-        serde_json::to_string(extension_path).unwrap(),
+        serde_json::to_string(&method_arguments).unwrap(),
     );
     let encoded = engine
         .eval_immediate(&script)
         .await
-        .expect("execute SQLite extension closure calls")
-        .expect("SQLite extension closure calls returned no result");
+        .expect("execute SQLite extension refusal calls")
+        .expect("SQLite extension refusal calls returned no result");
     let observed: Vec<serde_json::Value> =
         serde_json::from_str(&encoded).expect("SQLite extension closure result must be JSON");
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
@@ -1540,10 +1617,10 @@ async fn execute_closed_sqlite_extension_load(
         assert_eq!(row["errorName"], "Error");
         let error = row["errorMessage"]
             .as_str()
-            .expect("SQLite extension load unexpectedly succeeded");
+            .expect("SQLite extension operation unexpectedly succeeded");
         assert!(
             error.contains(expected_rejection_fragment),
-            "SQLite extension load returned the wrong refusal for {specifier}: {error}"
+            "SQLite extension operation returned the wrong refusal for {specifier}: {error}"
         );
         errors.push(format!("{specifier}: {error}"));
     }
@@ -3316,6 +3393,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let sqlite_crsqlite_enable_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::SqliteCrSqliteEnable { .. }
+            )
+        })
+        .count();
     let debugger_abi_count = recipe_indexes
         .iter()
         .filter(|index| {
@@ -3362,6 +3451,7 @@ async fn capsec_public_closed_recipe_batch() {
             + module_runner_namespace_count
             + terminal_builtin_count
             + sqlite_extension_load_count
+            + sqlite_crsqlite_enable_count
             + debugger_abi_count
             + shared_runtime_global_absence_count
             + armed_native_global_absence_count,
@@ -3397,6 +3487,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         sqlite_extension_load_count, 2,
         "expected both public SQLite extension-loading exports"
+    );
+    assert_eq!(
+        sqlite_crsqlite_enable_count, 2,
+        "expected both public cr-sqlite enablement exports"
     );
     let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
         match catalog.target.triple.as_str() {
@@ -3487,7 +3581,7 @@ async fn capsec_public_closed_recipe_batch() {
             );
         }
     }
-    if sqlite_extension_load_count > 0 {
+    if sqlite_extension_load_count + sqlite_crsqlite_enable_count > 0 {
         let sqlite_indexes = recipe_indexes
             .iter()
             .copied()
@@ -3498,6 +3592,7 @@ async fn capsec_public_closed_recipe_batch() {
                         .invocation
                         .operation,
                     ClosedOperation::SqliteExtensionLoad { .. }
+                        | ClosedOperation::SqliteCrSqliteEnable { .. }
                 )
             })
             .collect::<Vec<_>>();
@@ -3525,7 +3620,7 @@ async fn capsec_public_closed_recipe_batch() {
             let recipe = &catalog.recipes[index];
             let probe = closed_surface_probe(recipe).unwrap();
             executions.push(
-                execute_closed_sqlite_extension_load(
+                execute_closed_sqlite_extension_refusal(
                     &engine,
                     recipe,
                     &probe,
@@ -3624,6 +3719,7 @@ async fn capsec_public_closed_recipe_batch() {
             &probe.invocation.operation,
                 ClosedOperation::TerminalBuiltinImport { .. }
                 | ClosedOperation::SqliteExtensionLoad { .. }
+                | ClosedOperation::SqliteCrSqliteEnable { .. }
                 | ClosedOperation::DebuggerAbiDisabled { .. }
                 | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
                 | ClosedOperation::ArmedNativeGlobalAbsence { .. }
@@ -3687,6 +3783,7 @@ async fn capsec_public_closed_recipe_batch() {
             }
             ClosedOperation::TerminalBuiltinImport { .. } => unreachable!(),
             ClosedOperation::SqliteExtensionLoad { .. } => unreachable!(),
+            ClosedOperation::SqliteCrSqliteEnable { .. } => unreachable!(),
             ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),
             ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),

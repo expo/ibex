@@ -33,6 +33,7 @@
 **Revised:** 2026-07-15 (ENG-25062 registered the module-runner factory, record, CJS-to-ESM edge, generation-lease, and compatibility-marker surfaces as closed non-capability control-plane operations)
 **Revised:** 2026-07-15 (ENG-25066 made the authenticated graph decision set and process-stable principal projection the ordinary-ESM execution path)
 **Revised:** 2026-07-15 (LLP 0026 adoption defines the module-initialization task boundary and trusted-loader source-acquisition classification)
+**Revised:** 2026-07-17 (ENG-24933 closes both public cr-sqlite enablement exports through exact in-memory refusal evidence)
 **Revised:** 2026-07-17 (ENG-24933 closes both public SQLite extension-loading exports through exact in-memory refusal evidence); 2026-07-17 (ENG-24933 closes public messaging roots and executes debugger/shared-runtime/native absence evidence on both exact candidates); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the Exact-bound artifact preparer while preserving empty advertisements); 2026-07-14 (ENG-24933 introduces the dedicated binary Exact app/agent ingress while preserving the unadvertised Apple target and records the remaining artifact/conformance gate); 2026-07-12 (ENG-24263: the complete exact-engine prerequisite matrix and artifact evidence now run in CI, which requires the incomplete candidate to remain unadvertised rather than treating expected refusal as conformance); 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); LLP 0026 (module-runner authority amendments); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
@@ -617,16 +618,16 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed per-target catalogs each have
-22,938 required fixtures: Apple has 5,125 fully executable recipes and 17,813
-unresolved fixtures, while Windows has 5,007 executable and 17,931 unresolved.
+22,938 required fixtures: Apple has 5,127 fully executable recipes and 17,811
+unresolved fixtures, while Windows has 5,009 executable and 17,929 unresolved.
 The Windows difference is explicit target applicability: 102 Apple
 target-absence probes are not applicable and 16 Windows non-capability paths
 remain unauthored. None of those differences is credited as a pass. The latest
 source-bound tranches add 322 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
-terminal-builtin closure recipes, two public SQLite extension-load closure
-recipes, four
+terminal-builtin closure recipes, four public SQLite extension-load and
+cr-sqlite enablement closure recipes, four
 loader/source-acquisition recipes, 24 native module-runner ABI
 lifecycle recipes, one armed namespace-inspection closure, 14 asymmetric/EVP
 crypto recipes, eight
@@ -683,7 +684,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,813 unresolved Apple fixtures and 17,931
+are 7,043 ambiguous routes with 17,811 unresolved Apple fixtures and 17,929
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -722,7 +723,11 @@ runtime-variant boundary through physical absence, including `worklet.clamp`
 and `worklet.lerp`, which are closed with their absent namespace rather than
 misreported as independently reachable pure helpers. This raises the exact
 closed batch to 629 fixtures without treating worklet-runtime reachability as
-application-runtime authority.
+application-runtime authority. The exact SQLite refusal tranche then executes
+both `loadExtension` and `enableCrSqlite` through the `Database` and default
+exports, using in-memory databases through both public module aliases. Each
+exact target now carries 633 closed fixtures without constructing filesystem
+authority or loading native code.
 
 ### WP0 artifacts and gate
 
@@ -1578,7 +1583,7 @@ Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
 consume an authoritative matrix run before refusing the report.
-Its current catalog has 5,007 executable and 17,931 unresolved fixtures. The
+Its current catalog has 5,009 executable and 17,929 unresolved fixtures. The
 first authoritative Windows attempt physically rejected the published DLL:
 although its manifest claimed the no-debugger Release profile, its PE export
 table still contained the full `AsyncDebuggerAPI`/CDP implementation. The
