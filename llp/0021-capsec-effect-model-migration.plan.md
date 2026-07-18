@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 executes direct directory enumeration against one harness-owned entry with retained repeat evidence and unconditional cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct whole-file creation to source-derived bytes, an exact harness-owned floor, and verified content cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct non-recursive directory creation to an exact harness-owned floor and proves post-operation cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct terminal-builtin import-gate closure when the static route has no downstream alternative, after the complete Apple run exposed the validator mismatch)
@@ -1553,6 +1554,11 @@ and `fs:write` floor. Passing evidence requires requested, retained-parent and
 created-target discovery, commit, and repeat decisions, exact written bytes,
 and removal of the file after the
 call; denial stops at requested before creation.
+Direct `__exactReaddir` now enumerates a separate exact directory containing one
+harness-owned file. Passing evidence must select requested, discovery, and two
+repeat decisions: one retained-target authorization and one generation-bound
+enumeration lease. The harness removes the entry and directory after both
+success and denial, and successful evidence records that cleanup explicitly.
 The runtime-create descriptor binds `ex_hermes_create_armed`, not the historical
 `ex_hermes_create` symbol that production deliberately leaves non-executable.
 
