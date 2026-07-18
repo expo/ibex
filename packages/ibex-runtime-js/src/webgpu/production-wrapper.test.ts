@@ -134,6 +134,7 @@ function createFakeCodecs(
   options: Readonly<{
     detachedAdapters?: boolean;
     detachedDevices?: boolean;
+    distinctLiveDevices?: boolean;
     omitAdapterDetachedState?: boolean;
   }> = {},
 ): ExecutableWebGpuCodecBundle & {
@@ -141,6 +142,7 @@ function createFakeCodecs(
 } {
   const encodings: ProductionGpuServiceEncodingInput[] = [];
   let nextDetachedIdentity = 1_000;
+  let nextLiveDeviceOffset = 0;
   return {
     schema: 'ibex/webgpu-executable-codecs/1',
     operationSetDigest: WEBGPU_PRODUCTION_PLAN.digests.operationSet,
@@ -222,15 +224,18 @@ function createFakeCodecs(
         };
       }
       if (operationId === 'GPUAdapter.requestDevice') {
+        const liveOffset = options.distinctLiveDevices
+          ? nextLiveDeviceOffset++ * 10
+          : 0;
         const objectId = options.detachedDevices
           ? String(nextDetachedIdentity++)
-          : '201';
+          : String(201 + liveOffset);
         const logicalDeviceId = options.detachedDevices
           ? String(nextDetachedIdentity++)
-          : '301';
+          : String(301 + liveOffset);
         const queueObjectId = options.detachedDevices
           ? String(nextDetachedIdentity++)
-          : '202';
+          : String(202 + liveOffset);
         return {
           kind: 'object',
           object: {
@@ -268,6 +273,93 @@ function createFakeCodecs(
 
 function isolatedGlobal(): typeof globalThis {
   return { navigator: Object.create(null) } as unknown as typeof globalThis;
+}
+
+function emitDeviceLoss(
+  bridge: ReturnType<typeof createFakeBridge>,
+  logicalDeviceId: string,
+  logicalLossOrdinal: string,
+): void {
+  bridge.emit({
+    kind: 4,
+    runtimeAddress: bridge.runtimeAddress,
+    runtimeNonce: bridge.runtimeNonce,
+    topologyId: 1,
+    realmId: bridge.realmId,
+    realmGeneration: bridge.realmGeneration,
+    accountId: bridge.rootAccountId,
+    accountGeneration: bridge.rootAccountGeneration,
+    accountAuthorityDigest: bridge.rootAuthorityDigest,
+    logicalDeviceId,
+    logicalDeviceGeneration: '1',
+    providerGeneration: '7',
+    logicalLossOrdinal,
+    lastAcceptedPhysicalSequence: '9',
+    backendClass: 1,
+    lossReason: 1,
+    hasInitiatingOperation: false,
+    payload: new Uint8Array(),
+  });
+}
+
+function latestCanvasTextureOrigin(
+  bridge: ReturnType<typeof createFakeBridge>,
+): Readonly<Record<string, unknown>> {
+  const createViewWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (route) => route.operationId === 'GPUTexture.createView',
+  )?.wireId;
+  if (createViewWireId === undefined) throw new Error('missing createView route');
+  const submission = bridge.submissions.findLast(
+    (candidate) => candidate.operationId === createViewWireId,
+  );
+  if (!submission) throw new Error('missing createView submission');
+  const request = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+    .inspectServiceRequest(submission.payload) as Readonly<{
+      convertedArguments: Readonly<{
+        currentOrigin: Readonly<Record<string, unknown>>;
+      }>;
+    }>;
+  return request.convertedArguments.currentOrigin;
+}
+
+interface TestGpuDevice {
+  readonly lost: Promise<unknown>;
+  destroy(): void;
+}
+
+interface TestCanvasTexture {
+  createView(): object;
+}
+
+interface TestCanvasContext {
+  configure(configuration: unknown): void;
+  getConfiguration(): Record<string, unknown> | null;
+  getCurrentTexture(): TestCanvasTexture;
+  unconfigure(): void;
+}
+
+async function requestTestDevice(
+  binding: ReturnType<typeof createProductionWebGpuPrivateBinding>,
+): Promise<TestGpuDevice> {
+  const adapter = (await (binding.gpu as {
+    requestAdapter(): Promise<unknown>;
+  }).requestAdapter()) as {
+    requestDevice(): Promise<unknown>;
+  };
+  return await adapter.requestDevice() as TestGpuDevice;
+}
+
+function mintTestCanvasContext(
+  binding: ReturnType<typeof createProductionWebGpuPrivateBinding>,
+  objectGeneration = '1',
+): TestCanvasContext {
+  return binding.mintCanvasContext({
+    objectId: '401',
+    objectGeneration,
+    drawingBufferWidth: 640,
+    drawingBufferHeight: 480,
+    authority: CANVAS_AUTHORITY,
+  }) as TestCanvasContext;
 }
 
 describe('production-private WebGPU wrapper gate', () => {
@@ -975,6 +1067,179 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
+  test('interns only exact unchanged host canvas identities and fences stale generations', async () => {
+    const binding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    const identity = {
+      objectId: '401',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority: CANVAS_AUTHORITY,
+    } as const;
+    const first = binding.mintCanvasContext(identity) as TestCanvasContext;
+    expect(binding.mintCanvasContext({
+      ...identity,
+      authority: { ...CANVAS_AUTHORITY },
+    })).toBe(first);
+    expect(() => binding.mintCanvasContext({
+      ...identity,
+      drawingBufferWidth: 641,
+    })).toThrow('conflicts with existing host authority or extent');
+    expect(() => binding.mintCanvasContext({
+      ...identity,
+      authority: {
+        ...CANVAS_AUTHORITY,
+        surfaceAccountGeneration: '44',
+      },
+    })).toThrow('conflicts with existing host authority or extent');
+
+    // Provider-result wrappers deliberately remain allocation-local. The two
+    // fake adapter results carry the same service identity but are not drawn
+    // into the host-only Canvas identity index.
+    const gpu = binding.gpu as { requestAdapter(): Promise<unknown> };
+    expect(await gpu.requestAdapter()).not.toBe(await gpu.requestAdapter());
+
+    const successor = binding.mintCanvasContext({
+      ...identity,
+      objectGeneration: '2',
+      authority: {
+        ...CANVAS_AUTHORITY,
+        attachmentGeneration: '32',
+        contextGeneration: '38',
+      },
+    }) as TestCanvasContext;
+    expect(successor).not.toBe(first);
+    expect(() => first.getConfiguration()).toThrow('identity is stale');
+    expect(() => binding.mintCanvasContext(identity)).toThrow('identity is stale');
+
+    binding.revoke();
+    expect(() => successor.getConfiguration()).toThrow('realm is revoked');
+    expect(() => binding.mintCanvasContext({
+      ...identity,
+      objectGeneration: '2',
+    })).toThrow('realm is revoked');
+  });
+
+  test('device destroy synchronously enters canvas LOST exactly once and preserves stale origin', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    const beforeLoss = context.getCurrentTexture();
+    beforeLoss.createView();
+    const beforeLossOrigin = latestCanvasTextureOrigin(bridge);
+
+    device.destroy();
+    expect(context.getConfiguration()?.format).toBe('bgra8unorm');
+    const afterLoss = context.getCurrentTexture();
+    expect(afterLoss).not.toBe(beforeLoss);
+    expect(context.getCurrentTexture()).toBe(afterLoss);
+    afterLoss.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
+      configurationGeneration: '2',
+      currentEpoch: '2',
+    });
+
+    beforeLoss.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toEqual(beforeLossOrigin);
+    expect(() => context.configure({ device, format: 'bgra8unorm' }))
+      .toThrow('GPUDevice is unavailable');
+
+    // A later duplicate native loss input cannot re-expire the post-loss
+    // invalid-device identity or advance configuration generation again.
+    emitDeviceLoss(bridge, '301', '2');
+    expect(context.getCurrentTexture()).toBe(afterLoss);
+    expect(await device.lost).toEqual({
+      reason: 'destroyed',
+      message: 'The device was destroyed',
+    });
+    binding.revoke();
+  });
+
+  test('asynchronous device loss expires a configured canvas without unconfigure', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs([], { distinctLiveDevices: true }),
+    );
+    const device = await requestTestDevice(binding);
+    const recoveryDevice = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    const beforeLoss = context.getCurrentTexture();
+    beforeLoss.createView();
+    const beforeLossOrigin = latestCanvasTextureOrigin(bridge);
+
+    emitDeviceLoss(bridge, '301', '1');
+    const afterLoss = context.getCurrentTexture();
+    expect(afterLoss).not.toBe(beforeLoss);
+    afterLoss.createView();
+    const afterLossOrigin = latestCanvasTextureOrigin(bridge);
+    expect(afterLossOrigin).toMatchObject({
+      configurationGeneration: '2',
+      currentEpoch: '2',
+      configuredDeviceRef: { logicalDeviceId: '301' },
+    });
+    emitDeviceLoss(bridge, '301', '2');
+    expect(context.getCurrentTexture()).toBe(afterLoss);
+
+    beforeLoss.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toEqual(beforeLossOrigin);
+    expect(await device.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+
+    context.configure({ device: recoveryDevice, format: 'bgra8unorm' });
+    const recovered = context.getCurrentTexture();
+    expect(recovered).not.toBe(afterLoss);
+    recovered.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
+      configurationGeneration: '3',
+      currentEpoch: '3',
+      configuredDeviceRef: { logicalDeviceId: '311' },
+    });
+    emitDeviceLoss(bridge, '301', '3');
+    expect(context.getCurrentTexture()).toBe(recovered);
+    afterLoss.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toEqual(afterLossOrigin);
+    expect(context.getCurrentTexture()).toBe(recovered);
+    binding.revoke();
+  });
+
+  test('reconfigure and unconfigure unlink prior device loss registries', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs([], { distinctLiveDevices: true }),
+    );
+    const firstDevice = await requestTestDevice(binding);
+    const secondDevice = await requestTestDevice(binding);
+    const thirdDevice = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+
+    context.configure({ device: firstDevice, format: 'bgra8unorm' });
+    context.configure({ device: secondDevice, format: 'bgra8unorm' });
+    const secondTexture = context.getCurrentTexture();
+    emitDeviceLoss(bridge, '301', '1');
+    expect(context.getCurrentTexture()).toBe(secondTexture);
+    expect(await firstDevice.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+
+    context.unconfigure();
+    emitDeviceLoss(bridge, '311', '1');
+    expect(() => context.getCurrentTexture()).toThrow('not configured');
+    context.configure({ device: thirdDevice, format: 'bgra8unorm' });
+    context.getCurrentTexture().createView();
+    // configure A, configure B, unconfigure, configure C. Loss of the two
+    // unlinked devices contributes no extra generation transition.
+    expect(latestCanvasTextureOrigin(bridge).configurationGeneration).toBe('4');
+    binding.revoke();
+  });
+
   test('rejects missing or malformed host canvas authority synchronously', () => {
     const binding = createProductionWebGpuPrivateBinding(
       createFakeBridge(),
@@ -1009,6 +1274,30 @@ describe('production-private WebGPU wrapper factory', () => {
         unexpected: 'ambient-data-must-not-be-carried',
       },
     } as never)).toThrow('authority is incomplete or malformed');
+    const symbolAuthority = { ...CANVAS_AUTHORITY } as Record<PropertyKey, unknown>;
+    symbolAuthority[Symbol('ambient')] = 'ambient-data-must-not-be-carried';
+    expect(() => binding.mintCanvasContext({
+      ...base,
+      authority: symbolAuthority,
+    } as never)).toThrow('authority is incomplete or malformed');
+    const nonEnumerableExtraAuthority = { ...CANVAS_AUTHORITY };
+    Object.defineProperty(nonEnumerableExtraAuthority, 'ambient', {
+      value: 'ambient-data-must-not-be-carried',
+      enumerable: false,
+    });
+    expect(() => binding.mintCanvasContext({
+      ...base,
+      authority: nonEnumerableExtraAuthority,
+    } as never)).toThrow('authority is incomplete or malformed');
+    const nonEnumerableMemberAuthority = { ...CANVAS_AUTHORITY };
+    Object.defineProperty(nonEnumerableMemberAuthority, 'attachmentGeneration', {
+      value: CANVAS_AUTHORITY.attachmentGeneration,
+      enumerable: false,
+    });
+    expect(() => binding.mintCanvasContext({
+      ...base,
+      authority: nonEnumerableMemberAuthority,
+    })).toThrow('authority is incomplete or malformed');
     binding.revoke();
   });
 

@@ -52,7 +52,15 @@ interface DeviceState {
   nextScope: string;
   scopes: Array<Readonly<{ id: string; filter: string }>>;
   pendingLocalTimeline: unknown[];
+  readonly configuredCanvasContexts: Set<WrapperState>;
 }
+
+type CanvasContextLifecycle =
+  | 'attached-unconfigured'
+  | 'configured'
+  | 'lost'
+  | 'stale'
+  | 'revoked';
 
 interface WrapperState {
   readonly realm: RealmState;
@@ -79,6 +87,7 @@ interface WrapperState {
   configuredDevice: DeviceState | undefined;
   configuredDeviceWrapper: object | undefined;
   canvasAuthority: ProductionGpuCanvasContextAuthority | undefined;
+  canvasContextLifecycle: CanvasContextLifecycle | undefined;
   destroyed: boolean;
   textureExpired: boolean;
   materialized: boolean;
@@ -112,6 +121,8 @@ interface RealmState {
   readonly prototypes: Readonly<Record<ProductionGpuWrapperKind, object>>;
   readonly wrappers: WeakMap<object, WrapperState>;
   readonly devices: Map<string, DeviceState>;
+  readonly hostCanvasContextsByIdentity: Map<string, WrapperState>;
+  readonly currentHostCanvasContextByObject: Map<string, WrapperState>;
   readonly pendingPromiseCalls: Map<string, PendingPromiseCall>;
   readonly resultEvents: Map<
     string,
@@ -224,6 +235,22 @@ function isPositiveDecimal(value: string): boolean {
   return isCanonicalU64Decimal(value, true);
 }
 
+function compareCanonicalU64Decimal(left: string, right: string): number {
+  if (left.length !== right.length) return left.length < right.length ? -1 : 1;
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+
+function hostCanvasContextIdentityKey(
+  objectId: string,
+  objectGeneration: string,
+): string {
+  return `GPUCanvasContext/${objectId}/${objectGeneration}`;
+}
+
+function hostCanvasContextObjectKey(objectId: string): string {
+  return `GPUCanvasContext/${objectId}`;
+}
+
 function freezeCanvasAuthority(
   value: ProductionGpuCanvasContextAuthority,
 ): ProductionGpuCanvasContextAuthority {
@@ -237,24 +264,53 @@ function freezeCanvasAuthority(
   if (typeof value !== 'object' || value === null) {
     throw new TypeError('GPUCanvasContext authority is incomplete or malformed');
   }
-  const keys = Object.keys(value).sort();
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.some((key) => typeof key !== 'string')) {
+    throw new TypeError('GPUCanvasContext authority is incomplete or malformed');
+  }
+  const keys = (ownKeys as string[]).sort();
   if (
     keys.length !== expectedKeys.length ||
     keys.some((key, index) => key !== expectedKeys[index])
   ) {
     throw new TypeError('GPUCanvasContext authority is incomplete or malformed');
   }
-  const attachmentGeneration = value.attachmentGeneration;
-  const contextGeneration = value.contextGeneration;
-  const targetAuthorityDigest = value.targetAuthorityDigest;
-  const surfaceAccountToken = value.surfaceAccountToken;
-  const surfaceAccountGeneration = value.surfaceAccountGeneration;
+  for (const key of expectedKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor?.enumerable || !('value' in descriptor)) {
+      throw new TypeError('GPUCanvasContext authority is incomplete or malformed');
+    }
+  }
+  const attachmentGeneration = Object.getOwnPropertyDescriptor(
+    value,
+    'attachmentGeneration',
+  )?.value as unknown;
+  const contextGeneration = Object.getOwnPropertyDescriptor(
+    value,
+    'contextGeneration',
+  )?.value as unknown;
+  const targetAuthorityDigest = Object.getOwnPropertyDescriptor(
+    value,
+    'targetAuthorityDigest',
+  )?.value as unknown;
+  const surfaceAccountToken = Object.getOwnPropertyDescriptor(
+    value,
+    'surfaceAccountToken',
+  )?.value as unknown;
+  const surfaceAccountGeneration = Object.getOwnPropertyDescriptor(
+    value,
+    'surfaceAccountGeneration',
+  )?.value as unknown;
   if (
+    typeof attachmentGeneration !== 'string' ||
     !isPositiveDecimal(attachmentGeneration) ||
+    typeof contextGeneration !== 'string' ||
     !isPositiveDecimal(contextGeneration) ||
     typeof targetAuthorityDigest !== 'string' ||
     !/^[0-9a-f]{64}$/u.test(targetAuthorityDigest) ||
+    typeof surfaceAccountToken !== 'string' ||
     !isPositiveDecimal(surfaceAccountToken) ||
+    typeof surfaceAccountGeneration !== 'string' ||
     !isPositiveDecimal(surfaceAccountGeneration)
   ) {
     throw new TypeError('GPUCanvasContext authority is incomplete or malformed');
@@ -493,6 +549,8 @@ export function createProductionWebGpuPrivateBinding(
     prototypes: mutablePrototypes,
     wrappers: new WeakMap(),
     devices: new Map(),
+    hostCanvasContextsByIdentity: new Map(),
+    currentHostCanvasContextByObject: new Map(),
     pendingPromiseCalls: new Map(),
     resultEvents: new Map(),
     // Client-allocated targets occupy the high unsigned half of the service
@@ -592,6 +650,7 @@ export function createProductionWebGpuPrivateBinding(
       configuredDevice: undefined,
       configuredDeviceWrapper: undefined,
       canvasAuthority: undefined,
+      canvasContextLifecycle: undefined,
       destroyed: false,
       textureExpired: false,
       materialized: false,
@@ -614,12 +673,46 @@ export function createProductionWebGpuPrivateBinding(
     return codecs.convertPublicArguments(operationId, args, { reference });
   };
 
+  const expireCurrentTexture = (context: WrapperState): void => {
+    if (!context.currentTexture) return;
+    const texture = requireState(context.currentTexture, 'GPUTexture');
+    texture.textureExpired = true;
+    context.currentTexture = undefined;
+  };
+
+  const unlinkConfiguredCanvasContext = (context: WrapperState): void => {
+    context.configuredDevice?.configuredCanvasContexts.delete(context);
+  };
+
+  const transitionCanvasContextToLost = (
+    context: WrapperState,
+    device: DeviceState,
+  ): void => {
+    if (
+      context.configuredDevice !== device ||
+      context.canvasContextLifecycle !== 'configured'
+    ) {
+      return;
+    }
+    const nextConfigurationGeneration = incrementCanonicalU64Decimal(
+      context.configurationGeneration,
+    );
+    expireCurrentTexture(context);
+    context.configurationGeneration = nextConfigurationGeneration;
+    context.canvasContextLifecycle = 'lost';
+    device.configuredCanvasContexts.delete(context);
+  };
+
   const settleDeviceLost = (
     device: DeviceState,
     reason: 'destroyed' | 'unknown',
     message: string,
   ): void => {
     if (device.lost.settled) return;
+    for (const context of [...device.configuredCanvasContexts]) {
+      transitionCanvasContextToLost(context, device);
+    }
+    device.configuredCanvasContexts.clear();
     device.lost.settled = true;
     const info = Object.freeze(Object.assign(Object.create(deviceLostInfoPrototype) as object, {
       reason,
@@ -628,11 +721,37 @@ export function createProductionWebGpuPrivateBinding(
     device.lost.resolve(info);
   };
 
-  const expireCurrentTexture = (context: WrapperState): void => {
-    if (!context.currentTexture) return;
-    const texture = requireState(context.currentTexture, 'GPUTexture');
-    texture.textureExpired = true;
-    context.currentTexture = undefined;
+  const retireCanvasContext = (
+    context: WrapperState,
+    lifecycle: 'stale' | 'revoked',
+  ): void => {
+    unlinkConfiguredCanvasContext(context);
+    expireCurrentTexture(context);
+    context.configuration = undefined;
+    context.configuredDevice = undefined;
+    context.configuredDeviceWrapper = undefined;
+    context.canvasContextLifecycle = lifecycle;
+  };
+
+  const assertCanvasContextUsable = (context: WrapperState): void => {
+    if (!realm.active || context.canvasContextLifecycle === 'revoked') {
+      throw namedError('SecurityError', 'WebGPU realm is revoked');
+    }
+    if (context.canvasContextLifecycle === 'stale') {
+      throw namedError('InvalidStateError', 'GPUCanvasContext identity is stale');
+    }
+  };
+
+  const retireRealmState = (): void => {
+    for (const context of realm.hostCanvasContextsByIdentity.values()) {
+      retireCanvasContext(context, 'revoked');
+    }
+    realm.hostCanvasContextsByIdentity.clear();
+    realm.currentHostCanvasContextByObject.clear();
+    realm.devices.clear();
+    realm.pendingPromiseCalls.clear();
+    realm.resultEvents.clear();
+    realm.active = false;
   };
 
   const assignDeviceIngress = (device: DeviceState | undefined): string => {
@@ -912,6 +1031,7 @@ export function createProductionWebGpuPrivateBinding(
         nextScope: '1',
         scopes: [],
         pendingLocalTimeline: [],
+        configuredCanvasContexts: new Set(),
       };
       const state = allocateWrapper('GPUDevice', device, identity);
       const queue = allocateWrapper('GPUQueue', device, identity.queue);
@@ -971,7 +1091,7 @@ export function createProductionWebGpuPrivateBinding(
     for (const device of realm.devices.values()) {
       settleDeviceLost(device, decoded.reason, decoded.message);
     }
-    if (event.kind === 6) realm.active = false;
+    if (event.kind === 6) retireRealmState();
   };
 
   bridge.setEventSink((event) => {
@@ -1079,13 +1199,18 @@ export function createProductionWebGpuPrivateBinding(
     configuration: unknown,
   ) {
     const context = requireState(this, 'GPUCanvasContext');
+    assertCanvasContextUsable(context);
     const converted = asRecord(
       convert('GPUCanvasContext.configure', [configuration]),
       'GPUCanvasConfiguration',
     );
     const deviceWrapper = converted.device;
     const deviceState = requireState(deviceWrapper, 'GPUDevice');
-    if (!deviceState.device || deviceState.device.destroyed) {
+    if (
+      !deviceState.device ||
+      deviceState.device.destroyed ||
+      deviceState.device.lost.settled
+    ) {
       throw namedError('InvalidStateError', 'GPUDevice is unavailable');
     }
     const nextConfigurationGeneration = incrementCanonicalU64Decimal(
@@ -1105,11 +1230,14 @@ export function createProductionWebGpuPrivateBinding(
     } finally {
       context.device = undefined;
     }
+    unlinkConfiguredCanvasContext(context);
     expireCurrentTexture(context);
     context.configurationGeneration = nextConfigurationGeneration;
     context.configuration = cloneConfiguration(converted);
     context.configuredDevice = deviceState.device;
     context.configuredDeviceWrapper = deviceWrapper as object;
+    context.canvasContextLifecycle = 'configured';
+    deviceState.device.configuredCanvasContexts.add(context);
   });
 
   defineMethod(
@@ -1117,6 +1245,7 @@ export function createProductionWebGpuPrivateBinding(
     'getConfiguration',
     function (this: object) {
       const context = requireState(this, 'GPUCanvasContext');
+      assertCanvasContextUsable(context);
       convert('GPUCanvasContext.getConfiguration', []);
       return context.configuration
         ? cloneConfiguration(context.configuration)
@@ -1129,6 +1258,7 @@ export function createProductionWebGpuPrivateBinding(
     'getCurrentTexture',
     function (this: object) {
       const context = requireState(this, 'GPUCanvasContext');
+      assertCanvasContextUsable(context);
       const converted = convert('GPUCanvasContext.getCurrentTexture', []);
       if (
         !context.configuration ||
@@ -1177,6 +1307,10 @@ export function createProductionWebGpuPrivateBinding(
       texture.textureFormat = configuredFormat;
       texture.textureWidth = context.drawingBufferWidth;
       texture.textureHeight = context.drawingBufferHeight;
+      if (context.canvasContextLifecycle === 'lost') {
+        texture.invalid = true;
+        texture.status = 'invalid-device';
+      }
       const nextCurrentEpoch = incrementCanonicalU64Decimal(context.currentEpoch);
       const mintOperationProvenance = recordLocal(
         'GPUCanvasContext.getCurrentTexture',
@@ -1239,7 +1373,9 @@ export function createProductionWebGpuPrivateBinding(
     this: object,
   ) {
     const context = requireState(this, 'GPUCanvasContext');
+    assertCanvasContextUsable(context);
     const converted = convert('GPUCanvasContext.unconfigure', []);
+    if (context.canvasContextLifecycle === 'attached-unconfigured') return;
     const nextConfigurationGeneration = incrementCanonicalU64Decimal(
       context.configurationGeneration,
     );
@@ -1255,11 +1391,13 @@ export function createProductionWebGpuPrivateBinding(
     } finally {
       context.device = undefined;
     }
+    unlinkConfiguredCanvasContext(context);
     expireCurrentTexture(context);
     context.configurationGeneration = nextConfigurationGeneration;
     context.configuration = undefined;
     context.configuredDevice = undefined;
     context.configuredDeviceWrapper = undefined;
+    context.canvasContextLifecycle = 'attached-unconfigured';
   });
 
   defineMethod(mutablePrototypes.GPUDevice, 'createBindGroupLayout', function (
@@ -1897,27 +2035,86 @@ export function createProductionWebGpuPrivateBinding(
     }>) {
       if (!realm.active) throw namedError('SecurityError', 'WebGPU realm is revoked');
       const authority = freezeCanvasAuthority(identity.authority);
-      const context = allocateWrapper('GPUCanvasContext', undefined, identity);
-      context.canvasAuthority = authority;
-      context.drawingBufferWidth = drawingBufferCoordinate(
+      if (!isPositiveDecimal(identity.objectId)) {
+        throw new TypeError('Invalid GPUCanvasContext object identity');
+      }
+      if (!isPositiveDecimal(identity.objectGeneration)) {
+        throw new TypeError('Invalid GPUCanvasContext object generation');
+      }
+      const drawingBufferWidth = drawingBufferCoordinate(
         identity.drawingBufferWidth,
         'GPUCanvasContext drawingBufferWidth',
       );
-      context.drawingBufferHeight = drawingBufferCoordinate(
+      const drawingBufferHeight = drawingBufferCoordinate(
         identity.drawingBufferHeight,
         'GPUCanvasContext drawingBufferHeight',
       );
+      const identityKey = hostCanvasContextIdentityKey(
+        identity.objectId,
+        identity.objectGeneration,
+      );
+      const existing = realm.hostCanvasContextsByIdentity.get(identityKey);
+      if (existing) {
+        const existingAuthority = existing.canvasAuthority;
+        if (
+          existing.canvasContextLifecycle === 'stale' ||
+          existing.canvasContextLifecycle === 'revoked'
+        ) {
+          throw namedError('InvalidStateError', 'GPUCanvasContext identity is stale');
+        }
+        if (
+          !existingAuthority ||
+          existing.drawingBufferWidth !== drawingBufferWidth ||
+          existing.drawingBufferHeight !== drawingBufferHeight ||
+          existingAuthority.attachmentGeneration !== authority.attachmentGeneration ||
+          existingAuthority.contextGeneration !== authority.contextGeneration ||
+          existingAuthority.targetAuthorityDigest !== authority.targetAuthorityDigest ||
+          existingAuthority.surfaceAccountToken !== authority.surfaceAccountToken ||
+          existingAuthority.surfaceAccountGeneration !==
+            authority.surfaceAccountGeneration
+        ) {
+          throw new TypeError(
+            'GPUCanvasContext identity conflicts with existing host authority or extent',
+          );
+        }
+        return existing.wrapper;
+      }
+
+      const objectKey = hostCanvasContextObjectKey(identity.objectId);
+      const current = realm.currentHostCanvasContextByObject.get(objectKey);
+      if (current) {
+        const generationOrder = compareCanonicalU64Decimal(
+          identity.objectGeneration,
+          current.objectGeneration,
+        );
+        if (generationOrder < 0) {
+          throw namedError('InvalidStateError', 'GPUCanvasContext identity is stale');
+        }
+        if (generationOrder === 0) {
+          throw new Error('GPUCanvasContext identity index is inconsistent');
+        }
+        retireCanvasContext(current, 'stale');
+        realm.hostCanvasContextsByIdentity.delete(
+          hostCanvasContextIdentityKey(current.objectId, current.objectGeneration),
+        );
+      }
+
+      const context = allocateWrapper('GPUCanvasContext', undefined, identity);
+      context.canvasAuthority = authority;
+      context.canvasContextLifecycle = 'attached-unconfigured';
+      context.drawingBufferWidth = drawingBufferWidth;
+      context.drawingBufferHeight = drawingBufferHeight;
+      realm.hostCanvasContextsByIdentity.set(identityKey, context);
+      realm.currentHostCanvasContextByObject.set(objectKey, context);
       return context.wrapper;
     },
     revoke() {
       if (revoked) return;
       revoked = true;
-      realm.active = false;
       for (const device of realm.devices.values()) {
         settleDeviceLost(device, 'unknown', 'The WebGPU realm was revoked');
       }
-      realm.pendingPromiseCalls.clear();
-      realm.resultEvents.clear();
+      retireRealmState();
     },
   });
 }
