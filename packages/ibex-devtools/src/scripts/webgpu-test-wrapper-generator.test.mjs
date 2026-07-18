@@ -9,9 +9,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  CONDITIONAL_PROVIDER_OPERATION_IDS,
+  CONDITIONAL_PROVIDER_ROUTE_COUNT,
+  NATIVE_CODEC_ROUTE_IDS,
   REVIEWED_DIGESTS,
   REVIEWED_SEMANTIC_DIGESTS,
   WRAPPER_ROUTE_ASSIGNMENTS,
+  WRAPPER_ROUTE_COUNT,
   buildWebGpuWrapperPlan,
   renderWebGpuTestWrapper,
   validateWebGpuWrapperAuthority,
@@ -37,6 +41,14 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function nativeRoute(value, operationId) {
+  const route = value.payload.wireEnvelope.nativeCodecPrograms.routes.find(
+    (candidate) => candidate.operationId === operationId,
+  );
+  if (!route) throw new Error(`missing native codec route: ${operationId}`);
+  return route;
+}
+
 describe("test-only WebGPU wrapper generator", () => {
   test("binds the reviewed normalized projection and all subordinate digests", () => {
     const { computed } = validateWebGpuWrapperAuthority(authority);
@@ -55,28 +67,24 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(nativePrograms.carrierValidationDependency.programOwns).toBe(
       "selected-payload-layout-plus-operation-specific-carrier-joins-and-constraints-only",
     );
-    expect(nativePrograms.routes.map((route) => route.operationId)).toEqual([
-      "GPU.requestAdapter",
-      "GPUAdapter.requestDevice",
-      "GPUDevice.createBindGroupLayout",
-      "GPUDevice.createCommandEncoder",
-      "GPUDevice.createShaderModule",
-      "GPUDevice.destroy",
-    ]);
-    expect(nativePrograms.routes[0].request.catalog.wireTag).toBe(2);
-    expect(nativePrograms.routes[0].completion.catalog.wireTag).toBe(6);
-    expect(nativePrograms.routes[0].completion.variants[0].payload).toEqual({
+    expect(nativePrograms.routes.map((route) => route.operationId)).toEqual(
+      NATIVE_CODEC_ROUTE_IDS,
+    );
+    const requestAdapter = nativeRoute(authority, "GPU.requestAdapter");
+    expect(requestAdapter.request.catalog.wireTag).toBe(2);
+    expect(requestAdapter.completion.catalog.wireTag).toBe(6);
+    expect(requestAdapter.completion.variants[0].payload).toEqual({
       kind: "empty",
       exactLengthBytes: 0,
     });
     expect(
-      nativePrograms.routes[0].completion.variants[1].payload.fields.at(-1),
+      requestAdapter.completion.variants[1].payload.fields.at(-1),
     ).toEqual({
       name: "serviceDetachedExpired",
       type: "u8",
       constraint: "boolean-zero-or-one",
     });
-    const requestDevice = nativePrograms.routes[1];
+    const requestDevice = nativeRoute(authority, "GPUAdapter.requestDevice");
     expect(requestDevice.request.catalog.wireTag).toBe(3);
     expect(requestDevice.completion.catalog.wireTag).toBe(4);
     expect(requestDevice.request.executablePrerequisites).toEqual([
@@ -104,7 +112,10 @@ describe("test-only WebGPU wrapper generator", () => {
       serviceResultPath: "nativeSemanticServiceResult.diagnosticMessage",
       operator: "equal-never-caller-selected",
     });
-    const createBindGroupLayout = nativePrograms.routes[2];
+    const createBindGroupLayout = nativeRoute(
+      authority,
+      "GPUDevice.createBindGroupLayout",
+    );
     expect(createBindGroupLayout.request.catalog.wireTag).toBe(15);
     expect(createBindGroupLayout.completion.catalog.wireTag).toBe(2);
     expect(createBindGroupLayout.request.executablePrerequisites).toEqual([]);
@@ -125,7 +136,10 @@ describe("test-only WebGPU wrapper generator", () => {
     ]);
     expect(nativePrograms.types.bindGroupLayoutDescriptorV1.fields[1].value)
       .toMatchObject({ minCount: 1, maxCount: 5 });
-    const createCommandEncoder = nativePrograms.routes[3];
+    const createCommandEncoder = nativeRoute(
+      authority,
+      "GPUDevice.createCommandEncoder",
+    );
     expect(createCommandEncoder.request.catalog.wireTag).toBe(5);
     expect(createCommandEncoder.completion.catalog.wireTag).toBe(2);
     expect(createCommandEncoder.request.executablePrerequisites).toEqual([]);
@@ -135,7 +149,10 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(createCommandEncoder.completion.variants.map(
       (variant) => variant.name,
     )).toEqual(["operation-success"]);
-    const createShaderModule = nativePrograms.routes[4];
+    const createShaderModule = nativeRoute(
+      authority,
+      "GPUDevice.createShaderModule",
+    );
     expect(createShaderModule.request.catalog.wireTag).toBe(7);
     expect(createShaderModule.completion.catalog.wireTag).toBe(2);
     expect(createShaderModule.request.executablePrerequisites).toEqual([]);
@@ -161,7 +178,7 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(createShaderModule.completion.variants.map(
       (variant) => variant.name,
     )).toEqual(["operation-success"]);
-    const deviceDestroy = nativePrograms.routes[5];
+    const deviceDestroy = nativeRoute(authority, "GPUDevice.destroy");
     expect(deviceDestroy.request.catalog.wireTag).toBe(12);
     expect(deviceDestroy.completion.catalog.wireTag).toBe(2);
     expect(deviceDestroy.request.executablePrerequisites).toEqual([]);
@@ -220,10 +237,14 @@ describe("test-only WebGPU wrapper generator", () => {
 
   test("carries every authenticated operation field into one bijective wrapper route", () => {
     const plan = buildWebGpuWrapperPlan(authority, semantics);
-    expect(plan.routes).toHaveLength(26);
-    expect(WRAPPER_ROUTE_ASSIGNMENTS).toHaveLength(26);
-    expect(new Set(plan.routes.map((route) => route.operationId)).size).toBe(26);
-    expect(new Set(plan.routes.map((route) => route.wireId)).size).toBe(26);
+    expect(plan.routes).toHaveLength(WRAPPER_ROUTE_COUNT);
+    expect(WRAPPER_ROUTE_ASSIGNMENTS).toHaveLength(WRAPPER_ROUTE_COUNT);
+    expect(new Set(plan.routes.map((route) => route.operationId)).size).toBe(
+      WRAPPER_ROUTE_COUNT,
+    );
+    expect(new Set(plan.routes.map((route) => route.wireId)).size).toBe(
+      WRAPPER_ROUTE_COUNT,
+    );
     for (const operation of authority.payload.operations) {
       const route = plan.routes.find((candidate) => candidate.operationId === operation.operationId);
       const assignment = WRAPPER_ROUTE_ASSIGNMENTS.find(
@@ -253,21 +274,9 @@ describe("test-only WebGPU wrapper generator", () => {
       profileBucket: { core: 8192, compatibility: 8192 },
       capabilityGrantBoundary: { core: 8192, compatibility: 8192 },
     });
-    expect(plan.semantic.providerRoutingPrograms.map((program) => program.operationId)).toEqual([
-      "GPU.requestAdapter",
-      "GPUAdapter.requestDevice",
-      "GPUCanvasContext.configure",
-      "GPUCanvasContext.unconfigure",
-      "GPUDevice.createBindGroupLayout",
-      "GPUDevice.createCommandEncoder",
-      "GPUDevice.createRenderPipeline",
-      "GPUDevice.createShaderModule",
-      "GPUDevice.destroy",
-      "GPUDevice.popErrorScope",
-      "GPUQueue.submit",
-      "GPUTexture.createView",
-      "GPUTexture.destroy",
-    ]);
+    expect(
+      plan.semantic.providerRoutingPrograms.map((program) => program.operationId),
+    ).toEqual(CONDITIONAL_PROVIDER_OPERATION_IDS);
     expect(plan.semantic.requestDeviceProviderDescriptor.policy).toBe(
       "generated-logical-limits-plus-versioned-service-internal-requirements-only",
     );
@@ -284,7 +293,9 @@ describe("test-only WebGPU wrapper generator", () => {
     );
     expect(validated.semanticProjection.requestDeviceRouting.terminals).toHaveLength(17);
     expect(validated.semanticProjection.requestDeviceFailureProgram.branches).toHaveLength(10);
-    expect(validated.semanticProjection.providerRoutingPrograms).toHaveLength(13);
+    expect(validated.semanticProjection.providerRoutingPrograms).toHaveLength(
+      CONDITIONAL_PROVIDER_ROUTE_COUNT,
+    );
     expect(
       validated.semanticProjection.limitPolicy.requestValidation
         .unknownNonUndefined,
@@ -419,7 +430,7 @@ describe("test-only WebGPU wrapper generator", () => {
     mutations.push(nativeSchema);
 
     const nativeBodyOrder = clone(authority);
-    nativeBodyOrder.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+    nativeRoute(nativeBodyOrder, "GPU.requestAdapter")
       .request.payload.fields.reverse();
     mutations.push(nativeBodyOrder);
 
@@ -433,8 +444,7 @@ describe("test-only WebGPU wrapper generator", () => {
     mutations.push(nativeCarrierDependency);
 
     const nativeCatalog = clone(authority);
-    nativeCatalog.payload.wireEnvelope.nativeCodecPrograms.routes[0]
-      .request.catalog.wireTag = 3;
+    nativeRoute(nativeCatalog, "GPU.requestAdapter").request.catalog.wireTag = 3;
     mutations.push(nativeCatalog);
 
     const nativeOptions = clone(authority);
@@ -443,43 +453,42 @@ describe("test-only WebGPU wrapper generator", () => {
     mutations.push(nativeOptions);
 
     const nativeJoin = clone(authority);
-    nativeJoin.payload.wireEnvelope.nativeCodecPrograms.routes[0]
-      .request.carrierJoins.pop();
+    nativeRoute(nativeJoin, "GPU.requestAdapter").request.carrierJoins.pop();
     mutations.push(nativeJoin);
 
     const nativeNull = clone(authority);
-    nativeNull.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+    nativeRoute(nativeNull, "GPU.requestAdapter")
       .completion.variants[0].payload.exactLengthBytes = 13;
     mutations.push(nativeNull);
 
     const nativeProviderJoin = clone(authority);
-    nativeProviderJoin.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+    nativeRoute(nativeProviderJoin, "GPU.requestAdapter")
       .completion.variants[1].carrierJoins[0].carrierPath =
         "record.operation_result.operation.result_device.provider_generation";
     mutations.push(nativeProviderJoin);
 
     const nativeDetachedState = clone(authority);
-    nativeDetachedState.payload.wireEnvelope.nativeCodecPrograms.routes[0]
+    nativeRoute(nativeDetachedState, "GPU.requestAdapter")
       .completion.variants[1].payload.fields.at(-1).constraint = "positive";
     mutations.push(nativeDetachedState);
 
     const nativeRequestDeviceDerivation = clone(authority);
-    nativeRequestDeviceDerivation.payload.wireEnvelope.nativeCodecPrograms.routes[1]
+    nativeRoute(nativeRequestDeviceDerivation, "GPUAdapter.requestDevice")
       .request.semanticServiceDerivations[0].ownership = "wrapper-supplied";
     mutations.push(nativeRequestDeviceDerivation);
 
     const nativeRequestDeviceDiagnostic = clone(authority);
-    nativeRequestDeviceDiagnostic.payload.wireEnvelope.nativeCodecPrograms.routes[1]
+    nativeRoute(nativeRequestDeviceDiagnostic, "GPUAdapter.requestDevice")
       .completion.serviceResultJoins.pop();
     mutations.push(nativeRequestDeviceDiagnostic);
 
     const nativeRequestDeviceTransition = clone(authority);
-    nativeRequestDeviceTransition.payload.wireEnvelope.nativeCodecPrograms.routes[1]
+    nativeRoute(nativeRequestDeviceTransition, "GPUAdapter.requestDevice")
       .completion.variants[2].carrierConstraints[0].value = 1;
     mutations.push(nativeRequestDeviceTransition);
 
     const nativeBindGroupLayoutTarget = clone(authority);
-    nativeBindGroupLayoutTarget.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+    nativeRoute(nativeBindGroupLayoutTarget, "GPUDevice.createBindGroupLayout")
       .request.carrierConstraints.find(
         (constraint) => constraint.carrierPath === "target.kind",
       ).valueFrom = "objectKindTags.GPUShaderModule";
@@ -487,8 +496,10 @@ describe("test-only WebGPU wrapper generator", () => {
 
     const nativeBindGroupLayoutValidationOrder = clone(authority);
     const nativeBindGroupLayoutValidationSteps =
-      nativeBindGroupLayoutValidationOrder.payload.wireEnvelope.nativeCodecPrograms
-        .routes[2].request.semanticServiceBoundary.requiredAfterDecode;
+      nativeRoute(
+        nativeBindGroupLayoutValidationOrder,
+        "GPUDevice.createBindGroupLayout",
+      ).request.semanticServiceBoundary.requiredAfterDecode;
     [nativeBindGroupLayoutValidationSteps[4], nativeBindGroupLayoutValidationSteps[5]] = [
       nativeBindGroupLayoutValidationSteps[5],
       nativeBindGroupLayoutValidationSteps[4],
@@ -506,7 +517,7 @@ describe("test-only WebGPU wrapper generator", () => {
     mutations.push(nativeShaderDescriptor);
 
     const nativeShaderTarget = clone(authority);
-    nativeShaderTarget.payload.wireEnvelope.nativeCodecPrograms.routes[4]
+    nativeRoute(nativeShaderTarget, "GPUDevice.createShaderModule")
       .request.carrierConstraints.find(
         (constraint) => constraint.carrierPath === "target.kind",
       ).valueFrom = "objectKindTags.GPUCommandEncoder";
@@ -514,7 +525,7 @@ describe("test-only WebGPU wrapper generator", () => {
 
     const nativeShaderValidationOrder = clone(authority);
     const nativeShaderValidationSteps =
-      nativeShaderValidationOrder.payload.wireEnvelope.nativeCodecPrograms.routes[4]
+      nativeRoute(nativeShaderValidationOrder, "GPUDevice.createShaderModule")
         .request.semanticServiceBoundary.requiredAfterDecode;
     [nativeShaderValidationSteps[4], nativeShaderValidationSteps[5]] = [
       nativeShaderValidationSteps[5],
@@ -523,28 +534,28 @@ describe("test-only WebGPU wrapper generator", () => {
     mutations.push(nativeShaderValidationOrder);
 
     const nativeDeviceDestroyTimeline = clone(authority);
-    nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[5]
+    nativeRoute(nativeDeviceDestroyTimeline, "GPUDevice.destroy")
       .request.valueConstraints[0].operator = "exact-empty-sequence";
     mutations.push(nativeDeviceDestroyTimeline);
 
     const nativeDeviceDestroyAdmission = clone(authority);
-    nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[5]
+    nativeRoute(nativeDeviceDestroyAdmission, "GPUDevice.destroy")
       .completion.variants[1].carrierConstraints[1].operator = "equal";
     mutations.push(nativeDeviceDestroyAdmission);
 
     const nativeDeviceDestroyTerminal = clone(authority);
-    nativeDeviceDestroyTerminal.payload.wireEnvelope.nativeCodecPrograms.routes[5]
+    nativeRoute(nativeDeviceDestroyTerminal, "GPUDevice.destroy")
       .completion.semanticTerminalMapping.terminals[2].terminalId =
         "generic-admitted-cleanup";
     mutations.push(nativeDeviceDestroyTerminal);
 
     const nativeDeviceDestroyTerminalCount = clone(authority);
-    nativeDeviceDestroyTerminalCount.payload.wireEnvelope.nativeCodecPrograms.routes[5]
+    nativeRoute(nativeDeviceDestroyTerminalCount, "GPUDevice.destroy")
       .completion.semanticTerminalMapping.terminals[2].providerTokenCount = 0;
     mutations.push(nativeDeviceDestroyTerminalCount);
 
     const nativeDeviceDestroyErrorMapping = clone(authority);
-    nativeDeviceDestroyErrorMapping.payload.wireEnvelope.nativeCodecPrograms.routes[5]
+    nativeRoute(nativeDeviceDestroyErrorMapping, "GPUDevice.destroy")
       .completion.semanticTerminalMapping.terminals[1].event.kind =
         "operation-result";
     mutations.push(nativeDeviceDestroyErrorMapping);

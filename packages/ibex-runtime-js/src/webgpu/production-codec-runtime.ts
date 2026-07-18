@@ -68,7 +68,7 @@ interface NativeCodecField {
       | 1660448199
       | 194635792
       | 206890944
-      | 2939505691
+      | 2544948076
       | 599085487
       | 4055478657;
   }>;
@@ -294,7 +294,7 @@ interface NativeCodecCreateCommandEncoderRoute {
 
 interface NativeCodecCreateBindGroupLayoutRoute {
   readonly operationId: 'GPUDevice.createBindGroupLayout';
-  readonly wireId: 2939505691;
+  readonly wireId: 2544948076;
   readonly request: Readonly<{
     payloadRole:
       'service-request-payload-decoder-plus-operation-specific-call-joins';
@@ -604,7 +604,7 @@ const REQUEST_DEVICE_REQUEST_CODEC = 'gpu-request-device-service-request-v1';
 const REQUEST_DEVICE_COMPLETION_CODEC = 'gpu-device-service-completion-v1';
 const CREATE_BIND_GROUP_LAYOUT_OPERATION_ID =
   'GPUDevice.createBindGroupLayout';
-const CREATE_BIND_GROUP_LAYOUT_WIRE_ID = 2939505691;
+const CREATE_BIND_GROUP_LAYOUT_WIRE_ID = 2544948076;
 const CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC =
   'gpu-create-bind-group-layout-service-request-v1';
 const CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC =

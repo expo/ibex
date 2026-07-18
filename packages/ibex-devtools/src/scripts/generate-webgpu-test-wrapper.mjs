@@ -16,6 +16,7 @@ import {
 } from "./generated-output-io.mjs";
 import {
   REVIEWED_DIGESTS,
+  WRAPPER_ROUTE_COUNT,
   renderWebGpuTestWrapper,
 } from "./webgpu-test-wrapper-generator.mjs";
 
@@ -59,7 +60,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-test-wrapper-generation: 26/26 routes fresh at normalized projection " +
+      `webgpu-test-wrapper-generation: ${WRAPPER_ROUTE_COUNT}/${WRAPPER_ROUTE_COUNT} routes fresh at normalized projection ` +
         REVIEWED_DIGESTS.projection,
     );
     return;

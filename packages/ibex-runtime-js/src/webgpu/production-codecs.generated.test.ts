@@ -395,7 +395,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       routes: [
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
-        { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2939505691 },
+        { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
         { operationId: 'GPUDevice.destroy', wireId: 206890944 },
@@ -478,7 +478,9 @@ describe('generated injection-only WebGPU executable codecs', () => {
 
   test('fails closed on native codec program and carrier-constant mutations', () => {
     const program = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms;
-    const route = program.routes[0]!;
+    const route = program.routes.find(
+      (candidate) => candidate.operationId === 'GPU.requestAdapter',
+    )!;
     const reversedRequestFields = {
       ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
       nativeCodecPrograms: {
@@ -1433,11 +1435,14 @@ describe('generated injection-only WebGPU executable codecs', () => {
     const input = serviceInput(operationId);
     const nativeRoute = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes
       .find((candidate) => candidate.operationId === operationId)!;
+    const planRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === operationId,
+    )!;
     const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
       (candidate) =>
         candidate.tag === 'gpu-create-bind-group-layout-service-request-v1',
     )!;
-    expect(nativeRoute.wireId).toBe(2939505691);
+    expect(nativeRoute.wireId).toBe(planRoute.wireId);
     expect(nativeRoute.request.catalog.wireTag).toBe(15);
     expect(nativeRoute.completion.catalog.wireTag).toBe(2);
     expect(nativeRoute.request.executablePrerequisites).toEqual([]);
@@ -1472,7 +1477,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       payload.buffer,
       payload.byteOffset,
       payload.byteLength,
-    ).getUint32(8, true)).toBe(2939505691);
+    ).getUint32(8, true)).toBe(nativeRoute.wireId);
     expect(Array.from(payload.slice(53, 55))).toEqual([
       1,
       WEBGPU_OBJECT_KIND_TAGS.GPUBindGroupLayout,

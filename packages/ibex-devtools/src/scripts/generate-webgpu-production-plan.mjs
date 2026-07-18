@@ -61,6 +61,33 @@ const REQUIRED_WORKLOAD_BLOCKERS = Object.freeze([
   "generated-capsec-edge-and-supported-target-cell",
   "native-conformance-and-platform-evidence",
 ]);
+const IMMUTABLE_TRIANGLE_ROUTE_IDS = Object.freeze([
+  "GPU.getPreferredCanvasFormat",
+  "GPU.requestAdapter",
+  "GPUAdapter.requestDevice",
+  "GPUCanvasContext.configure",
+  "GPUCanvasContext.getConfiguration",
+  "GPUCanvasContext.getCurrentTexture",
+  "GPUCanvasContext.unconfigure",
+  "GPUCommandEncoder.beginRenderPass",
+  "GPUCommandEncoder.finish",
+  "GPUDevice.createCommandEncoder",
+  "GPUDevice.createRenderPipeline",
+  "GPUDevice.createShaderModule",
+  "GPUDevice.destroy",
+  "GPUDevice.features",
+  "GPUDevice.limits",
+  "GPUDevice.lost",
+  "GPUDevice.popErrorScope",
+  "GPUDevice.pushErrorScope",
+  "GPUDevice.queue",
+  "GPUQueue.submit",
+  "GPURenderPassEncoder.draw",
+  "GPURenderPassEncoder.end",
+  "GPURenderPassEncoder.setPipeline",
+  "GPUTexture.createView",
+  "GPUTexture.destroy",
+]);
 
 function exactSet(actual, expected, label) {
   if (
@@ -150,7 +177,7 @@ function stagingProjectionSha256(staging) {
     .digest("hex");
 }
 
-function validateWorkloadStaging(staging, routeIds) {
+function validateWorkloadStaging(staging, routeIds, activeScopeId) {
   if (
     staging?.schema !== "ibex/webgpu-typegpu-workload-staging/1" ||
     staging.artifactVersion !== 1 ||
@@ -177,10 +204,11 @@ function validateWorkloadStaging(staging, routeIds) {
   }
   exactSet(staging.blockers, REQUIRED_WORKLOAD_BLOCKERS, "TypeGPU staging blockers");
   if (
+    staging.activeRouteSubset.scopeId !== activeScopeId ||
     staging.activeRouteSubset.operationCount !== routeIds.length ||
     staging.activeRouteSubset.operationIds.length !== routeIds.length
   ) {
-    throw new Error("TypeGPU active route subset count drifted");
+    throw new Error("TypeGPU active route subset scope or count drifted");
   }
   exactSet(
     staging.activeRouteSubset.operationIds,
@@ -200,6 +228,43 @@ function validateWorkloadStaging(staging, routeIds) {
     throw new Error("TypeGPU workload operation closure is not bijective");
   }
   const routeSet = new Set(routeIds);
+  const triangleSet = new Set(IMMUTABLE_TRIANGLE_ROUTE_IDS);
+  if (triangleSet.size !== 25) {
+    throw new Error("immutable TypeGPU triangle route set drifted");
+  }
+  exactSet(
+    routeIds.filter((operationId) => triangleSet.has(operationId)),
+    IMMUTABLE_TRIANGLE_ROUTE_IDS,
+    "immutable TypeGPU active triangle routes",
+  );
+  const graduatedRouteSet = new Set(
+    routeIds.filter((operationId) => !triangleSet.has(operationId)),
+  );
+  const workloadOperationSet = new Set(operationIds);
+  exactSet(
+    operations
+      .filter(
+        (operation) =>
+          operation.disposition === "active-private-triangle-route",
+      )
+      .map((operation) => operation.operationId),
+    IMMUTABLE_TRIANGLE_ROUTE_IDS.filter((operationId) =>
+      workloadOperationSet.has(operationId),
+    ),
+    "TypeGPU workload triangle disposition rows",
+  );
+  exactSet(
+    operations
+      .filter(
+        (operation) =>
+          operation.disposition === "active-private-graduated-route",
+      )
+      .map((operation) => operation.operationId),
+    [...graduatedRouteSet].filter((operationId) =>
+      workloadOperationSet.has(operationId),
+    ),
+    "TypeGPU workload graduated disposition rows",
+  );
   const additional = operations.filter(
     (operation) => !routeSet.has(operation.operationId),
   );
@@ -207,13 +272,14 @@ function validateWorkloadStaging(staging, routeIds) {
     throw new Error("TypeGPU additional operation count drifted");
   }
   for (const operation of operations) {
-    const isRoute = routeSet.has(operation.operationId);
+    const expectedDisposition = triangleSet.has(operation.operationId)
+      ? "active-private-triangle-route"
+      : graduatedRouteSet.has(operation.operationId)
+        ? "active-private-graduated-route"
+        : "staged-unroutable-no-prototype-member";
     if (
       !["method", "property"].includes(operation.memberKind) ||
-      operation.disposition !==
-        (isRoute
-          ? "active-private-triangle-route"
-          : "staged-unroutable-no-prototype-member")
+      operation.disposition !== expectedDisposition
     ) {
       throw new Error(`invalid TypeGPU staging disposition for ${operation.operationId}`);
     }
@@ -272,6 +338,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
   const stagedWorkloadClosure = validateWorkloadStaging(
     workloadStaging,
     routes.map((route) => route.operationId),
+    payload.scopeId,
   );
   const plan = {
     schema: "ibex/webgpu-production-wrapper-plan/1",

@@ -4,15 +4,15 @@
 export const WEBGPU_PRODUCTION_PLAN = {
   "schema": "ibex/webgpu-production-wrapper-plan/1",
   "profileId": "exact-webgpu-v1-draft",
-  "scopeId": "native-triangle-phase-1a-v1",
+  "scopeId": "native-triangle-plus-typegpu-graduates-v1",
   "maxPayloadBytes": 16777216,
   "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
   "digests": {
-    "operationSet": "f7e3463c2c4ece96ac96db8ad37e8e7bdb9ff725c456d19da9c70129168aeaaa",
-    "semanticProgramSet": "002bb0f6c113d6509abf9d253b9a29e50aec8a13f7fec45e08fc6ee1aaea4eeb",
-    "runtimeRouting": "5abdbc9fdaf27846a31eb7798d9700b91fd724cb49e7d6402cd1c3b41cfb2b92",
-    "webgpuCVocabulary": "209c948b4616a3af7081605f42d0521e3845cb4d00d61778407526639cbee3f0",
-    "projection": "5c9507b19fcc644962abf41e038349b955ff30dc24826a0d7177b7e5c3cf25ab"
+    "operationSet": "db5941fdf6ca9779c0db646c37050eb2454b93699f2196957c4d1f919ee96b18",
+    "semanticProgramSet": "6b89e9bcb3f1f1725e9c7b7caf6c6a917f338dcf2927f00c4fab48411616e60f",
+    "runtimeRouting": "cc1728ac93b059c9324754d5ab2cef51d0dacf66b368a585328989bb81569b0e",
+    "webgpuCVocabulary": "6ff03a0a46d1500305ea3671161cf4a44162965c17c8710e484aabf11cf1496a",
+    "projection": "607dc7e29b44e5e00e41339a4987c5ff437530e58cb8df7ebb1b51950fab185f"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -124,7 +124,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     ]
   },
   "activeRouteSubset": {
-    "scopeId": "native-triangle-phase-1a-v1",
+    "scopeId": "native-triangle-plus-typegpu-graduates-v1",
     "operationCount": 26,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
@@ -162,7 +162,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
     "source": {
       "path": "tests/gpu/typegpu-workload-closure-v1.json",
-      "normalizedProjectionSha256": "66b7c73e54c241a7c4b916b380c888834f8fe30d3addb6d3ab332b1516ddc814",
+      "normalizedProjectionSha256": "01e4bdd6d1cb668e1db1a46a6b98fc458b84fed1bd51c02bce45672abf6e658c",
       "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
     },
     "typegpuVersion": "0.11.9",
@@ -611,7 +611,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUDevice.createBindGroupLayout",
-      "wireId": 2939505691,
+      "wireId": 2544948076,
       "interfaceName": "GPUDevice",
       "memberName": "createBindGroupLayout",
       "memberKind": "method",
