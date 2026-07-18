@@ -1884,6 +1884,20 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(codec.nativeProgramPrerequisitesRepresented).toBe(true);
     expect(codec.executableFromCurrentAuthenticatedInputs).toBe(true);
     expect(codec.unavailableSemanticFields).toEqual([]);
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.types.bufferDescriptorV1
+        .fields[0],
+    ).toEqual({
+      name: 'label',
+      required: true,
+      value: {
+        kind: 'string',
+        constraints: [
+          'maximum-utf8-bytes-16777017',
+          'shares-total-payload-budget-with-sealed-local-timeline',
+        ],
+      },
+    });
 
     const effects: string[] = [];
     const counts = { label: 0, mappedAtCreation: 0, size: 0, usage: 0 };
@@ -2032,6 +2046,30 @@ describe('generated injection-only WebGPU executable codecs', () => {
       },
       convertedArguments: converted,
     });
+
+    const maximumLabelInput = {
+      ...input,
+      sealedLocalTimeline: Object.freeze([]),
+      convertedArguments: Object.freeze({
+        label: 'x'.repeat(16_777_017),
+        mappedAtCreation: false,
+        size: 4,
+        usage: 9,
+      }),
+    };
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+        maximumLabelInput,
+      ).byteLength,
+    ).toBe(16_777_216);
+    expect(() =>
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest({
+        ...maximumLabelInput,
+        convertedArguments: Object.freeze({
+          ...maximumLabelInput.convertedArguments,
+          label: 'x'.repeat(16_777_018),
+        }),
+      })).toThrow('structural transport bounds');
 
     for (const semanticOnlyDescriptor of [
       { label: '', mappedAtCreation: false, size: 0, usage: 9 },

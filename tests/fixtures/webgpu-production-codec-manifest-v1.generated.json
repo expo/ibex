@@ -50,8 +50,8 @@
     "operationSet": "52131b02df0ecc91b0d4d28cc0a6cb6d2ac30ff47cf87cde62a41c1091d6b11d",
     "semanticProgramSet": "fe6d766216a77bbc9c1e8221294414280e10e3f82cdd1629a21d25d32e0b5648",
     "runtimeRouting": "7822220e6269e973472d7eb4d4fa2d296a56d986eef14706195d8ff424adbbf8",
-    "webgpuCVocabulary": "4d0bbbbf764298af9cd95f090da304011f1fb5c3e78d0fbd15efbe5a1a337866",
-    "projection": "19bd2f5f7802b179903df823f0b6f8e4d1fb0be12b103c60ad627c75fa127067"
+    "webgpuCVocabulary": "ef58699aecc6940587ede30d9f40d116cc9a204219f5b7063c0de8274f43802d",
+    "projection": "8f221c18eef28478fdbb0c0d03605450ad7af2eca1ac102a2d36358f70f3e6dd"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -754,7 +754,11 @@
             "name": "label",
             "required": true,
             "value": {
-              "kind": "string"
+              "kind": "string",
+              "constraints": [
+                "maximum-utf8-bytes-16777017",
+                "shares-total-payload-budget-with-sealed-local-timeline"
+              ]
             }
           },
           {

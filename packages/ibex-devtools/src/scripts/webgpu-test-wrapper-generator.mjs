@@ -753,7 +753,17 @@ function validateNativeCodecPrograms(payload) {
       providerBoundary: "forbidden-raw-descriptor-must-not-reach-provider",
       unknownFields: "reject",
       fields: [
-        { name: "label", required: true, value: { kind: "string" } },
+        {
+          name: "label",
+          required: true,
+          value: {
+            kind: "string",
+            constraints: [
+              "maximum-utf8-bytes-16777017",
+              "shares-total-payload-budget-with-sealed-local-timeline",
+            ],
+          },
+        },
         { name: "mappedAtCreation", required: true, value: { kind: "boolean" } },
         {
           name: "size",

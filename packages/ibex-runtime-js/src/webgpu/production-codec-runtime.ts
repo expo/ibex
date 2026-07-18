@@ -639,6 +639,7 @@ const CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_BUFFER_OPERATION_ID = 'GPUDevice.createBuffer';
 const CREATE_BUFFER_WIRE_ID = 1497473481;
+const CREATE_BUFFER_MAX_LABEL_UTF8_BYTES = 16_777_017;
 const CREATE_BUFFER_REQUEST_CODEC = 'gpu-create-buffer-service-request-v1';
 const CREATE_BUFFER_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
@@ -1139,7 +1140,17 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
       providerBoundary: 'forbidden-raw-descriptor-must-not-reach-provider',
       unknownFields: 'reject',
       fields: [
-        { name: 'label', required: true, value: { kind: 'string' } },
+        {
+          name: 'label',
+          required: true,
+          value: {
+            kind: 'string',
+            constraints: [
+              'maximum-utf8-bytes-16777017',
+              'shares-total-payload-budget-with-sealed-local-timeline',
+            ],
+          },
+        },
         {
           name: 'mappedAtCreation',
           required: true,
@@ -5240,6 +5251,8 @@ function validateCreateBufferDescriptorForService(value: unknown): void {
   const descriptor = value as Readonly<Record<string, unknown>>;
   if (
     typeof descriptor.label !== 'string' ||
+    encodeUtf8(descriptor.label).byteLength >
+      CREATE_BUFFER_MAX_LABEL_UTF8_BYTES ||
     typeof descriptor.mappedAtCreation !== 'boolean' ||
     !isConvertedU64(descriptor.size) ||
     descriptor.size > 268_435_456 ||
