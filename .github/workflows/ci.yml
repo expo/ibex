@@ -70,7 +70,12 @@ jobs:
       # binary is present (transforms.test.mjs probes IBEX_HERMES_BIN and the
       # exact-monorepo tools/hermes layout).
       - name: Run JS test suites
-        run: bun test packages
+        run: |
+          # Devtools and runtime tests intentionally replace process-global
+          # compatibility hooks. Keep their complete suites in separate Bun
+          # processes so one product layer cannot leak test state into another.
+          bun test packages/ibex-devtools/src/scripts
+          bun test packages/ibex-runtime-js/src
 
       # One drift gate, shared verbatim with the local land-time check so CI
       # and `bun run check:drift` can never diverge on what "current" means
