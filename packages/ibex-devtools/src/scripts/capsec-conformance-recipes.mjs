@@ -983,6 +983,72 @@ const nativeProjectMkdirTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectWriteFileTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-write-file"),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex-capsec-write-file"),
+      ]),
+      literalArgument(null),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 5,
+      deny: 1,
+      malformed: 5,
+      "missing-attribution": 5,
+      "wrong-principal": 5,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(
+          "target",
+          "ibex-capsec-write-file",
+        ),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(
+          "target",
+          "ibex-capsec-write-file",
+        ),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: [],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -1012,6 +1078,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
   ["__exactMkdir", nativeProjectMkdirTemplate()],
+  ["__exactWriteFile", nativeProjectWriteFileTemplate()],
   ["__exactStatfs", nativeProjectStatfsTemplate()],
   [
     "__exactAuthorizeSystemInfo",
