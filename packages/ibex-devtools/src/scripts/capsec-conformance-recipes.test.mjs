@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_672);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_074);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_598);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_962);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_710);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -264,53 +264,71 @@ describe("exact-target CapSec executable recipes", () => {
     ).toHaveLength(13);
   });
 
-  test("binds Windows filesystem probes to the installed Windows ABI", () => {
-    const openFlags = new Map([
-      ["read", 0],
-      ["read-write", 2],
-      ["write", 521],
-    ]);
-    for (const [logicalBranch, flags] of openFlags) {
-      const recipe = windowsRecipes.recipes.find(
-        (candidate) =>
-          candidate.scenario === "allow" &&
-          candidate.fixtureId.includes(`.logical.${logicalBranch}.`) &&
-          candidate.publicSurfaceProbe?.invocation?.globalName ===
-            "__exactFsOpen",
-      );
-      expect(recipe).toBeDefined();
-      expect(recipe.publicSurfaceProbe.invocation).toMatchObject({
-        sourceDescriptor: {
-          arity: 3,
-          sourceRef:
-            "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsOpen",
-        },
-        arguments: [
-          { kind: "json-literal" },
-          { kind: "json-literal", value: flags },
-          { kind: "json-literal", value: 0o666 },
-        ],
-      });
-    }
-    for (const [globalName, arity, argumentCount] of [
-      ["__exactReadFile", 1, 1],
-      ["__exactWriteFile", 2, 2],
+  test("keeps installed but untyped Windows public operations residual", () => {
+    for (const [globalName, expectedCount] of [
+      ["__exactFsOpen", 18],
+      ["__exactFsPathAsync", 48],
+      ["__exactLstat", 5],
+      ["__exactMkdir", 5],
+      ["__exactReadFile", 5],
+      ["__exactReaddir", 5],
+      ["__exactRealpath", 5],
+      ["__exactStat", 5],
+      ["__exactStatfs", 5],
+      ["__exactTcpConnect", 5],
+      ["__exactWriteFile", 5],
     ]) {
-      const recipe = windowsRecipes.recipes.find(
-        (candidate) =>
-          candidate.scenario === "allow" &&
-          candidate.publicSurfaceProbe?.invocation?.globalName === globalName,
+      const rows = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.terminalObservedKey === `native-op:${globalName}` &&
+          recipe.residualReasons.includes(
+            "native-public-operation-not-typed-on-target",
+          ),
       );
-      expect(recipe).toBeDefined();
-      const invocation = recipe.publicSurfaceProbe.invocation;
-      expect(invocation.sourceDescriptor).toEqual({
-        arity,
-        globalName,
-        kind: "native-global-function",
-        sourceRef: `src/engine/hermes_runtime_fs_windows.cc#jsi-global:${globalName}`,
-      });
-      expect(invocation.arguments).toHaveLength(argumentCount);
+      expect(rows).toHaveLength(expectedCount);
+      expect(rows.every((recipe) => recipe.publicSurfaceProbe === null)).toBe(
+        true,
+      );
+      expect(
+        rows.every(
+          (recipe) =>
+            !recipe.residualReasons.includes(
+              "native-public-operation-not-installed-on-target",
+            ),
+        ),
+      ).toBe(true);
+      expect(
+        windowsRecipes.recipes.filter(
+          (recipe) =>
+            recipe.terminalObservedKey === `native-op:${globalName}` &&
+            recipe.status === "fully-executable",
+        ),
+      ).toHaveLength(0);
     }
+
+    const close = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactFsClose" &&
+        recipe.residualReasons.includes(
+          "native-public-setup-operation-not-typed-on-target",
+        ),
+    );
+    expect(close).toBeDefined();
+    expect(close.publicSurfaceProbe).toBeNull();
+    expect(close.status).toBe("unresolved");
+    expect(close.residualReasons).not.toContain(
+      "native-public-operation-not-installed-on-target",
+    );
+    expect(
+      windowsRecipes.summary.residualReasons[
+        "native-public-operation-not-typed-on-target"
+      ],
+    ).toBe(122);
+    expect(
+      windowsRecipes.summary.residualReasons[
+        "native-public-setup-operation-not-typed-on-target"
+      ],
+    ).toBe(1);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {

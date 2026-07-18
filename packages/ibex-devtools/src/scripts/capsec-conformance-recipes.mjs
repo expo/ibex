@@ -3298,44 +3298,49 @@ function bindNativeSetupSources(setup, liveByObservedKey, target) {
   };
 }
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// installed legacy-gated Windows operations remain residual instead of
+// borrowing typed public recipes from the Apple target.
+const WINDOWS_UNTYPED_NATIVE_PUBLIC_OPERATIONS = new Set([
+  "__exactFsOpen",
+  "__exactFsPathAsync",
+  "__exactLstat",
+  "__exactMkdir",
+  "__exactReadFile",
+  "__exactReaddir",
+  "__exactRealpath",
+  "__exactStat",
+  "__exactStatfs",
+  "__exactTcpConnect",
+  "__exactWriteFile",
+]);
+
+const WINDOWS_UNTYPED_NATIVE_PUBLIC_SETUP_OPERATIONS = new Set([
+  "__exactFsClose",
+]);
+
 function nativePublicTemplateForTarget(template, invocation, target) {
   if (!target.triple.includes("-windows-")) {
     return template;
   }
-  if (invocation.globalName === "__exactReadFile") {
+  if (WINDOWS_UNTYPED_NATIVE_PUBLIC_OPERATIONS.has(invocation.globalName)) {
     return {
       ...template,
-      arguments: [clone(template.arguments[0])],
-      requiredSourceArity: 1,
+      unsupportedTargetReason: "native-public-operation-not-typed-on-target",
+      unsupportedTargetTriples: [target.triple],
     };
   }
-  if (invocation.globalName === "__exactWriteFile") {
+  if (
+    WINDOWS_UNTYPED_NATIVE_PUBLIC_SETUP_OPERATIONS.has(invocation.globalName)
+  ) {
     return {
       ...template,
-      arguments: [
-        clone(template.arguments[0]),
-        clone(template.arguments[1]),
-      ],
-      requiredSourceArity: 2,
+      unsupportedTargetReason:
+        "native-public-setup-operation-not-typed-on-target",
+      unsupportedTargetTriples: [target.triple],
     };
   }
-  if (invocation.globalName !== "__exactFsOpen") return template;
-  const nodeFlags = new Map([
-    ["r", 0],
-    ["r+", 2],
-    ["a", 1 | 8 | 512],
-  ]);
-  const flags = template.arguments?.[1]?.value;
-  if (!nodeFlags.has(flags)) return template;
-  return {
-    ...template,
-    arguments: [
-      clone(template.arguments[0]),
-      literalArgument(nodeFlags.get(flags)),
-      clone(template.arguments[2]),
-    ],
-    requiredSourceArity: 3,
-  };
+  return template;
 }
 
 function nativePublicProbeForPlan({

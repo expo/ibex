@@ -643,17 +643,25 @@ bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalogs are target-specific:
 Apple has 22,932 required fixtures, 5,226 fully executable recipes, and 17,706
-unresolved fixtures; Windows has 22,672 required fixtures, 5,074 executable,
-and 17,598 unresolved. The build graph excludes 260 POSIX-only enforcement
+unresolved fixtures; Windows has 22,672 required fixtures, 4,962 executable,
+and 17,710 unresolved. The build graph excludes 260 POSIX-only enforcement
 fixtures from Windows instead of treating their translation units as fallback
 implementations. Windows executes 85 source-bound native target-absence probes;
 69 additional target-absence source invocations remain unavailable, alongside
-11 operations absent from the target and 11 not yet typed there. None of those
+11 recipes for two operations absent from the target and 122 recipes across
+13 installed operations not yet typed there. One installed zero-effect
+close operation also remains residual because its physical recipe would have
+to obtain a descriptor through an untyped Windows open. None of those
 differences is borrowed from Apple or credited without target-local evidence.
-Merged native globals retain every target variant's public source descriptor,
-and recipe production selects the descriptor attached to the built branch.
-Windows filesystem evidence therefore binds the Windows source refs and arities,
-uses numeric Node open flags, and omits POSIX-only typed-context arguments.
+Target-specific native source descriptors remain inventory inputs and recipe
+production selects the descriptor attached to the built branch wherever source
+discovery proves one. Independently, recipe production refuses to advertise the
+Windows path APIs `__exactFsOpen`,
+`__exactFsPathAsync`, `__exactLstat`, `__exactMkdir`, `__exactReadFile`,
+`__exactReaddir`, `__exactRealpath`, `__exactStat`, `__exactStatfs`, and
+`__exactWriteFile`, or the Windows `__exactTcpConnect`: those installed
+implementations still use the legacy capability gate, which armed execution
+rejects instead of emitting typed decisions.
 The latest source-bound tranches add 322 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
@@ -716,7 +724,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,706 unresolved Apple fixtures and 17,598
+are 7,043 ambiguous routes with 17,706 unresolved Apple fixtures and 17,710
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -1574,28 +1582,34 @@ arguments. Successful public execution must emit requested, retained-parent
 discovery, leaf discovery, and commit decisions, and the harness must remove
 the created directory before
 the fixture can pass. Denial occurs at requested before creation. This closes
-the direct Apple and Windows surface cells independently from the asynchronous
-dispatcher route; recursive creation remains closed under armed startup.
+the direct Apple surface independently from the asynchronous dispatcher route;
+the installed Windows surface remains residual until it uses the typed gate,
+and recursive creation remains closed under armed startup.
 Direct `__exactWriteFile` similarly receives bytes from the source-bound
 `__exactStringToUtf8Bytes` native producer and a null typed-handle argument. It
 can create only one exact harness-owned target file under the joint `fs:list`
 and `fs:write` floor. Passing evidence requires requested, retained-parent and
 created-target discovery, commit, and repeat decisions, exact written bytes,
 and removal of the file after the
-call; denial stops at requested before creation.
+call; denial stops at requested before creation. These are Apple recipes; the
+installed Windows implementation remains residual because it still uses the
+legacy capability gate.
 Direct `__exactAppendFile` uses the same typed retained-object route against a
 pre-seeded exact harness-owned file. Passing evidence must preserve the known
 prefix, append all source-derived suffix bytes, observe requested, two
 discovery, commit, and repeat decisions, and then remove the file. Denial stops
 at requested, leaves the prefix byte-identical, and still removes the harness
 fixture outside the observation.
-Direct `__exactFsOpen` covers its read, write, and read-write logical branches
+Direct Apple `__exactFsOpen` covers its read, write, and read-write logical branches
 with non-mutating `r`, `a`, and `r+` flags against three exact pre-seeded files.
 Successful and branch-selection evidence must emit requested, discovery,
 target discovery, and commit decisions, close the returned descriptor through
 `__exactFsClose`, prove the fixture bytes unchanged, and remove the file.
 Denial stops at requested and still proves unchanged bytes before harness
-cleanup.
+cleanup. Windows `__exactFsOpen` is installed but remains residual because its
+legacy capability check necessarily refuses while the host is armed; the
+zero-effect Windows close recipe remains residual with it because the harness
+cannot honestly source-bind a descriptor-producing setup.
 The POSIX `__exactFsOpenAsync` surface mirrors those three exact owned fixtures
 through event-loop quiescence. Successful and branch-selection evidence binds
 the asynchronous surface plus its synchronous descriptor-cleanup terminal,
@@ -1760,8 +1774,8 @@ Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
 consume an authoritative matrix run before refusing the report.
-Its current catalog has 22,672 required fixtures, 5,074 executable recipes, and
-17,598 unresolved fixtures. The
+Its current catalog has 22,672 required fixtures, 4,962 executable recipes, and
+17,710 unresolved fixtures. The
 source-derived class-factory traversal is path-cycle safe: a uniquely resolved
 factory may be revisited after its current return chain unwinds, but a mutually
 recursive return chain cannot recurse forever or invent a class shape. The
