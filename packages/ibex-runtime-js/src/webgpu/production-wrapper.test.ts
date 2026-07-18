@@ -28,6 +28,9 @@ const CANVAS_AUTHORITY = Object.freeze({
   surfaceAccountToken: '41',
   surfaceAccountGeneration: '43',
 });
+const U64_MAX = '18446744073709551615';
+const U64_MAX_MINUS_ONE = '18446744073709551614';
+const U64_MAX_MINUS_TWO = '18446744073709551613';
 
 type OperationResultEvent = Extract<NativeGpuEventV2, { kind: 1 }>;
 
@@ -41,14 +44,25 @@ interface RecordedSubmission {
 function createFakeBridge(): NativeGpuBridgeV2 & {
   readonly submissions: RecordedSubmission[];
   emit(event: NativeGpuEventV2): void;
+  setSubmitHook(
+    hook: ((operationId: number, metadata: NativeGpuCallMetadataV2) => void) |
+      undefined,
+  ): void;
 } {
   let sink: ((event: NativeGpuEventV2) => void) | undefined;
+  let submitHook:
+    ((operationId: number, metadata: NativeGpuCallMetadataV2) => void) |
+    undefined;
   let nextOperation = 1;
   let nextPromise = 1;
   const submissions: RecordedSubmission[] = [];
   const bridge: NativeGpuBridgeV2 & {
     readonly submissions: RecordedSubmission[];
     emit(event: NativeGpuEventV2): void;
+    setSubmitHook(
+      hook: ((operationId: number, metadata: NativeGpuCallMetadataV2) => void) |
+        undefined,
+    ): void;
   } = {
     abiVersion: 0x0002_0000,
     runtimeAddress: '11',
@@ -61,6 +75,7 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     submissions,
     submit(operationId, wantsPromise, metadata, payload) {
       submissions.push({ operationId, wantsPromise, metadata, payload });
+      submitHook?.(operationId, metadata);
       const operationInstanceId = String(nextOperation++);
       const promiseId = wantsPromise ? String(nextPromise++) : '0';
       const receipt = wantsPromise
@@ -124,6 +139,9 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     },
     emit(event) {
       sink?.(event);
+    },
+    setSubmitHook(hook) {
+      submitHook = hook;
     },
   };
   return bridge;
@@ -300,6 +318,34 @@ function emitDeviceLoss(
     hasInitiatingOperation: false,
     payload: new Uint8Array(),
   });
+}
+
+function emitProviderLoss(
+  bridge: ReturnType<typeof createFakeBridge>,
+): void {
+  bridge.emit({
+    kind: 3,
+    runtimeAddress: bridge.runtimeAddress,
+    runtimeNonce: bridge.runtimeNonce,
+    topologyId: 1,
+    realmId: bridge.realmId,
+    realmGeneration: bridge.realmGeneration,
+    logicalDeviceId: '301',
+    logicalDeviceGeneration: '1',
+    providerGeneration: '7',
+    lastAcceptedPhysicalSequence: '9',
+    backendClass: 1,
+    lossReason: 1,
+    hasInitiatingOperation: false,
+    payload: new Uint8Array(),
+  });
+}
+
+function inspectBinding(
+  binding: ReturnType<typeof createProductionWebGpuPrivateBinding>,
+) {
+  if (!binding.inspectForTest) throw new Error('state inspection was not enabled');
+  return binding.inspectForTest();
 }
 
 function latestCanvasTextureOrigin(
@@ -1123,6 +1169,105 @@ describe('production-private WebGPU wrapper factory', () => {
     })).toThrow('realm is revoked');
   });
 
+  test('fences canvas authority lineage across object IDs with bounded live indexes', () => {
+    const binding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const firstIdentity = {
+      objectId: '401',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority: CANVAS_AUTHORITY,
+    } as const;
+    const first = binding.mintCanvasContext(firstIdentity) as TestCanvasContext;
+
+    expect(() => binding.mintCanvasContext({
+      ...firstIdentity,
+      objectId: '402',
+    })).toThrow('authority aliases an existing live identity');
+    expect(() => binding.mintCanvasContext({
+      ...firstIdentity,
+      objectId: '402',
+      authority: { ...CANVAS_AUTHORITY, contextGeneration: '38' },
+    })).toThrow('lineage is stale or conflicting');
+    expect(() => binding.mintCanvasContext({
+      ...firstIdentity,
+      objectId: '402',
+      authority: { ...CANVAS_AUTHORITY, attachmentGeneration: '32' },
+    })).toThrow('lineage is stale or conflicting');
+    expect(() => binding.mintCanvasContext({
+      ...firstIdentity,
+      objectId: '402',
+      authority: {
+        ...CANVAS_AUTHORITY,
+        attachmentGeneration: '32',
+        contextGeneration: '36',
+      },
+    })).toThrow('lineage is stale or conflicting');
+    expect(first.getConfiguration()).toBeNull();
+
+    const resizedAuthority = Object.freeze({
+      ...CANVAS_AUTHORITY,
+      attachmentGeneration: '32',
+      contextGeneration: '38',
+      targetAuthorityDigest: 'cd'.repeat(32),
+    });
+    const resized = binding.mintCanvasContext({
+      ...firstIdentity,
+      objectId: '402',
+      drawingBufferWidth: 800,
+      drawingBufferHeight: 600,
+      authority: resizedAuthority,
+    }) as TestCanvasContext;
+    expect(() => first.getConfiguration()).toThrow('identity is stale');
+    expect(binding.mintCanvasContext({
+      ...firstIdentity,
+      objectId: '402',
+      drawingBufferWidth: 800,
+      drawingBufferHeight: 600,
+      authority: { ...resizedAuthority },
+    })).toBe(resized);
+    expect(() => binding.mintCanvasContext(firstIdentity))
+      .toThrow('lineage is stale or conflicting');
+
+    const resetChildAuthority = Object.freeze({
+      ...resizedAuthority,
+      surfaceAccountGeneration: '44',
+      attachmentGeneration: '1',
+      contextGeneration: '1',
+      targetAuthorityDigest: 'ef'.repeat(32),
+    });
+    const resetChild = binding.mintCanvasContext({
+      ...firstIdentity,
+      objectId: '403',
+      objectGeneration: '1',
+      drawingBufferWidth: 1024,
+      drawingBufferHeight: 768,
+      authority: resetChildAuthority,
+    }) as TestCanvasContext;
+    expect(() => resized.getConfiguration()).toThrow('identity is stale');
+
+    const distinct = binding.mintCanvasContext({
+      objectId: '501',
+      objectGeneration: '1',
+      drawingBufferWidth: 320,
+      drawingBufferHeight: 240,
+      authority: {
+        ...CANVAS_AUTHORITY,
+        surfaceAccountToken: '99',
+        surfaceAccountGeneration: '1',
+      },
+    }) as TestCanvasContext;
+    expect(resetChild.getConfiguration()).toBeNull();
+    expect(distinct.getConfiguration()).toBeNull();
+    expect(inspectBinding(binding).current.indexedCanvasContextCount).toBe(2);
+    binding.revoke();
+    expect(inspectBinding(binding).lastClose?.indexedCanvasContextCount).toBe(2);
+  });
+
   test('device destroy synchronously enters canvas LOST exactly once and preserves stale origin', async () => {
     const bridge = createFakeBridge();
     const binding = createProductionWebGpuPrivateBinding(
@@ -1240,6 +1385,159 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
+  test('routes only unsettled live devices and forgets 1,100 destroyed terminals', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs([], { distinctLiveDevices: true }),
+      { enableStateInspection: true },
+    );
+    let firstLost: Promise<unknown> | undefined;
+    for (let index = 0; index < 1_100; index += 1) {
+      const device = await requestTestDevice(binding);
+      firstLost ??= device.lost;
+      device.destroy();
+      expect(await device.lost).toEqual({
+        reason: 'destroyed',
+        message: 'The device was destroyed',
+      });
+    }
+    expect(inspectBinding(binding).current.routedDeviceCount).toBe(0);
+    binding.revoke();
+    binding.revoke();
+    const inspection = inspectBinding(binding);
+    expect(inspection.lastClose).toMatchObject({
+      closeReason: 'realm-revoked',
+      routedDeviceCount: 0,
+      pendingLocalRecordCount: 0,
+      pendingPromiseCount: 0,
+    });
+    expect(await firstLost!).toEqual({
+      reason: 'destroyed',
+      message: 'The device was destroyed',
+    });
+  });
+
+  test('snapshots targeted and provider-wide loss routing with stable duplicate settlement', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs([], { distinctLiveDevices: true }),
+      { enableStateInspection: true },
+    );
+    const first = await requestTestDevice(binding);
+    const second = await requestTestDevice(binding);
+    const third = await requestTestDevice(binding);
+
+    emitDeviceLoss(bridge, '301', '1');
+    expect(await first.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    expect(inspectBinding(binding).current.routedDeviceCount).toBe(2);
+    emitDeviceLoss(bridge, '301', '2');
+    expect(inspectBinding(binding).current.routedDeviceCount).toBe(2);
+
+    emitProviderLoss(bridge);
+    expect(await second.lost).toEqual({ reason: 'unknown', message: 'loss-3' });
+    expect(await third.lost).toEqual({ reason: 'unknown', message: 'loss-3' });
+    expect(inspectBinding(binding).current.routedDeviceCount).toBe(0);
+
+    emitDeviceLoss(bridge, '311', '3');
+    emitProviderLoss(bridge);
+    binding.revoke();
+    expect(await first.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    expect(await second.lost).toEqual({ reason: 'unknown', message: 'loss-3' });
+    expect(inspectBinding(binding).lastClose?.routedDeviceCount).toBe(0);
+  });
+
+  test('makes local destroy win over a synchronous native loss callback', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const device = await requestTestDevice(binding);
+    const destroyWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPUDevice.destroy',
+    )?.wireId;
+    if (destroyWireId === undefined) throw new Error('missing destroy route');
+    let inlineLossCount = 0;
+    bridge.setSubmitHook((operationId) => {
+      if (operationId !== destroyWireId) return;
+      inlineLossCount += 1;
+      emitDeviceLoss(bridge, '301', String(inlineLossCount));
+    });
+
+    device.destroy();
+    expect(await device.lost).toEqual({
+      reason: 'destroyed',
+      message: 'The device was destroyed',
+    });
+    const submissionCount = bridge.submissions.length;
+    device.destroy();
+    expect(bridge.submissions).toHaveLength(submissionCount);
+    expect(inlineLossCount).toBe(1);
+    binding.revoke();
+  });
+
+  test('submits destroy cleanup once after unknown loss without replacing the winner', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const device = await requestTestDevice(binding);
+    const stableLost = device.lost;
+    emitDeviceLoss(bridge, '301', '1');
+    expect(await stableLost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    expect(device.lost).toBe(stableLost);
+
+    const beforeDestroy = bridge.submissions.length;
+    device.destroy();
+    expect(bridge.submissions).toHaveLength(beforeDestroy + 1);
+    expect(device.lost).toBe(stableLost);
+    expect(await device.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    device.destroy();
+    expect(bridge.submissions).toHaveLength(beforeDestroy + 1);
+    binding.revoke();
+  });
+
+  test('does not repopulate Promise bookkeeping after synchronous realm close in submit', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const requestAdapterWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPU.requestAdapter',
+    )?.wireId;
+    if (requestAdapterWireId === undefined) {
+      throw new Error('missing requestAdapter route');
+    }
+    bridge.setSubmitHook((operationId) => {
+      if (operationId !== requestAdapterWireId) return;
+      bridge.emit({
+        kind: 6,
+        runtimeAddress: bridge.runtimeAddress,
+        runtimeNonce: bridge.runtimeNonce,
+        realmId: bridge.realmId,
+        realmGeneration: bridge.realmGeneration,
+        closeOrdinal: '1',
+        closeReason: 1,
+        payload: new Uint8Array(),
+      });
+    });
+    await expect((binding.gpu as {
+      requestAdapter(): Promise<unknown>;
+    }).requestAdapter()).rejects.toThrow('realm closed during GPU.requestAdapter');
+    expect(inspectBinding(binding).current).toMatchObject({
+      active: false,
+      pendingPromiseCount: 0,
+      pendingLocalRecordCount: 0,
+      routedDeviceCount: 0,
+    });
+    binding.revoke();
+  });
+
   test('rejects missing or malformed host canvas authority synchronously', () => {
     const binding = createProductionWebGpuPrivateBinding(
       createFakeBridge(),
@@ -1252,7 +1550,7 @@ describe('production-private WebGPU wrapper factory', () => {
       drawingBufferHeight: 480,
     };
     expect(() => binding.mintCanvasContext(base as never))
-      .toThrow('authority is incomplete or malformed');
+      .toThrow('identity is incomplete or malformed');
     expect(() => binding.mintCanvasContext({
       ...base,
       authority: {
@@ -1299,6 +1597,414 @@ describe('production-private WebGPU wrapper factory', () => {
       authority: nonEnumerableMemberAuthority,
     })).toThrow('authority is incomplete or malformed');
     binding.revoke();
+  });
+
+  test('captures canvas envelopes and nested authority exactly once without getters', () => {
+    const binding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    let outerOwnKeys = 0;
+    let outerDescriptors = 0;
+    let outerGets = 0;
+    let authorityOwnKeys = 0;
+    let authorityDescriptors = 0;
+    let authorityGets = 0;
+    const authorityTarget = { ...CANVAS_AUTHORITY };
+    let outerTarget: Record<string, unknown>;
+    const authority = new Proxy(authorityTarget, {
+      ownKeys(target) {
+        authorityOwnKeys += 1;
+        outerTarget.objectId = '999';
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, key) {
+        authorityDescriptors += 1;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+      get() {
+        authorityGets += 1;
+        throw new Error('authority getter trap must not run');
+      },
+    });
+    outerTarget = {
+      objectId: '401',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority,
+    };
+    const envelope = new Proxy(outerTarget, {
+      ownKeys(target) {
+        outerOwnKeys += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, key) {
+        outerDescriptors += 1;
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+      get() {
+        outerGets += 1;
+        throw new Error('outer getter trap must not run');
+      },
+    });
+    const context = binding.mintCanvasContext(envelope as never);
+    expect(outerOwnKeys).toBe(1);
+    expect(outerDescriptors).toBe(5);
+    expect(outerGets).toBe(0);
+    expect(authorityOwnKeys).toBe(1);
+    expect(authorityDescriptors).toBe(5);
+    expect(authorityGets).toBe(0);
+
+    authorityTarget.contextGeneration = '999';
+    expect(binding.mintCanvasContext({
+      objectId: '401',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority: { ...CANVAS_AUTHORITY },
+    })).toBe(context);
+
+    let outerAccessorRuns = 0;
+    const outerAccessor = {
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority: CANVAS_AUTHORITY,
+    } as Record<string, unknown>;
+    Object.defineProperty(outerAccessor, 'objectId', {
+      enumerable: true,
+      get() {
+        outerAccessorRuns += 1;
+        return '402';
+      },
+    });
+    expect(() => binding.mintCanvasContext(outerAccessor as never))
+      .toThrow('identity is incomplete or malformed');
+    expect(outerAccessorRuns).toBe(0);
+
+    let authorityAccessorRuns = 0;
+    const authorityAccessor = { ...CANVAS_AUTHORITY } as Record<string, unknown>;
+    Object.defineProperty(authorityAccessor, 'contextGeneration', {
+      enumerable: true,
+      get() {
+        authorityAccessorRuns += 1;
+        return '38';
+      },
+    });
+    expect(() => binding.mintCanvasContext({
+      objectId: '402',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority: authorityAccessor,
+    } as never)).toThrow('authority is incomplete or malformed');
+    expect(authorityAccessorRuns).toBe(0);
+
+    const outerSymbol = {
+      objectId: '402',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+      authority: CANVAS_AUTHORITY,
+      [Symbol('ambient')]: true,
+    };
+    expect(() => binding.mintCanvasContext(outerSymbol as never))
+      .toThrow('identity is incomplete or malformed');
+    const outerExtra = { ...outerSymbol } as Record<PropertyKey, unknown>;
+    delete outerExtra[Reflect.ownKeys(outerExtra).find(
+      (key) => typeof key === 'symbol',
+    )!];
+    outerExtra.ambient = true;
+    expect(() => binding.mintCanvasContext(outerExtra as never))
+      .toThrow('identity is incomplete or malformed');
+    const inherited = Object.assign(
+      Object.create({ authority: CANVAS_AUTHORITY }) as Record<string, unknown>,
+      {
+        objectId: '402',
+        objectGeneration: '1',
+        drawingBufferWidth: 640,
+        drawingBufferHeight: 480,
+      },
+    );
+    expect(() => binding.mintCanvasContext(inherited as never))
+      .toThrow('identity is incomplete or malformed');
+    binding.revoke();
+  });
+
+  test('uses the final local object identity exactly once and closes before orphan allocation', async () => {
+    const createBufferWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPUDevice.createBuffer',
+    )?.wireId;
+    if (createBufferWireId === undefined) throw new Error('missing createBuffer route');
+    for (const [seed, successCount] of [
+      [U64_MAX_MINUS_ONE, 2],
+      [U64_MAX, 1],
+    ] as const) {
+      const bridge = createFakeBridge();
+      const counterSeeds = { nextLocalObjectId: seed as string };
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs(),
+        { counterSeeds, enableStateInspection: true },
+      );
+      // Construction snapshots the seed; later caller mutation is irrelevant.
+      counterSeeds.nextLocalObjectId = '1';
+      const device = await requestTestDevice(binding) as TestGpuDevice & {
+        createBuffer(descriptor: unknown): object;
+      };
+      for (let index = 0; index < successCount; index += 1) {
+        expect(device.createBuffer({ mappedAtCreation: false, usage: 1 }))
+          .toBeObject();
+      }
+      const targets = bridge.submissions
+        .filter((submission) => submission.operationId === createBufferWireId)
+        .map((submission) => submission.metadata.targetId);
+      expect(targets).toEqual(
+        successCount === 2 ? [U64_MAX_MINUS_ONE, U64_MAX] : [U64_MAX],
+      );
+      const beforeFailure = inspectBinding(binding).current;
+      const submissionCount = bridge.submissions.length;
+      expect(() => device.createBuffer({ mappedAtCreation: false, usage: 1 }))
+        .toThrow(RangeError);
+      expect(bridge.submissions).toHaveLength(submissionCount);
+      expect(inspectBinding(binding).current.allocatedWrapperCount)
+        .toBe(beforeFailure.allocatedWrapperCount);
+      expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      expect(inspectBinding(binding).lastClose?.closeReason)
+        .toBe('counter-exhausted:local object identity');
+      binding.revoke();
+      binding.revoke();
+    }
+  });
+
+  test('fails canvas generation and epoch exhaustion closed before submission or texture allocation', async () => {
+    const configureWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPUCanvasContext.configure',
+    )?.wireId;
+    if (configureWireId === undefined) throw new Error('missing configure route');
+    for (const [seed, successfulConfigures] of [
+      [U64_MAX_MINUS_ONE, 1],
+      [U64_MAX, 0],
+    ] as const) {
+      const bridge = createFakeBridge();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs(),
+        {
+          counterSeeds: { canvasConfigurationGeneration: seed },
+          enableStateInspection: true,
+        },
+      );
+      const device = await requestTestDevice(binding);
+      const context = mintTestCanvasContext(binding);
+      for (let index = 0; index < successfulConfigures; index += 1) {
+        context.configure({ device, format: 'bgra8unorm' });
+      }
+      const beforeFailure = inspectBinding(binding).current;
+      const submissionCount = bridge.submissions.length;
+      expect(() => context.configure({ device, format: 'bgra8unorm' }))
+        .toThrow(RangeError);
+      expect(bridge.submissions).toHaveLength(submissionCount);
+      expect(
+        bridge.submissions.filter(
+          (submission) => submission.operationId === configureWireId,
+        ),
+      ).toHaveLength(successfulConfigures);
+      expect(inspectBinding(binding).current.allocatedWrapperCount)
+        .toBe(beforeFailure.allocatedWrapperCount);
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      binding.revoke();
+    }
+
+    for (const [seed, hasFirstTexture] of [
+      [U64_MAX_MINUS_ONE, true],
+      [U64_MAX, false],
+    ] as const) {
+      const binding = createProductionWebGpuPrivateBinding(
+        createFakeBridge(),
+        createFakeCodecs(),
+        {
+          counterSeeds: { canvasCurrentEpoch: seed },
+          enableStateInspection: true,
+        },
+      );
+      const device = await requestTestDevice(binding);
+      const context = mintTestCanvasContext(binding);
+      context.configure({ device, format: 'bgra8unorm' });
+      if (hasFirstTexture) {
+        expect(context.getCurrentTexture()).toBeObject();
+        context.configure({ device, format: 'bgra8unorm' });
+      }
+      const beforeFailure = inspectBinding(binding).current;
+      expect(() => context.getCurrentTexture()).toThrow(RangeError);
+      expect(inspectBinding(binding).current.allocatedWrapperCount)
+        .toBe(beforeFailure.allocatedWrapperCount);
+      expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      binding.revoke();
+    }
+  });
+
+  test('preflights every configured context before applying a batch loss transition', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      {
+        counterSeeds: {
+          canvasConfigurationGeneration: U64_MAX_MINUS_TWO,
+        },
+        enableStateInspection: true,
+      },
+    );
+    const device = await requestTestDevice(binding);
+    const first = mintTestCanvasContext(binding);
+    const second = binding.mintCanvasContext({
+      objectId: '402',
+      objectGeneration: '1',
+      drawingBufferWidth: 800,
+      drawingBufferHeight: 600,
+      authority: {
+        ...CANVAS_AUTHORITY,
+        surfaceAccountToken: '99',
+        surfaceAccountGeneration: '1',
+      },
+    }) as TestCanvasContext;
+    first.configure({ device, format: 'bgra8unorm' });
+    second.configure({ device, format: 'bgra8unorm' });
+    second.configure({ device, format: 'bgra8unorm' });
+    expect(inspectBinding(binding).current.canvasLossTransitionCount).toBe(0);
+
+    emitProviderLoss(bridge);
+    expect(await device.lost).toEqual({
+      reason: 'unknown',
+      message:
+        'The WebGPU realm closed because canvas configuration generation was exhausted',
+    });
+    expect(() => first.getConfiguration()).toThrow('realm is revoked');
+    expect(() => second.getConfiguration()).toThrow('realm is revoked');
+    const inspection = inspectBinding(binding);
+    expect(inspection.current).toMatchObject({
+      active: false,
+      routedDeviceCount: 0,
+      indexedCanvasContextCount: 0,
+      pendingLocalRecordCount: 0,
+      pendingPromiseCount: 0,
+      canvasLossTransitionCount: 0,
+    });
+    expect(inspection.lastClose).toMatchObject({
+      routedDeviceCount: 1,
+      indexedCanvasContextCount: 2,
+      canvasLossTransitionCount: 0,
+    });
+    emitProviderLoss(bridge);
+    expect(await device.lost).toEqual({
+      reason: 'unknown',
+      message:
+        'The WebGPU realm closed because canvas configuration generation was exhausted',
+    });
+    binding.revoke();
+  });
+
+  test('uses MAX once for local operation and device ingress identities, then clears timelines', async () => {
+    for (const [seed, successfulRecords] of [
+      [U64_MAX_MINUS_ONE, 2],
+      [U64_MAX, 1],
+    ] as const) {
+      const binding = createProductionWebGpuPrivateBinding(
+        createFakeBridge(),
+        createFakeCodecs(),
+        {
+          counterSeeds: { nextLocalOperationInstanceId: seed },
+          enableStateInspection: true,
+        },
+      );
+      const device = await requestTestDevice(binding);
+      const context = mintTestCanvasContext(binding);
+      context.configure({ device, format: 'bgra8unorm' });
+      let texture: TestCanvasTexture | undefined;
+      for (let index = 0; index < successfulRecords; index += 1) {
+        texture = context.getCurrentTexture();
+      }
+      expect(texture).toBeObject();
+      expect(inspectBinding(binding).current.pendingLocalRecordCount)
+        .toBe(successfulRecords);
+      const beforeFailure = inspectBinding(binding).current;
+      expect(() => context.getCurrentTexture()).toThrow(RangeError);
+      expect(inspectBinding(binding).current.allocatedWrapperCount)
+        .toBe(beforeFailure.allocatedWrapperCount);
+      expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      binding.revoke();
+    }
+
+    for (const [seed, successfulLocalRecords] of [
+      [U64_MAX_MINUS_ONE, 1],
+      [U64_MAX, 0],
+    ] as const) {
+      const bridge = createFakeBridge();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs(),
+        {
+          counterSeeds: { nextDeviceIngressOrdinal: seed },
+          enableStateInspection: true,
+        },
+      );
+      const device = await requestTestDevice(binding);
+      const context = mintTestCanvasContext(binding);
+      context.configure({ device, format: 'bgra8unorm' });
+      if (successfulLocalRecords === 1) context.getCurrentTexture();
+      const beforeFailure = inspectBinding(binding).current;
+      expect(() => context.getCurrentTexture()).toThrow(RangeError);
+      expect(inspectBinding(binding).current.allocatedWrapperCount)
+        .toBe(beforeFailure.allocatedWrapperCount);
+      expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      binding.revoke();
+    }
+  });
+
+  test('uses MAX once for queue ingress and closes before a further service submission', async () => {
+    const submitWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPUQueue.submit',
+    )?.wireId;
+    if (submitWireId === undefined) throw new Error('missing queue submit route');
+    for (const [seed, successCount] of [
+      [U64_MAX_MINUS_ONE, 2],
+      [U64_MAX, 1],
+    ] as const) {
+      const bridge = createFakeBridge();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs(),
+        {
+          counterSeeds: { nextQueueIngressOrdinal: seed },
+          enableStateInspection: true,
+        },
+      );
+      const device = await requestTestDevice(binding) as TestGpuDevice & {
+        readonly queue: { submit(commandBuffers: readonly unknown[]): void };
+      };
+      for (let index = 0; index < successCount; index += 1) {
+        device.queue.submit([]);
+      }
+      expect(
+        bridge.submissions
+          .filter((submission) => submission.operationId === submitWireId)
+          .map((submission) => submission.metadata.queueIngressOrdinal),
+      ).toEqual(successCount === 2 ? [U64_MAX_MINUS_ONE, U64_MAX] : [U64_MAX]);
+      const submissionCount = bridge.submissions.length;
+      const allocationCount = inspectBinding(binding).current.allocatedWrapperCount;
+      expect(() => device.queue.submit([])).toThrow(RangeError);
+      expect(bridge.submissions).toHaveLength(submissionCount);
+      expect(inspectBinding(binding).current.allocatedWrapperCount)
+        .toBe(allocationCount);
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      binding.revoke();
+    }
   });
 
   test('does not retain an unbounded series of service-detached lost devices', async () => {
