@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 executes all three asynchronous descriptor-open branches through event-loop quiescence on Apple, closes returned descriptors, and keeps the uninstalled Windows surface residual)
 **Revised:** 2026-07-18 (ENG-24933 executes all three direct descriptor-open access branches against exact pre-seeded files, closes returned descriptors, proves non-mutation, and removes the fixtures)
 **Revised:** 2026-07-18 (ENG-24933 binds direct append to an exact pre-seeded file, proves preserved prefix bytes and denial non-mutation, and removes the owned fixture)
 **Revised:** 2026-07-18 (ENG-24933 executes direct directory enumeration against one harness-owned entry with retained repeat evidence and unconditional cleanup)
@@ -1569,6 +1570,13 @@ target discovery, and commit decisions, close the returned descriptor through
 `__exactFsClose`, prove the fixture bytes unchanged, and remove the file.
 Denial stops at requested and still proves unchanged bytes before harness
 cleanup.
+The POSIX `__exactFsOpenAsync` surface mirrors those three exact owned fixtures
+through event-loop quiescence. Successful and branch-selection evidence binds
+the asynchronous surface plus its synchronous descriptor-cleanup terminal,
+closes the returned descriptor, proves unchanged bytes, and removes the file;
+denial stops at requested and removes its unchanged fixture. The Windows
+backend does not install `__exactFsOpenAsync`, so Windows recipes remain
+explicitly residual instead of borrowing the POSIX invocation.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
 harness-owned file. Passing evidence must select requested, discovery, and two
 repeat decisions: one retained-target authorization and one generation-bound

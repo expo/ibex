@@ -1115,7 +1115,12 @@ const nativeProjectAppendFileTemplate = () =>
     requiredSourceArity: 3,
     setup: [],
   });
-const nativeProjectFsOpenTemplate = ({ actionIds, flags, fixture }) =>
+const nativeProjectFsOpenTemplate = ({
+  actionIds,
+  async = false,
+  flags,
+  fixture,
+}) =>
   Object.freeze({
     actionIds,
     arguments: [
@@ -1163,6 +1168,16 @@ const nativeProjectFsOpenTemplate = ({ actionIds, flags, fixture }) =>
     })),
     requiredSourceArity: 4,
     setup: [],
+    ...(async
+      ? {
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+        }
+      : {}),
   });
 const nativeProjectReaddirTemplate = () =>
   Object.freeze({
@@ -2063,6 +2078,38 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "__exactFsOpenAsync",
+    new Map([
+      [
+        "read",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read"],
+          async: true,
+          flags: "r",
+          fixture: "ibex-capsec-fsopen-async-read",
+        }),
+      ],
+      [
+        "read-write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read", "fs:write"],
+          async: true,
+          flags: "r+",
+          fixture: "ibex-capsec-fsopen-async-read-write",
+        }),
+      ],
+      [
+        "write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:write"],
+          async: true,
+          flags: "a",
+          fixture: "ibex-capsec-fsopen-async-write",
+        }),
+      ],
+    ]),
+  ],
+  [
     "__exactFsPathAsync",
     new Map([
       [
@@ -2871,6 +2918,7 @@ function nativePublicProbeForPlan({
   liveByObservedKey,
   coverageByObservedKey,
   adapterProbe,
+  target,
 }) {
   const targetAbsence = plan.expectedObservation.kind === "target-absence";
   const surfaceObservedKey = targetAbsence
@@ -2982,6 +3030,12 @@ function nativePublicProbeForPlan({
     return {
       probe: null,
       unavailableReason: "native-public-arguments-not-authored",
+    };
+  }
+  if (template.unsupportedTargetTriples?.includes(target.triple)) {
+    return {
+      probe: null,
+      unavailableReason: "native-public-operation-not-installed-on-target",
     };
   }
   if (
@@ -3616,6 +3670,7 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       coverageByObservedKey,
       adapterProbe,
+      target,
     });
     const conditionalHostAbiProbe = conditionalHostAbiProbeForPlan({
       plan,

@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_167);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_771);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_185);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_753);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(468);
+    expect(nativePublicFixtures).toHaveLength(486);
     expect(
       nativePublicFixtures
         .filter(
@@ -206,6 +206,13 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_938);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_049);
     expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_889);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsOpenAsync",
+      ),
+    ).toHaveLength(0);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
@@ -1046,7 +1053,7 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
-  test("opens and closes exact owned files for every access branch", () => {
+  test("opens and closes exact owned files for every sync and async access branch", () => {
     const branches = new Map([
       [
         "read",
@@ -1073,45 +1080,64 @@ describe("exact-target CapSec executable recipes", () => {
         },
       ],
     ]);
-    const rows = recipes.recipes.filter(
-      (recipe) =>
-        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactFsOpen",
-    );
-    expect(rows).toHaveLength(18);
-    for (const recipe of rows) {
-      const branch = [...branches.entries()].find(([branchId]) =>
-        recipe.fixtureId.includes(`.logical.${branchId}.${recipe.scenario}`),
-      )?.[1];
-      expect(branch).toBeDefined();
-      const invocation = recipe.publicSurfaceProbe.invocation;
-      expect(invocation.arguments).toEqual([
-        {
-          kind: "json-literal",
-          value: `target/${branch.fixture}`,
-        },
-        { kind: "json-literal", value: branch.flags },
-        { kind: "json-literal", value: 0o666 },
-        { kind: "json-literal", value: null },
-      ]);
-      expect(invocation.expectedCleanup).toBe(
-        "closed-fs-file-descriptor-removed-owned-file",
+    for (const [globalName, async] of [
+      ["__exactFsOpen", false],
+      ["__exactFsOpenAsync", true],
+    ]) {
+      const rows = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
       );
-      expect(invocation.expectedActionIds).toEqual(
-        recipe.scenario === "deny" ? ["fs:list"] : branch.actionIds,
-      );
-      expect(invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "deny"
-          ? ["requested"]
-          : ["requested", "discovery", "discovery", "commit"],
-      );
-      expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 4,
-      );
-      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual(
-        branch.actionIds,
-      );
-      expect(recipe.residualReasons).toEqual([]);
-      expect(recipe.status).toBe("fully-executable");
+      expect(rows).toHaveLength(18);
+      for (const recipe of rows) {
+        const branchEntry = [...branches.entries()].find(([branchId]) =>
+          recipe.fixtureId.includes(`.logical.${branchId}.${recipe.scenario}`),
+        );
+        expect(branchEntry).toBeDefined();
+        const [branchId, branch] = branchEntry;
+        const fixture = async
+          ? branch.fixture.replace("fsopen-", "fsopen-async-")
+          : branch.fixture;
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          {
+            kind: "json-literal",
+            value: `target/${fixture}`,
+          },
+          { kind: "json-literal", value: branch.flags },
+          { kind: "json-literal", value: 0o666 },
+          { kind: "json-literal", value: null },
+        ]);
+        expect(invocation.completion ?? null).toEqual(
+          async
+            ? {
+                kind: "event-loop-quiescence",
+                timeoutMilliseconds: 1_000,
+              }
+            : null,
+        );
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(async ? 2 : 1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor-removed-owned-file",
+        );
+        expect(invocation.expectedActionIds).toEqual(
+          recipe.scenario === "deny" ? ["fs:list"] : branch.actionIds,
+        );
+        expect(invocation.expectedTypedStages).toEqual(
+          recipe.scenario === "deny"
+            ? ["requested"]
+            : ["requested", "discovery", "discovery", "commit"],
+        );
+        expect(invocation.expectedTypedDecisionCount).toBe(
+          recipe.scenario === "deny" ? 1 : 4,
+        );
+        expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual(
+          branch.actionIds,
+        );
+        expect(recipe.fixtureId).toContain(`.logical.${branchId}.`);
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
     }
   });
 

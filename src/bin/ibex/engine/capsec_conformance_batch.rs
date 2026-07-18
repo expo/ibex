@@ -1215,7 +1215,7 @@ fn native_async_invocation_script(
     assert_eq!(completion.timeout_milliseconds, 1_000);
     assert!(arguments.iter().all(|argument| argument["kind"] == "json-literal"));
     format!(
-        "(function(){{var slot={};var n={};delete globalThis[slot];function record(value){{globalThis[slot]=JSON.stringify(value);}}function returned(value){{return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\"}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only materialized JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
+        "(function(){{var slot={};var n={};delete globalThis[slot];function record(value){{globalThis[slot]=JSON.stringify(value);}}function returned(value){{var cleanup=n===\"__exactFsCloseAsync\"&&typeof args[0]===\"number\"?\"consumed-fs-file-descriptor\":\"none\";if(n===\"__exactFsOpenAsync\"&&typeof value===\"number\"&&typeof globalThis.__exactFsClose===\"function\"){{globalThis.__exactFsClose(value);cleanup=\"closed-fs-file-descriptor\";}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,resultString:typeof value===\"string\"?value:null,cleanup:cleanup}};}}var f=globalThis[n];if(typeof f!==\"function\"){{record({{kind:\"missing\",globalName:n}});return \"completed\";}}var specs={};var args=specs.map(function(spec){{if(spec.kind!==\"json-literal\")throw new Error(\"async native fixtures accept only materialized JSON literals\");return spec.value;}});try{{var value=Reflect.apply(f,globalThis,args);if(value===null||typeof value.then!==\"function\"){{record(returned(value));return \"completed\";}}value.then(function(result){{record(returned(result));}},function(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});}});return \"scheduled\";}}catch(error){{record({{kind:\"throw\",globalName:n,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}});return \"completed\";}}}})()",
         serde_json::to_string(NATIVE_ASYNC_RESULT_SLOT).expect("serialize native async slot"),
         serde_json::to_string(&invocation.global_name).expect("serialize async native global"),
         serde_json::to_string(arguments).expect("serialize async native arguments"),
@@ -1375,9 +1375,11 @@ fn validate_native_runtime_observation(
         );
     }
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
-    // an async dispatcher may observe its source-selected worker edge, but no
-    // unrelated edge may be admitted by the authored recipe.
-    let auxiliary_worker_terminal = if invocation.global_name == "__exactFsPathAsync" {
+    // an async dispatcher may observe its source-selected worker or cleanup
+    // edge, but no unrelated edge may be admitted by the authored recipe.
+    let auxiliary_worker_terminal = if invocation.global_name == "__exactFsOpenAsync" {
+        Some("native-op:__exactFsOpen")
+    } else if invocation.global_name == "__exactFsPathAsync" {
         match invocation.arguments.first() {
             Some(NativeProbeArgument::JsonLiteral { value })
                 if value.as_str() == Some("readdir") =>
@@ -1879,7 +1881,10 @@ async fn execute_native_public_recipe(
         std::fs::write(path, b"ibex-capsec-append-prefix:")
             .expect("create direct append-file fixture");
     }
-    let direct_fs_open_fixture = if invocation.global_name == "__exactFsOpen" {
+    let direct_fs_open_fixture = if matches!(
+        invocation.global_name.as_str(),
+        "__exactFsOpen" | "__exactFsOpenAsync"
+    ) {
         match invocation.arguments.first() {
             Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
                 path.as_str()
