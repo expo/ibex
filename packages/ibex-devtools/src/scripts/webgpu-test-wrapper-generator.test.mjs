@@ -134,8 +134,62 @@ describe("test-only WebGPU wrapper generator", () => {
       "authenticate-wrapper-allocated-bind-group-layout-target",
       "select-provider-admission-and-physical-sequence",
     ]);
-    expect(nativePrograms.types.bindGroupLayoutDescriptorV1.fields[1].value)
-      .toMatchObject({ minCount: 1, maxCount: 5 });
+    const bindGroupLayoutType = nativePrograms.types.bindGroupLayoutDescriptorV1;
+    expect(bindGroupLayoutType).toMatchObject({
+      trust: "untrusted-webidl-converted-semantic-service-ingress-only",
+      providerBoundary: "forbidden-raw-descriptor-must-not-reach-provider",
+    });
+    expect(bindGroupLayoutType).not.toHaveProperty("workloadClosure");
+    const bindGroupLayoutFields = Object.fromEntries(
+      bindGroupLayoutType.fields.map((field) => [field.name, field]),
+    );
+    expect(bindGroupLayoutFields.label.value).toEqual({ kind: "string" });
+    expect(bindGroupLayoutFields.entries.value).toMatchObject({
+      minCount: 0,
+      maxCountFrom: "codecLayout.sequenceMaxCount",
+    });
+    expect(bindGroupLayoutFields.entries.value).not.toHaveProperty("constraints");
+    const bindGroupLayoutEntryFields = Object.fromEntries(
+      bindGroupLayoutFields.entries.value.element.fields.map(
+        (field) => [field.name, field],
+      ),
+    );
+    expect(Object.keys(bindGroupLayoutEntryFields)).toEqual([
+      "binding",
+      "buffer",
+      "externalTexture",
+      "sampler",
+      "storageTexture",
+      "texture",
+      "visibility",
+    ]);
+    expect(bindGroupLayoutFields.entries.value.element)
+      .not.toHaveProperty("constraints");
+    const storageFields = Object.fromEntries(
+      bindGroupLayoutEntryFields.storageTexture.value.fields.map(
+        (field) => [field.name, field],
+      ),
+    );
+    const textureFields = Object.fromEntries(
+      bindGroupLayoutEntryFields.texture.value.fields.map(
+        (field) => [field.name, field],
+      ),
+    );
+    expect(storageFields.format.value).toEqual({
+      kind: "string-enum",
+      valuesFrom: "webIdlVocabulary.gpuTextureFormats",
+    });
+    expect(storageFields.viewDimension.value.values).toEqual([
+      "1d",
+      "2d",
+      "2d-array",
+      "cube",
+      "cube-array",
+      "3d",
+    ]);
+    expect(textureFields.viewDimension.value.values).toEqual(
+      storageFields.viewDimension.value.values,
+    );
     const createCommandEncoder = nativeRoute(
       authority,
       "GPUDevice.createCommandEncoder",
@@ -508,7 +562,8 @@ describe("test-only WebGPU wrapper generator", () => {
 
     const nativeBindGroupLayoutSequenceBound = clone(authority);
     nativeBindGroupLayoutSequenceBound.payload.wireEnvelope.nativeCodecPrograms.types
-      .bindGroupLayoutDescriptorV1.fields[1].value.maxCount = 6;
+      .bindGroupLayoutDescriptorV1.fields[1].value.maxCountFrom =
+        "semanticProjection.typeGpuEntryMaximum";
     mutations.push(nativeBindGroupLayoutSequenceBound);
 
     const nativeShaderDescriptor = clone(authority);

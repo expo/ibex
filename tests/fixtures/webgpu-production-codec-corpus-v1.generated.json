@@ -5,7 +5,7 @@
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "6c2b45dd4806081aa232fac7bd93c1655db52fc135a929f2c954f4ebf0564f37"
+    "manifestSha256": "8aae2219efdb0be0c0b0bb6e5b27a7b6337be7ec934fcb8472c7a665147e3b46"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-v1",
@@ -13,8 +13,8 @@
     "operationSet": "db5941fdf6ca9779c0db646c37050eb2454b93699f2196957c4d1f919ee96b18",
     "semanticProgramSet": "6b89e9bcb3f1f1725e9c7b7caf6c6a917f338dcf2927f00c4fab48411616e60f",
     "runtimeRouting": "cc1728ac93b059c9324754d5ab2cef51d0dacf66b368a585328989bb81569b0e",
-    "webgpuCVocabulary": "6ff03a0a46d1500305ea3671161cf4a44162965c17c8710e484aabf11cf1496a",
-    "projection": "607dc7e29b44e5e00e41339a4987c5ff437530e58cb8df7ebb1b51950fab185f"
+    "webgpuCVocabulary": "05188443f6a20632f15b4f713fa5c76c0166f1c4af0e0f1d94c94ef9a097b85e",
+    "projection": "3c41c9f5ae221b7c99d3952a6af72c1fe1f174b3146c4366c1111bf5905a6fad"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
@@ -1899,6 +1899,127 @@
         ]
       },
       "bytesHex": "4942475101000f006cd3b097035000000000000000020000000000000037000000000000000100000000000000090000000000000001095600000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070200000007000000656e7472696573060100000007030000000700000062696e64696e6703000000000e00000073746f72616765546578747572650703000000060000006163636573730509000000726561642d6f6e6c7906000000666f726d6174050a0000007267626138756e6f726d0d0000007669657744696d656e73696f6e050200000033640a0000007669736962696c6974790307000000050000006c6162656c0500000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "semanticErrorIncludes": "outside the pinned TypeGPU resource subset"
+      }
+    },
+    {
+      "id": "create-bind-group-layout-storage-cube-dimension-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createBindGroupLayout",
+      "semanticTerminalId": "later-predicate-rejection",
+      "errorTiming": "device-timeline",
+      "providerTokenCount": 0,
+      "physicalSequenceCount": 0,
+      "rawDescriptor": {
+        "entries": [
+          {
+            "binding": 0,
+            "visibility": 7,
+            "storageTexture": {
+              "access": "write-only",
+              "format": "rgba16float",
+              "viewDimension": "cube"
+            }
+          }
+        ]
+      },
+      "convertedArguments": {
+        "label": "",
+        "entries": [
+          {
+            "binding": 0,
+            "storageTexture": {
+              "access": "write-only",
+              "format": "rgba16float",
+              "viewDimension": "cube"
+            },
+            "visibility": 7
+          }
+        ]
+      },
+      "bytesHex": "4942475101000f006cd3b097035000000000000000020000000000000037000000000000000100000000000000090000000000000001095600000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070200000007000000656e7472696573060100000007030000000700000062696e64696e6703000000000e00000073746f7261676554657874757265070300000006000000616363657373050a00000077726974652d6f6e6c7906000000666f726d6174050b000000726762613136666c6f61740d0000007669657744696d656e73696f6e0504000000637562650a0000007669736962696c6974790307000000050000006c6162656c0500000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "semanticErrorIncludes": "outside the pinned TypeGPU resource subset"
+      }
+    },
+    {
+      "id": "create-bind-group-layout-storage-cube-array-dimension-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createBindGroupLayout",
+      "semanticTerminalId": "later-predicate-rejection",
+      "errorTiming": "device-timeline",
+      "providerTokenCount": 0,
+      "physicalSequenceCount": 0,
+      "rawDescriptor": {
+        "entries": [
+          {
+            "binding": 0,
+            "visibility": 7,
+            "storageTexture": {
+              "access": "write-only",
+              "format": "astc-12x12-unorm-srgb",
+              "viewDimension": "cube-array"
+            }
+          }
+        ]
+      },
+      "convertedArguments": {
+        "label": "",
+        "entries": [
+          {
+            "binding": 0,
+            "storageTexture": {
+              "access": "write-only",
+              "format": "astc-12x12-unorm-srgb",
+              "viewDimension": "cube-array"
+            },
+            "visibility": 7
+          }
+        ]
+      },
+      "bytesHex": "4942475101000f006cd3b097035000000000000000020000000000000037000000000000000100000000000000090000000000000001095600000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070200000007000000656e7472696573060100000007030000000700000062696e64696e6703000000000e00000073746f7261676554657874757265070300000006000000616363657373050a00000077726974652d6f6e6c7906000000666f726d61740515000000617374632d31327831322d756e6f726d2d737267620d0000007669657744696d656e73696f6e050a000000637562652d61727261790a0000007669736962696c6974790307000000050000006c6162656c0500000000",
+      "expected": {
+        "codegenDisposition": "encoded-for-post-decode-semantic-validation",
+        "semanticErrorIncludes": "outside the pinned TypeGPU resource subset"
+      }
+    },
+    {
+      "id": "create-bind-group-layout-max-safe-buffer-size-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createBindGroupLayout",
+      "semanticTerminalId": "later-predicate-rejection",
+      "errorTiming": "device-timeline",
+      "providerTokenCount": 0,
+      "physicalSequenceCount": 0,
+      "rawDescriptor": {
+        "entries": [
+          {
+            "binding": 0,
+            "visibility": 7,
+            "buffer": {
+              "minBindingSize": 9007199254740991
+            }
+          }
+        ]
+      },
+      "convertedArguments": {
+        "label": "",
+        "entries": [
+          {
+            "binding": 0,
+            "buffer": {
+              "hasDynamicOffset": false,
+              "minBindingSize": 9007199254740991,
+              "type": "uniform"
+            },
+            "visibility": 7
+          }
+        ]
+      },
+      "bytesHex": "4942475101000f006cd3b097035000000000000000020000000000000037000000000000000100000000000000090000000000000001095600000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070200000007000000656e7472696573060100000007030000000700000062696e64696e6703000000000600000062756666657207030000001000000068617344796e616d69634f6666736574010e0000006d696e42696e64696e6753697a6504ffffffffffff3f4304000000747970650507000000756e69666f726d0a0000007669736962696c6974790307000000050000006c6162656c0500000000",
       "expected": {
         "codegenDisposition": "encoded-for-post-decode-semantic-validation",
         "semanticErrorIncludes": "outside the pinned TypeGPU resource subset"

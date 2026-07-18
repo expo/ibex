@@ -423,51 +423,190 @@ function validateNativeCodecPrograms(payload) {
     "native requestDevice untrusted descriptor ingress type",
   );
   assertCanonical(
-    {
-      kind: types.bindGroupLayoutDescriptorV1?.kind,
-      encodingType: types.bindGroupLayoutDescriptorV1?.encodingType,
-      unknownFields: types.bindGroupLayoutDescriptorV1?.unknownFields,
-      workloadClosure: types.bindGroupLayoutDescriptorV1?.workloadClosure,
-      fieldNames: types.bindGroupLayoutDescriptorV1?.fields?.map(
-        (field) => field.name,
-      ),
-      labelBound:
-        types.bindGroupLayoutDescriptorV1?.fields?.[0]?.value?.maxUtf8Bytes,
-      entryBounds: {
-        min: types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.minCount,
-        max: types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.maxCount,
-      },
-      entryConstraints:
-        types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.constraints,
-      entryFieldNames:
-        types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.element?.fields?.map(
-          (field) => field.name,
-        ),
-      resourceConstraint:
-        types.bindGroupLayoutDescriptorV1?.fields?.[1]?.value?.element?.constraints,
-    },
+    types.bindGroupLayoutDescriptorV1,
     {
       kind: "closed-dictionary",
       encodingType: "canonicalValueV1",
+      trust: "untrusted-webidl-converted-semantic-service-ingress-only",
+      providerBoundary: "forbidden-raw-descriptor-must-not-reach-provider",
       unknownFields: "reject",
-      workloadClosure: "typegpu-0.11.9-genetic-racing-plus-jelly-slider",
-      fieldNames: ["label", "entries"],
-      labelBound: 57,
-      entryBounds: { min: 1, max: 5 },
-      entryConstraints: [
-        "binding-values-unique-contiguous-ascending-from-zero",
+      fields: [
+        {
+          name: "label",
+          required: true,
+          value: { kind: "string" },
+        },
+        {
+          name: "entries",
+          required: true,
+          value: {
+            kind: "sequence",
+            minCount: 0,
+            maxCountFrom: "codecLayout.sequenceMaxCount",
+            element: {
+              kind: "closed-dictionary",
+              unknownFields: "reject",
+              fields: [
+                {
+                  name: "binding",
+                  required: true,
+                  value: { kind: "u32" },
+                },
+                {
+                  name: "buffer",
+                  required: false,
+                  value: {
+                    kind: "closed-dictionary",
+                    unknownFields: "reject",
+                    fields: [
+                      {
+                        name: "hasDynamicOffset",
+                        required: true,
+                        value: { kind: "boolean" },
+                      },
+                      {
+                        name: "minBindingSize",
+                        required: true,
+                        value: {
+                          kind: "u64",
+                          constraints: ["js-safe-integer"],
+                        },
+                      },
+                      {
+                        name: "type",
+                        required: true,
+                        value: {
+                          kind: "string-enum",
+                          values: ["uniform", "storage", "read-only-storage"],
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  name: "externalTexture",
+                  required: false,
+                  value: {
+                    kind: "closed-dictionary",
+                    unknownFields: "reject",
+                    fields: [],
+                  },
+                },
+                {
+                  name: "sampler",
+                  required: false,
+                  value: {
+                    kind: "closed-dictionary",
+                    unknownFields: "reject",
+                    fields: [
+                      {
+                        name: "type",
+                        required: true,
+                        value: {
+                          kind: "string-enum",
+                          values: ["filtering", "non-filtering", "comparison"],
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  name: "storageTexture",
+                  required: false,
+                  value: {
+                    kind: "closed-dictionary",
+                    unknownFields: "reject",
+                    fields: [
+                      {
+                        name: "access",
+                        required: true,
+                        value: {
+                          kind: "string-enum",
+                          values: ["write-only", "read-only", "read-write"],
+                        },
+                      },
+                      {
+                        name: "format",
+                        required: true,
+                        value: {
+                          kind: "string-enum",
+                          valuesFrom: "webIdlVocabulary.gpuTextureFormats",
+                        },
+                      },
+                      {
+                        name: "viewDimension",
+                        required: true,
+                        value: {
+                          kind: "string-enum",
+                          values: [
+                            "1d",
+                            "2d",
+                            "2d-array",
+                            "cube",
+                            "cube-array",
+                            "3d",
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  name: "texture",
+                  required: false,
+                  value: {
+                    kind: "closed-dictionary",
+                    unknownFields: "reject",
+                    fields: [
+                      {
+                        name: "multisampled",
+                        required: true,
+                        value: { kind: "boolean" },
+                      },
+                      {
+                        name: "sampleType",
+                        required: true,
+                        value: {
+                          kind: "string-enum",
+                          values: [
+                            "float",
+                            "unfilterable-float",
+                            "depth",
+                            "sint",
+                            "uint",
+                          ],
+                        },
+                      },
+                      {
+                        name: "viewDimension",
+                        required: true,
+                        value: {
+                          kind: "string-enum",
+                          values: [
+                            "1d",
+                            "2d",
+                            "2d-array",
+                            "cube",
+                            "cube-array",
+                            "3d",
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  name: "visibility",
+                  required: true,
+                  value: { kind: "u32" },
+                },
+              ],
+            },
+          },
+        },
       ],
-      entryFieldNames: [
-        "binding",
-        "visibility",
-        "buffer",
-        "sampler",
-        "texture",
-        "storageTexture",
-      ],
-      resourceConstraint: ["exactly-one-resource-layout-member"],
     },
-    "native createBindGroupLayout descriptor type",
+    "native createBindGroupLayout post-WebIDL structural descriptor type",
   );
   assertCanonical(
     types.commandEncoderDescriptorV1,

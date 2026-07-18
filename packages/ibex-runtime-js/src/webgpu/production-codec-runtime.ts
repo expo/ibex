@@ -681,6 +681,15 @@ const EXPECTED_COMPLETE_LIMIT_NAMES = Object.freeze([
   'maxImmediateSize',
 ] as const);
 
+const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
+  '1d',
+  '2d',
+  '2d-array',
+  'cube',
+  'cube-array',
+  '3d',
+] as const);
+
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
@@ -916,194 +925,172 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
       ],
     },
     bindGroupLayoutDescriptorV1: {
-      "kind": "closed-dictionary",
-      "encodingType": "canonicalValueV1",
-      "unknownFields": "reject",
-      "workloadClosure": "typegpu-0.11.9-genetic-racing-plus-jelly-slider",
-      "fields": [
+      kind: 'closed-dictionary',
+      encodingType: 'canonicalValueV1',
+      trust: 'untrusted-webidl-converted-semantic-service-ingress-only',
+      providerBoundary: 'forbidden-raw-descriptor-must-not-reach-provider',
+      unknownFields: 'reject',
+      fields: [
         {
-          "name": "label",
-          "required": true,
-          "value": {
-            "kind": "string",
-            "maxUtf8Bytes": 57
-          }
+          name: 'label',
+          required: true,
+          value: { kind: 'string' },
         },
         {
-          "name": "entries",
-          "required": true,
-          "value": {
-            "kind": "sequence",
-            "minCount": 1,
-            "maxCount": 5,
-            "constraints": [
-              "binding-values-unique-contiguous-ascending-from-zero"
-            ],
-            "element": {
-              "kind": "closed-dictionary",
-              "unknownFields": "reject",
-              "constraints": [
-                "exactly-one-resource-layout-member"
+          name: 'entries',
+          required: true,
+          value: {
+            kind: 'sequence',
+            minCount: 0,
+            maxCountFrom: 'codecLayout.sequenceMaxCount',
+            element: {
+              kind: 'closed-dictionary',
+              unknownFields: 'reject',
+              fields: [
+                {
+                  name: 'binding',
+                  required: true,
+                  value: { kind: 'u32' },
+                },
+                {
+                  name: 'buffer',
+                  required: false,
+                  value: {
+                    kind: 'closed-dictionary',
+                    unknownFields: 'reject',
+                    fields: [
+                      {
+                        name: 'hasDynamicOffset',
+                        required: true,
+                        value: { kind: 'boolean' },
+                      },
+                      {
+                        name: 'minBindingSize',
+                        required: true,
+                        value: {
+                          kind: 'u64',
+                          constraints: ['js-safe-integer'],
+                        },
+                      },
+                      {
+                        name: 'type',
+                        required: true,
+                        value: {
+                          kind: 'string-enum',
+                          values: ['uniform', 'storage', 'read-only-storage'],
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  name: 'externalTexture',
+                  required: false,
+                  value: {
+                    kind: 'closed-dictionary',
+                    unknownFields: 'reject',
+                    fields: [],
+                  },
+                },
+                {
+                  name: 'sampler',
+                  required: false,
+                  value: {
+                    kind: 'closed-dictionary',
+                    unknownFields: 'reject',
+                    fields: [
+                      {
+                        name: 'type',
+                        required: true,
+                        value: {
+                          kind: 'string-enum',
+                          values: ['filtering', 'non-filtering', 'comparison'],
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  name: 'storageTexture',
+                  required: false,
+                  value: {
+                    kind: 'closed-dictionary',
+                    unknownFields: 'reject',
+                    fields: [
+                      {
+                        name: 'access',
+                        required: true,
+                        value: {
+                          kind: 'string-enum',
+                          values: ['write-only', 'read-only', 'read-write'],
+                        },
+                      },
+                      {
+                        name: 'format',
+                        required: true,
+                        value: {
+                          kind: 'string-enum',
+                          valuesFrom: 'webIdlVocabulary.gpuTextureFormats',
+                        },
+                      },
+                      {
+                        name: 'viewDimension',
+                        required: true,
+                        value: {
+                          kind: 'string-enum',
+                          values: BIND_GROUP_LAYOUT_VIEW_DIMENSIONS,
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  name: 'texture',
+                  required: false,
+                  value: {
+                    kind: 'closed-dictionary',
+                    unknownFields: 'reject',
+                    fields: [
+                      {
+                        name: 'multisampled',
+                        required: true,
+                        value: { kind: 'boolean' },
+                      },
+                      {
+                        name: 'sampleType',
+                        required: true,
+                        value: {
+                          kind: 'string-enum',
+                          values: [
+                            'float',
+                            'unfilterable-float',
+                            'depth',
+                            'sint',
+                            'uint',
+                          ],
+                        },
+                      },
+                      {
+                        name: 'viewDimension',
+                        required: true,
+                        value: {
+                          kind: 'string-enum',
+                          values: BIND_GROUP_LAYOUT_VIEW_DIMENSIONS,
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  name: 'visibility',
+                  required: true,
+                  value: { kind: 'u32' },
+                },
               ],
-              "fields": [
-                {
-                  "name": "binding",
-                  "required": true,
-                  "value": {
-                    "kind": "u32-enum",
-                    "values": [
-                      0,
-                      1,
-                      2,
-                      3,
-                      4
-                    ]
-                  }
-                },
-                {
-                  "name": "visibility",
-                  "required": true,
-                  "value": {
-                    "kind": "u32-enum",
-                    "values": [
-                      2,
-                      6,
-                      7
-                    ]
-                  }
-                },
-                {
-                  "name": "buffer",
-                  "required": false,
-                  "value": {
-                    "kind": "closed-dictionary",
-                    "unknownFields": "reject",
-                    "fields": [
-                      {
-                        "name": "type",
-                        "required": true,
-                        "value": {
-                          "kind": "string-enum",
-                          "values": [
-                            "uniform",
-                            "storage",
-                            "read-only-storage"
-                          ]
-                        }
-                      },
-                      {
-                        "name": "hasDynamicOffset",
-                        "required": true,
-                        "value": {
-                          "kind": "constant",
-                          "value": false
-                        }
-                      },
-                      {
-                        "name": "minBindingSize",
-                        "required": true,
-                        "value": {
-                          "kind": "constant",
-                          "value": 0
-                        }
-                      }
-                    ]
-                  }
-                },
-                {
-                  "name": "sampler",
-                  "required": false,
-                  "value": {
-                    "kind": "closed-dictionary",
-                    "unknownFields": "reject",
-                    "fields": [
-                      {
-                        "name": "type",
-                        "required": true,
-                        "value": {
-                          "kind": "string-enum",
-                          "values": [
-                            "filtering",
-                            "non-filtering"
-                          ]
-                        }
-                      }
-                    ]
-                  }
-                },
-                {
-                  "name": "texture",
-                  "required": false,
-                  "value": {
-                    "kind": "closed-dictionary",
-                    "unknownFields": "reject",
-                    "fields": [
-                      {
-                        "name": "sampleType",
-                        "required": true,
-                        "value": {
-                          "kind": "constant",
-                          "value": "float"
-                        }
-                      },
-                      {
-                        "name": "viewDimension",
-                        "required": true,
-                        "value": {
-                          "kind": "constant",
-                          "value": "2d"
-                        }
-                      },
-                      {
-                        "name": "multisampled",
-                        "required": true,
-                        "value": {
-                          "kind": "constant",
-                          "value": false
-                        }
-                      }
-                    ]
-                  }
-                },
-                {
-                  "name": "storageTexture",
-                  "required": false,
-                  "value": {
-                    "kind": "closed-dictionary",
-                    "unknownFields": "reject",
-                    "fields": [
-                      {
-                        "name": "access",
-                        "required": true,
-                        "value": {
-                          "kind": "constant",
-                          "value": "write-only"
-                        }
-                      },
-                      {
-                        "name": "format",
-                        "required": true,
-                        "value": {
-                          "kind": "constant",
-                          "value": "rgba16float"
-                        }
-                      },
-                      {
-                        "name": "viewDimension",
-                        "required": true,
-                        "value": {
-                          "kind": "constant",
-                          "value": "2d"
-                        }
-                      }
-                    ]
-                  }
-                }
-              ]
-            }
-          }
-        }
-      ]
+            },
+          },
+        },
+      ],
     },
     commandEncoderDescriptorV1: {
       kind: 'closed-dictionary',
@@ -3645,7 +3632,7 @@ function convertBindGroupLayoutDescriptor(
           ? '2d'
           : enumValue(
             viewDimensionValue,
-            ['1d', '2d', '2d-array', '3d'],
+            BIND_GROUP_LAYOUT_VIEW_DIMENSIONS,
             `GPUStorageTextureBindingLayout[${index}].viewDimension`,
           );
         converted.storageTexture = frozenRecord({
@@ -3675,7 +3662,7 @@ function convertBindGroupLayoutDescriptor(
           ? '2d'
           : enumValue(
             viewDimensionValue,
-            ['1d', '2d', '2d-array', 'cube', 'cube-array', '3d'],
+            BIND_GROUP_LAYOUT_VIEW_DIMENSIONS,
             `GPUTextureBindingLayout[${index}].viewDimension`,
           );
         converted.texture = frozenRecord({
@@ -4816,16 +4803,9 @@ function validateCreateBindGroupLayoutDescriptorForService(
     'sint',
     'uint',
   ]);
-  const textureViewDimensions = new Set([
-    '1d',
-    '2d',
-    '2d-array',
-    'cube',
-    'cube-array',
-    '3d',
-  ]);
+  const textureViewDimensions = new Set(BIND_GROUP_LAYOUT_VIEW_DIMENSIONS);
   const storageAccessValues = new Set(['write-only', 'read-only', 'read-write']);
-  const storageViewDimensions = new Set(['1d', '2d', '2d-array', '3d']);
+  const storageViewDimensions = new Set(BIND_GROUP_LAYOUT_VIEW_DIMENSIONS);
   const resourceNames = [
     'buffer',
     'externalTexture',

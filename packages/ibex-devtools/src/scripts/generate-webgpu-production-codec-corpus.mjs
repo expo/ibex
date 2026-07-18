@@ -1123,6 +1123,47 @@ function buildCorpus() {
       "outside the pinned TypeGPU resource subset",
     ),
     bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-storage-cube-dimension-rejected",
+      {
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          storageTexture: {
+            access: "write-only",
+            format: "rgba16float",
+            viewDimension: "cube",
+          },
+        }],
+      },
+      "outside the pinned TypeGPU resource subset",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-storage-cube-array-dimension-rejected",
+      {
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          storageTexture: {
+            access: "write-only",
+            format: "astc-12x12-unorm-srgb",
+            viewDimension: "cube-array",
+          },
+        }],
+      },
+      "outside the pinned TypeGPU resource subset",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-max-safe-buffer-size-rejected",
+      {
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          buffer: { minBindingSize: Number.MAX_SAFE_INTEGER },
+        }],
+      },
+      "outside the pinned TypeGPU resource subset",
+    ),
+    bindGroupLayoutRejectionVector(
       "create-bind-group-layout-multiple-resource-members-rejected",
       {
         entries: [{

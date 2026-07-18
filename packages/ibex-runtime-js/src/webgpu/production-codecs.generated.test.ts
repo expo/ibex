@@ -1646,6 +1646,138 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toThrow('wrong shape');
   });
 
+  test('carries the complete createBindGroupLayout structural domain before semantic narrowing', () => {
+    const operationId = 'GPUDevice.createBindGroupLayout';
+    const viewDimensions = [
+      '1d',
+      '2d',
+      '2d-array',
+      'cube',
+      'cube-array',
+      '3d',
+    ] as const;
+    const rawEntries: Array<Record<string, unknown>> = [];
+    let binding = 0;
+    for (const type of ['uniform', 'storage', 'read-only-storage'] as const) {
+      rawEntries.push({
+        binding: binding++,
+        visibility: 0xffff_ffff,
+        buffer: {
+          hasDynamicOffset: true,
+          minBindingSize: type === 'uniform' ? Number.MAX_SAFE_INTEGER : 1,
+          type,
+        },
+      });
+    }
+    for (const type of ['filtering', 'non-filtering', 'comparison'] as const) {
+      rawEntries.push({ binding: binding++, visibility: 0, sampler: { type } });
+    }
+    for (const sampleType of [
+      'float',
+      'unfilterable-float',
+      'depth',
+      'sint',
+      'uint',
+    ] as const) {
+      rawEntries.push({
+        binding: binding++,
+        visibility: 1,
+        texture: { multisampled: true, sampleType },
+      });
+    }
+    for (const viewDimension of viewDimensions) {
+      rawEntries.push({
+        binding: binding++,
+        visibility: 2,
+        texture: { viewDimension },
+      });
+    }
+    for (const access of ['write-only', 'read-only', 'read-write'] as const) {
+      rawEntries.push({
+        binding: binding++,
+        visibility: 4,
+        storageTexture: { access, format: 'rgba16float' },
+      });
+    }
+    for (const viewDimension of viewDimensions) {
+      rawEntries.push({
+        binding: binding++,
+        visibility: 7,
+        storageTexture: { format: 'rgba16float', viewDimension },
+      });
+    }
+    rawEntries.push({
+      binding: 0xffff_ffff,
+      visibility: 0xffff_ffff,
+      buffer: {},
+      externalTexture: {},
+      sampler: {},
+      storageTexture: { format: 'astc-12x12-unorm-srgb', viewDimension: 'cube' },
+      texture: { viewDimension: 'cube-array' },
+    });
+    rawEntries.push({ binding: 0, visibility: 0 });
+
+    const convertedArguments = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        operationId,
+        [{ label: 'x'.repeat(65_536), entries: rawEntries }],
+        wrappers,
+      ) as Readonly<{
+        label: string;
+        entries: ReadonlyArray<Readonly<Record<string, unknown>>>;
+      }>;
+    expect(convertedArguments.label).toHaveLength(65_536);
+    expect(convertedArguments.entries).toHaveLength(rawEntries.length);
+    expect(convertedArguments.entries[0]).toMatchObject({
+      visibility: 0xffff_ffff,
+      buffer: { minBindingSize: Number.MAX_SAFE_INTEGER, type: 'uniform' },
+    });
+    expect(convertedArguments.entries.at(-2)).toMatchObject({
+      binding: 0xffff_ffff,
+      externalTexture: {},
+      sampler: { type: 'filtering' },
+      storageTexture: { viewDimension: 'cube' },
+      texture: { viewDimension: 'cube-array' },
+    });
+    expect(convertedArguments.entries.at(-1)).toEqual({
+      binding: 0,
+      visibility: 0,
+    });
+    const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, convertedArguments));
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(payload))
+      .toMatchObject({ convertedArguments });
+
+    const sequenceMaximum = WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.sequenceMaxCount;
+    expect(sequenceMaximum).toBe(1024);
+    const maximumConvertedArguments = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        operationId,
+        [{
+          entries: Array.from({ length: sequenceMaximum }, (_, index) => ({
+            binding: index,
+            visibility: 0,
+          })),
+        }],
+        wrappers,
+      ) as Readonly<{ entries: ReadonlyArray<unknown> }>;
+    expect(maximumConvertedArguments.entries).toHaveLength(sequenceMaximum);
+    const maximumPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(
+        serviceInput(operationId, maximumConvertedArguments),
+      );
+    const inspectedMaximum = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .inspectServiceRequest(maximumPayload) as Readonly<{
+        convertedArguments: Readonly<{
+          label: string;
+          entries: ReadonlyArray<unknown>;
+        }>;
+      }>;
+    expect(inspectedMaximum.convertedArguments.label).toBe('');
+    expect(inspectedMaximum.convertedArguments.entries)
+      .toHaveLength(sequenceMaximum);
+  });
+
   test('converts createBindGroupLayout dictionaries in observable WebIDL order with one Get each', () => {
     const log: string[] = [];
     let labelRead = false;
@@ -2144,7 +2276,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary.gpuTextureFormats)
       .toHaveLength(101);
 
-    for (const format of ['r16unorm', 'bc7-rgba-unorm'] as const) {
+    for (const format of
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary.gpuTextureFormats) {
       const convertedArguments = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
         .convertPublicArguments(
           'GPUDevice.createBindGroupLayout',
