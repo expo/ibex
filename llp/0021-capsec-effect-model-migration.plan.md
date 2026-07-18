@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 keeps POSIX evidence directories mode-private while treating Windows' synthetic POSIX mode bits as non-authoritative)
 **Revised:** 2026-07-18 (ENG-24933 executes all three asynchronous descriptor-open branches through event-loop quiescence on Apple, closes returned descriptors, and keeps the uninstalled Windows surface residual)
 **Revised:** 2026-07-18 (ENG-24933 executes all three direct descriptor-open access branches against exact pre-seeded files, closes returned descriptors, proves non-mutation, and removes the fixtures)
 **Revised:** 2026-07-18 (ENG-24933 binds direct append to an exact pre-seeded file, proves preserved prefix bytes and denial non-mutation, and removes the owned fixture)
@@ -1417,6 +1418,10 @@ the binding; the probe can never promote a different embedded library. Those
 broad results remain prerequisite suite evidence only, and command logs are
 streamed to files with full digests plus bounded tails rather than retained
 unbounded in the report.
+Command-evidence directories must be real on every host and owned whenever the
+runtime exposes a numeric user identity. POSIX additionally requires no group
+or other permission bits; Windows does not expose authoritative POSIX mode
+bits, so its synthetic mode is not used as a security decision.
 The same runner is now the arm64 macOS and x64 Windows CI gate. CI invokes
 `verify:capsec-conformance --target <triple> --expect-incomplete`, which still
 runs the entire matrix and emits exact command, adapter, public-surface,

@@ -20,6 +20,11 @@ export function commandEvidenceIdSuffix(value) {
 const ownedByCurrentUser = (metadata) =>
   typeof process.getuid !== "function" || metadata.uid === process.getuid();
 
+export const commandEvidenceDirectoryModeIsPrivate = (
+  metadata,
+  platform = process.platform,
+) => platform === "win32" || (metadata.mode & 0o077) === 0;
+
 function assertOwnedRegularPath(filePath, opened) {
   const current = fs.lstatSync(filePath);
   if (
@@ -114,7 +119,7 @@ export function runObservedCommand({
     directory.isSymbolicLink() ||
     !directory.isDirectory() ||
     !ownedByCurrentUser(directory) ||
-    (directory.mode & 0o077) !== 0
+    !commandEvidenceDirectoryModeIsPrivate(directory)
   ) {
     throw new Error(
       "command evidence directory must be an owned real directory",
