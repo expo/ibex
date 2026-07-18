@@ -1770,15 +1770,24 @@ fn package_name_from_bare_specifier(specifier: &str) -> Option<String> {
 }
 
 fn strip_file_specifier_decorations(specifier: &str) -> &str {
-    let file_like = specifier.starts_with('.')
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // `\\?\` is an authenticated Windows verbatim-path prefix, not a query
+    // delimiter. Recognize it independently of the compiling host so the
+    // exact string rule is covered by cross-platform tests.
+    let windows_verbatim_prefix = specifier.starts_with(r"\\?\");
+    let file_like = windows_verbatim_prefix
+        || specifier.starts_with('.')
         || specifier.starts_with('/')
         || Path::new(specifier).is_absolute();
     if !file_like {
         return specifier;
     }
-    let end = specifier
+    let decoration_start = if windows_verbatim_prefix { 4 } else { 0 };
+    let end = specifier[decoration_start..]
         .char_indices()
-        .find_map(|(index, character)| matches!(character, '?' | '#').then_some(index))
+        .find_map(|(index, character)| {
+            matches!(character, '?' | '#').then_some(decoration_start + index)
+        })
         .unwrap_or(specifier.len());
     &specifier[..end]
 }
@@ -2892,6 +2901,18 @@ mod tests {
 
         assert_eq!(plain.path, decorated.path);
         assert_eq!(plain.id, decorated.id);
+    }
+
+    #[test]
+    fn windows_verbatim_prefix_is_not_a_query_decoration() {
+        assert_eq!(
+            strip_file_specifier_decorations(r"\\?\D:\project\entry.mjs"),
+            r"\\?\D:\project\entry.mjs"
+        );
+        assert_eq!(
+            strip_file_specifier_decorations(r"\\?\D:\project\entry.mjs?cache=one#section"),
+            r"\\?\D:\project\entry.mjs"
+        );
     }
 
     #[test]

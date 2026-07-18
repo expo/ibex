@@ -1884,6 +1884,32 @@ mod tests {
     }
 
     #[test]
+    fn production_adapter_preserves_edges_with_a_windows_verbatim_source_path() {
+        let artifact = produce_module_artifact_v1(
+            SourceId::synthetic("fixture", "windows-verbatim-path").unwrap(),
+            "entry.mjs",
+            Path::new(r"\\?\D:\a\entry.mjs"),
+            "import { value } from './dep.mjs'; export * from './star.mjs'; export const dynamic = () => import('./dynamic.mjs');",
+            source_integrity(b"producer-binary").unwrap(),
+            "hermes-bytecode-96",
+        )
+        .unwrap();
+
+        assert!(matches!(
+            &artifact.semantics.static_edges[0],
+            StaticEdgeV1::Named { specifier, .. } if specifier.as_str() == "./dep.mjs"
+        ));
+        assert!(matches!(
+            &artifact.semantics.static_edges[1],
+            StaticEdgeV1::ReExportStar { specifier, .. } if specifier.as_str() == "./star.mjs"
+        ));
+        assert!(matches!(
+            &artifact.semantics.dynamic_edges[0],
+            DynamicEdgeV1::Literal { specifier, .. } if specifier.as_str() == "./dynamic.mjs"
+        ));
+    }
+
+    #[test]
     fn production_adapter_preserves_json_import_attributes() {
         let source_id = SourceId::synthetic("fixture", "json-import").unwrap();
         let artifact = produce_module_artifact_v1(

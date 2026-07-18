@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
 **Revised:** 2026-07-18 (ENG-24933 permits isolated manual physical-target reruns without weakening or canceling the required two-target matrix)
-**Revised:** 2026-07-18 (ENG-24933 binds physical test-host project roots to the complete target-local path and actual object identity on both Unix and Windows)
+**Revised:** 2026-07-18 (ENG-24933 binds physical test-host project roots and module resolution to the complete target-local path and actual object identity on both Unix and Windows)
 **Revised:** 2026-07-18 (ENG-24933 derives POSIX-only native-global branches and target-specific public ABI descriptors from the build graph so Windows evidence neither invokes an unlinked backend nor borrows POSIX arities and arguments)
 **Revised:** 2026-07-18 (ENG-24933 distinguishes the intentional Windows legacy console-layer absence from the forbidden startup-control skip)
 **Revised:** 2026-07-18 (ENG-24933 evaluates the embedded Windows runtime bundle before structural lockdown so reviewed intrinsic polyfills exist before prototypes freeze)
@@ -1778,6 +1778,8 @@ identity through the production platform helper, and preserves the target's
 complete normalized path components (including a Windows drive or verbatim
 prefix). It never leaves the canonical fixture's Unix object identity attached
 to a Windows path binding or authenticates a prefix-less alias of that binding.
+Module resolution likewise treats the `\\?\` verbatim marker as part of the
+authenticated filesystem path, never as the start of a URL query decoration.
 Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot

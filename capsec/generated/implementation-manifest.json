@@ -128086,7 +128086,7 @@
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:find_map:count-1",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:len:count-1",
-          "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:starts_with:count-2",
+          "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:starts_with:count-3",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:then_some:count-1",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:unwrap_or:count-1",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:qualified:Path::new:count-1",
@@ -128794,7 +128794,7 @@
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:find_map:count-1",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:len:count-1",
-          "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:starts_with:count-2",
+          "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:starts_with:count-3",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:then_some:count-1",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:unwrap_or:count-1",
           "src/module_loader/mod.rs#strip_file_specifier_decorations:external:qualified:Path::new:count-1",
@@ -129509,7 +129509,7 @@
         "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:find_map:count-1",
         "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:len:count-1",
-        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:starts_with:count-2",
+        "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:starts_with:count-3",
         "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:then_some:count-1",
         "src/module_loader/mod.rs#strip_file_specifier_decorations:external:method:unwrap_or:count-1",
         "src/module_loader/mod.rs#strip_file_specifier_decorations:external:qualified:Path::new:count-1",
@@ -266152,7 +266152,7 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-WEiFCBiLziI2VZfuTus4nnv7J6njlNmx2591BBrPTCo"
+      "rawContentDigest": "sha256-YcMlfqWh7jC0z0gGpoR2H5S8pbpAy_cHotsFoFBT-2E"
     },
     {
       "kind": "registry",
