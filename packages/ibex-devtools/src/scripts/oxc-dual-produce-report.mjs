@@ -24,7 +24,7 @@ export const OLD_REVISION = '9329a9123a10e379d6253afb6a90a33de5de928e';
 export const OLD_FINGERPRINT =
   'ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1';
 export const NEW_FINGERPRINT =
-  'ibex-module-runner-spike/3+config/sha256-nktvy-N0m45bAF1gYjj-lT0JqF40F8zYQLQCzQRFvbw';
+  'ibex-module-runner-spike/3+config/sha256-TsgKoBzPAzyrKCqTwoDAcYVMCdgauOPwoxi0SEoqlv8';
 
 const SEMANTIC_FIELDS = Object.freeze([
   'bundle.schema',

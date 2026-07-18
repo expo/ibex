@@ -2613,6 +2613,7 @@ async fn execute_module_runner_host_abi_public_recipe(
         "const peer = require('./commonjs-peer.cjs');\n\
          const esm = require('./commonjs-esm.mjs');\n\
          exports.total = peer.value + esm.value;\n\
+         exports.loadDynamic = () => import('./dynamic.mjs');\n\
          const route = './dynamic.mjs';\n\
          exports.loadComputed = () => import(route, { with: { 'ibex:site': 'cjs-route' } });\n",
     )

@@ -1,11 +1,26 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
 
 import {
   canonicalJson,
   decodeMappings,
+  NEW_FINGERPRINT,
   semanticProjection,
 } from './oxc-dual-produce-report.mjs';
+
+test('current producer fingerprint matches the generated transform receipt', () => {
+  const receipt = JSON.parse(
+    fs.readFileSync(
+      new URL('../../../../vendored-generated/module-transform-configuration.generated.json', import.meta.url),
+      'utf8',
+    ),
+  );
+  assert.equal(
+    NEW_FINGERPRINT,
+    `ibex-module-runner-spike/3+config/${receipt.transformConfigDigest}`,
+  );
+});
 
 test('semantic projection excludes producer identity and generated layout', () => {
   const bundle = {

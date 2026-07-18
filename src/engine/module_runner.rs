@@ -1978,10 +1978,22 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                 None => plan.computed_candidate_sites().get(source_id),
             };
             if let Some(site_rows) = site_rows {
+                let admitted_sites = plan
+                    .artifact(source_id)?
+                    .artifact()
+                    .semantics
+                    .dynamic_edges
+                    .iter()
+                    .filter_map(|edge| match edge {
+                        crate::module_loader::artifact::DynamicEdgeV1::Computed { site } => {
+                            Some(*site)
+                        }
+                        crate::module_loader::artifact::DynamicEdgeV1::Literal { .. } => None,
+                    })
+                    .collect::<BTreeSet<_>>();
                 let authenticated = plan
                     .dynamic_import_bindings(source_id)?
                     .into_iter()
-                    .filter(|binding| binding.computed_candidate)
                     .map(|binding| ((binding.specifier, binding.target.clone()), binding.target))
                     .collect::<BTreeMap<_, _>>();
                 for ((site, specifier), target) in site_rows {
@@ -1992,6 +2004,16 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                     }) {
                         continue;
                     }
+                    if !admitted_sites.contains(site) {
+                        bail!(
+                            "computed candidate site {site} is absent from the authenticated artifact"
+                        );
+                    }
+                    // One spelling may be used by both a literal site and a
+                    // separately authenticated computed-candidate site. The
+                    // site table supplies the computed role; the shared graph
+                    // edge still supplies the exact target authentication.
+                    // @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
                     if !authenticated.contains_key(&(specifier.clone(), target.clone())) {
                         bail!(
                             "computed candidate site {site} spelling {specifier:?} is absent from the authenticated plan"
@@ -4135,6 +4157,10 @@ mod tests {
                     ],
                 ),
                 vec![
+                    DynamicEdgeV1::Literal {
+                        specifier: NonEmptyString::new("./left").unwrap(),
+                        attributes: ImportAttributes::default(),
+                    },
                     DynamicEdgeV1::Computed { site: 0 },
                     DynamicEdgeV1::Computed { site: 1 },
                 ],
