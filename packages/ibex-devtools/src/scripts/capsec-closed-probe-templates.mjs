@@ -98,6 +98,15 @@ const TERMINAL_BUILTIN_SPECIFIERS = new Map([
   ["node_worker_threads", ["node:worker_threads", "worker_threads"]],
 ]);
 
+const CLOSED_SQLITE_EXTENSION_EXPORTS = new Map([
+  ["Database.loadExtension", "Database"],
+  ["default.loadExtension", "default"],
+]);
+const CLOSED_SQLITE_MODULE_SPECIFIERS = Object.freeze([
+  "bun:sqlite",
+  "exact:sqlite",
+]);
+
 const DEBUGGER_ABI_FUNCTIONS = new Map([
   ["enable", ["ex_hermes_debugger_enable", "integer-zero"]],
   ["eval", ["ex_hermes_debugger_eval", "null-pointer"]],
@@ -928,6 +937,91 @@ function terminalBuiltinImportProbe({
   };
 }
 
+function sqliteExtensionLoadProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  const constructorExportName = CLOSED_SQLITE_EXTENSION_EXPORTS.get(
+    metadata?.exportName,
+  );
+  const expectedSourceRef =
+    `packages/ibex-runtime-js/src/sqlite/module.js#exports:${metadata?.exportName}`;
+  if (
+    constructorExportName === undefined ||
+    live?.kind !== "builtin" ||
+    live.name !== `export:exact_sqlite:${metadata.exportName}` ||
+    live.observedKey !== `builtin:${live.name}` ||
+    metadata.sourceKey !== "exact_sqlite" ||
+    metadata.surfaceType !== "export" ||
+    metadata.valueShape !== "callable" ||
+    metadata.importReachability !== "public" ||
+    canonicalJson(metadata.publicModuleSpecifiers) !==
+      canonicalJson(CLOSED_SQLITE_MODULE_SPECIFIERS) ||
+    canonicalJson(metadata.moduleSpecifiers) !==
+      canonicalJson(CLOSED_SQLITE_MODULE_SPECIFIERS) ||
+    canonicalJson(metadata.enforcementRouteEvidence?.terminals) !==
+      canonicalJson(["__exactSqliteLoadExtension"]) ||
+    canonicalJson(live.sourceRefs) !== canonicalJson([expectedSourceRef]) ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    edge.cap !== "ffi:load" ||
+    route.alternatives[0].terminalObservedKey !==
+      "native-op:__exactSqliteLoadExtension"
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-sqlite-extension-load",
+    surfaceObservedKey,
+    sourceKey: metadata.sourceKey,
+    exportName: metadata.exportName,
+    constructorExportName,
+    moduleSpecifiers: [...CLOSED_SQLITE_MODULE_SPECIFIERS],
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "builtin",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "sqlite-extension-load",
+        constructorExportName,
+        methodName: "loadExtension",
+        moduleSpecifiers: [...CLOSED_SQLITE_MODULE_SPECIFIERS],
+        databasePath: ":memory:",
+        extensionPath: "ibex-capsec-closed-extension",
+        expectedRejectionFragment: "Extension loading not supported",
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 function debuggerAbiDisabledProbe({
   plan,
   route,
@@ -1286,6 +1380,7 @@ export function authoredClosedPublicProbe(options) {
     tamedEvaluatorProbe(options) ??
     moduleRunnerNamespaceProbe(options) ??
     loaderExecutableKindProbe(options) ??
+    sqliteExtensionLoadProbe(options) ??
     terminalBuiltinImportProbe(options) ??
     debuggerAbiDisabledProbe(options) ??
     armedNativeGlobalAbsenceProbe(options) ??

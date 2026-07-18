@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_123);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_815);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_125);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_813);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_938);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_005);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_933);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_007);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_931);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
@@ -229,7 +229,7 @@ describe("exact-target CapSec executable recipes", () => {
             "capsec_public_closed_recipe_batch",
           ),
       ),
-    ).toHaveLength(629);
+    ).toHaveLength(631);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -1543,6 +1543,48 @@ describe("exact-target CapSec executable recipes", () => {
         },
       },
     });
+  });
+
+  test("closes both public SQLite extension-loading exports in memory", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "sqlite-extension-load",
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((recipe) => recipe.terminalObservedKey).sort()).toEqual([
+      "builtin:export:exact_sqlite:Database.loadExtension",
+      "builtin:export:exact_sqlite:default.loadExtension",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey ===
+            "exact_sqlite" &&
+          recipe.publicSurfaceProbe.invocation.operation.methodName ===
+            "loadExtension" &&
+          recipe.publicSurfaceProbe.invocation.operation.databasePath ===
+            ":memory:" &&
+          recipe.publicSurfaceProbe.invocation.operation
+            .expectedRejectionFragment === "Extension loading not supported",
+      ),
+    ).toBe(true);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.exportName,
+        recipe.publicSurfaceProbe.invocation.operation.constructorExportName,
+      ]),
+    ).toEqual([
+      ["Database.loadExtension", "Database"],
+      ["default.loadExtension", "default"],
+    ]);
   });
 
   test("binds every debugger ABI facet to the physical no-debugger Apple target", () => {

@@ -1291,6 +1291,84 @@ function validateRuntimeInvocation(observation, recipe) {
         );
       }
     }
+    if (authored.operation?.kind === "sqlite-extension-load") {
+      const descriptor = authored.sourceDescriptor;
+      const constructorExportName = new Map([
+        ["Database.loadExtension", "Database"],
+        ["default.loadExtension", "default"],
+      ]).get(descriptor?.exportName);
+      const moduleSpecifiers = ["bun:sqlite", "exact:sqlite"];
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "surfaceObservedKey",
+          "sourceKey",
+          "exportName",
+          "constructorExportName",
+          "moduleSpecifiers",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed SQLite extension source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        [
+          "kind",
+          "constructorExportName",
+          "methodName",
+          "moduleSpecifiers",
+          "databasePath",
+          "extensionPath",
+          "expectedRejectionFragment",
+        ],
+        `${recipe.fixtureId}: closed SQLite extension operation`,
+      );
+      const expectedSurfaceName =
+        `export:exact_sqlite:${descriptor.exportName}`;
+      if (
+        constructorExportName === undefined ||
+        authored.surfaceKind !== "builtin" ||
+        authored.surfaceName !== expectedSurfaceName ||
+        recipe.terminalObservedKey !== `builtin:${expectedSurfaceName}` ||
+        descriptor.kind !== "closed-sqlite-extension-load" ||
+        descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
+        descriptor.sourceKey !== "exact_sqlite" ||
+        descriptor.constructorExportName !== constructorExportName ||
+        canonicalJson(descriptor.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson([
+            `packages/ibex-runtime-js/src/sqlite/module.js#exports:${descriptor.exportName}`,
+          ]) ||
+        descriptor.sourceMetadata?.sourceKey !== "exact_sqlite" ||
+        descriptor.sourceMetadata?.surfaceType !== "export" ||
+        descriptor.sourceMetadata?.exportName !== descriptor.exportName ||
+        descriptor.sourceMetadata?.valueShape !== "callable" ||
+        descriptor.sourceMetadata?.importReachability !== "public" ||
+        canonicalJson(descriptor.sourceMetadata?.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(descriptor.sourceMetadata?.publicModuleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        canonicalJson(
+          descriptor.sourceMetadata?.enforcementRouteEvidence?.terminals,
+        ) !== canonicalJson(["__exactSqliteLoadExtension"]) ||
+        authored.operation.constructorExportName !== constructorExportName ||
+        authored.operation.methodName !== "loadExtension" ||
+        canonicalJson(authored.operation.moduleSpecifiers) !==
+          canonicalJson(moduleSpecifiers) ||
+        authored.operation.databasePath !== ":memory:" ||
+        authored.operation.extensionPath !==
+          "ibex-capsec-closed-extension" ||
+        authored.operation.expectedRejectionFragment !==
+          "Extension loading not supported"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: SQLite extension closure is not bound to the public memory-database call`,
+        );
+      }
+    }
     if (authored.operation?.kind === "debugger-abi-disabled") {
       const debuggerExpectation = new Map([
         ["enable", ["ex_hermes_debugger_enable", "integer-zero"]],
@@ -2349,6 +2427,26 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: terminal builtin aliases did not fail closed at the authenticated import gate`,
+      );
+    }
+    if (
+      authored.operation?.kind === "sqlite-extension-load" &&
+      (invocation.result.engineExecuted !== true ||
+        !authored.operation.moduleSpecifiers.every(
+          (specifier) =>
+            invocation.result.errorMessage
+              .split("\n")
+              .some(
+                (line) =>
+                  line.startsWith(`${specifier}: `) &&
+                  line.includes(
+                    authored.operation.expectedRejectionFragment,
+                  ),
+              ),
+        ))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: SQLite extension loading did not fail closed through every public alias`,
       );
     }
     if (

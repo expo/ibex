@@ -95,6 +95,8 @@ struct ClosedSourceDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     module_specifiers: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    constructor_export_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     function_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selected_source_ref: Option<String>,
@@ -163,6 +165,20 @@ enum ClosedOperation {
         #[serde(rename = "expectedRejectionFragment")]
         expected_rejection_fragment: String,
     },
+    SqliteExtensionLoad {
+        #[serde(rename = "constructorExportName")]
+        constructor_export_name: String,
+        #[serde(rename = "methodName")]
+        method_name: String,
+        #[serde(rename = "moduleSpecifiers")]
+        module_specifiers: Vec<String>,
+        #[serde(rename = "databasePath")]
+        database_path: String,
+        #[serde(rename = "extensionPath")]
+        extension_path: String,
+        #[serde(rename = "expectedRejectionFragment")]
+        expected_rejection_fragment: String,
+    },
     DebuggerAbiDisabled {
         #[serde(rename = "functionName")]
         function_name: String,
@@ -199,6 +215,7 @@ impl ClosedOperation {
             Self::ExactUnendowedOperation { .. } => "exact-unendowed-operation",
             Self::ModuleRunnerNamespace { .. } => "module-runner-namespace",
             Self::TerminalBuiltinImport { .. } => "terminal-builtin-import",
+            Self::SqliteExtensionLoad { .. } => "sqlite-extension-load",
             Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
             Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
             Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
@@ -214,6 +231,7 @@ impl ClosedOperation {
             | Self::ExactUnendowedOperation { .. }
             | Self::ModuleRunnerNamespace { .. }
             | Self::TerminalBuiltinImport { .. }
+            | Self::SqliteExtensionLoad { .. }
             | Self::DebuggerAbiDisabled { .. } => None,
             Self::SharedRuntimeGlobalAbsence { .. }
             | Self::ArmedNativeGlobalAbsence { .. } => None,
@@ -1311,6 +1329,221 @@ async fn execute_closed_terminal_builtin_import(
         assert!(
             error.contains(expected_rejection_fragment) && error.contains(specifier),
             "terminal builtin returned the wrong refusal for {specifier}: {error}"
+        );
+        errors.push(format!("{specifier}: {error}"));
+    }
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": errors.join("\n"),
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+#[cfg(test)]
+async fn execute_closed_sqlite_extension_load(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::SqliteExtensionLoad {
+        constructor_export_name,
+        method_name,
+        module_specifiers,
+        database_path,
+        extension_path,
+        expected_rejection_fragment,
+    } = &invocation.operation
+    else {
+        panic!("SQLite extension probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "builtin");
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(module_specifiers, &["bun:sqlite", "exact:sqlite"]);
+    assert_eq!(method_name, "loadExtension");
+    assert_eq!(database_path, ":memory:");
+    assert_eq!(extension_path, "ibex-capsec-closed-extension");
+    assert_eq!(expected_rejection_fragment, "Extension loading not supported");
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    let export_name = descriptor
+        .export_name
+        .as_deref()
+        .expect("SQLite extension descriptor has no export name");
+    let expected_constructor = match export_name {
+        "Database.loadExtension" => "Database",
+        "default.loadExtension" => "default",
+        other => panic!("unreviewed SQLite extension export {other}"),
+    };
+    assert_eq!(constructor_export_name, expected_constructor);
+    assert_eq!(
+        descriptor.constructor_export_name.as_deref(),
+        Some(expected_constructor)
+    );
+    assert_eq!(descriptor.kind, "closed-sqlite-extension-load");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.source_key.as_deref(), Some("exact_sqlite"));
+    assert_eq!(descriptor.module_specifiers.as_ref(), Some(module_specifiers));
+    assert_eq!(
+        descriptor.source_refs,
+        [format!(
+            "packages/ibex-runtime-js/src/sqlite/module.js#exports:{export_name}"
+        )]
+    );
+    assert_eq!(descriptor.source_metadata["sourceKey"], "exact_sqlite");
+    assert_eq!(descriptor.source_metadata["surfaceType"], "export");
+    assert_eq!(descriptor.source_metadata["exportName"], export_name);
+    assert_eq!(descriptor.source_metadata["valueShape"], "callable");
+    assert_eq!(descriptor.source_metadata["importReachability"], "public");
+    assert_eq!(
+        descriptor.source_metadata["moduleSpecifiers"],
+        serde_json::json!(module_specifiers)
+    );
+    assert_eq!(
+        descriptor.source_metadata["publicModuleSpecifiers"],
+        serde_json::json!(module_specifiers)
+    );
+    assert_eq!(
+        descriptor.source_metadata["enforcementRouteEvidence"]["terminals"],
+        serde_json::json!(["__exactSqliteLoadExtension"])
+    );
+    assert_eq!(
+        invocation.surface_name,
+        format!("export:exact_sqlite:{export_name}")
+    );
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed SQLite extension recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let script = format!(
+        r#"JSON.stringify((function(specifiers, constructorName, methodName, databasePath, extensionPath) {{
+  return specifiers.map(function(specifier) {{
+    var namespace = require(specifier);
+    var Constructor = namespace[constructorName];
+    if (typeof Constructor !== 'function') throw new Error('missing SQLite constructor '+constructorName+' from '+specifier);
+    var database = new Constructor(databasePath);
+    var errorName = null;
+    var errorMessage = null;
+    try {{ database[methodName](extensionPath); }}
+    catch (error) {{
+      errorName = String(error && error.name || 'Error');
+      errorMessage = String(error && error.message || error);
+    }}
+    finally {{ database.close(true); }}
+    return {{specifier:specifier,errorName:errorName,errorMessage:errorMessage}};
+  }});
+}})({}, {}, {}, {}, {}))"#,
+        serde_json::to_string(module_specifiers).unwrap(),
+        serde_json::to_string(constructor_export_name).unwrap(),
+        serde_json::to_string(method_name).unwrap(),
+        serde_json::to_string(database_path).unwrap(),
+        serde_json::to_string(extension_path).unwrap(),
+    );
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute SQLite extension closure calls")
+        .expect("SQLite extension closure calls returned no result");
+    let observed: Vec<serde_json::Value> =
+        serde_json::from_str(&encoded).expect("SQLite extension closure result must be JSON");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert_eq!(observed.len(), module_specifiers.len());
+    let mut errors = Vec::with_capacity(observed.len());
+    for (row, specifier) in observed.iter().zip(module_specifiers) {
+        assert_eq!(row["specifier"].as_str(), Some(specifier.as_str()));
+        assert_eq!(row["errorName"], "Error");
+        let error = row["errorMessage"]
+            .as_str()
+            .expect("SQLite extension load unexpectedly succeeded");
+        assert!(
+            error.contains(expected_rejection_fragment),
+            "SQLite extension load returned the wrong refusal for {specifier}: {error}"
         );
         errors.push(format!("{specifier}: {error}"));
     }
@@ -3071,6 +3304,18 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let sqlite_extension_load_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::SqliteExtensionLoad { .. }
+            )
+        })
+        .count();
     let debugger_abi_count = recipe_indexes
         .iter()
         .filter(|index| {
@@ -3116,6 +3361,7 @@ async fn capsec_public_closed_recipe_batch() {
             + exact_unendowed_count
             + module_runner_namespace_count
             + terminal_builtin_count
+            + sqlite_extension_load_count
             + debugger_abi_count
             + shared_runtime_global_absence_count
             + armed_native_global_absence_count,
@@ -3147,6 +3393,10 @@ async fn capsec_public_closed_recipe_batch() {
     assert_eq!(
         terminal_builtin_count, 106,
         "expected every source facet of the five terminal builtin modules"
+    );
+    assert_eq!(
+        sqlite_extension_load_count, 2,
+        "expected both public SQLite extension-loading exports"
     );
     let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
         match catalog.target.triple.as_str() {
@@ -3227,6 +3477,55 @@ async fn capsec_public_closed_recipe_batch() {
             let probe = closed_surface_probe(recipe).unwrap();
             executions.push(
                 execute_closed_terminal_builtin_import(
+                    &engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await,
+            );
+        }
+    }
+    if sqlite_extension_load_count > 0 {
+        let sqlite_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::SqliteExtensionLoad { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) = build_armed_test_host_custom(
+            None,
+            false,
+            false,
+            false,
+            Vec::new(),
+            None,
+            |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(["bun:sqlite", "exact:sqlite"]);
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact SQLite extension closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact SQLite extension closure runtime");
+        for index in sqlite_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_sqlite_extension_load(
                     &engine,
                     recipe,
                     &probe,
@@ -3324,6 +3623,7 @@ async fn capsec_public_closed_recipe_batch() {
         if matches!(
             &probe.invocation.operation,
                 ClosedOperation::TerminalBuiltinImport { .. }
+                | ClosedOperation::SqliteExtensionLoad { .. }
                 | ClosedOperation::DebuggerAbiDisabled { .. }
                 | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
                 | ClosedOperation::ArmedNativeGlobalAbsence { .. }
@@ -3386,6 +3686,7 @@ async fn capsec_public_closed_recipe_batch() {
                 .await
             }
             ClosedOperation::TerminalBuiltinImport { .. } => unreachable!(),
+            ClosedOperation::SqliteExtensionLoad { .. } => unreachable!(),
             ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),
             ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
             ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),

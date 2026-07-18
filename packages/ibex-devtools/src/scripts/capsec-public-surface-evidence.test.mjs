@@ -811,6 +811,60 @@ function completeClosedTerminalBuiltinCatalog() {
   return catalog;
 }
 
+function completeClosedSqliteExtensionCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName = "Database.loadExtension";
+  const moduleSpecifiers = ["bun:sqlite", "exact:sqlite"];
+  const sourceDescriptor = {
+    kind: "closed-sqlite-extension-load",
+    surfaceObservedKey:
+      "builtin:export:exact_sqlite:Database.loadExtension",
+    sourceKey: "exact_sqlite",
+    exportName,
+    constructorExportName: "Database",
+    moduleSpecifiers,
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/sqlite/module.js#exports:Database.loadExtension",
+    ],
+    sourceMetadata: {
+      surfaceType: "export",
+      sourceKey: "exact_sqlite",
+      exportName,
+      valueShape: "callable",
+      importReachability: "public",
+      moduleSpecifiers,
+      publicModuleSpecifiers: moduleSpecifiers,
+      enforcementRouteEvidence: {
+        terminals: ["__exactSqliteLoadExtension"],
+      },
+    },
+  };
+  recipe.fixtureId = "fixture.builtin.sqlite.load-extension.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "builtin",
+    surfaceName: "export:exact_sqlite:Database.loadExtension",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "sqlite-extension-load",
+      constructorExportName: "Database",
+      methodName: "loadExtension",
+      moduleSpecifiers,
+      databasePath: ":memory:",
+      extensionPath: "ibex-capsec-closed-extension",
+      expectedRejectionFragment: "Extension loading not supported",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedDebuggerAbiCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -1165,6 +1219,13 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
                   `${specifier}: ${invocation.operation.expectedRejectionFragment} '${specifier}'`,
               )
               .join("\n")
+        : invocation.operation.kind === "sqlite-extension-load"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment}`,
+              )
+              .join("\n")
         : invocation.operation.kind === "debugger-abi-disabled"
           ? invocation.operation.expectedError
         : invocation.operation.kind === "shared-runtime-global-absence"
@@ -1193,6 +1254,7 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         engineExecuted:
           invocation.operation.kind === "loader-executable-file" ||
           invocation.operation.kind === "terminal-builtin-import" ||
+          invocation.operation.kind === "sqlite-extension-load" ||
           invocation.operation.kind === "debugger-abi-disabled" ||
           invocation.operation.kind === "shared-runtime-global-absence" ||
           invocation.operation.kind === "armed-native-global-absence" ||
@@ -2332,6 +2394,43 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/authenticated import gate/);
+  });
+
+  test("accepts SQLite extension closure only through both public aliases", () => {
+    const catalog = completeClosedSqliteExtensionCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "exact:sqlite: Extension loading not supported";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/every public alias/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.operation.databasePath =
+      "fixture.sqlite";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/public memory-database call/);
   });
 
   test("accepts debugger ABI closure only for the physical no-debugger target result", () => {
