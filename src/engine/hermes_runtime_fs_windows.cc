@@ -987,21 +987,57 @@ bool parseWindowsIoVecArguments(
   return true;
 }
 
+constexpr size_t kMaxTypedPrincipalStack = 256;
+
+static std::vector<uint64_t> normalizeTypedPrincipalStack(
+    const std::vector<uint64_t>& collected) {
+#ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  return collected;
+#else
+  // Keep the Windows host's principal-stack semantics identical to the POSIX
+  // host: a no-user marker is an absence witness when the same bounded walk
+  // found a real principal, but remains fail-closed on its own or when appended
+  // as the explicit truncation sentinel.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  if (collected.size() > kMaxTypedPrincipalStack) return collected;
+  bool hasRealPrincipal = std::any_of(
+      collected.begin(), collected.end(), [](uint64_t principal) {
+        return principal != static_cast<uint64_t>(kNoUserPrincipalId) &&
+            principal != static_cast<uint64_t>(kRuntimePrincipalId);
+      });
+  if (!hasRealPrincipal) return collected;
+
+  std::vector<uint64_t> normalized;
+  normalized.reserve(collected.size());
+  for (uint64_t principal : collected) {
+    if (principal != static_cast<uint64_t>(kNoUserPrincipalId)) {
+      normalized.push_back(principal);
+    }
+  }
+  return normalized;
+#endif
+}
+
 } // namespace
 
 std::vector<uint64_t> exactCollectTypedPrincipalStack() {
   std::vector<uint64_t> principals;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   if (g_vm_runtime != nullptr) {
-    auto frames = g_vm_runtime->getStackTrace(
-        facebook::hermes::HermesRuntime::StackTraceKind::NoSourceLocation);
-    for (auto& frame : frames) {
-      auto domain = frame.getDomain();
-      if (domain && *domain != kRuntimePrincipalId &&
-          *domain != kNoUserPrincipalId &&
-          std::find(principals.begin(), principals.end(), *domain) == principals.end()) {
-        principals.push_back(*domain);
+    uint32_t ids[kMaxTypedPrincipalStack];
+    size_t count = ex_hermes_vm_collect_package_ids(
+        g_vm_runtime, ids, kMaxTypedPrincipalStack);
+    principals.reserve(count + 1);
+    for (size_t index = 0; index < count; ++index) {
+      auto id = static_cast<uint64_t>(ids[index]);
+      if (id == static_cast<uint64_t>(kRuntimePrincipalId) ||
+          id == static_cast<uint64_t>(kNoUserPrincipalId)) {
+        continue;
       }
+      if (principals.empty() || principals.back() != id) principals.push_back(id);
+    }
+    if (count == kMaxTypedPrincipalStack) {
+      principals.push_back(static_cast<uint64_t>(kNoUserPrincipalId));
     }
   }
 #endif
@@ -1022,7 +1058,7 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
     principals.push_back(scheduler);
   }
   if (principals.empty()) principals.push_back(currentPrincipalId());
-  return principals;
+  return normalizeTypedPrincipalStack(principals);
 }
 
 ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(
