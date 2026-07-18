@@ -260920,16 +260920,6 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
-            "id": "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:installDnsHostFunctions:installUnsupportedGlobal"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
             "id": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
             "classification": "non-capability",
             "surface": {
@@ -260985,26 +260975,6 @@
             "surface": {
               "kind": "startup",
               "name": "install-route:installNetHostFunctions:installTlsHostFunctions"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:installNetHostFunctions:installUnsupportedModule"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.install.route.installunsupportedmodule.installunsupportedglobal.1rdyzok",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "install-route:installUnsupportedModule:installUnsupportedGlobal"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -261395,26 +261365,6 @@
             "surface": {
               "kind": "startup",
               "name": "installer:installTlsHostFunctions"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.installer.installunsupportedglobal.1xmd2yf",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "installer:installUnsupportedGlobal"
-            },
-            "rationaleId": "authority-control-plane",
-            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-          },
-          {
-            "id": "surface.startup.installer.installunsupportedmodule.1fi2axk",
-            "classification": "non-capability",
-            "surface": {
-              "kind": "startup",
-              "name": "installer:installUnsupportedModule"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

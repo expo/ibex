@@ -154032,9 +154032,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactudpaddress.05li2xk.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -154066,9 +154064,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactudpbind.0urc5z3.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -154100,9 +154096,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactudpclose.01qkpuk.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -154198,9 +154192,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactudprecv.0kanlvk.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -154232,9 +154224,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactudpsend.0k2gg86.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -154266,9 +154256,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactudpsocket.043qw7l.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -154368,9 +154356,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactunixaccept.1x40lrn.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -154402,9 +154388,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactunixconnect.0z2wmqb.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -154436,9 +154420,7 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.native.op.exactunixlisten.0oo86mg.windows"
-      ],
+      "implementationBranchIds": [],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -237983,40 +237965,6 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
-      "edgeId": "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
       "edgeId": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -238216,74 +238164,6 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.install.route.installnethostfunctions.installtlshostfunctions.0gnanm9.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.install.route.installunsupportedmodule.installunsupportedglobal.1rdyzok",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.install.route.installunsupportedmodule.installunsupportedglobal.1rdyzok.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.install.route.installunsupportedmodule.installunsupportedglobal.1rdyzok",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.install.route.installunsupportedmodule.installunsupportedglobal.1rdyzok.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -239610,74 +239490,6 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.installer.installtlshostfunctions.06mdsl9.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.installer.installunsupportedglobal.1xmd2yf",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.installer.installunsupportedglobal.1xmd2yf.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.installer.installunsupportedglobal.1xmd2yf",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.installer.installunsupportedglobal.1xmd2yf.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.installer.installunsupportedmodule.1fi2axk",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.installer.installunsupportedmodule.1fi2axk.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.installer.installunsupportedmodule.1fi2axk",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.installer.installunsupportedmodule.1fi2axk.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."

@@ -20,7 +20,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
-#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -46,30 +45,6 @@ std::string getenvString(const char* key) {
   std::string result(value, len > 0 ? len - 1 : 0);
   free(value);
   return result;
-}
-
-facebook::jsi::Function unsupportedFunction(facebook::jsi::Runtime& rt, const char* name) {
-  return facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, name),
-      0,
-      [name](facebook::jsi::Runtime& runtime,
-             const facebook::jsi::Value&,
-             const facebook::jsi::Value*,
-             size_t) -> facebook::jsi::Value {
-        throw facebook::jsi::JSError(runtime, std::string(name) + " is not available on Windows yet");
-      });
-}
-
-void installUnsupportedGlobal(ExactHermesRuntime* handle, const char* name) {
-  auto& rt = *handle->runtime;
-  rt.global().setProperty(rt, name, unsupportedFunction(rt, name));
-}
-
-void installUnsupportedModule(ExactHermesRuntime* handle, std::initializer_list<const char*> names) {
-  for (const char* name : names) {
-    installUnsupportedGlobal(handle, name);
-  }
 }
 
 void ensureWinsock() {
@@ -2249,7 +2224,10 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactDnsResolve", std::move(dnsResolveFn));
 
-  installUnsupportedGlobal(handle, "__exactDnsReverse");
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // reverse DNS is target-absent on Windows. Do not publish a throw-only
+  // callable: builtin feature detection would treat that as an available
+  // backend, and branchless target evidence requires the global to be missing.
 }
 
 void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
@@ -3052,16 +3030,9 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactTcpGetFd", std::move(tcpGetFdFn));
 
-  installUnsupportedModule(handle, {
-      "__exactUnixConnect",
-      "__exactUnixListen",
-      "__exactUnixAccept",
-      "__exactUdpSocket",
-      "__exactUdpBind",
-      "__exactUdpSend",
-      "__exactUdpRecv",
-      "__exactUdpClose",
-      "__exactUdpAddress"});
+  // Unix-domain and UDP backends are likewise target-absent on Windows.
+  // Publishing callable error stubs would defeat the builtins' feature
+  // detection and cannot satisfy an absent CapSec target cell.
 
   // Native TLS bridge (ENG-23526): these shims ride the Windows TCP globals
   // above and are driven from src/builtins/tls.js just like the Unix bridge.

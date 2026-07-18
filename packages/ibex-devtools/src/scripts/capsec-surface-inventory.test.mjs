@@ -4117,24 +4117,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const unixConnectBranches = first.nativeOps.find(
       (row) => row.name === "__exactUnixConnect",
     ).metadata.branches;
-    expect(unixConnectBranches).toHaveLength(2);
     expect(
-      unixConnectBranches
-        .map((branch) => [branch.targetVariant, branch.sourceRefs])
-        .sort((left, right) => left[0].localeCompare(right[0])),
+      unixConnectBranches.map((branch) => [
+        branch.targetVariant,
+        branch.sourceRefs,
+      ]),
     ).toEqual([
       [
         "posix",
         [
           "src/engine/hermes_runtime_net.cc#__exactUnixConnect",
           "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixConnect",
-        ],
-      ],
-      [
-        "windows",
-        [
-          "src/engine/hermes_runtime_platform_windows.cc#__exactUnixConnect",
-          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactUnixConnect",
         ],
       ],
     ]);

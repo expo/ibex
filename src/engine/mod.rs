@@ -2901,6 +2901,31 @@ mod tests {
         }
 
         #[test]
+        fn windows_target_absent_native_globals_are_not_callable_stubs() {
+            let _host_guard = crate::host::abi::host_test_lock();
+            let runtime = RuntimeGuard::new();
+            let source = r#"
+              [
+                '__exactDnsReverse',
+                '__exactUnixConnect',
+                '__exactUnixListen',
+                '__exactUnixAccept',
+                '__exactUdpSocket',
+                '__exactUdpBind',
+                '__exactUdpSend',
+                '__exactUdpRecv',
+                '__exactUdpClose',
+                '__exactUdpAddress'
+              ].every(function(name) { return typeof globalThis[name] === 'undefined'; });
+            "#;
+
+            assert_eq!(
+                eval_ok_with_permissive_host(runtime.as_ptr(), source).as_deref(),
+                Some("true")
+            );
+        }
+
+        #[test]
         fn windows_runtime_uses_native_platform_backends() {
             let _host_guard = crate::host::abi::host_test_lock();
             let runtime = RuntimeGuard::new();

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 removes callable Windows error placeholders for branchless target-absent DNS/Unix/UDP globals so feature detection and physical absence evidence agree)
 **Revised:** 2026-07-18 (ENG-24933 reads Windows first-party module source through component-relative native handles, rejecting reparse traversal and root substitution before physical evidence can count)
 **Revised:** 2026-07-18 (ENG-24933 preserves authenticated Windows verbatim drive/UNC identity while presenting Oxc only its equivalent ordinary resolver spelling)
 **Revised:** 2026-07-18 (ENG-24933 permits isolated manual physical-target reruns without weakening or canceling the required two-target matrix)
@@ -1793,6 +1794,11 @@ returned handle is checked for reparse metadata and the root handle must still
 match the armed object identity; the final regular-file handle is the handle
 read. This is the Windows counterpart to Unix `openat`/`O_NOFOLLOW`, not a
 path-open followed by a racy metadata comparison.
+Windows globals whose generated target cell has no implementation branch stay
+genuinely absent. A callable that only throws an unsupported-platform error is
+still a public implementation for feature detection and therefore cannot count
+as branchless `absent` evidence; the legacy reverse-DNS, Unix-socket, and UDP
+error placeholders are not installed.
 Retained public-surface evidence also preserves the authored probe's exact JSON
 shape. In particular, an omitted optional native-global member stays omitted
 rather than being reserialized as `null`; aggregation rejects either shape if

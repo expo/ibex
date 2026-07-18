@@ -9389,34 +9389,6 @@ export function scanCppGlobalPropertySurfaces(
     calls.push({ args, globalTarget: true, owner: null });
   }
 
-  // The Windows unsupported-module helper forwards each member of a closed
-  // authored initializer list to installUnsupportedGlobal. Preserve the
-  // dynamic helper sentinel below, but also resolve its concrete call-site
-  // members so each unsupported implementation has a real Windows branch.
-  for (let index = 0; index < tokens.length; index += 1) {
-    if (
-      tokens[index].type !== "identifier" ||
-      tokens[index].value !== "installUnsupportedModule" ||
-      tokens[index + 1]?.value !== "("
-    ) {
-      continue;
-    }
-    const close = matchingToken(tokens, index + 1, "(", ")");
-    if (close === -1) {
-      throw new Error(
-        `${sourcePath}: installUnsupportedModule call has no closing parenthesis`,
-      );
-    }
-    const args = cppCallArguments(tokens, index + 1, close);
-    for (const name of args
-      .slice(1)
-      .flat()
-      .filter((token) => token.type === "string")) {
-      if (PRIVATE_NATIVE_IDENTIFIER.test(name.value))
-        closedGlobalTableNames.add(name.value);
-    }
-  }
-
   const valueOwners = (argument) => {
     const owners = [];
     if (
