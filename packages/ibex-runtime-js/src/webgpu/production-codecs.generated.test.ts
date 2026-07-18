@@ -526,6 +526,42 @@ describe('generated injection-only WebGPU executable codecs', () => {
       WEBGPU_OBJECT_KIND_TAGS,
     )).toThrow('native codec program');
 
+    const createShaderModuleRoute = program.routes.find(
+      (candidate) => candidate.operationId === 'GPUDevice.createShaderModule',
+    )!;
+    const reorderedShaderValidation =
+      createShaderModuleRoute.request.semanticServiceBoundary.requiredAfterDecode.slice();
+    reorderedShaderValidation.splice(
+      4,
+      2,
+      reorderedShaderValidation[5]!,
+      reorderedShaderValidation[4]!,
+    );
+    const changedShaderValidationOrder = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      nativeCodecPrograms: {
+        ...program,
+        routes: program.routes.map((candidate) =>
+          candidate.operationId === 'GPUDevice.createShaderModule'
+            ? {
+              ...createShaderModuleRoute,
+              request: {
+                ...createShaderModuleRoute.request,
+                semanticServiceBoundary: {
+                  ...createShaderModuleRoute.request.semanticServiceBoundary,
+                  requiredAfterDecode: reorderedShaderValidation,
+                },
+              },
+            }
+            : candidate
+        ),
+      },
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      changedShaderValidationOrder,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('native codec program');
+
     const changedResultKind = {
       ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
       carrierConstants: {
@@ -1321,6 +1357,16 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(nativeRoute.request.catalog.wireTag).toBe(7);
     expect(nativeRoute.completion.catalog.wireTag).toBe(2);
     expect(nativeRoute.request.executablePrerequisites).toEqual([]);
+    expect(nativeRoute.request.semanticServiceBoundary.requiredAfterDecode).toEqual([
+      'authenticate-contiguous-sealed-local-timeline-prefix',
+      'validate-current-live-device-generation',
+      'validate-operation-coverage',
+      'validate-authorized-live-account',
+      'validate-wgsl-with-naga-under-logical-capabilities',
+      'reserve-shader-module-handle-and-aggregate-envelope',
+      'authenticate-wrapper-allocated-shader-module-target',
+      'select-provider-admission-and-physical-sequence',
+    ]);
     expect(nativeRoute.completion.semanticTerminalMapping.terminals.map(
       (terminal) => ({
         terminalId: terminal.terminalId,

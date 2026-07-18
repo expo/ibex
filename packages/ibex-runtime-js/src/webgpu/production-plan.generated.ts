@@ -11,8 +11,8 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "operationSet": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
     "semanticProgramSet": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
     "runtimeRouting": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-    "webgpuCVocabulary": "debe1416e37616cc0a81b0d78ba9d3c1336c0144b95826f22ff74b53d7c0a25f",
-    "projection": "72ac73d8d2cd1d9bef1ae7f30b66a91094fa2048897b7f8b503cd8d79804a92b"
+    "webgpuCVocabulary": "3c88dc23a046c978815ebff43b104ad75295146334d2c8e09cceaad1a7b7de7b",
+    "projection": "c64dd148fdb884ae55b648d993ff1f990bb5e9a11ee6a443da0faae942a221d3"
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",

@@ -117,6 +117,18 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(createShaderModule.request.catalog.wireTag).toBe(7);
     expect(createShaderModule.completion.catalog.wireTag).toBe(2);
     expect(createShaderModule.request.executablePrerequisites).toEqual([]);
+    expect(
+      createShaderModule.request.semanticServiceBoundary.requiredAfterDecode,
+    ).toEqual([
+      "authenticate-contiguous-sealed-local-timeline-prefix",
+      "validate-current-live-device-generation",
+      "validate-operation-coverage",
+      "validate-authorized-live-account",
+      "validate-wgsl-with-naga-under-logical-capabilities",
+      "reserve-shader-module-handle-and-aggregate-envelope",
+      "authenticate-wrapper-allocated-shader-module-target",
+      "select-provider-admission-and-physical-sequence",
+    ]);
     expect(nativePrograms.types.shaderModuleDescriptorV1.fields).toEqual([
       { name: "label", required: true, value: { kind: "string" } },
       { name: "code", required: true, value: { kind: "string" } },
@@ -454,6 +466,16 @@ describe("test-only WebGPU wrapper generator", () => {
         (constraint) => constraint.carrierPath === "target.kind",
       ).valueFrom = "objectKindTags.GPUCommandEncoder";
     mutations.push(nativeShaderTarget);
+
+    const nativeShaderValidationOrder = clone(authority);
+    const nativeShaderValidationSteps =
+      nativeShaderValidationOrder.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+        .request.semanticServiceBoundary.requiredAfterDecode;
+    [nativeShaderValidationSteps[4], nativeShaderValidationSteps[5]] = [
+      nativeShaderValidationSteps[5],
+      nativeShaderValidationSteps[4],
+    ];
+    mutations.push(nativeShaderValidationOrder);
 
     const nativeDeviceDestroyTimeline = clone(authority);
     nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[4]

@@ -2749,6 +2749,7 @@ function validateNativeCodecProgram(
           'validate-current-live-device-generation',
           'validate-operation-coverage',
           'validate-authorized-live-account',
+          'validate-wgsl-with-naga-under-logical-capabilities',
           'reserve-shader-module-handle-and-aggregate-envelope',
           'authenticate-wrapper-allocated-shader-module-target',
           'select-provider-admission-and-physical-sequence',
