@@ -9713,6 +9713,16 @@ function sha256Hex(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+// PowerShell authorities retain platform-native checkout bytes because the
+// published Windows artifact manifest attests those raw bytes independently.
+// Evaluator review is source-semantic, so one CRLF/LF spelling has one review
+// identity while every other source mutation still fails closed.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — keep
+// artifact attestation byte-exact without making evaluator review OS-specific.
+function reviewedTextAuthorityDigest(value) {
+  return `sha256-${sha256Hex(value.replaceAll("\r\n", "\n"))}`;
+}
+
 function canonicalReviewValue(value) {
   if (Array.isArray(value)) return value.map(canonicalReviewValue);
   if (value && typeof value === "object") {
@@ -9940,7 +9950,9 @@ export function scanHermesEvaluatorIdentityProfiles({
   const sourceBuildAuthorityDigests = Object.fromEntries(
     sourceBuildConsumers.map((consumer) => [
       consumer.sourcePath,
-      `sha256-${sha256Hex(consumer.text)}`,
+      consumer.sourcePath === windowsSourceBuildPath
+        ? reviewedTextAuthorityDigest(consumer.text)
+        : `sha256-${sha256Hex(consumer.text)}`,
     ]),
   );
 
@@ -9967,9 +9979,9 @@ export function scanHermesEvaluatorIdentityProfiles({
     /^\$asset = "(hermes-windows-)\$Arch-\$identity\.zip"$/gmu,
     `${windowsInstallerPath}#release-asset`,
   )[1];
-  const windowsInstallerAuthorityDigest = `sha256-${sha256Hex(
+  const windowsInstallerAuthorityDigest = reviewedTextAuthorityDigest(
     windowsInstallerText,
-  )}`;
+  );
 
   const discovered = [
     {

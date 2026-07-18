@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (Windows evaluator review canonicalizes CRLF to LF
+for checked-in PowerShell authorities while release manifests continue to
+attest the platform-native builder bytes exactly)
 **Revised:** 2026-07-18 (the origin/main integration restamps the reviewed
 Hermes evaluator identity after adding static-library packaging to the source
 build authority; evaluator reachability and lockdown taming are unchanged)
@@ -1760,6 +1763,13 @@ for comparison. The release workflow has now built and inspected that DLL on a
 Windows runner and published the exact checksummed Release bundle; its DLL
 digest is
 `6f5190b9f8bf943b073e62dc5dbc2e297b77b7becbac3ca0c209b12d92828b6a`.
+The artifact manifest and installer continue to hash the PowerShell builder's
+raw platform-native checkout bytes. Evaluator discovery has a distinct source
+review domain: it canonicalizes CRLF to LF for the Windows builder and installer
+before hashing, so semantically identical Git checkouts retain one reviewed
+Function-family reachability claim without weakening the release bundle's
+byte-exact provenance check. Any non-line-ending source mutation still changes
+the evaluator review identity and fails closed pending review.
 Windows x64 is now a declared but unadvertised candidate alongside Apple arm64.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
 manifest, digest, patched export, and debugger-free profile, then explicitly

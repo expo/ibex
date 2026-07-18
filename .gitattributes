@@ -14,8 +14,6 @@ scripts/hermes-version.sh text eol=lf
 scripts/apply-hermes-patches.sh text eol=lf
 scripts/build-hermes.sh text eol=lf
 scripts/build-hermes-linux.sh text eol=lf
-scripts/build-hermes-windows.ps1 text eol=lf
-scripts/install-windows-hermes.ps1 text eol=lf
 # The exact-target prerequisite matrix invokes these through Git Bash on
 # Windows; CRLF would become part of shell tokens and invalidate the evidence.
 scripts/run-tests.sh text eol=lf

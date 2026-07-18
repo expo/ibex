@@ -2277,6 +2277,19 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
     expect(discoverHermesEvaluatorIdentityProfiles(repoRoot)).toEqual(profiles);
 
+    const windowsCrlfProfiles = scanHermesEvaluatorIdentityProfiles({
+      ...inputs,
+      windowsInstallerText: inputs.windowsInstallerText.replaceAll(
+        "\n",
+        "\r\n",
+      ),
+      windowsSourceBuildText: inputs.windowsSourceBuildText.replaceAll(
+        "\n",
+        "\r\n",
+      ),
+    });
+    expect(windowsCrlfProfiles).toEqual(profiles);
+
     for (const mutated of [
       {
         ...inputs,
