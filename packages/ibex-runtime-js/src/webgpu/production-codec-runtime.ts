@@ -58,17 +58,19 @@ interface NativeCodecField {
     | 'requestAdapterOptionsV1'
     | 'requestDeviceDescriptorV1'
     | 'bindGroupLayoutDescriptorV1'
+    | 'pipelineLayoutDescriptorV1'
     | 'commandEncoderDescriptorV1'
     | 'shaderModuleDescriptorV1';
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15 | 16;
     operationWireId:
       | 1660448199
       | 194635792
       | 206890944
       | 2544948076
+      | 3373402978
       | 599085487
       | 4055478657;
   }>;
@@ -139,6 +141,7 @@ interface NativeCodecCarrierConstraint {
     | 'objectKindTags.GPUAdapter'
     | 'objectKindTags.GPUDevice'
     | 'objectKindTags.GPUBindGroupLayout'
+    | 'objectKindTags.GPUPipelineLayout'
     | 'objectKindTags.GPUCommandEncoder'
     | 'objectKindTags.GPUShaderModule'
     | 'constants.providerTopologyId';
@@ -163,11 +166,12 @@ interface NativeCodecCatalogReference {
     | 'gpu-request-device-service-request-v1'
     | 'gpu-device-service-completion-v1'
     | 'gpu-create-bind-group-layout-service-request-v1'
+    | 'gpu-create-pipeline-layout-service-request-v1'
     | 'gpu-create-command-encoder-service-request-v1'
     | 'gpu-create-shader-module-service-request-v1'
     | 'gpu-device-cleanup-service-request-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 12 | 15 | 16;
 }
 
 interface NativeCodecCompletionVariant {
@@ -325,6 +329,13 @@ interface NativeCodecCreateBindGroupLayoutRoute {
   }>;
 }
 
+interface NativeCodecCreatePipelineLayoutRoute {
+  readonly operationId: 'GPUDevice.createPipelineLayout';
+  readonly wireId: 3373402978;
+  readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
+  readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
+}
+
 interface NativeCodecCreateShaderModuleRoute {
   readonly operationId: 'GPUDevice.createShaderModule';
   readonly wireId: 599085487;
@@ -394,7 +405,7 @@ interface NativeCodecDeviceDestroyRoute {
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -469,6 +480,7 @@ export interface NativeCodecProgramsV2 {
     }>;
     requestDeviceDescriptorV1: Readonly<Record<string, unknown>>;
     bindGroupLayoutDescriptorV1: Readonly<Record<string, unknown>>;
+    pipelineLayoutDescriptorV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
     shaderModuleDescriptorV1: Readonly<Record<string, unknown>>;
     sortedUniqueFeatureSequenceV1: Readonly<Record<string, unknown>>;
@@ -482,6 +494,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecRequestAdapterRoute
     | NativeCodecRequestDeviceRoute
     | NativeCodecCreateBindGroupLayoutRoute
+    | NativeCodecCreatePipelineLayoutRoute
     | NativeCodecCreateCommandEncoderRoute
     | NativeCodecCreateShaderModuleRoute
     | NativeCodecDeviceDestroyRoute
@@ -580,6 +593,7 @@ const PRODUCTION_WRAPPER_KINDS = Object.freeze([
   'GPU',
   'GPUAdapter',
   'GPUBindGroupLayout',
+  'GPUPipelineLayout',
   'GPUDevice',
   'GPUQueue',
   'GPUTexture',
@@ -608,6 +622,13 @@ const CREATE_BIND_GROUP_LAYOUT_WIRE_ID = 2544948076;
 const CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC =
   'gpu-create-bind-group-layout-service-request-v1';
 const CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
+const CREATE_PIPELINE_LAYOUT_OPERATION_ID =
+  'GPUDevice.createPipelineLayout';
+const CREATE_PIPELINE_LAYOUT_WIRE_ID = 3373402978;
+const CREATE_PIPELINE_LAYOUT_REQUEST_CODEC =
+  'gpu-create-pipeline-layout-service-request-v1';
+const CREATE_PIPELINE_LAYOUT_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_COMMAND_ENCODER_OPERATION_ID = 'GPUDevice.createCommandEncoder';
 const CREATE_COMMAND_ENCODER_WIRE_ID = 4055478657;
@@ -693,7 +714,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -1089,6 +1110,40 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
               ],
             },
           },
+        },
+      ],
+    },
+    pipelineLayoutDescriptorV1: {
+      kind: 'closed-dictionary',
+      encodingType: 'canonicalValueV1',
+      trust: 'untrusted-webidl-converted-semantic-service-ingress-only',
+      providerBoundary: 'forbidden-raw-descriptor-must-not-reach-provider',
+      unknownFields: 'reject',
+      fields: [
+        {
+          name: 'label',
+          required: true,
+          value: { kind: 'string' },
+        },
+        {
+          name: 'bindGroupLayouts',
+          required: true,
+          value: {
+            kind: 'sequence',
+            minCount: 0,
+            maxCountFrom: 'codecLayout.sequenceMaxCount',
+            element: {
+              kind: 'nullable-full-object-reference',
+              nullValue: 'null',
+              referenceType: 'objectReferenceV1',
+              requiredObjectKind: 'GPUBindGroupLayout',
+            },
+          },
+        },
+        {
+          name: 'immediateSize',
+          required: true,
+          value: { kind: 'u32' },
         },
       ],
     },
@@ -2359,6 +2414,7 @@ interface ValidatedNativeCodecProgram {
   readonly route: NativeCodecRequestAdapterRoute;
   readonly requestDeviceRoute: NativeCodecRequestDeviceRoute;
   readonly createBindGroupLayoutRoute: NativeCodecCreateBindGroupLayoutRoute;
+  readonly createPipelineLayoutRoute: NativeCodecCreatePipelineLayoutRoute;
   readonly createCommandEncoderRoute: NativeCodecCreateCommandEncoderRoute;
   readonly createShaderModuleRoute: NativeCodecCreateShaderModuleRoute;
   readonly deviceDestroyRoute: NativeCodecDeviceDestroyRoute;
@@ -2382,6 +2438,7 @@ function validateNativeCodecProgram(
     routes: manifest.nativeCodecPrograms.routes.filter(
       (candidate) =>
         candidate.operationId !== CREATE_BIND_GROUP_LAYOUT_OPERATION_ID &&
+        candidate.operationId !== CREATE_PIPELINE_LAYOUT_OPERATION_ID &&
         candidate.operationId !== CREATE_COMMAND_ENCODER_OPERATION_ID &&
         candidate.operationId !== CREATE_SHADER_MODULE_OPERATION_ID,
     ),
@@ -2405,6 +2462,10 @@ function validateNativeCodecProgram(
   const createBindGroupLayoutRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreateBindGroupLayoutRoute =>
       candidate.operationId === CREATE_BIND_GROUP_LAYOUT_OPERATION_ID,
+  );
+  const createPipelineLayoutRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCreatePipelineLayoutRoute =>
+      candidate.operationId === CREATE_PIPELINE_LAYOUT_OPERATION_ID,
   );
   const createCommandEncoderRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreateCommandEncoderRoute =>
@@ -2444,6 +2505,15 @@ function validateNativeCodecProgram(
   );
   const createBindGroupLayoutCompletionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC,
+  );
+  const createPipelineLayoutPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === CREATE_PIPELINE_LAYOUT_OPERATION_ID,
+  );
+  const createPipelineLayoutRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === CREATE_PIPELINE_LAYOUT_REQUEST_CODEC,
+  );
+  const createPipelineLayoutCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === CREATE_PIPELINE_LAYOUT_COMPLETION_CODEC,
   );
   const createCommandEncoderPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === CREATE_COMMAND_ENCODER_OPERATION_ID,
@@ -3063,14 +3133,27 @@ function validateNativeCodecProgram(
       'authenticate-wrapper-allocated-shader-module-target',
       'authenticate-wrapper-allocated-bind-group-layout-target',
     );
+  const expectedCreatePipelineLayoutCanonical = expectedCreateBindGroupLayoutCanonical
+    .replaceAll(CREATE_BIND_GROUP_LAYOUT_OPERATION_ID, CREATE_PIPELINE_LAYOUT_OPERATION_ID)
+    .replaceAll(CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC, CREATE_PIPELINE_LAYOUT_REQUEST_CODEC)
+    .replaceAll('GPUBindGroupLayout', 'GPUPipelineLayout')
+    .replaceAll('bindGroupLayoutDescriptorV1', 'pipelineLayoutDescriptorV1')
+    .replaceAll(String(CREATE_BIND_GROUP_LAYOUT_WIRE_ID), String(CREATE_PIPELINE_LAYOUT_WIRE_ID))
+    .replaceAll('"codecTag":15', '"codecTag":16')
+    .replaceAll('"wireTag":15', '"wireTag":16')
+    .replace(
+      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-bind-group-layout-descriptor-under-logical-device-capabilities","reserve-bind-group-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-bind-group-layout-target","select-provider-admission-and-physical-sequence"]',
+      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-pipeline-layout-group-count-under-reviewed-workload","validate-pipeline-layout-count-under-logical-max-bind-groups","validate-pipeline-layout-non-null-group-positions","authenticate-pipeline-layout-bind-group-layout-full-references","validate-current-live-nonexclusive-bind-group-layout-generations","validate-pipeline-layout-aggregate-binding-slots-under-logical-limits","validate-pipeline-layout-immediate-alignment","validate-pipeline-layout-immediate-size-under-logical-limit","validate-pipeline-layout-label-under-reviewed-workload","reserve-pipeline-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-pipeline-layout-target","select-provider-admission-and-physical-sequence"]',
+    );
   if (
-    manifest.nativeCodecPrograms.routes.length !== 6 ||
+    manifest.nativeCodecPrograms.routes.length !== 7 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 6 ||
+    ).size !== 7 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupLayoutRoute ||
+    !createPipelineLayoutRoute ||
     !createCommandEncoderRoute ||
     !createShaderModuleRoute ||
     !deviceDestroyRoute ||
@@ -3080,6 +3163,8 @@ function validateNativeCodecProgram(
       canonicalManifestJson(expectedCreateShaderModuleRoute) ||
     canonicalManifestJson(createBindGroupLayoutRoute) !==
       expectedCreateBindGroupLayoutCanonical ||
+    canonicalManifestJson(createPipelineLayoutRoute) !==
+      expectedCreatePipelineLayoutCanonical ||
     !planRoute ||
     planRoute.wireId !== REQUEST_ADAPTER_WIRE_ID ||
     planRoute.serviceArgumentCodec !== REQUEST_ADAPTER_REQUEST_CODEC ||
@@ -3117,6 +3202,19 @@ function validateNativeCodecProgram(
     createBindGroupLayoutRequestCodec.unavailableSemanticFields.length !== 0 ||
     createBindGroupLayoutCompletionCodec?.wireTag !==
       createBindGroupLayoutRoute.completion.catalog.wireTag ||
+    !createPipelineLayoutPlanRoute ||
+    createPipelineLayoutPlanRoute.wireId !== CREATE_PIPELINE_LAYOUT_WIRE_ID ||
+    createPipelineLayoutPlanRoute.serviceArgumentCodec !==
+      CREATE_PIPELINE_LAYOUT_REQUEST_CODEC ||
+    createPipelineLayoutPlanRoute.serviceCompletionCodec !==
+      CREATE_PIPELINE_LAYOUT_COMPLETION_CODEC ||
+    createPipelineLayoutRequestCodec?.wireTag !==
+      createPipelineLayoutRoute.request.catalog.wireTag ||
+    createPipelineLayoutRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    createPipelineLayoutRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    createPipelineLayoutRequestCodec.unavailableSemanticFields.length !== 0 ||
+    createPipelineLayoutCompletionCodec?.wireTag !==
+      createPipelineLayoutRoute.completion.catalog.wireTag ||
     !createCommandEncoderPlanRoute ||
     createCommandEncoderPlanRoute.wireId !== CREATE_COMMAND_ENCODER_WIRE_ID ||
     createCommandEncoderPlanRoute.serviceArgumentCodec !==
@@ -3163,12 +3261,14 @@ function validateNativeCodecProgram(
     manifest.objectKindTags.GPUAdapter !== 2 ||
     manifest.objectKindTags.GPUDevice !== 3 ||
     manifest.objectKindTags.GPUBindGroupLayout !== 9 ||
+    manifest.objectKindTags.GPUPipelineLayout !== 11 ||
     manifest.objectKindTags.GPUShaderModule !== 12 ||
     manifest.objectKindTags.GPUCommandEncoder !== 15 ||
     expectedObjectKindTags.GPU !== 1 ||
     expectedObjectKindTags.GPUAdapter !== 2 ||
     expectedObjectKindTags.GPUDevice !== 3 ||
     expectedObjectKindTags.GPUBindGroupLayout !== 9 ||
+    expectedObjectKindTags.GPUPipelineLayout !== 11 ||
     expectedObjectKindTags.GPUShaderModule !== 12 ||
     expectedObjectKindTags.GPUCommandEncoder !== 15 ||
     nullVariant?.resultKind !==
@@ -3181,6 +3281,8 @@ function validateNativeCodecProgram(
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createBindGroupLayoutRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    createPipelineLayoutRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createShaderModuleRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
@@ -3190,6 +3292,7 @@ function validateNativeCodecProgram(
     route,
     requestDeviceRoute,
     createBindGroupLayoutRoute,
+    createPipelineLayoutRoute,
     createCommandEncoderRoute,
     createShaderModuleRoute,
     deviceDestroyRoute,
@@ -3688,6 +3791,42 @@ function convertBindGroupLayoutDescriptor(
   return frozenRecord({
     label,
     entries: Object.freeze(entries),
+  });
+}
+
+function convertPipelineLayoutDescriptor(
+  value: unknown,
+  wrappers: ProductionGpuCodecWrapperAccess,
+  maximum: number,
+): unknown {
+  const source = dictionary(value, 'GPUPipelineLayoutDescriptor');
+  // GPUObjectDescriptor is inherited first. Each conversion follows its Get
+  // immediately so observable mutations preserve Web IDL dictionary order.
+  const label = optionalLabel(source);
+  const bindGroupLayoutsValue = source.bindGroupLayouts;
+  if (bindGroupLayoutsValue === undefined) {
+    throw new TypeError(
+      'GPUPipelineLayoutDescriptor.bindGroupLayouts is required',
+    );
+  }
+  const bindGroupLayouts = sequence(
+    bindGroupLayoutsValue,
+    'GPUPipelineLayoutDescriptor.bindGroupLayouts',
+    maximum,
+    (layout) => layout === null || layout === undefined
+      ? null
+      : wrappers.reference(layout, 'GPUBindGroupLayout'),
+  );
+  const immediateSizeValue = source.immediateSize;
+  const immediateSize = u32(
+    immediateSizeValue,
+    'GPUPipelineLayoutDescriptor.immediateSize',
+    0,
+  );
+  return frozenRecord({
+    label,
+    bindGroupLayouts: Object.freeze(bindGroupLayouts),
+    immediateSize,
   });
 }
 
@@ -4895,6 +5034,83 @@ function validateCreateBindGroupLayoutDescriptorForService(
   });
 }
 
+function validateCreatePipelineLayoutDescriptorForService(
+  value: unknown,
+  sequenceMaximum: number,
+): void {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    !hasExactOwnProperties(
+      value as Readonly<Record<string, unknown>>,
+      ['label', 'bindGroupLayouts', 'immediateSize'],
+    )
+  ) {
+    throw new TypeError(
+      'GPUDevice.createPipelineLayout converted arguments must be a canonical descriptor',
+    );
+  }
+  const descriptor = value as Readonly<Record<string, unknown>>;
+  if (
+    typeof descriptor.label !== 'string' ||
+    !Array.isArray(descriptor.bindGroupLayouts) ||
+    descriptor.bindGroupLayouts.length > sequenceMaximum ||
+    !isConvertedU32(descriptor.immediateSize)
+  ) {
+    throw new TypeError(
+      'GPUDevice.createPipelineLayout converted descriptor exceeds structural transport bounds',
+    );
+  }
+  descriptor.bindGroupLayouts.forEach((entry, index) => {
+    if (entry === null) return;
+    if (
+      typeof entry !== 'object' ||
+      Array.isArray(entry) ||
+      !hasExactOwnProperties(
+        entry as Readonly<Record<string, unknown>>,
+        [
+          'kind',
+          'objectId',
+          'objectGeneration',
+          'logicalDeviceId',
+          'logicalDeviceGeneration',
+          'providerGeneration',
+        ],
+      )
+    ) {
+      throw new TypeError(
+        `GPUDevice.createPipelineLayout bindGroupLayouts[${index}] must be null or a full object reference`,
+      );
+    }
+    const reference = entry as RequestAdapterReferenceLike;
+    if (
+      reference.kind !== 'GPUBindGroupLayout' ||
+      typeof reference.objectId !== 'string' ||
+      typeof reference.objectGeneration !== 'string' ||
+      typeof reference.logicalDeviceId !== 'string' ||
+      typeof reference.logicalDeviceGeneration !== 'string' ||
+      typeof reference.providerGeneration !== 'string'
+    ) {
+      throw new TypeError(
+        `GPUDevice.createPipelineLayout bindGroupLayouts[${index}] has an invalid full object reference`,
+      );
+    }
+    for (const [identity, label] of [
+      [reference.objectId, 'objectId'],
+      [reference.objectGeneration, 'objectGeneration'],
+      [reference.logicalDeviceId, 'logicalDeviceId'],
+      [reference.logicalDeviceGeneration, 'logicalDeviceGeneration'],
+      [reference.providerGeneration, 'providerGeneration'],
+    ] as const) {
+      positiveIdentity(
+        identity,
+        `GPUDevice.createPipelineLayout bindGroupLayouts[${index}].${label}`,
+      );
+    }
+  });
+}
+
 function validateCreateBindGroupLayoutRequestFields(
   receiver: RequestAdapterReferenceLike,
   target: unknown,
@@ -4974,6 +5190,86 @@ function validateCreateBindGroupLayoutRequestFields(
     convertedArguments,
     sequenceMaximum,
     textureFormats,
+  );
+}
+
+function validateCreatePipelineLayoutRequestFields(
+  receiver: RequestAdapterReferenceLike,
+  target: unknown,
+  adapterOrdinal: unknown,
+  deviceIngressOrdinal: unknown,
+  queueIngressOrdinal: unknown,
+  sealedLocalTimeline: unknown,
+  convertedArguments: unknown,
+  sequenceMaximum: number,
+): void {
+  if (
+    receiver.kind !== 'GPUDevice' ||
+    typeof receiver.objectId !== 'string' ||
+    typeof receiver.objectGeneration !== 'string' ||
+    typeof receiver.logicalDeviceId !== 'string' ||
+    typeof receiver.logicalDeviceGeneration !== 'string' ||
+    typeof receiver.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUDevice.createPipelineLayout requires an authenticated GPUDevice receiver',
+    );
+  }
+  for (const [identity, label] of [
+    [receiver.objectId, 'receiver.objectId'],
+    [receiver.objectGeneration, 'receiver.objectGeneration'],
+    [receiver.logicalDeviceId, 'receiver.logicalDeviceId'],
+    [receiver.logicalDeviceGeneration, 'receiver.logicalDeviceGeneration'],
+    [receiver.providerGeneration, 'receiver.providerGeneration'],
+  ] as const) {
+    positiveIdentity(identity, `GPUDevice.createPipelineLayout ${label}`);
+  }
+  if (typeof target !== 'object' || target === null || Array.isArray(target)) {
+    throw new TypeError(
+      'GPUDevice.createPipelineLayout requires a wrapper-allocated target',
+    );
+  }
+  const targetReference = target as RequestAdapterReferenceLike;
+  if (
+    targetReference.kind !== 'GPUPipelineLayout' ||
+    typeof targetReference.objectId !== 'string' ||
+    typeof targetReference.objectGeneration !== 'string' ||
+    targetReference.logicalDeviceId !== receiver.logicalDeviceId ||
+    targetReference.logicalDeviceGeneration !== receiver.logicalDeviceGeneration ||
+    targetReference.providerGeneration !== receiver.providerGeneration
+  ) {
+    throw new TypeError(
+      'GPUDevice.createPipelineLayout target must share the authenticated device provenance',
+    );
+  }
+  positiveIdentity(
+    targetReference.objectId,
+    'GPUDevice.createPipelineLayout target.objectId',
+  );
+  positiveIdentity(
+    targetReference.objectGeneration,
+    'GPUDevice.createPipelineLayout target.objectGeneration',
+  );
+  if (adapterOrdinal !== '0' || queueIngressOrdinal !== '0') {
+    throw new TypeError(
+      'GPUDevice.createPipelineLayout adapter and queue ingress ordinals must be zero',
+    );
+  }
+  positiveIdentity(
+    String(deviceIngressOrdinal),
+    'GPUDevice.createPipelineLayout deviceIngressOrdinal',
+  );
+  if (
+    !Array.isArray(sealedLocalTimeline) ||
+    sealedLocalTimeline.length > sequenceMaximum
+  ) {
+    throw new TypeError(
+      'GPUDevice.createPipelineLayout sealed local timeline must be a bounded sequence',
+    );
+  }
+  validateCreatePipelineLayoutDescriptorForService(
+    convertedArguments,
+    sequenceMaximum,
   );
 }
 
@@ -5309,7 +5605,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -5483,6 +5779,12 @@ export function createExecutableWebGpuCodecs(
           manifest.layout.sequenceMaxCount,
           manifest.webIdlVocabulary.gpuTextureFormats,
         );
+      case 'gpu-pipeline-layout-descriptor-v1':
+        return convertPipelineLayoutDescriptor(
+          args[0],
+          wrappers,
+          manifest.layout.sequenceMaxCount,
+        );
       case 'gpu-render-pipeline-descriptor-v1':
         return convertRenderPipelineDescriptor(
           args[0],
@@ -5572,6 +5874,20 @@ export function createExecutableWebGpuCodecs(
         input.convertedArguments,
         manifest.layout.sequenceMaxCount,
         manifest.webIdlVocabulary.gpuTextureFormats,
+      );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.createPipelineLayoutRoute.operationId
+    ) {
+      validateCreatePipelineLayoutRequestFields(
+        input.receiver,
+        input.target,
+        input.adapterOrdinal,
+        input.deviceIngressOrdinal,
+        input.queueIngressOrdinal,
+        input.sealedLocalTimeline,
+        input.convertedArguments,
+        manifest.layout.sequenceMaxCount,
       );
     } else if (
       route.operationId ===
@@ -5666,6 +5982,8 @@ export function createExecutableWebGpuCodecs(
         requestAdapterNativeProgram.requestDeviceRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.createPipelineLayoutRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createCommandEncoderRoute.operationId &&
       input.operationId !==
@@ -5971,6 +6289,20 @@ export function createExecutableWebGpuCodecs(
       );
     } else if (
       route.operationId ===
+        requestAdapterNativeProgram.createPipelineLayoutRoute.operationId
+    ) {
+      validateCreatePipelineLayoutRequestFields(
+        receiver,
+        target,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
+      );
+    } else if (
+      route.operationId ===
         requestAdapterNativeProgram.createCommandEncoderRoute.operationId
     ) {
       validateCreateCommandEncoderRequestFields(
@@ -6048,6 +6380,8 @@ export function createExecutableWebGpuCodecs(
     if (
       (route.operationId ===
           requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId ||
+        route.operationId ===
+          requestAdapterNativeProgram.createPipelineLayoutRoute.operationId ||
         route.operationId ===
           requestAdapterNativeProgram.createCommandEncoderRoute.operationId ||
         route.operationId ===

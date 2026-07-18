@@ -131,13 +131,81 @@ function buildExpectedCreateBindGroupLayoutNativeRoute({
   return route;
 }
 
+function buildExpectedCreatePipelineLayoutNativeRoute({
+  templateRoute,
+  operation,
+  requestCatalogIndex,
+  completionCatalogIndex,
+}) {
+  const route = structuredClone(templateRoute);
+  route.operationId = operation.operationId;
+  route.wireId = operation.wireId;
+  route.request.catalog.tag = operation.serviceArgumentCodec;
+  route.request.catalog.wireTag = requestCatalogIndex + 1;
+  const header = route.request.payload.fields.find(
+    (field) => field.name === "header",
+  );
+  header.constants.codecTag = requestCatalogIndex + 1;
+  header.constants.operationWireId = operation.wireId;
+  route.request.payload.fields.find(
+    (field) => field.name === "convertedArguments",
+  ).constraintType = "pipelineLayoutDescriptorV1";
+  for (const constraint of route.request.carrierConstraints) {
+    if (constraint.carrierPath === "operation_id") {
+      constraint.value = operation.wireId;
+    }
+    if (constraint.carrierPath === "target.kind") {
+      constraint.valueFrom = "objectKindTags.GPUPipelineLayout";
+    }
+  }
+  route.request.valueConstraints.find(
+    (constraint) => constraint.payloadPath === "convertedArguments",
+  ).type = "pipelineLayoutDescriptorV1";
+  route.request.semanticServiceBoundary.requiredAfterDecode = [
+    "authenticate-contiguous-sealed-local-timeline-prefix",
+    "validate-current-live-device-generation",
+    "validate-operation-coverage",
+    "validate-authorized-live-account",
+    "validate-pipeline-layout-group-count-under-reviewed-workload",
+    "validate-pipeline-layout-count-under-logical-max-bind-groups",
+    "validate-pipeline-layout-non-null-group-positions",
+    "authenticate-pipeline-layout-bind-group-layout-full-references",
+    "validate-current-live-nonexclusive-bind-group-layout-generations",
+    "validate-pipeline-layout-aggregate-binding-slots-under-logical-limits",
+    "validate-pipeline-layout-immediate-alignment",
+    "validate-pipeline-layout-immediate-size-under-logical-limit",
+    "validate-pipeline-layout-label-under-reviewed-workload",
+    "reserve-pipeline-layout-handle-and-aggregate-envelope",
+    "authenticate-wrapper-allocated-pipeline-layout-target",
+    "select-provider-admission-and-physical-sequence",
+  ];
+  route.completion.catalog.wireTag = completionCatalogIndex + 1;
+  for (const constraint of route.completion.commonCarrierConstraints) {
+    if (
+      constraint.carrierPath ===
+      "record.operation_result.operation.operation_id"
+    ) {
+      constraint.value = operation.wireId;
+    }
+    if (
+      constraint.carrierPath ===
+      "record.operation_result.operation.target.kind"
+    ) {
+      constraint.valueFrom = "objectKindTags.GPUPipelineLayout";
+    }
+  }
+  route.completion.semanticTerminalMapping.authorityPath =
+    `semanticProjection.providerRoutingPrograms[operationId=${operation.operationId}]`;
+  return route;
+}
+
 function validateNativeCodecPrograms(payload) {
   const envelope = payload.wireEnvelope;
   const program = envelope?.nativeCodecPrograms;
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -240,6 +308,7 @@ function validateNativeCodecPrograms(payload) {
       "headerV1",
       "objectReferenceV1",
       "optionalReferenceV1",
+      "pipelineLayoutDescriptorV1",
       "requestAdapterOptionsV1",
       "requestDeviceDescriptorV1",
       "shaderModuleDescriptorV1",
@@ -607,6 +676,44 @@ function validateNativeCodecPrograms(payload) {
       ],
     },
     "native createBindGroupLayout post-WebIDL structural descriptor type",
+  );
+  assertCanonical(
+    types.pipelineLayoutDescriptorV1,
+    {
+      kind: "closed-dictionary",
+      encodingType: "canonicalValueV1",
+      trust: "untrusted-webidl-converted-semantic-service-ingress-only",
+      providerBoundary: "forbidden-raw-descriptor-must-not-reach-provider",
+      unknownFields: "reject",
+      fields: [
+        {
+          name: "label",
+          required: true,
+          value: { kind: "string" },
+        },
+        {
+          name: "bindGroupLayouts",
+          required: true,
+          value: {
+            kind: "sequence",
+            minCount: 0,
+            maxCountFrom: "codecLayout.sequenceMaxCount",
+            element: {
+              kind: "nullable-full-object-reference",
+              nullValue: "null",
+              referenceType: "objectReferenceV1",
+              requiredObjectKind: "GPUBindGroupLayout",
+            },
+          },
+        },
+        {
+          name: "immediateSize",
+          required: true,
+          value: { kind: "u32" },
+        },
+      ],
+    },
+    "native createPipelineLayout post-WebIDL structural descriptor type",
   );
   assertCanonical(
     types.commandEncoderDescriptorV1,
@@ -2006,6 +2113,36 @@ function validateNativeCodecPrograms(payload) {
     "native createBindGroupLayout codec route",
   );
 
+  const createPipelineLayoutRoute = program.routes.find(
+    (candidate) => candidate.operationId === "GPUDevice.createPipelineLayout",
+  );
+  const createPipelineLayoutOperation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPUDevice.createPipelineLayout",
+  );
+  assert(
+    createPipelineLayoutRoute && createPipelineLayoutOperation &&
+      createPipelineLayoutRoute.wireId === createPipelineLayoutOperation.wireId,
+    "native createPipelineLayout operation identity drifted",
+  );
+  const createPipelineLayoutRequestCatalogIndex =
+    payload.codecCatalog.serviceArguments.findIndex(
+      (codec) => codec.tag === createPipelineLayoutOperation.serviceArgumentCodec,
+    );
+  const createPipelineLayoutCompletionCatalogIndex =
+    payload.codecCatalog.serviceCompletions.findIndex(
+      (codec) => codec.tag === createPipelineLayoutOperation.serviceCompletionCodec,
+    );
+  assertCanonical(
+    createPipelineLayoutRoute,
+    buildExpectedCreatePipelineLayoutNativeRoute({
+      templateRoute: expectedCreateBindGroupLayoutRoute,
+      operation: createPipelineLayoutOperation,
+      requestCatalogIndex: createPipelineLayoutRequestCatalogIndex,
+      completionCatalogIndex: createPipelineLayoutCompletionCatalogIndex,
+    }),
+    "native createPipelineLayout codec route",
+  );
+
   const deviceDestroyRoute = program.routes.find(
     (candidate) => candidate.operationId === "GPUDevice.destroy",
   );
@@ -2373,7 +2510,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

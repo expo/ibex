@@ -9,6 +9,7 @@ export type ProductionGpuWrapperKind =
   | 'GPU'
   | 'GPUAdapter'
   | 'GPUBindGroupLayout'
+  | 'GPUPipelineLayout'
   | 'GPUCanvasContext'
   | 'GPUCommandBuffer'
   | 'GPUCommandEncoder'

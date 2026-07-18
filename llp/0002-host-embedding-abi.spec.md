@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-18 (separates the complete post-WebIDL bind-group-layout structural transport type from the post-decode TypeGPU workload predicate); 2026-07-18 (consumes Exact-generated wrapper pins as the sole normalized digest/route authority and classifies the immutable 25-operation triangle separately from explicit TypeGPU graduates)
+**Revised:** 2026-07-18 (adds the authenticated production-private `GPUDevice.createPipelineLayout` Web IDL, full-reference transport, semantic-boundary program, wrapper target, and positive/adversarial corpus without installing native execution); 2026-07-18 (separates the complete post-WebIDL bind-group-layout structural transport type from the post-decode TypeGPU workload predicate); 2026-07-18 (consumes Exact-generated wrapper pins as the sole normalized digest/route authority and classifies the immutable 25-operation triangle separately from explicit TypeGPU graduates)
 **Revised:** 2026-07-18 (derives all 101 `GPUTextureFormat` values from pinned `@webgpu/types@0.1.71`, preserves them through bind-group-layout structural transport, and adds the zero-resource semantic-boundary corpus witness); 2026-07-18 (repairs observable `GPUDevice.createBindGroupLayout` Web IDL ordering, Get-once sequence conversion and EnforceRange behavior, and carries canonical WebIDL-valid descriptor variants through the bounded transport so the pinned TypeGPU predicate runs after decode); 2026-07-18 (adds the authenticated `GPUDevice.createBindGroupLayout` payload-codegen program for the exact pinned TypeGPU descriptor closure, wrapper-allocated target joins, and positive/adversarial corpus without installing a native codec or provider); 2026-07-17 (adds the authenticated `GPUDevice.createShaderModule` payload-codegen program, exact converted descriptor, wrapper-allocated target joins, and semantic-terminal mapping without installing a native codec or provider); 2026-07-17 (adds the authenticated `GPUDevice.destroy` payload-codegen program, authoritative sealed-record shape, and exact semantic-terminal/device-error mapping without installing a native codec or provider); 2026-07-17 (adds the requestDevice payload-codegen prerequisite, native-owned descriptor/result derivations, and ASSIGNED_DETACHED without installing a native codec or provider); 2026-07-17 (adds the authenticated requestAdapter payload-codegen program and carrier-projected positive interoperability vectors without installing a native payload codec); 2026-07-17 (authenticates the injection-only IBGQ/IBGR/IBGL codec layout in the C-vocabulary projection, generates a language-neutral manifest/corpus from the executable converter, and preserves unknown post-WebIDL adapter feature levels for the local-null semantic branch); 2026-07-17 (records the pinned TypeGPU workload closure as private staging metadata while keeping its 30 operations beyond the reviewed triangle unroutable and absent from prototypes); 2026-07-16 (makes ASSIGNED + NOT_ADMITTED requestDevice results self-contained detached-loss operation terminals without lifecycle tombstones); 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
@@ -427,7 +427,7 @@ The production-private WebGPU factory imports this same bundled slot and binds
 the wrapper revoker to the native bridge revoker rather than acquiring a
 second bridge or extending bridge lifetime.
 
-The private factory implements only the reviewed 26-operation wrapper shape
+The private factory implements only the reviewed 27-operation wrapper shape
 and consumes a generated route plan. Installation is a separate fail-closed
 step requiring all of: the authenticated V2 bridge, the app realm, an
 unoccupied public surface, and an exact executable codec bundle whose four
@@ -436,6 +436,7 @@ injection-only codec bundle, language-neutral manifest, and byte corpus derive
 from the same reviewed authority. Manifest schema 2 also carries authenticated,
 machine-readable payload-codegen programs for `GPU.requestAdapter`,
 `GPUAdapter.requestDevice`, `GPUDevice.createBindGroupLayout`,
+`GPUDevice.createPipelineLayout`,
 `GPUDevice.createCommandEncoder`,
 `GPUDevice.createShaderModule`, and `GPUDevice.destroy`: ordered primitive and
 recursive layouts, the closed
@@ -450,7 +451,7 @@ not conversion or payload decoding, rejects them with the specified Promise
 semantic service must derive the exact logical provider descriptor and allocate
 the result-selection identity, cross-link those native-owned results to the
 authenticated carrier and completion payload, and keep the raw descriptor out
-of the provider boundary. The three device-object creation requests admit a
+of the provider boundary. The four device-object creation requests admit a
 bounded canonical sealed-local-timeline sequence as comparison input, join a
 wrapper-allocated target with the authenticated device provenance, and accept
 only their reviewed converted descriptor. The command encoder accepts
@@ -475,11 +476,33 @@ pinned buffer, sampler, texture, or storage-texture layouts. That semantic
 predicate rejects external textures, comparison samplers,
 dynamic/nonzero-min-size buffers, non-float/non-2d/multisampled textures, and
 storage textures other than write-only `rgba16float` 2d. Logical descriptor
-validation precedes handle and aggregate-envelope reservation. All three map
+validation precedes handle and aggregate-envelope reservation. All four map
 the same semantic terminal
 classes: synchronous Web IDL rejection produces no service call, later
 predicate rejection produces a typed device-error event, and admitted success
 produces an empty RESULT_NONE terminal receipt.
+
+The pipeline-layout Web IDL converter separately preserves the structural
+`GPUPipelineLayoutDescriptor` domain. It performs inherited dictionary
+conversion exactly once in observable `label`, required `bindGroupLayouts`,
+then `immediateSize` order; sequence element conversion uses branded nullable
+`GPUBindGroupLayout` references and closes the iterator if branding throws.
+The canonical descriptor transports every non-null layout as the full object
+reference tuple (kind plus object, logical-device, and provider generations),
+while allowing empty sequences, null positions, up to the carrier's 1,024
+members, any `GPUSize32` immediate value, and labels up to the generic payload
+bound. Those are structural facts, not semantic admission. After decode the
+semantic service authenticates each reference against the current live,
+nonexclusive device object table, requires the reviewed one-to-two non-null
+groups and the logical `maxBindGroups`, concatenates retained bind-group-layout
+binding metadata, and checks per-stage uniform/storage buffers, samplers,
+sampled/storage textures, and dynamic uniform/storage counts against the
+logical limits. It also enforces immediate-size alignment and
+`maxImmediateSize`, the reviewed 43-byte UTF-8 label bound, and target/account
+reservation before provider admission. Foreign, stale, exclusive, null,
+empty, oversized, aggregate-limit, immediate, and label failures therefore
+remain device-timeline semantic rejections after successful Web IDL conversion
+and payload decode.
 
 The closure comes from replaying both pinned TypeGPU 0.11.9 workloads: 16 creation
 calls and 43 entries, with at most five entries per call. The replay pins the
@@ -537,12 +560,17 @@ RequestDevice vectors cover the converted request, a live admitted device, and
 self-contained detached devices with both NOT_ADMITTED/zero and
 ADMITTED/nonzero physical-sequence provenance.
 The device-object creation vectors cover the bind-group-layout,
-command-encoder, and shader-module target/reference joins, converted
+pipeline-layout, command-encoder, and shader-module target/reference joins, converted
 descriptors, admitted carrier projections, and empty successful terminal
 receipts. Bind-group-layout vectors additionally cover all four admitted
 resource variants and fail-closed witnesses for descriptor bounds, binding
 gaps, excluded variants/options, zero or multiple resource members, and UTF-8
 label length.
+Pipeline-layout vectors preserve the six-field bind-group-layout references
+and additionally witness null, empty, three-group, logical max-bind-groups,
+foreign, stale, exclusive, aggregate-binding-limit, immediate-alignment,
+immediate-limit, and UTF-8 label semantic rejections as structurally valid
+encoded requests.
 The destroy vectors use distinct wrapper-object and logical-device identities,
 one authoritative zero-target recording record, and both eligible semantic
 operation-result terminals; the device-error terminal is pinned as an explicit

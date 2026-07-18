@@ -245,7 +245,7 @@ function isolatedGlobal(): typeof globalThis {
 describe('production-private WebGPU wrapper gate', () => {
   test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
+      'generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {
@@ -372,10 +372,10 @@ describe('production-private WebGPU wrapper factory', () => {
       'none-recording-provider-is-inventory-only',
     );
     expect(staging.typegpuVersion).toBe('0.11.9');
-    expect(staging.activeRouteOperationCount).toBe(26);
+    expect(staging.activeRouteOperationCount).toBe(27);
     expect(staging.workloadOperationCount).toBe(51);
-    expect(staging.additionalOperationCount).toBe(29);
-    expect(staging.additionalOperations).toHaveLength(29);
+    expect(staging.additionalOperationCount).toBe(28);
+    expect(staging.additionalOperations).toHaveLength(28);
     expect(staging.blockers).toHaveLength(5);
     expect(staging.embeddedCodecRule).toBe(
       'EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined',
@@ -404,13 +404,13 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('materializes exactly the reviewed 26-operation interface shape', () => {
+  test('materializes exactly the reviewed 27-operation interface shape', () => {
     const binding = createProductionWebGpuPrivateBinding(
       createFakeBridge(),
       createFakeCodecs(),
     );
-    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(26);
-    expect(Object.keys(binding.interfaceObjects)).toHaveLength(21);
+    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(27);
+    expect(Object.keys(binding.interfaceObjects)).toHaveLength(22);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
     for (const selected of WEBGPU_PRODUCTION_PLAN.routes) {
       const interfaceObject = binding.interfaceObjects[selected.interfaceName] as {
@@ -460,6 +460,7 @@ describe('production-private WebGPU wrapper factory', () => {
       pushErrorScope(filter: unknown): void;
       popErrorScope(): Promise<unknown>;
       createBindGroupLayout(descriptor: unknown): object;
+      createPipelineLayout(descriptor: unknown): object;
       createShaderModule(descriptor: unknown): object;
       createRenderPipeline(descriptor: unknown): object;
       createCommandEncoder(descriptor?: unknown): {
@@ -491,6 +492,22 @@ describe('production-private WebGPU wrapper factory', () => {
     )!;
     expect(bindGroupLayoutEncoding.target).toMatchObject({
       kind: 'GPUBindGroupLayout',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    const pipelineLayout = device.createPipelineLayout({
+      bindGroupLayouts: [bindGroupLayout],
+      immediateSize: 0,
+    });
+    expect(pipelineLayout).toBeObject();
+    expect(log).toContain('convert:GPUDevice.createPipelineLayout');
+    expect(log).toContain('encode:GPUDevice.createPipelineLayout');
+    const pipelineLayoutEncoding = codecs.encodings.find(
+      (encoding) => encoding.operationId === 'GPUDevice.createPipelineLayout',
+    )!;
+    expect(pipelineLayoutEncoding.target).toMatchObject({
+      kind: 'GPUPipelineLayout',
       logicalDeviceId: '301',
       logicalDeviceGeneration: '1',
       providerGeneration: '7',

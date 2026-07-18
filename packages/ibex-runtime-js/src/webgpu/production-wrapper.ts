@@ -299,6 +299,7 @@ function createPrototypeTable(): Record<ProductionGpuWrapperKind, object> {
     GPU: Object.create(null),
     GPUAdapter: Object.create(null),
     GPUBindGroupLayout: Object.create(null),
+    GPUPipelineLayout: Object.create(null),
     GPUCanvasContext: Object.create(null),
     GPUCommandBuffer: Object.create(null),
     GPUCommandEncoder: Object.create(null),
@@ -1069,6 +1070,23 @@ export function createProductionWebGpuPrivateBinding(
     return layout.wrapper;
   });
 
+  defineMethod(mutablePrototypes.GPUDevice, 'createPipelineLayout', function (
+    this: object,
+    descriptor: unknown,
+  ) {
+    const state = requireState(this, 'GPUDevice');
+    const converted = convert('GPUDevice.createPipelineLayout', [descriptor]);
+    const layout = allocateWrapper('GPUPipelineLayout', state.device);
+    submitService(
+      'GPUDevice.createPipelineLayout',
+      state,
+      layout,
+      converted,
+      false,
+    );
+    return layout.wrapper;
+  });
+
   defineMethod(mutablePrototypes.GPUDevice, 'createCommandEncoder', function (
     this: object,
     descriptor?: unknown,
@@ -1468,6 +1486,10 @@ export function createProductionWebGpuPrivateBinding(
       'GPUBindGroupLayout',
       mutablePrototypes.GPUBindGroupLayout,
     ),
+    GPUPipelineLayout: makeIllegalConstructor(
+      'GPUPipelineLayout',
+      mutablePrototypes.GPUPipelineLayout,
+    ),
     GPUCanvasContext: makeIllegalConstructor(
       'GPUCanvasContext',
       mutablePrototypes.GPUCanvasContext,
@@ -1585,6 +1607,7 @@ const PUBLIC_INTERFACE_NAMES = Object.freeze([
   'GPU',
   'GPUAdapter',
   'GPUBindGroupLayout',
+  'GPUPipelineLayout',
   'GPUCanvasContext',
   'GPUCommandBuffer',
   'GPUCommandEncoder',

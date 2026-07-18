@@ -40,6 +40,7 @@ function wrapper(kind: ProductionGpuWrapperKind): object {
 
 const gpuAdapter = wrapper('GPUAdapter');
 const gpuDevice = wrapper('GPUDevice');
+const bindGroupLayout = wrapper('GPUBindGroupLayout');
 const canvasContext = wrapper('GPUCanvasContext');
 const commandBuffer = wrapper('GPUCommandBuffer');
 const commandEncoder = wrapper('GPUCommandEncoder');
@@ -148,6 +149,12 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [{ label: 'buffer' }];
     case 'GPUDevice.createBindGroupLayout':
       return [bindGroupLayoutDescriptor()];
+    case 'GPUDevice.createPipelineLayout':
+      return [{
+        label: 'pipeline-layout',
+        bindGroupLayouts: [bindGroupLayout],
+        immediateSize: 0,
+      }];
     case 'GPUDevice.createCommandEncoder':
       return [{ label: 'encoder' }];
     case 'GPUDevice.createRenderPipeline':
@@ -200,6 +207,12 @@ function serviceInput(
     })
     : operationId === 'GPUDevice.createBindGroupLayout'
     ? convertedBindGroupLayoutDescriptor()
+    : operationId === 'GPUDevice.createPipelineLayout'
+    ? Object.freeze({
+      label: 'pipeline-layout',
+      bindGroupLayouts: Object.freeze([reference('GPUBindGroupLayout')]),
+      immediateSize: 0,
+    })
     : operationId === 'GPUDevice.createCommandEncoder'
     ? Object.freeze({ label: 'encoder' })
     : operationId === 'GPUDevice.createShaderModule'
@@ -358,11 +371,11 @@ function completeLimits(value = 4): Record<string, number> {
 }
 
 describe('generated injection-only WebGPU executable codecs', () => {
-  test('pins one generated catalog over the exact reviewed 26-operation profile', () => {
+  test('pins one generated catalog over the exact reviewed 27-operation profile', () => {
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationCount).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
     );
-    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(26);
+    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(27);
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).toEqual(
       WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     );
@@ -378,7 +391,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -396,6 +409,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
+        { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
         { operationId: 'GPUDevice.destroy', wireId: 206890944 },
@@ -626,6 +640,43 @@ describe('generated injection-only WebGPU executable codecs', () => {
     } as unknown as ExecutableWebGpuCodecManifest;
     expect(() => createExecutableWebGpuCodecs(
       changedShaderValidationOrder,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('native codec program');
+
+    const createPipelineLayoutRoute = program.routes.find(
+      (candidate) => candidate.operationId === 'GPUDevice.createPipelineLayout',
+    )!;
+    const reorderedPipelineValidation =
+      createPipelineLayoutRoute.request.semanticServiceBoundary
+        .requiredAfterDecode.slice();
+    reorderedPipelineValidation.splice(
+      4,
+      2,
+      reorderedPipelineValidation[5]!,
+      reorderedPipelineValidation[4]!,
+    );
+    const changedPipelineValidationOrder = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      nativeCodecPrograms: {
+        ...program,
+        routes: program.routes.map((candidate) =>
+          candidate.operationId === 'GPUDevice.createPipelineLayout'
+            ? {
+              ...createPipelineLayoutRoute,
+              request: {
+                ...createPipelineLayoutRoute.request,
+                semanticServiceBoundary: {
+                  ...createPipelineLayoutRoute.request.semanticServiceBoundary,
+                  requiredAfterDecode: reorderedPipelineValidation,
+                },
+              },
+            }
+            : candidate
+        ),
+      },
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      changedPipelineValidationOrder,
       WEBGPU_OBJECT_KIND_TAGS,
     )).toThrow('native codec program');
 
@@ -1019,6 +1070,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       ['GPUCanvasContext.configure', [{ device: {}, format: 'bgra8unorm' }]],
       ['GPUCommandEncoder.beginRenderPass', [{ colorAttachments: [{ view: {} }] }]],
       ['GPUDevice.createBindGroupLayout', [{}]],
+      ['GPUDevice.createPipelineLayout', [{}]],
       ['GPUDevice.createRenderPipeline', [{}]],
       ['GPUDevice.createShaderModule', [{}]],
       ['GPUDevice.pushErrorScope', ['network']],
@@ -1090,6 +1142,12 @@ describe('generated injection-only WebGPU executable codecs', () => {
             ? null
             : route.operationId === 'GPUDevice.createBindGroupLayout'
             ? convertedBindGroupLayoutDescriptor()
+            : route.operationId === 'GPUDevice.createPipelineLayout'
+            ? {
+              label: 'pipeline-layout',
+              bindGroupLayouts: [reference('GPUBindGroupLayout')],
+              immediateSize: 0,
+            }
             : route.operationId === 'GPUDevice.createCommandEncoder'
             ? { label: 'encoder' }
             : route.operationId === 'GPUDevice.createShaderModule'
@@ -2087,6 +2145,220 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(nextCalls).toBe(1);
     expect(returnGets).toBe(1);
     expect(returnCalls).toBe(1);
+  });
+
+  test('converts createPipelineLayout in inherited Web IDL order with one Get each', () => {
+    const log: string[] = [];
+    const descriptor = Object.create(null) as Record<PropertyKey, unknown>;
+    const layouts = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(layouts, Symbol.iterator, {
+      get() {
+        log.push('bindGroupLayouts.iterator:get');
+        return function () {
+          log.push('bindGroupLayouts.iterator:call');
+          let yielded = false;
+          return {
+            next() {
+              log.push(`bindGroupLayouts.next:${yielded ? 1 : 0}`);
+              if (yielded) return { done: true, value: undefined };
+              yielded = true;
+              return { done: false, value: bindGroupLayout };
+            },
+          };
+        };
+      },
+    });
+    Object.defineProperties(descriptor, {
+      label: {
+        get() {
+          log.push('descriptor.label:get');
+          return {
+            toString() {
+              log.push('descriptor.label:convert');
+              return 'ordered';
+            },
+          };
+        },
+      },
+      bindGroupLayouts: {
+        get() {
+          log.push('descriptor.bindGroupLayouts:get');
+          return layouts;
+        },
+      },
+      immediateSize: {
+        get() {
+          log.push('descriptor.immediateSize:get');
+          return {
+            valueOf() {
+              log.push('descriptor.immediateSize:convert');
+              return 4.9;
+            },
+          };
+        },
+      },
+    });
+    const observingWrappers: ProductionGpuCodecWrapperAccess = {
+      reference(value, kind) {
+        log.push(`reference:${String(kind)}`);
+        return wrappers.reference(value, kind);
+      },
+    };
+
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createPipelineLayout',
+      [descriptor],
+      observingWrappers,
+    )).toEqual({
+      label: 'ordered',
+      bindGroupLayouts: [reference('GPUBindGroupLayout')],
+      immediateSize: 4,
+    });
+    expect(log).toEqual([
+      'descriptor.label:get',
+      'descriptor.label:convert',
+      'descriptor.bindGroupLayouts:get',
+      'bindGroupLayouts.iterator:get',
+      'bindGroupLayouts.iterator:call',
+      'bindGroupLayouts.next:0',
+      'reference:GPUBindGroupLayout',
+      'bindGroupLayouts.next:1',
+      'descriptor.immediateSize:get',
+      'descriptor.immediateSize:convert',
+    ]);
+
+    const missingLog: string[] = [];
+    const missing = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperties(missing, {
+      label: { get() { missingLog.push('label'); return ''; } },
+      bindGroupLayouts: {
+        get() { missingLog.push('bindGroupLayouts'); return undefined; },
+      },
+      immediateSize: { get() { missingLog.push('immediateSize'); return 0; } },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createPipelineLayout',
+      [missing],
+      wrappers,
+    )).toThrow('bindGroupLayouts is required');
+    expect(missingLog).toEqual(['label', 'bindGroupLayouts']);
+  });
+
+  test('closes the createPipelineLayout iterator when branded reference conversion throws', () => {
+    const failure = new TypeError('foreign bind group layout');
+    let returnGets = 0;
+    let returnCalls = 0;
+    let nextCalls = 0;
+    const layouts = {
+      [Symbol.iterator]() {
+        return {
+          next() {
+            nextCalls += 1;
+            return { done: false, value: {} };
+          },
+          get return() {
+            returnGets += 1;
+            return () => {
+              returnCalls += 1;
+              return { done: true, value: undefined };
+            };
+          },
+        };
+      },
+    };
+    const rejectingWrappers: ProductionGpuCodecWrapperAccess = {
+      reference() {
+        throw failure;
+      },
+    };
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createPipelineLayout',
+      [{ bindGroupLayouts: layouts }],
+      rejectingWrappers,
+    )).toThrow(failure);
+    expect(nextCalls).toBe(1);
+    expect(returnGets).toBe(1);
+    expect(returnCalls).toBe(1);
+  });
+
+  test('preserves the complete createPipelineLayout structural domain before semantic narrowing', () => {
+    const operationId = 'GPUDevice.createPipelineLayout';
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(operationId, [{
+        label: 'x'.repeat(65_536),
+        bindGroupLayouts: [null, undefined, bindGroupLayout, bindGroupLayout],
+        immediateSize: 3.9,
+      }], wrappers) as Readonly<Record<string, unknown>>;
+    expect(converted).toEqual({
+      label: 'x'.repeat(65_536),
+      bindGroupLayouts: [
+        null,
+        null,
+        reference('GPUBindGroupLayout'),
+        reference('GPUBindGroupLayout'),
+      ],
+      immediateSize: 3,
+    });
+    const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, converted));
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(payload))
+      .toMatchObject({ convertedArguments: converted });
+
+    const empty = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [{ bindGroupLayouts: [] }],
+      wrappers,
+    );
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+        serviceInput(operationId, empty),
+      ),
+    )).toMatchObject({ convertedArguments: {
+      label: '',
+      bindGroupLayouts: [],
+      immediateSize: 0,
+    } });
+
+    const live = reference('GPUBindGroupLayout');
+    for (const bindGroupLayouts of [
+      [null],
+      [live, live, live],
+      [{ ...live, logicalDeviceId: '99' }],
+      [{ ...live, objectGeneration: '2' }],
+      [{ ...live, providerGeneration: '8' }],
+    ]) {
+      const structurallyValid = {
+        label: 'semantic-boundary-witness',
+        bindGroupLayouts,
+        immediateSize: 0xffff_ffff,
+      };
+      expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+          serviceInput(operationId, structurallyValid),
+        ),
+      )).toMatchObject({ convertedArguments: structurallyValid });
+    }
+
+    const program = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes
+      .find((route) => route.operationId === operationId)!;
+    expect(program.request.semanticServiceBoundary.requiredAfterDecode).toEqual([
+      'authenticate-contiguous-sealed-local-timeline-prefix',
+      'validate-current-live-device-generation',
+      'validate-operation-coverage',
+      'validate-authorized-live-account',
+      'validate-pipeline-layout-group-count-under-reviewed-workload',
+      'validate-pipeline-layout-count-under-logical-max-bind-groups',
+      'validate-pipeline-layout-non-null-group-positions',
+      'authenticate-pipeline-layout-bind-group-layout-full-references',
+      'validate-current-live-nonexclusive-bind-group-layout-generations',
+      'validate-pipeline-layout-aggregate-binding-slots-under-logical-limits',
+      'validate-pipeline-layout-immediate-alignment',
+      'validate-pipeline-layout-immediate-size-under-logical-limit',
+      'validate-pipeline-layout-label-under-reviewed-workload',
+      'reserve-pipeline-layout-handle-and-aggregate-envelope',
+      'authenticate-wrapper-allocated-pipeline-layout-target',
+      'select-provider-admission-and-physical-sequence',
+    ]);
   });
 
   test('reads earlier optional entry members before rejecting missing visibility', () => {

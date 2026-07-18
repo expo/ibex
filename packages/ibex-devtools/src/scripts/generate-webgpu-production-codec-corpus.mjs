@@ -39,6 +39,7 @@ const outputPath =
 const operationId = "GPU.requestAdapter";
 const requestDeviceOperationId = "GPUAdapter.requestDevice";
 const createBindGroupLayoutOperationId = "GPUDevice.createBindGroupLayout";
+const createPipelineLayoutOperationId = "GPUDevice.createPipelineLayout";
 const createCommandEncoderOperationId = "GPUDevice.createCommandEncoder";
 const createShaderModuleOperationId = "GPUDevice.createShaderModule";
 const deviceDestroyOperationId = "GPUDevice.destroy";
@@ -1192,6 +1193,354 @@ function buildCorpus() {
     ),
   ]);
 
+  const createPipelineLayoutRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === createPipelineLayoutOperationId,
+  );
+  const createPipelineLayoutRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === createPipelineLayoutRoute?.serviceArgumentCodec,
+    );
+  const createPipelineLayoutCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === createPipelineLayoutRoute?.serviceCompletionCodec,
+    );
+  const createPipelineLayoutNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === createPipelineLayoutOperationId,
+    );
+  if (
+    !createPipelineLayoutRoute ||
+    !createPipelineLayoutRequestCodec?.executableFromCurrentAuthenticatedInputs ||
+    !createPipelineLayoutRequestCodec.nativeProgramPrerequisitesRepresented ||
+    createPipelineLayoutRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !createPipelineLayoutCompletionCodec ||
+    !createPipelineLayoutNativeRoute ||
+    createPipelineLayoutNativeRoute.request.catalog.wireTag !==
+      createPipelineLayoutRequestCodec.wireTag ||
+    createPipelineLayoutNativeRoute.completion.catalog.wireTag !==
+      createPipelineLayoutCompletionCodec.wireTag
+  ) {
+    fail(
+      "GPUDevice.createPipelineLayout native codegen program is not executable from authenticated inputs",
+    );
+  }
+  const pipelineLayoutWrapper = Object.freeze({
+    corpusBrand: "GPUBindGroupLayout",
+  });
+  const pipelineLayoutWrapperAccess = Object.freeze({
+    reference(value, expectedKind) {
+      if (
+        value !== pipelineLayoutWrapper ||
+        expectedKind !== "GPUBindGroupLayout"
+      ) {
+        throw new TypeError("unbranded corpus bind group layout");
+      }
+      return createBindGroupLayoutTarget;
+    },
+  });
+  const createPipelineLayoutTarget = Object.freeze({
+    kind: "GPUPipelineLayout",
+    objectId: "87",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const createPipelineLayoutDescriptor = Object.freeze({
+    label: "finalizeReductionPipeline - Pipeline Layout",
+    bindGroupLayouts: Object.freeze([pipelineLayoutWrapper]),
+    immediateSize: 0,
+  });
+  const expectedCreatePipelineLayoutArguments = Object.freeze({
+    label: "finalizeReductionPipeline - Pipeline Layout",
+    bindGroupLayouts: Object.freeze([createBindGroupLayoutTarget]),
+    immediateSize: 0,
+  });
+  const convertedCreatePipelineLayoutArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      createPipelineLayoutOperationId,
+      [createPipelineLayoutDescriptor],
+      pipelineLayoutWrapperAccess,
+    );
+  if (
+    canonicalJson(convertedCreatePipelineLayoutArguments) !==
+      canonicalJson(expectedCreatePipelineLayoutArguments) ||
+    Buffer.byteLength(expectedCreatePipelineLayoutArguments.label, "utf8") !== 43
+  ) {
+    fail("GPUDevice.createPipelineLayout descriptor projection drifted");
+  }
+  const createPipelineLayoutInput = (convertedArguments) => Object.freeze({
+    operationId: createPipelineLayoutOperationId,
+    wireId: createPipelineLayoutRoute.wireId,
+    convertedArguments,
+    receiver: createBindGroupLayoutReceiver,
+    target: createPipelineLayoutTarget,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+  });
+  const createPipelineLayoutBytes =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      createPipelineLayoutInput(convertedCreatePipelineLayoutArguments),
+    );
+  const expectedCreatePipelineLayoutRequest = Object.freeze({
+    receiver: createBindGroupLayoutReceiver,
+    target: createPipelineLayoutTarget,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+    convertedArguments: expectedCreatePipelineLayoutArguments,
+  });
+  const inspectedCreatePipelineLayout =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      createPipelineLayoutBytes,
+    );
+  if (
+    canonicalJson(inspectedCreatePipelineLayout) !== canonicalJson({
+      operationId: createPipelineLayoutOperationId,
+      codec: createPipelineLayoutRequestCodec.tag,
+      ...expectedCreatePipelineLayoutRequest,
+    })
+  ) {
+    fail(
+      "GPUDevice.createPipelineLayout generated request does not round-trip through inspection",
+    );
+  }
+  const createPipelineLayoutCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createPipelineLayoutOperationId,
+      { kind: "none" },
+    );
+  if (createPipelineLayoutCompletion.byteLength !== 0) {
+    fail(
+      "GPUDevice.createPipelineLayout terminal receipt must have an empty completion payload",
+    );
+  }
+  const createPipelineLayoutRequestCarrier = Object.freeze({
+    operation_id: createPipelineLayoutRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: "16",
+    promise_id: "0",
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: "3",
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+      flags: 0,
+      object_id: "80",
+      object_generation: "2",
+    }),
+    target: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUPipelineLayout,
+      flags: 0,
+      object_id: "87",
+      object_generation: "1",
+    }),
+  });
+  const createPipelineLayoutCompletionCarrier = Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: createPipelineLayoutRoute.wireId,
+          operation_instance_id: "16",
+          promise_id: "0",
+          provider_admission: 1,
+          physical_sequence: "11",
+          captured_scope_id: "2",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "3",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: createPipelineLayoutRequestCarrier.ingress_device,
+          result_device: createPipelineLayoutRequestCarrier.ingress_device,
+          provider_generation: "9",
+          receiver: createPipelineLayoutRequestCarrier.receiver,
+          target: createPipelineLayoutRequestCarrier.target,
+        }),
+      }),
+    }),
+  });
+  const pipelineLayoutBoundaryVector = (
+    id,
+    convertedArguments,
+    predicate,
+    semanticFixture,
+  ) => {
+    const requestBytes =
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+        createPipelineLayoutInput(convertedArguments),
+      );
+    const inspected = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      requestBytes,
+    );
+    if (
+      canonicalJson(inspected.convertedArguments) !==
+        canonicalJson(convertedArguments)
+    ) {
+      fail(`${id} did not reach the post-decode semantic boundary intact`);
+    }
+    return Object.freeze({
+      id,
+      kind: "semantic-rejection",
+      operationId: createPipelineLayoutOperationId,
+      semanticTerminalId: "later-predicate-rejection",
+      errorTiming: "device-timeline",
+      providerTokenCount: 0,
+      physicalSequenceCount: 0,
+      convertedArguments,
+      semanticFixture,
+      bytesHex: toHex(requestBytes),
+      expected: Object.freeze({
+        codegenDisposition: "encoded-for-post-decode-semantic-validation",
+        failingPredicate: predicate,
+      }),
+    });
+  };
+  const liveBindGroupLayoutReference = createBindGroupLayoutTarget;
+  const pipelineLayoutRejectionVectors = Object.freeze([
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-empty-groups-rejected",
+      { label: "empty", bindGroupLayouts: [], immediateSize: 0 },
+      "validate-pipeline-layout-group-count-under-reviewed-workload",
+      { reviewedGroupCount: { minimum: 1, maximum: 2 } },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-null-group-rejected",
+      { label: "null", bindGroupLayouts: [null], immediateSize: 0 },
+      "validate-pipeline-layout-non-null-group-positions",
+      { nullPosition: 0 },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-third-group-rejected",
+      {
+        label: "three",
+        bindGroupLayouts: [
+          liveBindGroupLayoutReference,
+          liveBindGroupLayoutReference,
+          liveBindGroupLayoutReference,
+        ],
+        immediateSize: 0,
+      },
+      "validate-pipeline-layout-group-count-under-reviewed-workload",
+      { reviewedGroupCount: { maximum: 2 } },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-logical-max-bind-groups-rejected",
+      {
+        label: "logical-limit",
+        bindGroupLayouts: [
+          liveBindGroupLayoutReference,
+          liveBindGroupLayoutReference,
+        ],
+        immediateSize: 0,
+      },
+      "validate-pipeline-layout-count-under-logical-max-bind-groups",
+      { logicalLimits: { maxBindGroups: 1 } },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-foreign-group-rejected",
+      {
+        label: "foreign",
+        bindGroupLayouts: [
+          { ...liveBindGroupLayoutReference, logicalDeviceId: "56" },
+        ],
+        immediateSize: 0,
+      },
+      "authenticate-pipeline-layout-bind-group-layout-full-references",
+      { expectedLogicalDeviceId: "55" },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-stale-group-rejected",
+      {
+        label: "stale",
+        bindGroupLayouts: [
+          { ...liveBindGroupLayoutReference, objectGeneration: "2" },
+        ],
+        immediateSize: 0,
+      },
+      "validate-current-live-nonexclusive-bind-group-layout-generations",
+      { objectRegistry: { objectId: "86", currentGeneration: "1" } },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-exclusive-group-rejected",
+      {
+        label: "exclusive",
+        bindGroupLayouts: [liveBindGroupLayoutReference],
+        immediateSize: 0,
+      },
+      "validate-current-live-nonexclusive-bind-group-layout-generations",
+      { objectRegistry: { objectId: "86", exclusiveOwner: "other-layout" } },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-aggregate-binding-limit-rejected",
+      {
+        label: "aggregate",
+        bindGroupLayouts: [
+          liveBindGroupLayoutReference,
+          liveBindGroupLayoutReference,
+        ],
+        immediateSize: 0,
+      },
+      "validate-pipeline-layout-aggregate-binding-slots-under-logical-limits",
+      {
+        retainedBindingMetadata: [
+          { fragmentSamplers: 9 },
+          { fragmentSamplers: 8 },
+        ],
+        logicalLimits: { maxSamplersPerShaderStage: 16 },
+      },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-immediate-alignment-rejected",
+      {
+        label: "unaligned",
+        bindGroupLayouts: [liveBindGroupLayoutReference],
+        immediateSize: 2,
+      },
+      "validate-pipeline-layout-immediate-alignment",
+      { immediateAlignment: 4 },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-immediate-limit-rejected",
+      {
+        label: "immediate-limit",
+        bindGroupLayouts: [liveBindGroupLayoutReference],
+        immediateSize: 256,
+      },
+      "validate-pipeline-layout-immediate-size-under-logical-limit",
+      { logicalLimits: { maxImmediateSize: 128 } },
+    ),
+    pipelineLayoutBoundaryVector(
+      "create-pipeline-layout-overlong-label-rejected",
+      {
+        label: "x".repeat(44),
+        bindGroupLayouts: [liveBindGroupLayoutReference],
+        immediateSize: 0,
+      },
+      "validate-pipeline-layout-label-under-reviewed-workload",
+      { reviewedUtf8LabelMaximum: 43 },
+    ),
+  ]);
+
   const createCommandEncoderRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === createCommandEncoderOperationId,
   );
@@ -1735,7 +2084,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -1794,6 +2143,19 @@ function buildCorpus() {
         productionExecutableFromCurrentAuthenticatedInputs: true,
         semanticTerminalMapping:
           createBindGroupLayoutNativeRoute.completion.semanticTerminalMapping,
+      },
+      {
+        operationId: createPipelineLayoutOperationId,
+        wireId: createPipelineLayoutRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createPipelineLayoutRequestCodec.tag,
+        requestCodecTag: createPipelineLayoutRequestCodec.wireTag,
+        completionCodec: createPipelineLayoutCompletionCodec.tag,
+        completionCodecTag: createPipelineLayoutCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createPipelineLayoutNativeRoute.completion.semanticTerminalMapping,
       },
       {
         operationId: createCommandEncoderOperationId,
@@ -2055,6 +2417,26 @@ function buildCorpus() {
       },
       ...bindGroupLayoutRejectionVectors,
       {
+        id: "create-pipeline-layout-request",
+        kind: "request",
+        carrierProjection: createPipelineLayoutRequestCarrier,
+        trust:
+          "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
+        semanticOwner:
+          "native-semantic-service-before-provider-admission",
+        bytesHex: toHex(createPipelineLayoutBytes),
+        expected: expectedCreatePipelineLayoutRequest,
+      },
+      {
+        id: "create-pipeline-layout-operation-success-result",
+        kind: "result",
+        semanticTerminalId: "operation-success",
+        carrierProjection: createPipelineLayoutCompletionCarrier,
+        bytesHex: toHex(createPipelineLayoutCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      ...pipelineLayoutRejectionVectors,
+      {
         id: "create-command-encoder-request",
         kind: "request",
         carrierProjection: createCommandEncoderRequestCarrier,
@@ -2137,7 +2519,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroupLayout positive/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroupLayout and createPipelineLayout positive/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }
