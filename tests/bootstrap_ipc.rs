@@ -36,11 +36,12 @@ use std::time::{Duration, Instant};
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 // Diagnostic `.js` entries authenticate the selected bundler before project
-// code starts. In an unoptimized test build that includes three full hashes of
-// the 61 MB Bun tool, so sibling processes can turn a deadlock deadline into a
-// measurement of CPU contention. Serialize the real-binary runs, matching the
-// established `cli_eval` harness contract, and keep a wide diagnostic bound.
-const DIAGNOSTIC_AUDIT_TIMEOUT: Duration = Duration::from_secs(60);
+// code starts. Authenticated fork fixtures perform another cold child startup
+// after the audit parent is ready, so shared-host full-matrix load can consume
+// nearly the old 60s process bound. Serialize the real-binary runs, matching
+// the established `cli_eval` harness contract. This is a deadlock bound, not a
+// startup-performance assertion.
+const DIAGNOSTIC_AUDIT_TIMEOUT: Duration = Duration::from_secs(120);
 // The three high-volume IPC probes include cold authenticated startup for a
 // forked debug-build child before they can finish draining their queues. Keep
 // their semantic watchdog below an independent process-group bound, while
@@ -806,20 +807,24 @@ const REMOVE_MISCOUNT_PARENT: &str = r#"
 const { fork } = require('child_process');
 const child = fork(__dirname + '/child.js');
 let got = [];
+let semanticTimeout = null;
 child.on('message', (m) => {
   got.push(m);
+  if (m === 'ready') {
+    semanticTimeout = setTimeout(() => {
+      console.log('RESULT|timeout|' + JSON.stringify(got));
+      child.kill();
+      process.exit(1);
+    }, 20000);
+  }
   if (String(m).indexOf('removed-nothing') === 0) child.send('after-remove');
   if (String(m).indexOf('after-remove-received') === 0) {
+    clearTimeout(semanticTimeout);
     console.log('RESULT|' + JSON.stringify(got));
     child.kill();
     process.exit(0);
   }
 });
-setTimeout(() => {
-  console.log('RESULT|timeout|' + JSON.stringify(got));
-  child.kill();
-  process.exit(1);
-}, 20000);
 "#;
 
 const REMOVE_MISCOUNT_CHILD: &str = r#"
