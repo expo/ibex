@@ -911,13 +911,23 @@ describe("exact-target CapSec executable recipes", () => {
         { kind: "json-literal", value: "Cargo.toml" },
       ]);
       expect(invocation.expectedActionIds).toEqual(["fs:list"]);
+      expect(invocation.expectedDenyMessageFragment).toBe(
+        "filesystem policy denied",
+      );
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "repeat"],
+          : [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "repeat",
+              "repeat",
+            ],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 3,
+        recipe.scenario === "deny" ? 1 : 6,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
@@ -3286,28 +3296,20 @@ describe("exact-target CapSec executable recipes", () => {
         expect(
           recipe.publicSurfaceProbe.invocation.expectedTypedStages,
         ).toEqual(
-          recipe.scenario === "deny"
-            ? ["requested"]
-            : recipe.scenario === "allow"
-              ? globalName === "__exactRealpath"
-                ? [
-                    "requested",
-                    "discovery",
-                    "requested",
-                    "repeat",
-                    "repeat",
-                    "repeat",
-                  ]
-                : globalName === "__exactStat"
-                  ? [
-                      "requested",
-                      "discovery",
-                      "requested",
-                      "repeat",
-                      "repeat",
-                    ]
-                  : ["requested", "discovery", "requested", "repeat"]
-              : ["requested", "discovery", "repeat"],
+          recipe.scenario !== "deny"
+            ? globalName === "__exactRealpath"
+              ? [
+                  "requested",
+                  "discovery",
+                  "requested",
+                  "repeat",
+                  "repeat",
+                  "repeat",
+                ]
+              : globalName === "__exactStat"
+                ? ["requested", "discovery", "requested", "repeat", "repeat"]
+                : ["requested", "discovery", "requested", "repeat"]
+            : ["requested"],
         );
       }
     }
@@ -3366,28 +3368,20 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:read"],
       );
       expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "deny"
-          ? ["requested"]
-          : recipe.scenario === "allow"
-            ? [
-                "requested",
-                "discovery",
-                "requested",
-                "repeat",
-                "commit",
-                "repeat",
-              ]
-            : ["requested", "discovery", "commit", "repeat"],
+        recipe.scenario !== "deny"
+          ? [
+              "requested",
+              "discovery",
+              "requested",
+              "repeat",
+              "commit",
+              "repeat",
+            ]
+          : ["requested"],
       );
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(
-        recipe.scenario === "deny"
-          ? 1
-          : recipe.scenario === "allow"
-            ? 6
-            : 4,
-      );
+      ).toBe(recipe.scenario === "deny" ? 1 : 6);
     }
   });
 

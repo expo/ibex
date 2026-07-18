@@ -1799,6 +1799,7 @@ fn validate_native_runtime_observation(
                         | "__exactReadFile"
                         | "__exactRealpath"
                         | "__exactStat"
+                        | "__exactStatfs"
                 ));
             }
         }

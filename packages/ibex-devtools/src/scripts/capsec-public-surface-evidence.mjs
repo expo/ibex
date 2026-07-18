@@ -57,6 +57,7 @@ const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
   "__exactReadFile",
   "__exactRealpath",
   "__exactStat",
+  "__exactStatfs",
 ]);
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
 // dispatcher remains the public surface, while typed evidence must select its

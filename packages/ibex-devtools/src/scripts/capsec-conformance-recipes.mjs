@@ -927,9 +927,9 @@ const nativeProjectMetadataTemplate = (
     expectedDecisionCounts: {
       allow: allowStages.length,
       deny: 1,
-      malformed: 3,
-      "missing-attribution": 3,
-      "wrong-principal": 3,
+      malformed: allowStages.length,
+      "missing-attribution": allowStages.length,
+      "wrong-principal": allowStages.length,
     },
     expectedResults: {
       allow: "return",
@@ -942,9 +942,9 @@ const nativeProjectMetadataTemplate = (
     expectedStages: {
       allow: allowStages,
       deny: ["requested"],
-      malformed: ["requested", "discovery", "repeat"],
-      "missing-attribution": ["requested", "discovery", "repeat"],
-      "wrong-principal": ["requested", "discovery", "repeat"],
+      malformed: allowStages,
+      "missing-attribution": allowStages,
+      "wrong-principal": allowStages,
     },
     requiredFloor: [
       {
@@ -960,11 +960,11 @@ const nativeProjectStatfsTemplate = () =>
     actionIds: ["fs:list"],
     arguments: [literalArgument("Cargo.toml")],
     expectedDecisionCounts: {
-      allow: 3,
+      allow: 6,
       deny: 1,
-      malformed: 3,
-      "missing-attribution": 3,
-      "wrong-principal": 3,
+      malformed: 6,
+      "missing-attribution": 6,
+      "wrong-principal": 6,
     },
     expectedResults: {
       allow: "return",
@@ -973,12 +973,41 @@ const nativeProjectStatfsTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "repeat"],
+      allow: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
       deny: ["requested"],
-      malformed: ["requested", "discovery", "repeat"],
-      "missing-attribution": ["requested", "discovery", "repeat"],
-      "wrong-principal": ["requested", "discovery", "repeat"],
+      malformed: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
     },
     requiredFloor: [
       {
@@ -996,9 +1025,9 @@ const nativeProjectReadFileTemplate = () =>
     expectedDecisionCounts: {
       allow: 6,
       deny: 1,
-      malformed: 4,
-      "missing-attribution": 4,
-      "wrong-principal": 4,
+      malformed: 6,
+      "missing-attribution": 6,
+      "wrong-principal": 6,
     },
     expectedResults: {
       allow: "return",
@@ -1021,9 +1050,30 @@ const nativeProjectReadFileTemplate = () =>
         "repeat",
       ],
       deny: ["requested"],
-      malformed: ["requested", "discovery", "commit", "repeat"],
-      "missing-attribution": ["requested", "discovery", "commit", "repeat"],
-      "wrong-principal": ["requested", "discovery", "commit", "repeat"],
+      malformed: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
     },
     requiredFloor: [
       {
