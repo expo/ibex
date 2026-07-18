@@ -22,6 +22,10 @@ import { WEBGPU_OBJECT_KIND_TAGS } from './production-codecs.generated';
 
 type ProductionRoute = (typeof WEBGPU_PRODUCTION_PLAN.routes)[number];
 
+type ServiceSubmissionFailureKind =
+  | 'bridge-threw'
+  | 'submission-rejected';
+
 const ROUTES = new Map<string, ProductionRoute>(
   WEBGPU_PRODUCTION_PLAN.routes.map((route) => [route.operationId, route]),
 );
@@ -1399,6 +1403,7 @@ export function createProductionWebGpuPrivateBinding(
     wantsPromise: boolean,
     preparedPlan?: ServiceCounterPlan,
     beforeNativeSubmit?: () => void,
+    onNativeSubmitFailure?: (failure: ServiceSubmissionFailureKind) => void,
   ) => {
     const plan = preparedPlan ?? prepareServiceCounters(
       operationId,
@@ -1507,9 +1512,16 @@ export function createProductionWebGpuPrivateBinding(
       receiver.adapterOrdinalExhausted = plan.adapterOrdinalExhaustedAfter;
     }
     beforeNativeSubmit?.();
-    const carrier = bridge.submit(selected.wireId, wantsPromise, metadata, payload);
+    let carrier: ReturnType<NativeGpuBridgeV2['submit']>;
+    try {
+      carrier = bridge.submit(selected.wireId, wantsPromise, metadata, payload);
+    } catch (error) {
+      onNativeSubmitFailure?.('bridge-threw');
+      throw error;
+    }
     if (carrier.submissionStatus !== 0) {
       carrier.receipt?.catch(() => undefined);
+      onNativeSubmitFailure?.('submission-rejected');
       throw namedError(
         'OperationError',
         `WebGPU semantic service rejected ${operationId} (${carrier.submissionStatus})`,
@@ -1815,38 +1827,113 @@ export function createProductionWebGpuPrivateBinding(
       configuredDevice,
     );
     const copiedConfiguration = cloneConfiguration(converted);
+    const previousConfiguration = context.configuration;
+    const previousConfigurationGeneration = context.configurationGeneration;
+    const previousConfiguredDevice = context.configuredDevice;
+    const previousConfiguredDeviceWrapper = context.configuredDeviceWrapper;
+    const previousCanvasContextLifecycle = context.canvasContextLifecycle;
+    const previousDeviceMembership = previousConfiguredDevice
+      ?.configuredCanvasContexts.has(context) ?? false;
+    let provisionalConfigurationInstalled = false;
+    let submissionFailure: ServiceSubmissionFailureKind | undefined;
     // The semantic call carries the configured device as ingress while the
     // service receiver remains the complete canvas-context reference.
     context.device = configuredDevice;
     try {
-      submitService(
-        'GPUCanvasContext.configure',
-        context,
-        undefined,
-        converted,
-        false,
-        servicePlan,
-        () => {
-          if (
-            !realm.active ||
-            configuredDevice.destroyed ||
-            configuredDevice.lost.settled
-          ) {
-            throw namedError('InvalidStateError', 'GPUDevice is unavailable');
+      try {
+        submitService(
+          'GPUCanvasContext.configure',
+          context,
+          undefined,
+          converted,
+          false,
+          servicePlan,
+          () => {
+            if (
+              !realm.active ||
+              configuredDevice.destroyed ||
+              configuredDevice.lost.settled
+            ) {
+              throw namedError('InvalidStateError', 'GPUDevice is unavailable');
+            }
+            // LLP 0368 §2.2 installs the copied configuration before later
+            // device-timeline validation. A loss delivered reentrantly by the
+            // bridge must therefore observe and terminalize this generation.
+            unlinkConfiguredCanvasContext(context);
+            expireCurrentTexture(context);
+            context.configurationGeneration = nextConfigurationGeneration;
+            context.configuration = copiedConfiguration;
+            context.configuredDevice = configuredDevice;
+            context.configuredDeviceWrapper = deviceWrapper as object;
+            context.canvasContextLifecycle = 'configured';
+            configuredDevice.configuredCanvasContexts.add(context);
+            provisionalConfigurationInstalled = true;
+          },
+          (failure) => {
+            submissionFailure = failure;
+          },
+        );
+      } catch (error) {
+        if (
+          provisionalConfigurationInstalled &&
+          submissionFailure !== undefined &&
+          realm.active
+        ) {
+          // A synchronous LLP 0368 §2.4 loss is already terminal and must
+          // dominate either provider return. Otherwise an explicit rejection
+          // proves non-admission and may roll back only the provisional
+          // publication; ingress remains consumed and an expired old texture
+          // never revives. A thrown bridge call has ambiguous admission, so
+          // it closes the realm instead of guessing.
+          const lossWon =
+            configuredDevice.lost.settled &&
+            context.canvasContextLifecycle === 'lost' &&
+            context.configuredDevice === configuredDevice &&
+            !configuredDevice.configuredCanvasContexts.has(context);
+          if (!lossWon) {
+            const provisionalStateIsIntact =
+              !configuredDevice.destroyed &&
+              !configuredDevice.lost.settled &&
+              context.canvasContextLifecycle === 'configured' &&
+              context.configurationGeneration === nextConfigurationGeneration &&
+              context.configuration === copiedConfiguration &&
+              context.configuredDevice === configuredDevice &&
+              context.configuredDeviceWrapper === deviceWrapper &&
+              context.currentTexture === undefined &&
+              configuredDevice.configuredCanvasContexts.has(context);
+            const previousStateCanBeRestored =
+              !previousDeviceMembership ||
+              (previousConfiguredDevice !== undefined &&
+                !previousConfiguredDevice.destroyed &&
+                !previousConfiguredDevice.lost.settled);
+            if (
+              submissionFailure === 'submission-rejected' &&
+              provisionalStateIsIntact &&
+              previousStateCanBeRestored
+            ) {
+              configuredDevice.configuredCanvasContexts.delete(context);
+              context.configurationGeneration = previousConfigurationGeneration;
+              context.configuration = previousConfiguration;
+              context.configuredDevice = previousConfiguredDevice;
+              context.configuredDeviceWrapper = previousConfiguredDeviceWrapper;
+              context.canvasContextLifecycle = previousCanvasContextLifecycle;
+              if (previousDeviceMembership && previousConfiguredDevice) {
+                previousConfiguredDevice.configuredCanvasContexts.add(context);
+              }
+            } else {
+              closeRealmCounterIndependently(
+                submissionFailure === 'bridge-threw'
+                  ? 'canvas-configure-submit-threw'
+                  : 'canvas-configure-rejection-race',
+                submissionFailure === 'bridge-threw'
+                  ? 'The WebGPU realm closed because canvas configure submission threw'
+                  : 'The WebGPU realm closed after a canvas configure rejection race',
+              );
+            }
           }
-          // LLP 0368 §2.2 installs the copied configuration before later
-          // device-timeline validation. A loss delivered reentrantly by the
-          // bridge must therefore observe and terminalize this generation.
-          unlinkConfiguredCanvasContext(context);
-          expireCurrentTexture(context);
-          context.configurationGeneration = nextConfigurationGeneration;
-          context.configuration = copiedConfiguration;
-          context.configuredDevice = configuredDevice;
-          context.configuredDeviceWrapper = deviceWrapper as object;
-          context.canvasContextLifecycle = 'configured';
-          configuredDevice.configuredCanvasContexts.add(context);
-        },
-      );
+        }
+        throw error;
+      }
     } finally {
       context.device = undefined;
     }
