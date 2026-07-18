@@ -3437,7 +3437,7 @@ mod tests {
             // execution and requires the resulting record.
             return;
         };
-        let expected_path = std::fs::canonicalize(
+        let selected_path = std::fs::canonicalize(
             std::env::var("IBEX_CAPSEC_ENGINE_ARTIFACT")
                 .expect("conformance attestation requires the named engine artifact"),
         )
@@ -3448,7 +3448,11 @@ mod tests {
         let _lock = hermes_engine_test_lock().lock().await;
         let identity = HermesEngine::loaded_engine_identity()
             .expect("the linked Hermes object must expose a loaded identity");
-        assert_eq!(identity.engine_artifact_path, expected_path);
+        assert!(selected_path.is_file());
+        // Windows deliberately stages the selected DLL beside Cargo's test
+        // executable. Bind evidence to the mapped copy and use the selected
+        // artifact's digest to prove that staging did not substitute bytes.
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
         assert_eq!(identity.binary_digest, expected_digest);
 
         let engine = HermesEngine::new().expect("exact Hermes engine must initialize");

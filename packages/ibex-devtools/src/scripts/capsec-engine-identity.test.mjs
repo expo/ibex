@@ -44,9 +44,9 @@ describe("exact loaded engine identity", () => {
     });
   });
 
-  test("rejects path, object, digest, architecture, feature, and shape drift", () => {
+  test("rejects relative paths, object, digest, architecture, feature, and shape drift", () => {
     for (const mutation of [
-      { ...identity, engineArtifactPath: "/different/hermesvm" },
+      { ...identity, engineArtifactPath: "relative/hermesvm" },
       { ...identity, binaryDigest: `sha256-${"B".repeat(43)}` },
       { ...identity, object: { ...identity.object, file: "ino:12" } },
       { ...identity, targetArchitecture: "x86_64" },
@@ -88,7 +88,7 @@ describe("exact loaded engine identity", () => {
     expect(windowsEnvironment.SYSTEMROOT).toBe("C:\\Windows");
   });
 
-  test("derives Windows volume and file identity from the named artifact", () => {
+  test("derives Windows volume and file identity from the mapped artifact", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-engine-"));
     try {
       const artifact = path.join(directory, "hermes.dll");
@@ -117,6 +117,43 @@ describe("exact loaded engine identity", () => {
           target: windowsTarget,
         }),
       ).toEqual(windowsIdentity);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("binds a byte-equivalent staged engine to its mapped object", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-engine-stage-"));
+    try {
+      const selectedArtifact = path.join(directory, "selected-hermes.dll");
+      const mappedArtifact = path.join(directory, "staged-hermes.dll");
+      fs.writeFileSync(selectedArtifact, "same-hermes-binary");
+      fs.copyFileSync(selectedArtifact, mappedArtifact);
+      const canonicalSelected = fs.realpathSync(selectedArtifact);
+      const canonicalMapped = fs.realpathSync(mappedArtifact);
+      const metadata = fs.statSync(canonicalMapped, { bigint: true });
+      const windowsTarget = {
+        triple: "x86_64-pc-windows-msvc",
+        features: [...target.features],
+      };
+      const stagedIdentity = {
+        ...identity,
+        engineArtifactPath: canonicalMapped,
+        object: {
+          platform: "windows",
+          volume: `volume:${metadata.dev}`,
+          file: `file:${metadata.ino}`,
+        },
+        targetArchitecture: "x86_64",
+      };
+      expect(
+        validateLoadedEngineIdentity({
+          identity: stagedIdentity,
+          canonicalArtifactPath: canonicalSelected,
+          binaryDigest: stagedIdentity.binaryDigest,
+          target: windowsTarget,
+        }),
+      ).toEqual(stagedIdentity);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

@@ -76,7 +76,7 @@ ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
 int32_t ex_hermes_engine_binary_path(char* out, size_t out_len);
 
 /// Return the device/inode identity of the mapped Hermes factory image when
-/// the platform can attest it (currently macOS). Returns 1 or -1.
+/// the platform can attest it. Returns 1 or -1.
 int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
                                       uint64_t* out_inode);
 

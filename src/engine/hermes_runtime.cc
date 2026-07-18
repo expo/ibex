@@ -75,6 +75,7 @@
 #include <spawn.h>
 #if defined(__linux__)
 #include <sys/epoll.h>
+#include <sys/sysmacros.h>
 #elif defined(__APPLE__)
 #include <sys/event.h>
 #include <sys/time.h>
@@ -3676,6 +3677,35 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
   *out_inode = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) |
       static_cast<uint64_t>(info.nFileIndexLow);
   return 1;
+#elif defined(__linux__) || defined(__ANDROID__)
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  uintptr_t address =
+      reinterpret_cast<uintptr_t>(reinterpret_cast<void*>(factory));
+  std::ifstream maps("/proc/self/maps");
+  std::string line;
+  while (std::getline(maps, line)) {
+    unsigned long long start = 0;
+    unsigned long long end = 0;
+    unsigned long long offset = 0;
+    unsigned long long inode = 0;
+    unsigned int major = 0;
+    unsigned int minor = 0;
+    char permissions[5] = {};
+    if (std::sscanf(
+            line.c_str(), "%llx-%llx %4s %llx %x:%x %llu", &start, &end,
+            permissions, &offset, &major, &minor, &inode) != 7 ||
+        address < start || address >= end) {
+      continue;
+    }
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // identify the mapping that supplies Hermes, not this bridge's executable.
+    *out_device = static_cast<uint64_t>(makedev(major, minor));
+    *out_inode = static_cast<uint64_t>(inode);
+    return inode != 0 ? 1 : -1;
+  }
+  return -1;
 #elif defined(__APPLE__) && TARGET_OS_OSX
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);

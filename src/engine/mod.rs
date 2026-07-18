@@ -22,7 +22,12 @@ extern "C" {
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
     #[cfg(unix)]
     fn ex_open_pinned_self_image(error: *mut std::ffi::c_char, error_len: usize) -> i32;
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        windows
+    ))]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
 }
 
@@ -192,49 +197,15 @@ fn verify_loaded_mapping_object(
 ) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
 
-    let address = ex_hermes_engine_binary_path as usize;
-    let maps = std::fs::read_to_string("/proc/self/maps")
-        .map_err(|error| format!("failed to inspect loaded Hermes mapping: {error}"))?;
-    for line in maps.lines() {
-        let mut fields = line.split_whitespace();
-        let Some(range) = fields.next() else { continue };
-        let _permissions = fields.next();
-        let _offset = fields.next();
-        let Some(device) = fields.next() else {
-            continue;
-        };
-        let Some(inode) = fields.next() else { continue };
-        let Some((start, end)) = range.split_once('-') else {
-            continue;
-        };
-        let (Ok(start), Ok(end)) = (
-            usize::from_str_radix(start, 16),
-            usize::from_str_radix(end, 16),
-        ) else {
-            continue;
-        };
-        if !(start..end).contains(&address) {
-            continue;
-        }
-        let mapped_inode = inode
-            .parse::<u64>()
-            .map_err(|_| "loaded Hermes mapping has an invalid inode".to_owned())?;
-        let Some((major, minor)) = device.split_once(':') else {
-            return Err("loaded Hermes mapping has an invalid device".into());
-        };
-        let major = u64::from_str_radix(major, 16)
-            .map_err(|_| "loaded Hermes mapping has an invalid device major".to_owned())?;
-        let minor = u64::from_str_radix(minor, 16)
-            .map_err(|_| "loaded Hermes mapping has an invalid device minor".to_owned())?;
-        let mapped_device = libc::makedev(major as _, minor as _) as u64;
-        if mapped_inode != metadata.ino() || mapped_device != metadata.dev() {
-            return Err(
-                "loaded Hermes path names a different object than the executable mapping".into(),
-            );
-        }
-        return Ok(());
+    let mut device = 0u64;
+    let mut inode = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
+        return Err("failed to identify the mapped Hermes ELF image".into());
     }
-    Err("could not locate the loaded Hermes executable mapping".into())
+    if inode != metadata.ino() || device != metadata.dev() {
+        return Err("loaded Hermes path names a different object than the mapped ELF image".into());
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

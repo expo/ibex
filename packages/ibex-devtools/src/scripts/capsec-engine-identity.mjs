@@ -49,19 +49,33 @@ export function validateLoadedEngineIdentity({
   canonicalArtifactPath,
   binaryDigest,
   target,
-  expectedObject = artifactObjectIdentity(canonicalArtifactPath, target),
+  expectedObject,
 }) {
+  let mappedObject = expectedObject;
+  try {
+    if (mappedObject === undefined) {
+      if (!fs.statSync(canonicalArtifactPath).isFile()) {
+        throw new Error("selected engine artifact is not a file");
+      }
+      mappedObject = artifactObjectIdentity(identity?.engineArtifactPath, target);
+    }
+  } catch {
+    throw new Error(
+      "loaded engine identity does not bind the named artifact and exact target",
+    );
+  }
   const object = identity?.object;
   if (
     !exactFields(identity, IDENTITY_FIELDS) ||
-    identity.engineArtifactPath !== canonicalArtifactPath ||
+    !path.isAbsolute(canonicalArtifactPath) ||
+    !path.isAbsolute(identity.engineArtifactPath) ||
     identity.kind !== "hermes" ||
     identity.binaryDigest !== binaryDigest ||
     !/^sha256-[A-Za-z0-9_-]{43}$/u.test(identity.binaryDigest ?? "") ||
     identity.targetArchitecture !== target?.triple?.split("-")[0] ||
     canonicalJson(identity.structuralFeatures) !== canonicalJson(target?.features) ||
     !exactFields(object, OBJECT_FIELDS) ||
-    canonicalJson(object) !== canonicalJson(expectedObject) ||
+    canonicalJson(object) !== canonicalJson(mappedObject) ||
     !OBJECT_PLATFORMS.has(object.platform) ||
     typeof object.volume !== "string" ||
     object.volume.length === 0 ||
