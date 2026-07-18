@@ -8,7 +8,7 @@
   "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
   "typegpuVersion": "0.11.9",
   "activeRouteSubset": {
-    "scopeId": "native-triangle-phase-1a-v1",
+    "scopeId": "native-triangle-plus-typegpu-graduates-v1",
     "operationCount": 26,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
@@ -161,7 +161,7 @@
       {
         "operationId": "GPUDevice.createBindGroupLayout",
         "memberKind": "method",
-        "disposition": "active-private-triangle-route"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUDevice.createBuffer",
@@ -351,7 +351,7 @@
   "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined",
   "source": {
     "path": "tests/gpu/typegpu-workload-closure-v1.json",
-    "normalizedProjectionSha256": "66b7c73e54c241a7c4b916b380c888834f8fe30d3addb6d3ab332b1516ddc814",
+    "normalizedProjectionSha256": "01e4bdd6d1cb668e1db1a46a6b98fc458b84fed1bd51c02bce45672abf6e658c",
     "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
   }
 }
