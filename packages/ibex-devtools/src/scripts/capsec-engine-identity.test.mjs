@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -118,6 +119,62 @@ describe("exact loaded engine identity", () => {
           target: windowsTarget,
         }),
       ).toEqual(windowsIdentity);
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("binds a Windows staged DLL replica to the selected artifact bytes", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-engine-"));
+    try {
+      const selectedDirectory = path.join(directory, "selected");
+      const stagedDirectory = path.join(directory, "target", "debug", "deps");
+      fs.mkdirSync(selectedDirectory, { recursive: true });
+      fs.mkdirSync(stagedDirectory, { recursive: true });
+      const selectedArtifact = path.join(selectedDirectory, "hermesvm.dll");
+      const stagedArtifact = path.join(stagedDirectory, "hermesvm.dll");
+      fs.writeFileSync(selectedArtifact, "exact Hermes Release bytes");
+      fs.copyFileSync(selectedArtifact, stagedArtifact);
+      const canonicalSelectedArtifact = fs.realpathSync(selectedArtifact);
+      const canonicalStagedArtifact = fs.realpathSync(stagedArtifact);
+      const metadata = fs.statSync(canonicalStagedArtifact, { bigint: true });
+      const binaryDigest = `sha256-${crypto
+        .createHash("sha256")
+        .update(fs.readFileSync(canonicalSelectedArtifact))
+        .digest("base64url")}`;
+      const windowsTarget = {
+        triple: "x86_64-pc-windows-msvc",
+        features: [...target.features],
+      };
+      const stagedIdentity = {
+        ...identity,
+        engineArtifactPath: canonicalStagedArtifact,
+        binaryDigest,
+        object: {
+          platform: "windows",
+          volume: `volume:${metadata.dev}`,
+          file: `file:${metadata.ino}`,
+        },
+        targetArchitecture: "x86_64",
+      };
+      expect(
+        validateLoadedEngineIdentity({
+          identity: stagedIdentity,
+          canonicalArtifactPath: canonicalSelectedArtifact,
+          binaryDigest,
+          target: windowsTarget,
+        }),
+      ).toEqual(stagedIdentity);
+
+      fs.writeFileSync(stagedArtifact, "different Hermes bytes");
+      expect(() =>
+        validateLoadedEngineIdentity({
+          identity: stagedIdentity,
+          canonicalArtifactPath: canonicalSelectedArtifact,
+          binaryDigest,
+          target: windowsTarget,
+        }),
+      ).toThrow(/does not bind/);
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }

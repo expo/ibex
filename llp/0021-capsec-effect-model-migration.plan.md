@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 binds Windows conformance to the actual Cargo-staged mapped DLL identity and independently requires its bytes to equal the selected Release artifact)
 **Revised:** 2026-07-18 (ENG-24933 rebuilds a Windows Release bundle from source when its commit/patch/profile match but its reviewed build-authority digest is stale)
 **Revised:** 2026-07-18 (ENG-24933 pins tracked text to canonical LF and makes the appended web-streams bootstrap boundary CRLF-tolerant after Windows reached different public-surface and Hermes-identity graphs)
 **Revised:** 2026-07-18 (ENG-24933 makes source-derived class-factory traversal cycle-safe after a Windows-only factory chain exhausted the conformance preflight stack)
@@ -1729,6 +1730,12 @@ for comparison. The release workflow has now built and inspected that DLL on a
 Windows runner and published the exact checksummed Release bundle; its DLL
 digest is
 `6f5190b9f8bf943b073e62dc5dbc2e297b77b7becbac3ca0c209b12d92828b6a`.
+Cargo copies that selected DLL into its profile and `deps` directories so a
+test executable can load it before Rust code runs. Windows conformance therefore
+authenticates the actual mapped staged path and Windows file object, hashes that
+object, and separately requires the hash and DLL name to equal the selected
+Release artifact. It does not require the copy's pathname or file index to
+equal its source, which cannot hold for a copied DLL.
 Windows x64 is now a declared but unadvertised candidate alongside Apple arm64.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
 manifest, digest, patched export, and debugger-free profile, then explicitly

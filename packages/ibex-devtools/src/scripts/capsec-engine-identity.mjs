@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { canonicalJson } from "./capsec-contract.mjs";
@@ -44,24 +45,64 @@ function artifactObjectIdentity(canonicalArtifactPath, target) {
   };
 }
 
+function artifactDigest(canonicalArtifactPath) {
+  return `sha256-${crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(canonicalArtifactPath))
+    .digest("base64url")}`;
+}
+
+function canonicalPathMatches(reportedPath, canonicalPath) {
+  if (process.platform !== "win32") return reportedPath === canonicalPath;
+  const key = (value) =>
+    path.win32
+      .normalize(value.startsWith("\\\\?\\") ? value.slice(4) : value)
+      .toLowerCase();
+  return key(reportedPath) === key(canonicalPath);
+}
+
 export function validateLoadedEngineIdentity({
   identity,
   canonicalArtifactPath,
   binaryDigest,
   target,
-  expectedObject = artifactObjectIdentity(canonicalArtifactPath, target),
+  expectedObject,
 }) {
+  const isWindowsTarget = target?.triple?.includes("-windows-") ?? false;
+  const loadedArtifactPath = identity?.engineArtifactPath;
+  const canonicalLoadedArtifactPath =
+    typeof loadedArtifactPath === "string" && fs.existsSync(loadedArtifactPath)
+      ? fs.realpathSync(loadedArtifactPath)
+      : loadedArtifactPath;
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // Cargo must load Windows DLLs from its digest-checked profile/deps staging
+  // directory. Bind the actual mapped copy's path and file identity while
+  // independently requiring byte equality with the selected Release artifact.
+  const acceptsWindowsStagedReplica =
+    isWindowsTarget &&
+    typeof loadedArtifactPath === "string" &&
+    canonicalPathMatches(loadedArtifactPath, canonicalLoadedArtifactPath) &&
+    path.basename(loadedArtifactPath).toLowerCase() ===
+      path.basename(canonicalArtifactPath).toLowerCase() &&
+    artifactDigest(loadedArtifactPath) === binaryDigest;
+  const acceptedArtifactPath =
+    loadedArtifactPath === canonicalArtifactPath || acceptsWindowsStagedReplica;
+  const authenticatedObject =
+    expectedObject ??
+    (acceptedArtifactPath && typeof loadedArtifactPath === "string"
+      ? artifactObjectIdentity(loadedArtifactPath, target)
+      : undefined);
   const object = identity?.object;
   if (
     !exactFields(identity, IDENTITY_FIELDS) ||
-    identity.engineArtifactPath !== canonicalArtifactPath ||
+    !acceptedArtifactPath ||
     identity.kind !== "hermes" ||
     identity.binaryDigest !== binaryDigest ||
     !/^sha256-[A-Za-z0-9_-]{43}$/u.test(identity.binaryDigest ?? "") ||
     identity.targetArchitecture !== target?.triple?.split("-")[0] ||
     canonicalJson(identity.structuralFeatures) !== canonicalJson(target?.features) ||
     !exactFields(object, OBJECT_FIELDS) ||
-    canonicalJson(object) !== canonicalJson(expectedObject) ||
+    canonicalJson(object) !== canonicalJson(authenticatedObject) ||
     !OBJECT_PLATFORMS.has(object.platform) ||
     typeof object.volume !== "string" ||
     object.volume.length === 0 ||

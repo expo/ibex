@@ -3388,7 +3388,23 @@ mod tests {
         let _lock = hermes_engine_test_lock().lock().await;
         let identity = HermesEngine::loaded_engine_identity()
             .expect("the linked Hermes object must expose a loaded identity");
+        #[cfg(not(windows))]
         assert_eq!(identity.engine_artifact_path, expected_path);
+        #[cfg(windows)]
+        {
+            // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+            // — Cargo loads the digest-checked Hermes replica staged beside
+            // the test executable, so the mapped path cannot equal its source.
+            assert_eq!(
+                identity
+                    .engine_artifact_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_ascii_lowercase()),
+                expected_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_ascii_lowercase())
+            );
+        }
         assert_eq!(identity.binary_digest, expected_digest);
 
         let engine = HermesEngine::new().expect("exact Hermes engine must initialize");
