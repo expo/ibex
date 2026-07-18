@@ -46,6 +46,13 @@ test("conformance prerequisite matrix covers every product test layer", () => {
     "bash",
     ["./scripts/check-generated-drift.sh"],
   ]);
+  expect(byId.get("capsec-registry-drift")).toEqual([
+    process.env.IBEX_NODE_ORACLE_BIN ?? "node",
+    [
+      "packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs",
+      "--check",
+    ],
+  ]);
   expect(byId.get("linked-literate-references")).toEqual([
     process.platform === "win32" ? "python" : "python3",
     ["./ref-check"],
