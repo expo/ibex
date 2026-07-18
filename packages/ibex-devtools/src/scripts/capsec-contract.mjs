@@ -336,7 +336,7 @@ export function parseJsonStrict(bytes, label = "<json>") {
 }
 
 export function readJsonStrict(filePath) {
-  const label = path.relative(repoRoot, filePath);
+  const label = path.relative(repoRoot, filePath).split(path.sep).join("/");
   return parseJsonStrict(fs.readFileSync(filePath), label);
 }
 
