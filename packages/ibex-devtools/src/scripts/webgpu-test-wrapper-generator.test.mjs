@@ -58,6 +58,7 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(nativePrograms.routes.map((route) => route.operationId)).toEqual([
       "GPU.requestAdapter",
       "GPUAdapter.requestDevice",
+      "GPUDevice.createCommandEncoder",
       "GPUDevice.destroy",
     ]);
     expect(nativePrograms.routes[0].request.catalog.wireTag).toBe(2);
@@ -101,7 +102,17 @@ describe("test-only WebGPU wrapper generator", () => {
       serviceResultPath: "nativeSemanticServiceResult.diagnosticMessage",
       operator: "equal-never-caller-selected",
     });
-    const deviceDestroy = nativePrograms.routes[2];
+    const createCommandEncoder = nativePrograms.routes[2];
+    expect(createCommandEncoder.request.catalog.wireTag).toBe(5);
+    expect(createCommandEncoder.completion.catalog.wireTag).toBe(2);
+    expect(createCommandEncoder.request.executablePrerequisites).toEqual([]);
+    expect(createCommandEncoder.request.carrierConstraints.find(
+      (constraint) => constraint.carrierPath === "target.kind",
+    )?.valueFrom).toBe("objectKindTags.GPUCommandEncoder");
+    expect(createCommandEncoder.completion.variants.map(
+      (variant) => variant.name,
+    )).toEqual(["operation-success"]);
+    const deviceDestroy = nativePrograms.routes[3];
     expect(deviceDestroy.request.catalog.wireTag).toBe(12);
     expect(deviceDestroy.completion.catalog.wireTag).toBe(2);
     expect(deviceDestroy.request.executablePrerequisites).toEqual([]);
@@ -418,28 +429,28 @@ describe("test-only WebGPU wrapper generator", () => {
     mutations.push(nativeRequestDeviceTransition);
 
     const nativeDeviceDestroyTimeline = clone(authority);
-    nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+    nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[3]
       .request.valueConstraints[0].operator = "exact-empty-sequence";
     mutations.push(nativeDeviceDestroyTimeline);
 
     const nativeDeviceDestroyAdmission = clone(authority);
-    nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+    nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[3]
       .completion.variants[1].carrierConstraints[1].operator = "equal";
     mutations.push(nativeDeviceDestroyAdmission);
 
     const nativeDeviceDestroyTerminal = clone(authority);
-    nativeDeviceDestroyTerminal.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+    nativeDeviceDestroyTerminal.payload.wireEnvelope.nativeCodecPrograms.routes[3]
       .completion.semanticTerminalMapping.terminals[2].terminalId =
         "generic-admitted-cleanup";
     mutations.push(nativeDeviceDestroyTerminal);
 
     const nativeDeviceDestroyTerminalCount = clone(authority);
-    nativeDeviceDestroyTerminalCount.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+    nativeDeviceDestroyTerminalCount.payload.wireEnvelope.nativeCodecPrograms.routes[3]
       .completion.semanticTerminalMapping.terminals[2].providerTokenCount = 0;
     mutations.push(nativeDeviceDestroyTerminalCount);
 
     const nativeDeviceDestroyErrorMapping = clone(authority);
-    nativeDeviceDestroyErrorMapping.payload.wireEnvelope.nativeCodecPrograms.routes[2]
+    nativeDeviceDestroyErrorMapping.payload.wireEnvelope.nativeCodecPrograms.routes[3]
       .completion.semanticTerminalMapping.terminals[1].event.kind =
         "operation-result";
     mutations.push(nativeDeviceDestroyErrorMapping);

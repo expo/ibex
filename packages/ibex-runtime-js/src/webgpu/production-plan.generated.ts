@@ -6,13 +6,13 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "generated-injection-and-request-adapter-request-device-device-destroy-payload-codegen-input-native-codec-not-installed",
+  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-native-codec-not-installed",
   "digests": {
     "operationSet": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
     "semanticProgramSet": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
     "runtimeRouting": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-    "webgpuCVocabulary": "538132c7d41b91ac25fe2c70c529d39dfdded14cfd9ca21c1585563b0af288c9",
-    "projection": "d66916233affe96a17bce13394ea91841333ef06807b989f856f424b84c0f26e"
+    "webgpuCVocabulary": "94101b73111fcda3d7a65990386367917f835e57b15523a6cea876cb157966b0",
+    "projection": "eb67b94d673a8932d882a46a3b88e9e3e55c7b9e5ab50a0091773668f542aa75"
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-phase-1a-v1",

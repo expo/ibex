@@ -129,6 +129,8 @@ function serviceInput(
       requiredLimits: Object.freeze({ maxBindGroups: 4 }),
       defaultQueue: Object.freeze({ label: 'queue' }),
     })
+    : operationId === 'GPUDevice.createCommandEncoder'
+    ? Object.freeze({ label: 'encoder' })
     : operationId === 'GPUDevice.destroy'
     ? null
     : Object.freeze({ sample: true }),
@@ -297,7 +299,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -314,6 +316,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       routes: [
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
+        { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.destroy', wireId: 206890944 },
       ],
     });
@@ -462,6 +465,48 @@ describe('generated injection-only WebGPU executable codecs', () => {
     } as unknown as ExecutableWebGpuCodecManifest;
     expect(() => createExecutableWebGpuCodecs(
       expandedProgramScope,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('native codec program');
+
+    const createCommandEncoderRoute = program.routes.find(
+      (candidate) =>
+        candidate.operationId === 'GPUDevice.createCommandEncoder',
+    )!;
+    const duplicatedCreateCommandEncoderRoute = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      nativeCodecPrograms: {
+        ...program,
+        routes: [...program.routes, createCommandEncoderRoute],
+      },
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      duplicatedCreateCommandEncoderRoute,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('native codec program');
+
+    const changedCreateCommandEncoderTarget = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      nativeCodecPrograms: {
+        ...program,
+        routes: program.routes.map((candidate) =>
+          candidate.operationId === 'GPUDevice.createCommandEncoder'
+            ? {
+              ...candidate,
+              request: {
+                ...candidate.request,
+                carrierConstraints: candidate.request.carrierConstraints.map(
+                  (constraint) => constraint.carrierPath === 'target.kind'
+                    ? { ...constraint, valueFrom: 'objectKindTags.GPUTexture' }
+                    : constraint,
+                ),
+              },
+            }
+            : candidate
+        ),
+      },
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      changedCreateCommandEncoderTarget,
       WEBGPU_OBJECT_KIND_TAGS,
     )).toThrow('native codec program');
 
@@ -908,6 +953,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
             }
             : route.operationId === 'GPUDevice.destroy'
             ? null
+            : route.operationId === 'GPUDevice.createCommandEncoder'
+            ? { label: 'encoder' }
             : { sample: true },
         });
       }
@@ -915,7 +962,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
   });
 
   test('request encoding is canonical and rejects unknown tags, trailing bytes, and bounds', () => {
-    const input = serviceInput('GPUDevice.createCommandEncoder', Object.freeze({
+    const input = serviceInput('GPUDevice.createShaderModule', Object.freeze({
       z: 1,
       a: 'first',
     }));
@@ -926,7 +973,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     ]);
     const bytes = first as Uint8Array;
     const utf8Ordered = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createCommandEncoder', Object.freeze({
+      serviceInput('GPUDevice.createShaderModule', Object.freeze({
         '\u{10000}': 'supplementary-plane',
         '\ue000': 'basic-multilingual-plane',
       })),
@@ -950,19 +997,19 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toThrow('reviewed byte bound');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
       serviceInput(
-        'GPUDevice.createCommandEncoder',
+        'GPUDevice.createShaderModule',
         Array.from({ length: 1025 }, () => null),
       ),
     )).toThrow('reviewed count bound');
     const tooManyFields: Record<string, number> = {};
     for (let index = 0; index < 129; index += 1) tooManyFields[`k${index}`] = index;
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createCommandEncoder', tooManyFields),
+      serviceInput('GPUDevice.createShaderModule', tooManyFields),
     )).toThrow('reviewed field bound');
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createCommandEncoder', cyclic),
+      serviceInput('GPUDevice.createShaderModule', cyclic),
     )).toThrow('contains a cycle');
     const nested: Record<string, unknown> = {};
     let cursor = nested;
@@ -972,10 +1019,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
       cursor = next;
     }
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createCommandEncoder', nested),
+      serviceInput('GPUDevice.createShaderModule', nested),
     )).toThrow('reviewed nesting bound');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createCommandEncoder', '\ud800'),
+      serviceInput('GPUDevice.createShaderModule', '\ud800'),
     )).toThrow('not well-formed UTF-16');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
       ...serviceInput('GPUDevice.createCommandEncoder'),
@@ -1148,9 +1195,88 @@ describe('generated injection-only WebGPU executable codecs', () => {
           generatedLogicalProviderDescriptor: {},
         },
       })).toThrow('reviewed descriptor shape');
+  });
+
+  test('executes the private createCommandEncoder request program and empty terminal receipt', () => {
+    const input = serviceInput('GPUDevice.createCommandEncoder');
+    const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === 'gpu-create-command-encoder-service-request-v1',
+    )!;
+    expect(codec.nativeProgramPrerequisitesRepresented).toBe(true);
+    expect(codec.executableFromCurrentAuthenticatedInputs).toBe(true);
+    expect(codec.unavailableSemanticFields).toEqual([]);
+
+    const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(input);
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(input))
+      .toEqual(payload);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      payload,
+    )).toMatchObject({
+      operationId: 'GPUDevice.createCommandEncoder',
+      codec: 'gpu-create-command-encoder-service-request-v1',
+      receiver: {
+        kind: 'GPUDevice',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      target: {
+        kind: 'GPUCommandEncoder',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      adapterOrdinal: '0',
+      deviceIngressOrdinal: '3',
+      queueIngressOrdinal: '0',
+      convertedArguments: { label: 'encoder' },
+    });
+    for (const length of [0, 1, 4, 11, 12, payload.byteLength - 1]) {
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        payload.slice(0, length),
+      )).toThrow();
+    }
     expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
-      .encodeNativeCodegenRequest(serviceInput('GPUDevice.createCommandEncoder'))
-    ).toThrow('no reviewed native codegen request program');
+      .encodeNativeCodegenRequest({ ...input, target: undefined }))
+      .toThrow('wrapper-allocated target');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        target: reference('GPUTexture'),
+      })).toThrow('authenticated device provenance');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        target: {
+          ...input.target!,
+          logicalDeviceId: '18',
+        },
+      })).toThrow('authenticated device provenance');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        deviceIngressOrdinal: '0',
+      })).toThrow('positive identity');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        convertedArguments: { label: 'encoder', extra: true },
+      })).toThrow('reviewed descriptor shape');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        sealedLocalTimeline: null,
+      })).toThrow('bounded sequence');
+
+    const completion = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeServiceResult('GPUDevice.createCommandEncoder', { kind: 'none' });
+    expect(completion.byteLength).toBe(0);
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUDevice.createCommandEncoder',
+      { kind: 'null' },
+    )).toThrow('wrong shape');
   });
 
   test('executes the private GPUDevice.destroy request program and empty terminal receipt', () => {

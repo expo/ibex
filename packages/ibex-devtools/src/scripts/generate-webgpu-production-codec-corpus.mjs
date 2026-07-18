@@ -38,6 +38,7 @@ const outputPath =
   "tests/fixtures/webgpu-production-codec-corpus-v1.generated.json";
 const operationId = "GPU.requestAdapter";
 const requestDeviceOperationId = "GPUAdapter.requestDevice";
+const createCommandEncoderOperationId = "GPUDevice.createCommandEncoder";
 const deviceDestroyOperationId = "GPUDevice.destroy";
 
 function fail(message) {
@@ -743,6 +744,175 @@ function buildCorpus() {
     },
   });
 
+  const createCommandEncoderRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === createCommandEncoderOperationId,
+  );
+  const createCommandEncoderRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === createCommandEncoderRoute?.serviceArgumentCodec,
+    );
+  const createCommandEncoderCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === createCommandEncoderRoute?.serviceCompletionCodec,
+    );
+  const createCommandEncoderNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === createCommandEncoderOperationId,
+    );
+  if (
+    !createCommandEncoderRoute ||
+    !createCommandEncoderRequestCodec?.executableFromCurrentAuthenticatedInputs ||
+    !createCommandEncoderRequestCodec.nativeProgramPrerequisitesRepresented ||
+    createCommandEncoderRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !createCommandEncoderCompletionCodec ||
+    !createCommandEncoderNativeRoute ||
+    createCommandEncoderNativeRoute.request.catalog.wireTag !==
+      createCommandEncoderRequestCodec.wireTag ||
+    createCommandEncoderNativeRoute.completion.catalog.wireTag !==
+      createCommandEncoderCompletionCodec.wireTag
+  ) {
+    fail(
+      "GPUDevice.createCommandEncoder native codegen program is not executable from authenticated inputs",
+    );
+  }
+  const createCommandEncoderReceiver = Object.freeze({
+    kind: "GPUDevice",
+    objectId: "80",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const createCommandEncoderTarget = Object.freeze({
+    kind: "GPUCommandEncoder",
+    objectId: "82",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const convertedCreateCommandEncoderArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      createCommandEncoderOperationId,
+      [Object.freeze({ label: "corpus-encoder" })],
+      wrapperAccess,
+    );
+  if (
+    canonicalJson(convertedCreateCommandEncoderArguments) !==
+      canonicalJson({ label: "corpus-encoder" })
+  ) {
+    fail("GPUDevice.createCommandEncoder descriptor projection drifted");
+  }
+  const createCommandEncoderBytes =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      Object.freeze({
+        operationId: createCommandEncoderOperationId,
+        wireId: createCommandEncoderRoute.wireId,
+        convertedArguments: convertedCreateCommandEncoderArguments,
+        receiver: createCommandEncoderReceiver,
+        target: createCommandEncoderTarget,
+        capturedScopeId: "2",
+        adapterOrdinal: "0",
+        deviceIngressOrdinal: "3",
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline: Object.freeze([]),
+      }),
+    );
+  const expectedCreateCommandEncoderRequest = Object.freeze({
+    receiver: createCommandEncoderReceiver,
+    target: createCommandEncoderTarget,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+    convertedArguments: convertedCreateCommandEncoderArguments,
+  });
+  const inspectedCreateCommandEncoder =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      createCommandEncoderBytes,
+    );
+  if (
+    canonicalJson(inspectedCreateCommandEncoder) !== canonicalJson({
+      operationId: createCommandEncoderOperationId,
+      codec: createCommandEncoderRequestCodec.tag,
+      ...expectedCreateCommandEncoderRequest,
+    })
+  ) {
+    fail(
+      "GPUDevice.createCommandEncoder generated request does not round-trip through inspection",
+    );
+  }
+  const createCommandEncoderCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createCommandEncoderOperationId,
+      { kind: "none" },
+    );
+  if (createCommandEncoderCompletion.byteLength !== 0) {
+    fail(
+      "GPUDevice.createCommandEncoder terminal receipt must have an empty completion payload",
+    );
+  }
+  const createCommandEncoderRequestCarrier = Object.freeze({
+    operation_id: createCommandEncoderRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: "13",
+    promise_id: "0",
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: "3",
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+      flags: 0,
+      object_id: "80",
+      object_generation: "2",
+    }),
+    target: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUCommandEncoder,
+      flags: 0,
+      object_id: "82",
+      object_generation: "1",
+    }),
+  });
+  const createCommandEncoderCompletionCarrier = Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: createCommandEncoderRoute.wireId,
+          operation_instance_id: "13",
+          promise_id: "0",
+          provider_admission: 1,
+          physical_sequence: "8",
+          captured_scope_id: "2",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "3",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: createCommandEncoderRequestCarrier.ingress_device,
+          result_device: createCommandEncoderRequestCarrier.ingress_device,
+          provider_generation: "9",
+          receiver: createCommandEncoderRequestCarrier.receiver,
+          target: createCommandEncoderRequestCarrier.target,
+        }),
+      }),
+    }),
+  });
+
   const deviceDestroyRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === deviceDestroyOperationId,
   );
@@ -948,7 +1118,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -994,6 +1164,19 @@ function buildCorpus() {
         unavailableSemanticFields:
           requestDeviceRequestCodec.unavailableSemanticFields,
         testOnlyPayloadCodegenEvidence: true,
+      },
+      {
+        operationId: createCommandEncoderOperationId,
+        wireId: createCommandEncoderRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createCommandEncoderRequestCodec.tag,
+        requestCodecTag: createCommandEncoderRequestCodec.wireTag,
+        completionCodec: createCommandEncoderCompletionCodec.tag,
+        completionCodecTag: createCommandEncoderCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createCommandEncoderNativeRoute.completion.semanticTerminalMapping,
       },
       {
         operationId: deviceDestroyOperationId,
@@ -1209,6 +1392,25 @@ function buildCorpus() {
         },
       },
       {
+        id: "create-command-encoder-request",
+        kind: "request",
+        carrierProjection: createCommandEncoderRequestCarrier,
+        trust:
+          "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
+        semanticOwner:
+          "native-semantic-service-before-provider-admission",
+        bytesHex: toHex(createCommandEncoderBytes),
+        expected: expectedCreateCommandEncoderRequest,
+      },
+      {
+        id: "create-command-encoder-operation-success-result",
+        kind: "result",
+        semanticTerminalId: "operation-success",
+        carrierProjection: createCommandEncoderCompletionCarrier,
+        bytesHex: toHex(createCommandEncoderCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      {
         id: "device-destroy-sealed-timeline-request",
         kind: "request",
         carrierProjection: deviceDestroyRequestCarrier,
@@ -1253,7 +1455,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createCommandEncoder, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }

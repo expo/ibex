@@ -227,7 +227,7 @@ function renderPlan(authority, workloadStaging) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-device-destroy-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     activeRouteSubset: {
       scopeId: payload.scopeId,
@@ -346,12 +346,19 @@ function buildCodecManifest(authority, semantics) {
   const requestDeviceProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUAdapter.requestDevice",
   );
+  const createCommandEncoderProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUDevice.createCommandEncoder",
+  );
   const deviceDestroyProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.destroy",
   );
   const deviceDestroySemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.destroy",
+    );
+  const createCommandEncoderSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUDevice.createCommandEncoder",
     );
   const objectCompletion = requestAdapterProgram?.completion.variants.find(
     (variant) => variant.name === "object",
@@ -362,11 +369,14 @@ function buildCodecManifest(authority, semantics) {
   if (
     !requestAdapterProgram ||
     !requestDeviceProgram ||
+    !createCommandEncoderProgram ||
     !deviceDestroyProgram ||
+    !createCommandEncoderSemanticProgram ||
     !deviceDestroySemanticProgram ||
     headerVocabulary.tags.GPU !== 1 ||
     headerVocabulary.tags.GPUAdapter !== 2 ||
     headerVocabulary.tags.GPUDevice !== 3 ||
+    headerVocabulary.tags.GPUCommandEncoder !== 15 ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 !==
       requestAdapterProgram.completion.commonCarrierConstraints[0].value ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2 !== 2 ||
@@ -378,6 +388,8 @@ function buildCodecManifest(authority, semantics) {
       objectCompletion?.resultKind ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       deviceDestroyProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      createCommandEncoderProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_V2 !== 1 ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 !== 2 ||
     headerVocabulary.carrierConstants.EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 !== 0 ||
@@ -386,6 +398,7 @@ function buildCodecManifest(authority, semantics) {
     headerVocabulary.carrierConstants.EXACT_GPU_BACKEND_NONE_V2 !== 0 ||
     requestDeviceProgram.request.executablePrerequisites.join(",") !==
       "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity" ||
+    createCommandEncoderProgram.request.executablePrerequisites.length !== 0 ||
     deviceDestroyProgram.request.executablePrerequisites.length !== 0
   ) {
     throw new Error("native WebGPU codec program C vocabulary drifted");
@@ -441,10 +454,57 @@ function buildCodecManifest(authority, semantics) {
       "GPUDevice.destroy native completion mapping differs from semantic terminals",
     );
   }
+  const createCommandEncoderCompletionEvents = {
+    "webidl-rejection": {
+      kind: "no-service-call",
+      completionPayloadEncoderEligibility: "excluded-before-service-ingress",
+    },
+    "later-predicate-rejection": {
+      kind: "device-error",
+      kindValue:
+        headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2,
+      kindSymbol: "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+      completionPayloadEncoderEligibility:
+        "excluded-not-an-operation-result",
+    },
+    "operation-success": {
+      kind: "operation-result",
+      kindValue:
+        headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2,
+      kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+      resultKind: headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
+      resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+      status: 0,
+      completionVariant: "operation-success",
+    },
+  };
+  const expectedCreateCommandEncoderTerminalMapping = {
+    authorityPath:
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createCommandEncoder]",
+    terminals: createCommandEncoderSemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+      event: createCommandEncoderCompletionEvents[terminal.terminalId],
+    })),
+  };
+  if (
+    canonicalJson(createCommandEncoderProgram.completion.semanticTerminalMapping) !==
+      canonicalJson(expectedCreateCommandEncoderTerminalMapping) ||
+    expectedCreateCommandEncoderTerminalMapping.terminals.some(
+      (terminal) => !terminal.event,
+    )
+  ) {
+    throw new Error(
+      "GPUDevice.createCommandEncoder native completion mapping differs from semantic terminals",
+    );
+  }
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
