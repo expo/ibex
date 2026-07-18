@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_127);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_811);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_129);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_809);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(428);
+    expect(nativePublicFixtures).toHaveLength(430);
     expect(
       nativePublicFixtures
         .filter(
@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_938);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_009);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_929);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_011);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_927);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
@@ -2985,6 +2985,35 @@ describe("exact-target CapSec executable recipes", () => {
         });
       }
     }
+  });
+
+  test("executes armed environment enumeration closure without authority", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactGetAllEnv" &&
+        ["branch-selection", "no-effect"].includes(recipe.scenario) &&
+        recipe.actionIds.length === 0,
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((recipe) => recipe.scenario).sort()).toEqual([
+      "branch-selection",
+      "no-effect",
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "effects" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.arguments.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedResult === "return" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages.length ===
+            0,
+      ),
+    ).toBe(true);
   });
 
   test("executes exact in-memory SQLite conditional branches without authority", () => {

@@ -2799,6 +2799,97 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/execution proof disagrees/);
   });
 
+  test("accepts armed environment enumeration only when its object is empty", () => {
+    const recipe = completeCatalog().recipes[0];
+    Object.assign(recipe, {
+      fixtureId: "fixture.native.get-all-env.empty",
+      classification: "effects",
+      scenario: "branch-selection",
+      actionIds: [],
+      terminalObservedKey: "native-op:__exactGetAllEnv",
+    });
+    recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+    recipe.route.alternatives[0].terminalObservedKey =
+      recipe.terminalObservedKey;
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactGetAllEnv",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactGetAllEnv",
+        arity: 0,
+        sourceRef:
+          "src/engine/hermes_runtime.cc#jsi-global:__exactGetAllEnv",
+      },
+      arguments: [],
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      expectedActionIds: [],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = runtimeObservation(recipe);
+    Object.assign(observation.invocation, {
+      kind: invocation.kind,
+      globalName: invocation.globalName,
+      result: {
+        kind: "return",
+        globalName: invocation.globalName,
+        valueType: "object",
+        cleanup: "none",
+        valuePropertyCount: 0,
+      },
+      executionProof: {
+        kind: "armed-empty-environment-enumeration",
+        bodyEntered: true,
+        propertyCount: 0,
+      },
+    });
+    delete observation.invocation.moduleSpecifier;
+    delete observation.invocation.exportName;
+    observation.typedDecisions = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const nonempty = structuredClone(observation);
+    nonempty.invocation.result.valuePropertyCount = 1;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: nonempty,
+        coverage,
+      }),
+    ).toThrow(/authored cleanup/);
+
+    const weakProof = structuredClone(observation);
+    weakProof.invocation.executionProof.propertyCount = 1;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: weakProof,
+        coverage,
+      }),
+    ).toThrow(/execution proof disagrees/);
+  });
+
   test("accepts native async evidence only after authored quiescence", () => {
     const recipe = completeCatalog().recipes[0];
     recipe.terminalObservedKey = "native-op:__exactPublic";

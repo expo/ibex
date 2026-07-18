@@ -2058,15 +2058,27 @@ function validateRuntimeInvocation(observation, recipe) {
         "ibex/capsec-native-global-invocation/1" &&
       authored.kind === "native-global-function"
     ) {
+      const armedEnvironmentEnumeration =
+        authored.globalName === "__exactGetAllEnv";
       exactKeys(
         invocation.result,
-        ["kind", "globalName", "valueType", "cleanup"],
+        [
+          "kind",
+          "globalName",
+          "valueType",
+          "cleanup",
+          ...(armedEnvironmentEnumeration ? ["valuePropertyCount"] : []),
+        ],
         `${recipe.fixtureId}: native call result`,
       );
       if (
         invocation.result.globalName !== authored.globalName ||
         typeof invocation.result.valueType !== "string" ||
         typeof invocation.result.cleanup !== "string" ||
+        (armedEnvironmentEnumeration &&
+          (invocation.result.valueType !== "object" ||
+            invocation.result.valuePropertyCount !== 0 ||
+            invocation.result.cleanup !== "none")) ||
         (authored.expectedCleanup !== undefined &&
           invocation.result.cleanup !== authored.expectedCleanup)
       ) {
@@ -2620,13 +2632,22 @@ function validateRuntimeInvocation(observation, recipe) {
   if (
     invocation.invocationSchema === "ibex/capsec-native-global-invocation/1"
   ) {
+    const armedEnvironmentEnumeration =
+      authored.globalName === "__exactGetAllEnv" &&
+      authored.expectedResult === "return";
     exactKeys(
       invocation.executionProof,
-      ["kind", "bodyEntered"],
+      [
+        "kind",
+        "bodyEntered",
+        ...(armedEnvironmentEnumeration ? ["propertyCount"] : []),
+      ],
       `${recipe.fixtureId}: native execution proof`,
     );
     const expectedProof =
-      authored.expectedResult === "return"
+      armedEnvironmentEnumeration
+        ? ["armed-empty-environment-enumeration", true]
+        : authored.expectedResult === "return"
         ? [
             authored.kind === "global-property-read"
               ? "global-property-read"
@@ -2640,7 +2661,9 @@ function validateRuntimeInvocation(observation, recipe) {
           : ["exact-global-absence", false];
     if (
       invocation.executionProof.kind !== expectedProof[0] ||
-      invocation.executionProof.bodyEntered !== expectedProof[1]
+      invocation.executionProof.bodyEntered !== expectedProof[1] ||
+      (armedEnvironmentEnumeration &&
+        invocation.executionProof.propertyCount !== 0)
     ) {
       throw new Error(
         `${recipe.fixtureId}: native execution proof disagrees with result`,

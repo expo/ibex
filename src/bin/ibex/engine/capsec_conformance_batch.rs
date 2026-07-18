@@ -1484,14 +1484,31 @@ fn validate_native_runtime_observation(
                     recipe.fixture_id
                 );
             }
-            serde_json::json!({
-                "kind": if invocation.kind == "global-property-read" {
-                    "global-property-read"
-                } else {
-                    "native-return"
-                },
-                "bodyEntered": true,
-            })
+            if invocation.global_name == "__exactGetAllEnv" {
+                assert_eq!(invocation_result["valueType"], "object");
+                assert_eq!(
+                    invocation_result["valuePropertyCount"], 0,
+                    "{}: armed whole-environment enumeration was not empty",
+                    recipe.fixture_id
+                );
+                assert_eq!(invocation_result["cleanup"], "none");
+            }
+            if invocation.global_name == "__exactGetAllEnv" {
+                serde_json::json!({
+                    "kind": "armed-empty-environment-enumeration",
+                    "bodyEntered": true,
+                    "propertyCount": 0,
+                })
+            } else {
+                serde_json::json!({
+                    "kind": if invocation.kind == "global-property-read" {
+                        "global-property-read"
+                    } else {
+                        "native-return"
+                    },
+                    "bodyEntered": true,
+                })
+            }
         }
         "permission-denied" => {
             assert_eq!(
@@ -1849,12 +1866,35 @@ async fn execute_native_public_recipe(
             ))
             .await
     };
+    let empty_environment_property_count = if invocation.global_name == "__exactGetAllEnv" {
+        let encoded = engine
+            .eval_immediate("String(Object.keys(__exactGetAllEnv()).length)")
+            .await
+            .expect("inspect armed environment enumeration result")
+            .expect("armed environment enumeration inspection returned no result");
+        Some(
+            encoded
+                .parse::<usize>()
+                .expect("armed environment property count must be numeric"),
+        )
+    } else {
+        None
+    };
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     let encoded = result
         .expect("execute native public invocation in Hermes")
         .expect("native public invocation returned no result");
     let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
+    if let Some(property_count) = empty_environment_property_count {
+        invocation_result
+            .as_object_mut()
+            .expect("native environment result must be an object")
+            .insert(
+                "valuePropertyCount".into(),
+                serde_json::Value::from(property_count),
+            );
+    }
     if let Some((operation, path)) = &fs_path_async_fixture {
         if invocation_result["kind"] == "return" {
             let created = if operation == "mkdir" {

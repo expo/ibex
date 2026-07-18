@@ -2366,6 +2366,7 @@ function logicalBranchIdForPlan(plan, scenario) {
 }
 
 const NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES = new Map([
+  ["__exactGetAllEnv", nativeConditionalNoEffectTemplate(0)],
   [
     "__exactSqliteOpen",
     nativeConditionalNoEffectTemplate(2, [
