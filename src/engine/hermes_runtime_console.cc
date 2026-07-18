@@ -86,13 +86,18 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "console", std::move(console));
 
   bool skip_console_enhance = env_flag_enabled("EX_SKIP_STARTUP_CONSOLE_ENHANCE");
+  bool platform_skips_console_enhance = false;
 #if defined(_WIN32)
-  skip_console_enhance = true;
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
+  // Windows shared runtime supplies the reviewed console surface. Its legacy
+  // native enhancement layer is absent by platform design, not because the
+  // forbidden startup-control environment variable was accepted.
+  platform_skips_console_enhance = true;
 #endif
   bool source_console_enhance = env_flag_enabled("EX_CONSOLE_ENHANCE_SOURCE");
   bool console_enhance_hbc =
       env_flag_enabled("EX_CONSOLE_ENHANCE_HBC") || !source_console_enhance;
-  if (skip_console_enhance) {
+  if (skip_console_enhance || platform_skips_console_enhance) {
     if (tracing) {
 #if defined(_WIN32)
       fprintf(stderr, "[startup]   console_enhance skipped on Windows\n");
@@ -102,7 +107,7 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
               "to re-enable)\n");
 #endif
     }
-    if (handle->armed) {
+    if (handle->armed && skip_console_enhance) {
       reportStartupFailure(handle, "Console enhance", "disabled by startup control");
     }
     return;

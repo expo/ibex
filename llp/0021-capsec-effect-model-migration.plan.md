@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 distinguishes the intentional Windows legacy console-layer absence from the forbidden startup-control skip)
 **Revised:** 2026-07-18 (ENG-24933 evaluates the embedded Windows runtime bundle before structural lockdown so reviewed intrinsic polyfills exist before prototypes freeze)
 **Revised:** 2026-07-18 (ENG-24933 binds Windows conformance to the actual Cargo-staged mapped DLL identity and independently requires its bytes to equal the selected Release artifact)
 **Revised:** 2026-07-18 (ENG-24933 rebuilds a Windows Release bundle from source when its commit/patch/profile match but its reviewed build-authority digest is stale)
