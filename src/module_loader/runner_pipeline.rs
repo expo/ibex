@@ -221,6 +221,70 @@ impl SourceModuleGraphV1 {
         &self.snapshot
     }
 
+    /// Join a post-admission graph back to the exact structured file request
+    /// that authorized its discovery. Entry bytes and grammar are checked here
+    /// so every engine/preparer pairing shares one fail-closed boundary.
+    /// @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+    /// @ref LLP 0027#canonical-encoding-and-validation
+    pub fn validate_authenticated_entry_request(
+        &self,
+        request: &crate::engine::evaluation::SourceRequest,
+    ) -> Result<()> {
+        use crate::engine::evaluation::{
+            EntryKind, ModuleKind as RequestModuleKind, ParserDialect, SourceGoal, SourceRequest,
+            SourceRole,
+        };
+        use crate::module_loader::artifact::{SourceDialectV1, SourceGoalV1};
+
+        let record = self
+            .records
+            .get(&self.entry)
+            .ok_or_else(|| anyhow!("authenticated native source graph omitted its entry record"))?;
+        let entry_artifact = verify_record(record, &self.producer_binary_digest)?.artifact();
+        if request.entry_kind() != EntryKind::File {
+            bail!("authenticated native source graph requires a file request");
+        }
+        let SourceRequest::Program(program) = request else {
+            bail!("authenticated native source graph requires a program request")
+        };
+        let expected_goal = match program.module_kind() {
+            Some(RequestModuleKind::Esm) if program.goal() == SourceGoal::Module => {
+                SourceGoalV1::Module
+            }
+            Some(RequestModuleKind::CommonJs)
+                if program.goal() == SourceGoal::ScriptWithExtensions =>
+            {
+                SourceGoalV1::CommonJs
+            }
+            _ => bail!("authenticated file request has no native module grammar"),
+        };
+        let expected_dialect = match program.dialect() {
+            ParserDialect::JavaScript => SourceDialectV1::Js,
+            ParserDialect::JavaScriptJsx => SourceDialectV1::Jsx,
+            ParserDialect::TypeScript => SourceDialectV1::Ts,
+            ParserDialect::TypeScriptJsx => SourceDialectV1::Tsx,
+        };
+
+        if entry_artifact.semantics.source_id.0 != self.entry
+            || request.source_id() != Some(&self.entry_vfs_source_id)
+            || self.snapshot.digest() != request.authenticated_snapshot_digest()
+            || self.entry.defining_principal() != Some(request.authenticated_principal())
+            || entry_artifact.semantics.source_integrity != *request.source_digest()
+        {
+            bail!(
+                "authenticated native source graph identity changed after the structured request was admitted"
+            );
+        }
+        if !program.is_main()
+            || program.role() != SourceRole::Entry
+            || entry_artifact.semantics.source_goal != expected_goal
+            || entry_artifact.semantics.dialect != Some(expected_dialect)
+        {
+            bail!("authenticated native source graph grammar differs from the structured request");
+        }
+        Ok(())
+    }
+
     pub fn plan(&self) -> Result<SynchronousGraphPlan<'_>> {
         SynchronousGraphPlan::new_typed(
             self.records
@@ -1409,6 +1473,157 @@ mod tests {
             )
         }
         .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn authenticated_file_request(
+        host: &crate::host::Host,
+    ) -> crate::engine::evaluation::SourceRequest {
+        let vfs = host.virtual_file_system().unwrap();
+        let entry = vfs
+            .resolve_root_file_url("file:///project/entry.mjs", None)
+            .unwrap();
+        let session = host.mint_armed_session_token().unwrap();
+        let mut sequence = crate::engine::evaluation::SubmissionSequence::new(session).unwrap();
+        let submission = sequence
+            .mint_file(entry.logical_referrer().unwrap(), &[])
+            .unwrap();
+        let request = host
+            .authenticated_vfs_file_read(&vfs, entry, submission)
+            .unwrap()
+            .into_capsule()
+            .into_request()
+            .unwrap();
+        vfs.close();
+        request
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_entry_request_validation_rejects_substituted_bytes() {
+        let project = tempfile::tempdir().unwrap();
+        let entry = project.path().join("entry.mjs");
+        std::fs::write(&entry, "export const value = 1;\n").unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let host = armed_file_host(project.path());
+        let request = authenticated_file_request(&host);
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "test graph unexpectedly required legacy: {}",
+                    requirement.reason
+                )
+            }
+        };
+        graph
+            .validate_authenticated_entry_request(&request)
+            .unwrap();
+
+        let entry_id = graph.entry.clone();
+        let (source_label, source_path) = {
+            let record = graph.records.get(&entry_id).unwrap();
+            (record.source_label.clone(), record.path.clone())
+        };
+        graph.records.get_mut(&entry_id).unwrap().artifact = produce_module_artifact_v1(
+            entry_id.clone(),
+            &source_label,
+            &source_path,
+            "export const value = 2;\n",
+            producer_digest,
+            "hermes-test",
+        )
+        .unwrap();
+        graph.plan().unwrap();
+        let error = graph
+            .validate_authenticated_entry_request(&request)
+            .expect_err("an internally valid graph substituted different entry bytes");
+        assert!(
+            error
+                .to_string()
+                .contains("identity changed after the structured request"),
+            "unexpected integrity-join refusal: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn authenticated_entry_request_validation_rejects_substituted_grammar() {
+        let project = tempfile::tempdir().unwrap();
+        let entry = project.path().join("entry.mjs");
+        let source = "process.exitCode = 0;\n";
+        std::fs::write(&entry, source).unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let host = armed_file_host(project.path());
+        let request = authenticated_file_request(&host);
+        let producer_digest =
+            Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
+        let mut graph = match build_authenticated_source_graph_v1_for_host(
+            &host,
+            &entry,
+            producer_digest.clone(),
+            "hermes-test",
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "test graph unexpectedly required legacy: {}",
+                    requirement.reason
+                )
+            }
+        };
+        graph
+            .validate_authenticated_entry_request(&request)
+            .unwrap();
+
+        let entry_id = graph.entry.clone();
+        let (source_label, source_path) = {
+            let record = graph.records.get(&entry_id).unwrap();
+            (record.source_label.clone(), record.path.clone())
+        };
+        graph.records.get_mut(&entry_id).unwrap().artifact = produce_commonjs_artifact_v1(
+            entry_id.clone(),
+            &source_label,
+            &source_path,
+            source,
+            producer_digest,
+            "hermes-test",
+        )
+        .unwrap();
+        let entry_artifact = graph
+            .records()
+            .find(|(source_id, _, _)| *source_id == graph.entry())
+            .unwrap()
+            .2;
+        assert_eq!(
+            entry_artifact.artifact().semantics.source_integrity,
+            *request.source_digest()
+        );
+        assert_eq!(
+            entry_artifact.artifact().semantics.source_goal,
+            super::super::artifact::SourceGoalV1::CommonJs
+        );
+        graph.plan().unwrap();
+        let error = graph
+            .validate_authenticated_entry_request(&request)
+            .expect_err("an internally valid graph substituted CommonJS entry grammar");
+        assert!(
+            error
+                .to_string()
+                .contains("grammar differs from the structured request"),
+            "unexpected grammar-join refusal: {error:#}"
+        );
     }
 
     #[test]

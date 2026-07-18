@@ -62,14 +62,28 @@ export const REQUIRED_INGRESS_OBLIGATIONS = Object.freeze([
   Object.freeze({
     id: "checked-native-module-graph",
     assertion:
-      "Advertised direct-file module graphs consume the exact structured admission before Host graph discovery or lowering, retain the admitted request's snapshot, principal, VFS SourceId, and argv, and either begin native graph execution or continue the bounded session-lowering fallback with that same admission.",
+      "Advertised direct-file module graphs consume the exact structured admission before Host graph discovery or lowering; the engine centrally rejoins every returned native graph to the admitted snapshot, principal, VFS SourceId, source integrity, and grammar; and execution either begins with that graph or continues the bounded session-lowering fallback with the same admission and argv.",
     sourceEvidence: Object.freeze([
       freezeEvidence("src/bin/ibex/runtime.rs", [
         ".evaluate_authenticated_module_graph(",
         "Box::new(|admitted_request|",
         "self.prepare_authenticated_module_graph(admitted_request)",
         "build_authenticated_source_graph_v1_for_host(",
-        "request.source_id() == Some(graph.entry_vfs_source_id())",
+        "graph.validate_authenticated_entry_request(request)?",
+      ]),
+      freezeEvidence("src/module_loader/runner_pipeline.rs", [
+        "pub fn validate_authenticated_entry_request(",
+        "verify_record(record, &self.producer_binary_digest)?.artifact()",
+        "request.source_id() != Some(&self.entry_vfs_source_id)",
+        "self.snapshot.digest() != request.authenticated_snapshot_digest()",
+        "entry_artifact.semantics.source_integrity != *request.source_digest()",
+        "entry_artifact.semantics.source_goal != expected_goal",
+        "entry_artifact.semantics.dialect != Some(expected_dialect)",
+      ]),
+      freezeEvidence("src/bin/ibex/engine/hermes.rs", [
+        "admit_prepare_authenticated_module_graph(raw.cast(), session, request, |request|",
+        ".validate_authenticated_entry_request(request)",
+        "authenticated module graph does not belong to its admitted request",
       ]),
       freezeEvidence("src/engine/hermes_structured.rs", [
         "pub unsafe fn admit_prepare_authenticated_module_graph<T, F>(",
@@ -716,13 +730,21 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "authenticated-file-ingress",
       "impl AuthenticatedFileIngress {",
       "fn expected_identity_from_snapshot(",
-      "sha256-I5-AyQuk1RmoNeOMfsHGZM6Maz5gmOAppvQAT51Hqck",
+      "sha256-6YyCV9VeT_SjPvcrgSdlGFAsLyxKys-IfnYb-v2NT18",
     ),
     freezeReviewedRange(
       "runtime-file-execution",
       "    pub(crate) async fn run_authenticated_file_program(",
       "    pub async fn run_file_with_args(",
       "sha256-VjQEVsbf1GBYVWyxg4kKSwk21sj6Hh2LwJzqCeXSYL4",
+    ),
+  ]),
+  "src/bin/ibex/engine/hermes.rs": Object.freeze([
+    freezeReviewedRange(
+      "authenticated-native-graph-join",
+      "    async fn evaluate_native_module_graph(",
+      "    async fn install_capsec_context_test_observer(",
+      "sha256-Z2exVRU0L096-QhJSBLd38uFspz1KAiymZHs_y-T8D4",
     ),
   ]),
   "src/bin/ibex/terminal_session.rs": Object.freeze([
@@ -813,6 +835,14 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "    pub fn authenticated_vfs_file_read(",
       "    fn authorize_vfs_script_read_stage(",
       "sha256-QVTR8tp3OKUqoCYipA45baEUNs9NAM2TDpCxWVFAquE",
+    ),
+  ]),
+  "src/module_loader/runner_pipeline.rs": Object.freeze([
+    freezeReviewedRange(
+      "authenticated-entry-request-join",
+      "    pub fn validate_authenticated_entry_request(",
+      "    pub fn plan(&self) -> Result<SynchronousGraphPlan<'_>> {",
+      "sha256-GW9dAFWLA6tAd0coIEQKQPNe_145eax7RevwhGlJNVE",
     ),
   ]),
   "src/vfs/mod.rs": Object.freeze([

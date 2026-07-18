@@ -251,7 +251,11 @@ fn capture_module_producer_binary_digest() -> Result<capsec_semantics::model::Di
 }
 
 #[cfg(feature = "module-runner")]
-fn module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
+/// Authenticate the mapped Ibex executable containing the in-process Oxc
+/// module producer.
+/// @ref LLP 0027#canonical-encoding-and-validation — inline artifacts bind
+/// the expected in-process producer binary.
+pub(crate) fn module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
     cached_module_producer_binary_digest(
         &MODULE_PRODUCER_BINARY_DIGEST,
         capture_module_producer_binary_digest,
@@ -2797,45 +2801,14 @@ impl AuthenticatedFileIngress {
                 return Ok(AuthenticatedModuleGraphPreparation::LegacyRequired);
             }
         };
-        let (entry_source_id, retained_entry_path, entry_artifact) = graph
+        graph.validate_authenticated_entry_request(request)?;
+        let (_, retained_entry_path, _) = graph
             .records()
             .find(|(source_id, _, _)| *source_id == graph.entry())
             .context("authenticated native source graph omitted its entry record")?;
-        let entry_artifact = entry_artifact.artifact();
-        let ibex_runtime::engine::evaluation::SourceRequest::Program(program) = request else {
-            anyhow::bail!("authenticated native source graph requires a program request")
-        };
-        use ibex_runtime::engine::evaluation::{ModuleKind, ParserDialect, SourceGoal, SourceRole};
-        use ibex_runtime::module_loader::artifact::{SourceDialectV1, SourceGoalV1};
-        let expected_goal = match program.module_kind() {
-            Some(ModuleKind::Esm) if program.goal() == SourceGoal::Module => SourceGoalV1::Module,
-            Some(ModuleKind::CommonJs) if program.goal() == SourceGoal::ScriptWithExtensions => {
-                SourceGoalV1::CommonJs
-            }
-            _ => anyhow::bail!("authenticated file request has no native module grammar"),
-        };
-        let expected_dialect = match program.dialect() {
-            ParserDialect::JavaScript => SourceDialectV1::Js,
-            ParserDialect::JavaScriptJsx => SourceDialectV1::Jsx,
-            ParserDialect::TypeScript => SourceDialectV1::Ts,
-            ParserDialect::TypeScriptJsx => SourceDialectV1::Tsx,
-        };
         anyhow::ensure!(
-            entry_source_id == graph.entry()
-                && entry_artifact.semantics.source_id.0 == *graph.entry()
-                && request.source_id() == Some(graph.entry_vfs_source_id())
-                && graph.snapshot().digest() == request.authenticated_snapshot_digest()
-                && graph.entry().defining_principal() == Some(request.authenticated_principal())
-                && retained_entry_path == source_entry
-                && entry_artifact.semantics.source_integrity == *request.source_digest(),
+            retained_entry_path == source_entry,
             "authenticated native source graph identity changed after the structured request was admitted"
-        );
-        anyhow::ensure!(
-            program.is_main()
-                && program.role() == SourceRole::Entry
-                && entry_artifact.semantics.source_goal == expected_goal
-                && entry_artifact.semantics.dialect == Some(expected_dialect),
-            "authenticated native source graph grammar differs from the structured request"
         );
 
         if let Some(prepared) =
@@ -12552,6 +12525,106 @@ pub(crate) mod tests {
                 .to_string()
                 .contains("changed after the structured request"),
             "unexpected mismatch error: {error:#}"
+        );
+    }
+
+    #[cfg(all(
+        feature = "module-runner",
+        feature = "capsec-conformance-observer",
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64")
+        )
+    ))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_engine_refuses_prebuilt_graph_with_stale_entry_bytes() {
+        use ibex_runtime::module_loader::runner_pipeline::{
+            build_authenticated_source_graph_v1_for_host, SourceModuleGraphBuildV1,
+        };
+
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::set_var("EXACT_COMPAT_TEST", "1");
+        let directory = tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("package.json"),
+            r#"{"name":"native-engine-reread","private":true,"type":"module"}"#,
+        )
+        .unwrap();
+        let entry = directory.path().join("entry.mjs");
+        std::fs::write(&entry, "process.exitCode = 99; export const value = 2;\n").unwrap();
+        let entry = std::fs::canonicalize(entry).unwrap();
+        let runtime = session_conformance_direct_runtime(
+            directory.path(),
+            capsec_semantics::arming::ArmedEntryKind::File,
+            "file:///project/entry.mjs",
+            capsec_semantics::arming::ArmedExecutionMode::Program,
+        )
+        .unwrap();
+        let engine = runtime.engine.clone();
+        let mut ingress = runtime.authenticated_file_ingress().unwrap();
+        let stale_graph = match build_authenticated_source_graph_v1_for_host(
+            &ingress.host,
+            &entry,
+            module_producer_binary_digest().unwrap(),
+            &engine::hermes::bytecode_cache_identity(),
+        )
+        .unwrap()
+        {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => panic!(
+                "prebuilt stale graph unexpectedly required legacy: {}",
+                requirement.reason
+            ),
+        };
+        stale_graph.plan().unwrap();
+        std::fs::write(&entry, "process.exitCode = 41; export const value = 1;\n").unwrap();
+        let request = ingress.file_request(&[]).unwrap();
+        let admitted_digest = request.source_digest().clone();
+        let stale_integrity = stale_graph
+            .records()
+            .find(|(source_id, _, _)| *source_id == stale_graph.entry())
+            .expect("prebuilt stale graph omitted its entry")
+            .2
+            .artifact()
+            .semantics
+            .source_integrity
+            .clone();
+        assert_ne!(stale_integrity, admitted_digest);
+        let session = ingress.session.clone();
+        let returned_native = Arc::new(AtomicBool::new(false));
+        let returned_native_in_preparer = returned_native.clone();
+
+        let error = engine
+            .evaluate_authenticated_module_graph(
+                &session,
+                request,
+                Box::new(move |admitted_request| {
+                    assert_eq!(admitted_request.source_digest(), &admitted_digest);
+                    returned_native_in_preparer.store(true, Ordering::Release);
+                    Ok(crate::engine::AuthenticatedModuleGraphPreparation::Native(
+                        stale_graph,
+                    ))
+                }),
+            )
+            .await
+            .expect_err("the engine accepted a prebuilt graph with stale entry bytes");
+        assert!(
+            error
+                .to_string()
+                .contains("does not belong to its admitted request"),
+            "unexpected central graph-join refusal: {error:#}"
+        );
+        assert!(
+            returned_native.load(Ordering::Acquire),
+            "the preparer failed before returning its mismatched native graph"
+        );
+        assert_eq!(
+            runtime.lifecycle_exit_code(),
+            0,
+            "the substituted graph executed before the central join"
         );
     }
 

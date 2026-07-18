@@ -1999,16 +1999,18 @@ impl HermesEngine {
                     super::AuthenticatedModuleGraphPreparation::Native(graph) => {
                         if armed_snapshot_digest.as_deref()
                             != Some(request.authenticated_snapshot_digest().as_str())
-                            || graph.snapshot().digest()
-                                != request.authenticated_snapshot_digest()
-                            || graph.entry().defining_principal()
-                                != Some(request.authenticated_principal())
-                            || request.source_id() != Some(graph.entry_vfs_source_id())
                         {
                             return Err(EngineFault::Rejected(Arc::from(
                                 "authenticated module graph does not belong to its admitted request",
                             )));
                         }
+                        graph
+                            .validate_authenticated_entry_request(request)
+                            .map_err(|_| {
+                                EngineFault::Rejected(Arc::from(
+                                    "authenticated module graph does not belong to its admitted request",
+                                ))
+                            })?;
                         Ok(StructuredModuleGraphPreparation::Native(graph))
                     }
                     super::AuthenticatedModuleGraphPreparation::LegacyRequired => {

@@ -847,8 +847,11 @@ if (
 
     let graph_host = host.clone();
     let graph_entry = entry.clone();
-    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
-        .expect("loaded engine digest is canonical");
+    // Oxc executes inside the mapped Ibex image, not the separately loaded
+    // Hermes image.
+    // @ref LLP 0027#canonical-encoding-and-validation
+    let producer_digest = crate::runtime::module_producer_binary_digest()
+        .expect("authenticate mapped Ibex module producer");
     let hermes_target = bytecode_cache_identity();
     let session_id = format!("closed-evaluator:{}", recipe.plan_digest);
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
@@ -2377,8 +2380,11 @@ async fn execute_closed_module_runner_namespace(
     );
     assert_ne!(crate::host::abi::install_host(host), 0);
     let _reset = HostResetGuard;
-    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
-        .expect("loaded engine digest is canonical");
+    // Oxc executes inside the mapped Ibex image, not the separately loaded
+    // Hermes image.
+    // @ref LLP 0027#canonical-encoding-and-validation
+    let producer_digest = crate::runtime::module_producer_binary_digest()
+        .expect("authenticate mapped Ibex module producer");
     let graph = match build_authenticated_source_graph_v1(
         &entry,
         producer_digest,

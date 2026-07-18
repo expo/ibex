@@ -81,7 +81,7 @@ describe("LLP 0022 authenticated ingress obligations", () => {
     ).toEqual({
       ingressEdges: 10,
       obligations: REQUIRED_INGRESS_OBLIGATIONS.length,
-      sourceAssertions: 39,
+      sourceAssertions: 41,
       supportingSurfaces: 6,
     });
     expect(Object.keys(REQUIRED_INGRESS_ROW_PROFILES).sort()).toEqual([

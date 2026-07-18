@@ -100,7 +100,7 @@
     },
     {
       "id": "checked-native-module-graph",
-      "assertion": "Advertised direct-file module graphs consume the exact structured admission before Host graph discovery or lowering, retain the admitted request's snapshot, principal, VFS SourceId, and argv, and either begin native graph execution or continue the bounded session-lowering fallback with that same admission.",
+      "assertion": "Advertised direct-file module graphs consume the exact structured admission before Host graph discovery or lowering; the engine centrally rejoins every returned native graph to the admitted snapshot, principal, VFS SourceId, source integrity, and grammar; and execution either begins with that graph or continues the bounded session-lowering fallback with the same admission and argv.",
       "sourceEvidence": [
         {
           "path": "src/bin/ibex/runtime.rs",
@@ -109,7 +109,27 @@
             "Box::new(|admitted_request|",
             "self.prepare_authenticated_module_graph(admitted_request)",
             "build_authenticated_source_graph_v1_for_host(",
-            "request.source_id() == Some(graph.entry_vfs_source_id())"
+            "graph.validate_authenticated_entry_request(request)?"
+          ]
+        },
+        {
+          "path": "src/module_loader/runner_pipeline.rs",
+          "tokens": [
+            "pub fn validate_authenticated_entry_request(",
+            "verify_record(record, &self.producer_binary_digest)?.artifact()",
+            "request.source_id() != Some(&self.entry_vfs_source_id)",
+            "self.snapshot.digest() != request.authenticated_snapshot_digest()",
+            "entry_artifact.semantics.source_integrity != *request.source_digest()",
+            "entry_artifact.semantics.source_goal != expected_goal",
+            "entry_artifact.semantics.dialect != Some(expected_dialect)"
+          ]
+        },
+        {
+          "path": "src/bin/ibex/engine/hermes.rs",
+          "tokens": [
+            "admit_prepare_authenticated_module_graph(raw.cast(), session, request, |request|",
+            ".validate_authenticated_entry_request(request)",
+            "authenticated module graph does not belong to its admitted request"
           ]
         },
         {

@@ -2953,8 +2953,11 @@ async fn execute_module_runner_host_abi_public_recipe(
     .expect("write module-runner public asynchronous entry");
 
     let _reset = HostResetGuard;
-    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
-        .expect("loaded engine digest is a canonical digest");
+    // Oxc executes inside the mapped Ibex image, not the separately loaded
+    // Hermes image.
+    // @ref LLP 0027#canonical-encoding-and-validation
+    let producer_digest = crate::runtime::module_producer_binary_digest()
+        .expect("authenticate mapped Ibex module producer");
     let deployment_digest = ibex_runtime::module_loader::artifact::digest_bytes(
         "ibex/capsec-module-runner-public-prepared/1",
         b"authenticated prepared graph",

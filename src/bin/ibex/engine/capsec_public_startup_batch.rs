@@ -425,7 +425,6 @@ fn assert_exact_fact_set(
 async fn execute_lockdown_startup_postcondition(
     expected: &ExpectedStartupStage,
     marker: &str,
-    engine_binary_digest: &str,
 ) -> BTreeMap<String, bool> {
     use ibex_runtime::module_loader::runner_pipeline::{
         build_authenticated_source_graph_v1_for_host, SourceModuleGraphBuildV1,
@@ -531,8 +530,11 @@ if (
 
     let graph_host = host.clone();
     let graph_entry = entry.clone();
-    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
-        .expect("loaded engine digest is canonical");
+    // Oxc executes inside the mapped Ibex image, not the separately loaded
+    // Hermes image.
+    // @ref LLP 0027#canonical-encoding-and-validation
+    let producer_digest = crate::runtime::module_producer_binary_digest()
+        .expect("authenticate mapped Ibex module producer");
     let hermes_target = bytecode_cache_identity();
     let admission_session_id = format!("startup-observation:{marker}:admission");
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
@@ -669,12 +671,7 @@ async fn execute_startup_recipe(
         invocation.operation.environment.as_ref(),
     );
     let observed_facts = if expected.postcondition == "lockdown-installed" {
-        execute_lockdown_startup_postcondition(
-            expected,
-            &recipe.plan_digest,
-            engine_binary_digest,
-        )
-        .await
+        execute_lockdown_startup_postcondition(expected, &recipe.plan_digest).await
     } else {
         let (host, snapshot_digest) =
             build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
