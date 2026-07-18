@@ -468,7 +468,7 @@ if (
     // lockdown postcondition instead enters through an authenticated file and
     // the production native-graph seam; source acquisition remains setup, not
     // zero-decision startup evidence.
-    // @ref LLP 0024#scope
+    // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
     // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
     let entry_identity = "file:///project/entry.mjs";
     let (host, snapshot_digest) = build_armed_test_host_custom(

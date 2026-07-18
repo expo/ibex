@@ -258,8 +258,8 @@ console.log(${JSON.stringify(marker)} + value);
     oracle: [`${marker}default-first`],
     currentIbex: {
       outcome: 'error',
-      stderrIncludes: 'Failed to resolve package import #branch',
-      note: 'The shipped private-import resolver cannot consume this Node conditional-import map on the loader path.',
+      stderrIncludes: 'Module resolution failed',
+      note: 'The shipped private-import resolver cannot consume this Node conditional-import map on the loader path; its public boundary deliberately redacts the private specifier detail.',
     },
   },
 ]);
