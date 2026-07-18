@@ -3598,23 +3598,47 @@ void emitNewScripts(ExactHermesRuntime* runtime,
             #name, (long long)_elapsed, _elapsed / 1000.0); \
   }
 
-extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
-  if (out == nullptr || out_len == 0) return -1;
-  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
-      const ::hermes::vm::RuntimeConfig&);
-  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
 #if defined(_WIN32)
-  HMODULE module = nullptr;
+namespace {
+
+HMODULE loadedHermesModule() {
+  // The address of an imported C++ function can name the executable's import
+  // thunk rather than the DLL that supplies it. Resolve a carried C bridge
+  // first, then ask Windows for the image that contains the resolved address.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // engine evidence must identify the mapped Hermes DLL, never its caller.
+  HMODULE candidate = GetModuleHandleA("hermesvm.dll");
+  if (candidate == nullptr) return nullptr;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  FARPROC bridge =
+      GetProcAddress(candidate, "ex_hermes_vm_current_package_id");
+  if (bridge == nullptr) return nullptr;
+  HMODULE containing = nullptr;
   if (!GetModuleHandleExA(
           GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-          reinterpret_cast<LPCSTR>(factory),
-          &module)) {
-    return -1;
+          reinterpret_cast<LPCSTR>(bridge), &containing) ||
+      containing != candidate) {
+    return nullptr;
   }
+#endif
+  return candidate;
+}
+
+} // namespace
+#endif
+
+extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
+  if (out == nullptr || out_len == 0) return -1;
+#if defined(_WIN32)
+  HMODULE module = loadedHermesModule();
+  if (module == nullptr) return -1;
   DWORD written = GetModuleFileNameA(module, out, static_cast<DWORD>(out_len));
   return written > 0 && written < out_len ? static_cast<int32_t>(written) : -1;
 #else
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
   Dl_info info = {};
   if (dladdr(reinterpret_cast<void*>(factory), &info) == 0 || info.dli_fname == nullptr) {
     return -1;
@@ -3633,16 +3657,8 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
   // derive the mapped DLL's stable Windows file identity independently of the
   // Rust handle used to hash the named artifact.
-  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
-      const ::hermes::vm::RuntimeConfig&);
-  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
-  HMODULE module = nullptr;
-  if (!GetModuleHandleExA(
-          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-          reinterpret_cast<LPCSTR>(factory), &module)) {
-    return -1;
-  }
+  HMODULE module = loadedHermesModule();
+  if (module == nullptr) return -1;
   std::vector<char> path(32768, '\0');
   DWORD written =
       GetModuleFileNameA(module, path.data(), static_cast<DWORD>(path.size()));
