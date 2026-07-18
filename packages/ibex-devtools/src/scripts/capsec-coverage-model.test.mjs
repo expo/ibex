@@ -2353,6 +2353,19 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       cap: "ipc:channel",
     });
 
+    for (const namespace of ["Exact", "Bun"]) {
+      for (const member of [
+        "accessibility",
+        "accessibility.addEventListener",
+        "accessibility.prefersReducedMotion",
+      ]) {
+        expect(
+          classifyObservedSurface(globalApi(namespace, member), context).edge,
+          `${namespace}.${member}`,
+        ).toMatchObject({ classification: "closed", cap: "ipc:channel" });
+      }
+    }
+
     for (const [globalName, memberName, expectedAction] of [
       ["Cache", null, "storage:persist"],
       ["Cache", "add", "storage:write"],

@@ -211380,17 +211380,17 @@
         "name": "global:Bun.accessibility"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.addeventlistener.1jc4xh5",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:Bun.accessibility.addEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "ipc:channel",
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.announce.1l9lmbr",
@@ -211400,7 +211400,7 @@
         "name": "global:Bun.accessibility.announce"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.colorscheme.064h7cg",
@@ -211410,7 +211410,7 @@
         "name": "global:Bun.accessibility.colorScheme"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.dynamictypesize.1d9scjo",
@@ -211420,7 +211420,7 @@
         "name": "global:Bun.accessibility.dynamicTypeSize"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.fontscale.06il1et",
@@ -211430,7 +211430,7 @@
         "name": "global:Bun.accessibility.fontScale"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.get.0fzz9s0",
@@ -211440,7 +211440,7 @@
         "name": "global:Bun.accessibility.get"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.isboldtextenabled.0k8isi9",
@@ -211450,7 +211450,7 @@
         "name": "global:Bun.accessibility.isBoldTextEnabled"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.isgrayscaleenabled.0vtf7uo",
@@ -211460,7 +211460,7 @@
         "name": "global:Bun.accessibility.isGrayscaleEnabled"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.isinvertcolorsenabled.09etl1p",
@@ -211470,7 +211470,7 @@
         "name": "global:Bun.accessibility.isInvertColorsEnabled"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.isscreenreaderenabled.0rey6gg",
@@ -211480,7 +211480,7 @@
         "name": "global:Bun.accessibility.isScreenReaderEnabled"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.prefershighcontrast.0jjg9ch",
@@ -211490,7 +211490,7 @@
         "name": "global:Bun.accessibility.prefersHighContrast"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.prefersreducedmotion.0mgwp7t",
@@ -211500,7 +211500,7 @@
         "name": "global:Bun.accessibility.prefersReducedMotion"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.accessibility.prefersreducedtransparency.1sxfbyt",
@@ -211510,7 +211510,7 @@
         "name": "global:Bun.accessibility.prefersReducedTransparency"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.bun.argv.0muh9r8",
@@ -217847,17 +217847,17 @@
         "name": "global:Exact.accessibility"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.addeventlistener.0znrtwb",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:Exact.accessibility.addEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "ipc:channel",
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.announce.01lcbk1",
@@ -217867,7 +217867,7 @@
         "name": "global:Exact.accessibility.announce"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.colorscheme.1tgj7sy",
@@ -217877,7 +217877,7 @@
         "name": "global:Exact.accessibility.colorScheme"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.dynamictypesize.03sj8ge",
@@ -217887,7 +217887,7 @@
         "name": "global:Exact.accessibility.dynamicTypeSize"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.fontscale.1hvcwmz",
@@ -217897,7 +217897,7 @@
         "name": "global:Exact.accessibility.fontScale"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.get.0w4pri6",
@@ -217907,7 +217907,7 @@
         "name": "global:Exact.accessibility.get"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.isboldtextenabled.0xj8win",
@@ -217917,7 +217917,7 @@
         "name": "global:Exact.accessibility.isBoldTextEnabled"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.isgrayscaleenabled.0jjzmc2",
@@ -217927,7 +217927,7 @@
         "name": "global:Exact.accessibility.isGrayscaleEnabled"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.isinvertcolorsenabled.081t837",
@@ -217937,7 +217937,7 @@
         "name": "global:Exact.accessibility.isInvertColorsEnabled"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.isscreenreaderenabled.0f9yr8u",
@@ -217947,7 +217947,7 @@
         "name": "global:Exact.accessibility.isScreenReaderEnabled"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.prefershighcontrast.0if4rmb",
@@ -217957,7 +217957,7 @@
         "name": "global:Exact.accessibility.prefersHighContrast"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.prefersreducedmotion.0vu8v3v",
@@ -217967,7 +217967,7 @@
         "name": "global:Exact.accessibility.prefersReducedMotion"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.accessibility.prefersreducedtransparency.1pzxrab",
@@ -217977,7 +217977,7 @@
         "name": "global:Exact.accessibility.prefersReducedTransparency"
       },
       "cap": "ipc:channel",
-      "rationale": "Accessibility reads and announcements cross the shared embedder application-state channel."
+      "rationale": "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel."
     },
     {
       "id": "surface.native.op.global.exact.argv.0boctcm",

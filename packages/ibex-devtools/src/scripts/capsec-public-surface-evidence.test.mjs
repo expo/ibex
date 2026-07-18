@@ -2386,7 +2386,7 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/no-debugger physical result/);
   });
 
-  test("accepts shared-runtime global closure only for a reviewed legacy-only path", () => {
+  test("accepts shared-runtime global closure only for a reviewed installation path", () => {
     const catalog = completeClosedSharedRuntimeGlobalCatalog();
     const recipe = catalog.recipes[0];
     expect(() =>
@@ -2412,7 +2412,7 @@ describe("CapSec public-surface promotion evidence", () => {
         runtimeObservation: closedRuntimeObservation(wrongRoute),
         coverage,
       }),
-    ).toThrow(/reviewed legacy-only path/);
+    ).toThrow(/reviewed installation path/);
 
     const present = closedRuntimeObservation(recipe);
     present.invocation.result.engineExecuted = false;

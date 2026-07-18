@@ -334,7 +334,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_898);
+    expect(callbackRecipes).toHaveLength(2_890);
     expect(
       Object.fromEntries(
         [
@@ -352,10 +352,10 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 554,
-      "generation-recheck": 554,
-      "principal-restore": 554,
-      "snapshot-mismatch-deny": 554,
+      "attribution-missing-deny": 552,
+      "generation-recheck": 552,
+      "principal-restore": 552,
+      "snapshot-mismatch-deny": 552,
       "cannot-widen-authority": 337,
       "post-lockdown-invariant": 337,
       "non-capability": 8,
@@ -1537,13 +1537,13 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 
-  test("binds reviewed legacy globals to armed shared-runtime absence", () => {
+  test("binds reviewed globals to armed shared-runtime absence", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "shared-runtime-global-absence",
     );
-    expect(rows).toHaveLength(33);
+    expect(rows).toHaveLength(61);
     expect(
       rows.every(
         (recipe) =>
@@ -1557,7 +1557,9 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple ===
             "aarch64-apple-darwin" &&
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches.every(
-            (branch) => branch.route === "legacy-bootstrap",
+            (branch) =>
+              branch.route === "legacy-bootstrap" ||
+              branch.route === "shared-runtime",
           ),
       ),
     ).toBe(true);
@@ -1598,6 +1600,30 @@ describe("exact-target CapSec executable recipes", () => {
             kind: "shared-runtime-global-absence",
             globalName: "CacheStorage",
             memberName: "open",
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:global:Exact.accessibility.prefersReducedMotion",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "Exact",
+            memberName: "accessibility.prefersReducedMotion",
+            sourceMetadata: {
+              sourceKey: "shared_runtime",
+            },
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "Exact",
+            memberName: "accessibility.prefersReducedMotion",
           },
         },
       },

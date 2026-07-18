@@ -1569,6 +1569,49 @@ impl HermesEngine {
         Ok(())
     }
 
+    async fn seal_armed_shared_runtime_globals(&self) -> Result<()> {
+        if self.armed_snapshot_digest.is_none() {
+            return Ok(());
+        }
+
+        // @ref LLP 0011#state-modules — the trusted runtime keeps normalized
+        // accessibility state in module singletons; the public Exact/Bun
+        // namespace is not required by host snapshot or notification updates.
+        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
+        // ambient embedder application-state channels are absent in armed code.
+        let seal = r#"(function(){
+  var rootNames = ['Exact', 'Bun'];
+  for (var index = 0; index < rootNames.length; index += 1) {
+    var rootName = rootNames[index];
+    var rootDescriptor = Object.getOwnPropertyDescriptor(globalThis, rootName);
+    if (rootDescriptor === undefined) {
+      if (rootName in globalThis) {
+        throw new Error('armed runtime inherited the ' + rootName + ' namespace');
+      }
+      continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(rootDescriptor, 'value')) {
+      throw new Error('armed runtime exposed an accessor-backed ' + rootName + ' namespace');
+    }
+    var root = rootDescriptor.value;
+    if ((typeof root !== 'object' && typeof root !== 'function') || root === null) continue;
+    var descriptor = Object.getOwnPropertyDescriptor(root, 'accessibility');
+    if (descriptor === undefined) {
+      if ('accessibility' in root) {
+        throw new Error('armed runtime inherited the accessibility namespace');
+      }
+      continue;
+    }
+    if (descriptor.configurable !== true || !delete root.accessibility ||
+        'accessibility' in root) {
+      throw new Error('armed runtime could not seal the accessibility namespace');
+    }
+  }
+})();"#;
+        let _ = self.eval_str(seal, "<armed-shared-runtime-seal>").await?;
+        Ok(())
+    }
+
     async fn ensure_crypto_fallback(&self) -> Result<()> {
         if cfg!(windows) {
             return Ok(());
@@ -2050,6 +2093,7 @@ impl Engine for HermesEngine {
             already_installed
         };
         if already_installed {
+            self.seal_armed_shared_runtime_globals().await?;
             finalize_compartment_baseline(self).await?;
             *loaded = true;
             return Ok(());
@@ -2105,6 +2149,7 @@ impl Engine for HermesEngine {
             // No embedded runtime — fall back to disk-based loading
             self.load_runtime_from_disk().await?;
         }
+        self.seal_armed_shared_runtime_globals().await?;
         finalize_compartment_baseline(self).await?;
         *loaded = true;
         Ok(())

@@ -1694,6 +1694,34 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "global:CacheStorage.keys"
             | "global:CacheStorage.match"
             | "global:CacheStorage.open"
+            | "global:Bun.accessibility"
+            | "global:Bun.accessibility.addEventListener"
+            | "global:Bun.accessibility.announce"
+            | "global:Bun.accessibility.colorScheme"
+            | "global:Bun.accessibility.dynamicTypeSize"
+            | "global:Bun.accessibility.fontScale"
+            | "global:Bun.accessibility.get"
+            | "global:Bun.accessibility.isBoldTextEnabled"
+            | "global:Bun.accessibility.isGrayscaleEnabled"
+            | "global:Bun.accessibility.isInvertColorsEnabled"
+            | "global:Bun.accessibility.isScreenReaderEnabled"
+            | "global:Bun.accessibility.prefersHighContrast"
+            | "global:Bun.accessibility.prefersReducedMotion"
+            | "global:Bun.accessibility.prefersReducedTransparency"
+            | "global:Exact.accessibility"
+            | "global:Exact.accessibility.addEventListener"
+            | "global:Exact.accessibility.announce"
+            | "global:Exact.accessibility.colorScheme"
+            | "global:Exact.accessibility.dynamicTypeSize"
+            | "global:Exact.accessibility.fontScale"
+            | "global:Exact.accessibility.get"
+            | "global:Exact.accessibility.isBoldTextEnabled"
+            | "global:Exact.accessibility.isGrayscaleEnabled"
+            | "global:Exact.accessibility.isInvertColorsEnabled"
+            | "global:Exact.accessibility.isScreenReaderEnabled"
+            | "global:Exact.accessibility.prefersHighContrast"
+            | "global:Exact.accessibility.prefersReducedMotion"
+            | "global:Exact.accessibility.prefersReducedTransparency"
             | "global:Exact.gc"
     )
 }
@@ -1820,8 +1848,29 @@ async fn execute_closed_shared_runtime_global_absence(
         );
     } else {
         assert_eq!(branches.len(), 1);
-        assert_eq!(branches[0]["route"], "legacy-bootstrap");
-        assert_eq!(branches[0]["targetVariant"], "default");
+        let shared_runtime_accessibility = invocation
+            .surface_name
+            .strip_prefix("global:Bun.accessibility")
+            .or_else(|| {
+                invocation
+                    .surface_name
+                    .strip_prefix("global:Exact.accessibility")
+            })
+            .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('.'));
+        let legacy_bootstrap = branches[0]["route"] == "legacy-bootstrap"
+            && branches[0]["targetVariant"] == "default"
+            && metadata["sourceKey"] != "shared_runtime";
+        let shared_runtime = metadata["sourceKey"] == "shared_runtime"
+            && branches[0]["route"] == "shared-runtime"
+            && branches[0]["targetVariant"] == "all";
+        assert!(
+            if shared_runtime_accessibility {
+                shared_runtime
+            } else {
+                legacy_bootstrap
+            },
+            "shared-runtime absence recipe named an unreviewed installation path"
+        );
         assert_eq!(
             branches[0]["sourceRefs"],
             serde_json::json!(descriptor.source_refs)
@@ -1844,14 +1893,15 @@ async fn execute_closed_shared_runtime_global_absence(
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let global_json = serde_json::to_string(global_name).unwrap();
     let script = if let Some(member_name) = member_name {
-        let member_json = serde_json::to_string(member_name).unwrap();
+        let member_path_json = serde_json::to_string(
+            &member_name.split('.').collect::<Vec<_>>(),
+        )
+        .unwrap();
         format!(
-            "(function(){{var root=Object.getOwnPropertyDescriptor(globalThis,{global_json});if(!root)return 'absent';if(!Object.prototype.hasOwnProperty.call(root,'value'))return 'present';var value=root.value;if((typeof value!=='object'&&typeof value!=='function')||value===null)return 'absent';return Object.getOwnPropertyDescriptor(value,{member_json})===undefined?'absent':'present';}})()"
+            "(function(){{function descriptorIn(value,key){{while(value!==null){{var descriptor=Object.getOwnPropertyDescriptor(value,key);if(descriptor!==undefined)return descriptor;value=Object.getPrototypeOf(value);}}}}var root=descriptorIn(globalThis,{global_json});if(!root)return 'absent';if(!Object.prototype.hasOwnProperty.call(root,'value'))return 'present';var value=root.value;var path={member_path_json};for(var index=0;index<path.length;index+=1){{if((typeof value!=='object'&&typeof value!=='function')||value===null)return 'absent';var descriptor=descriptorIn(value,path[index]);if(descriptor===undefined)return 'absent';if(index+1===path.length)return 'present';if(!Object.prototype.hasOwnProperty.call(descriptor,'value'))return 'present';value=descriptor.value;}}return 'absent';}})()"
         )
     } else {
-        format!(
-            "Object.getOwnPropertyDescriptor(globalThis,{global_json})===undefined?'absent':'present'"
-        )
+        format!("{global_json} in globalThis?'present':'absent'")
     };
     assert_eq!(
         engine
@@ -2741,6 +2791,27 @@ async fn capsec_closed_native_seal_preserves_diagnostic_runtime_compatibility() 
         observed.iter().all(|(_, value_type)| value_type == "function"),
         "foreground diagnostic runtime lost reviewed compatibility globals: {observed:?}"
     );
+    let accessibility = engine
+        .eval_immediate(
+            r#"JSON.stringify([
+  typeof Exact,
+  typeof Exact.accessibility,
+  typeof Exact.accessibility.addEventListener,
+  typeof Exact.accessibility.announce,
+  typeof Exact.accessibility.get,
+  typeof Object.getOwnPropertyDescriptor(Exact.accessibility, 'prefersReducedMotion').get
+])"#,
+        )
+        .await
+        .expect("inspect diagnostic accessibility compatibility")
+        .expect("diagnostic accessibility inspection returned no result");
+    let accessibility: Vec<String> =
+        serde_json::from_str(&accessibility).expect("decode diagnostic accessibility globals");
+    assert_eq!(
+        accessibility,
+        ["object", "object", "function", "function", "function", "function"],
+        "foreground diagnostic runtime lost the accessibility namespace"
+    );
 }
 
 #[cfg(test)]
@@ -2927,8 +2998,8 @@ async fn capsec_public_closed_recipe_batch() {
         "expected every debugger ABI and native-operation facet on Apple"
     );
     assert_eq!(
-        shared_runtime_global_absence_count, 33,
-        "expected every reviewed legacy-only global path to be absent"
+        shared_runtime_global_absence_count, 61,
+        "expected every reviewed shared-runtime global path to be absent"
     );
     assert_eq!(
         armed_native_global_absence_count, 9,

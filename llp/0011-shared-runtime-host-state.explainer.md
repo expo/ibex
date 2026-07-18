@@ -55,6 +55,16 @@ notification functions remain global, but project code cannot reach into the
 runtime's listener sets, pending timers, overrides, or cached snapshots through
 an internal state object.
 
+In a diagnostic runtime, `installGlobals()` also publishes that module state
+through the compatibility namespaces `Exact.accessibility` and, when enabled,
+`Bun.accessibility` `[observed]`. An armed runtime deletes those configurable
+namespace properties after trusted shared-runtime installation and before the
+package-compartment baseline is finalized `[observed]`
+(`src/bin/ibex/engine/hermes.rs`). The module singleton, native snapshot inputs,
+and notification hooks remain installed, so web and React Native compatibility
+consumers can continue to share coherent host state without exposing the
+ambient application-state channel directly to project globals.
+
 ## Host Snapshot Contract
 
 The native-to-JS contract is deliberately plain data:
@@ -82,8 +92,9 @@ The shared runtime state feeds several public surfaces:
   locale, accessibility, screen, and app-state updates.
 - React Native compatibility shims expose `Dimensions`, `Appearance`,
   `AppState`, and `Linking`-style data from the same host state.
-- `Exact.locale` and `Exact.accessibility` expose the normalized snapshots and
-  listener APIs directly.
+- `Exact.locale` and, in diagnostic runtimes, `Exact.accessibility` expose the
+  normalized snapshots and listener APIs directly. The accessibility namespace
+  is closed in an armed runtime pending a typed application-state channel.
 
 This keeps host state coherent across web-standard APIs, Exact-specific APIs,
 and React Native compatibility APIs instead of giving each surface its own

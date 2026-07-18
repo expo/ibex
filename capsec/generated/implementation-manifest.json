@@ -172865,13 +172865,9 @@
         "packages/ibex-runtime-js/src/core/accessibility.ts#addEventListener.addEventListener",
         "packages/ibex-runtime-js/src/core/accessibility.ts#installExactAccessibilityGlobal:globals:Exact.accessibility"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.bun.accessibility.addeventlistener.1jc4xh5.all.attribution-missing-deny",
-        "surface.native.op.global.bun.accessibility.addeventlistener.1jc4xh5.all.generation-recheck",
-        "surface.native.op.global.bun.accessibility.addeventlistener.1jc4xh5.all.non-capability",
-        "surface.native.op.global.bun.accessibility.addeventlistener.1jc4xh5.all.principal-restore",
-        "surface.native.op.global.bun.accessibility.addeventlistener.1jc4xh5.all.snapshot-mismatch-deny"
+        "surface.native.op.global.bun.accessibility.addeventlistener.1jc4xh5.all.closed"
       ]
     },
     {
@@ -187044,13 +187040,9 @@
         "packages/ibex-runtime-js/src/core/accessibility.ts#addEventListener.addEventListener",
         "packages/ibex-runtime-js/src/core/accessibility.ts#installExactAccessibilityGlobal:globals:Exact.accessibility"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.exact.accessibility.addeventlistener.0znrtwb.all.attribution-missing-deny",
-        "surface.native.op.global.exact.accessibility.addeventlistener.0znrtwb.all.generation-recheck",
-        "surface.native.op.global.exact.accessibility.addeventlistener.0znrtwb.all.non-capability",
-        "surface.native.op.global.exact.accessibility.addeventlistener.0znrtwb.all.principal-restore",
-        "surface.native.op.global.exact.accessibility.addeventlistener.0znrtwb.all.snapshot-mismatch-deny"
+        "surface.native.op.global.exact.accessibility.addeventlistener.0znrtwb.all.closed"
       ]
     },
     {
@@ -262203,6 +262195,7 @@
         "surface.native.op.global.broadcastchannel.removeeventlistener.1ahwhrj",
         "surface.native.op.global.broadcastchannel.symbol.tostringtag.09l8ou3",
         "surface.native.op.global.bun.accessibility.1vnjama",
+        "surface.native.op.global.bun.accessibility.addeventlistener.1jc4xh5",
         "surface.native.op.global.bun.accessibility.announce.1l9lmbr",
         "surface.native.op.global.bun.accessibility.colorscheme.064h7cg",
         "surface.native.op.global.bun.accessibility.dynamictypesize.1d9scjo",
@@ -262216,6 +262209,7 @@
         "surface.native.op.global.bun.accessibility.prefersreducedmotion.0mgwp7t",
         "surface.native.op.global.bun.accessibility.prefersreducedtransparency.1sxfbyt",
         "surface.native.op.global.exact.accessibility.0x8p62w",
+        "surface.native.op.global.exact.accessibility.addeventlistener.0znrtwb",
         "surface.native.op.global.exact.accessibility.announce.01lcbk1",
         "surface.native.op.global.exact.accessibility.colorscheme.1tgj7sy",
         "surface.native.op.global.exact.accessibility.dynamictypesize.03sj8ge",
@@ -262299,7 +262293,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 223 observed surface edges."
+      "rationale": "Closed by 225 observed surface edges."
     },
     {
       "definitionId": "network:connect",
@@ -264751,12 +264745,12 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-WScOKkzS4cFpdNgLqgD3Md8VtR72L-3853BoqWTs6MY"
+      "rawContentDigest": "sha256-0lRkkq4s0YWpM5Co2MPRUaTNSe5vyebpd2EZvlplvrc"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-x7s-8U1yWDRLja0ES12o4RDIVxiBbn4gOS8-okqfQkI"
+      "rawContentDigest": "sha256-DtCvQC_Tmlv03-jYPE3bvtcgf5gSHIkn5Pu8xxrwdw4"
     },
     {
       "kind": "typescript",

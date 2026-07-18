@@ -1439,6 +1439,34 @@ function validateRuntimeInvocation(observation, recipe) {
         "global:CacheStorage.keys",
         "global:CacheStorage.match",
         "global:CacheStorage.open",
+        "global:Bun.accessibility",
+        "global:Bun.accessibility.addEventListener",
+        "global:Bun.accessibility.announce",
+        "global:Bun.accessibility.colorScheme",
+        "global:Bun.accessibility.dynamicTypeSize",
+        "global:Bun.accessibility.fontScale",
+        "global:Bun.accessibility.get",
+        "global:Bun.accessibility.isBoldTextEnabled",
+        "global:Bun.accessibility.isGrayscaleEnabled",
+        "global:Bun.accessibility.isInvertColorsEnabled",
+        "global:Bun.accessibility.isScreenReaderEnabled",
+        "global:Bun.accessibility.prefersHighContrast",
+        "global:Bun.accessibility.prefersReducedMotion",
+        "global:Bun.accessibility.prefersReducedTransparency",
+        "global:Exact.accessibility",
+        "global:Exact.accessibility.addEventListener",
+        "global:Exact.accessibility.announce",
+        "global:Exact.accessibility.colorScheme",
+        "global:Exact.accessibility.dynamicTypeSize",
+        "global:Exact.accessibility.fontScale",
+        "global:Exact.accessibility.get",
+        "global:Exact.accessibility.isBoldTextEnabled",
+        "global:Exact.accessibility.isGrayscaleEnabled",
+        "global:Exact.accessibility.isInvertColorsEnabled",
+        "global:Exact.accessibility.isScreenReaderEnabled",
+        "global:Exact.accessibility.prefersHighContrast",
+        "global:Exact.accessibility.prefersReducedMotion",
+        "global:Exact.accessibility.prefersReducedTransparency",
         "global:Exact.gc",
       ]);
       const descriptor = authored.sourceDescriptor;
@@ -1467,6 +1495,22 @@ function validateRuntimeInvocation(observation, recipe) {
           ? authored.operation.globalName
           : `${authored.operation.globalName}.${memberName}`;
       const branches = metadata?.installationBranches;
+      const sharedRuntimeAccessibility =
+        /^global:(?:Bun|Exact)\.accessibility(?:\.|$)/u.test(
+          authored.surfaceName,
+        );
+      const reviewedInstallation =
+        Array.isArray(branches) &&
+        branches.length === 1 &&
+        canonicalJson(branches[0].sourceRefs) ===
+          canonicalJson(descriptor.sourceRefs) &&
+        (sharedRuntimeAccessibility
+          ? metadata?.sourceKey === "shared_runtime" &&
+            branches[0].route === "shared-runtime" &&
+            branches[0].targetVariant === "all"
+          : metadata?.sourceKey !== "shared_runtime" &&
+            branches[0].route === "legacy-bootstrap" &&
+            branches[0].targetVariant === "default");
       if (
         !reviewedSurfaces.has(authored.surfaceName) ||
         authored.surfaceKind !== "native-op" ||
@@ -1483,17 +1527,12 @@ function validateRuntimeInvocation(observation, recipe) {
         metadata.globalName !== authored.operation.globalName ||
         metadata.memberName !== memberName ||
         metadata.exportName !== exportName ||
-        !Array.isArray(branches) ||
-        branches.length !== 1 ||
-        branches[0].route !== "legacy-bootstrap" ||
-        branches[0].targetVariant !== "default" ||
-        canonicalJson(branches[0].sourceRefs) !==
-          canonicalJson(descriptor.sourceRefs) ||
+        !reviewedInstallation ||
         authored.operation.expectedError !==
           `armed shared runtime does not expose ${exportName}`
       ) {
         throw new Error(
-          `${recipe.fixtureId}: shared-runtime global closure is not bound to the reviewed legacy-only path`,
+          `${recipe.fixtureId}: shared-runtime global closure is not bound to a reviewed installation path`,
         );
       }
     }

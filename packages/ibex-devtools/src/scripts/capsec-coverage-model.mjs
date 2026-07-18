@@ -10683,14 +10683,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     if (/^(?:stdout|stderr)$/u.test(member)) {
       return effectSpec(["stdio:write"], "stdio", "WP7");
     }
-    if (/^accessibility\.addeventlistener$/u.test(member)) {
-      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
-    }
     if (/^accessibility(?:\.|$)/u.test(member)) {
       return closedSpec(
         "ipc:channel",
         "WP7",
-        "Accessibility reads and announcements cross the shared embedder application-state channel.",
+        "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel.",
       );
     }
     if (member === "locale.addlistener") {
