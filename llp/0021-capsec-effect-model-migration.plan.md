@@ -617,8 +617,8 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed per-target catalogs each have
-22,938 required fixtures: Apple has 5,112 fully executable recipes and 17,826
-unresolved fixtures, while Windows has 4,994 executable and 17,944 unresolved.
+22,938 required fixtures: Apple has 5,123 fully executable recipes and 17,815
+unresolved fixtures, while Windows has 5,005 executable and 17,933 unresolved.
 The Windows difference is explicit target applicability: 102 Apple
 target-absence probes are not applicable and 16 Windows non-capability paths
 remain unauthored. None of those differences is credited as a pass. The latest
@@ -682,7 +682,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,826 unresolved Apple fixtures and 17,944
+are 7,043 ambiguous routes with 17,815 unresolved Apple fixtures and 17,933
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -714,7 +714,14 @@ obligations instead of pretending those unreachable members are independent
 APIs. The 232 source-derived storage cells raise each exact target to 618
 closed fixtures; the loaded Apple engine passes the complete batch with zero
 typed or legacy decisions. Its reduced 2,710-fixture callback-invariant batch
-also passes against the same catalog and loaded engine.
+also passes against the same catalog and loaded engine. The application runtime
+does not install the worklet-only `worklet`, `measure`, or
+`scheduleOnAppRuntime` namespaces. Eleven exact source facets now prove that
+runtime-variant boundary through physical absence, including `worklet.clamp`
+and `worklet.lerp`, which are closed with their absent namespace rather than
+misreported as independently reachable pure helpers. This raises the exact
+closed batch to 629 fixtures without treating worklet-runtime reachability as
+application-runtime authority.
 
 ### WP0 artifacts and gate
 
@@ -1566,7 +1573,7 @@ Windows x64 is now a declared but unadvertised candidate alongside Apple arm64.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
 manifest, digest, patched export, and debugger-free profile, then explicitly
 selects `x86_64-pc-windows-msvc` for recipe generation and report execution.
-Its current catalog has 4,994 executable and 17,944 unresolved fixtures. The
+Its current catalog has 5,005 executable and 17,933 unresolved fixtures. The
 first authoritative Windows report must still finish and be inspected before
 any Windows target cell or advertisement can change; incomplete evidence is
 retained as a refusal artifact, not promotion authority.

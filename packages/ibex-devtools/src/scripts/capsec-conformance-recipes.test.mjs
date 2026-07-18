@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_112);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_826);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_123);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_815);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_938);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_994);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_944);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_005);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_933);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
@@ -229,7 +229,7 @@ describe("exact-target CapSec executable recipes", () => {
             "capsec_public_closed_recipe_batch",
           ),
       ),
-    ).toHaveLength(618);
+    ).toHaveLength(629);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -250,7 +250,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
           "armed-native-global-absence",
       ),
-    ).toHaveLength(9);
+    ).toHaveLength(20);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {
@@ -1822,9 +1822,13 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "armed-native-global-absence",
     );
-    expect(rows).toHaveLength(9);
+    expect(rows).toHaveLength(20);
+    const directRows = rows.filter(
+      (recipe) =>
+        !recipe.publicSurfaceProbe.invocation.surfaceName.startsWith("global:"),
+    );
     expect(
-      rows.map(
+      directRows.map(
         (recipe) => recipe.publicSurfaceProbe.invocation.operation.globalName,
       ),
     ).toEqual([
@@ -1838,6 +1842,22 @@ describe("exact-target CapSec executable recipes", () => {
       "__exactResetSignal",
       "__exactSetCwd",
     ]);
+    const workletRows = rows.filter((recipe) =>
+      recipe.publicSurfaceProbe.invocation.surfaceName.startsWith("global:"),
+    );
+    expect(workletRows.map((recipe) => recipe.terminalObservedKey)).toEqual([
+      "native-op:global:measure",
+      "native-op:global:scheduleOnAppRuntime",
+      "native-op:global:worklet",
+      "native-op:global:worklet.capture",
+      "native-op:global:worklet.captureGet",
+      "native-op:global:worklet.captureSet",
+      "native-op:global:worklet.clamp",
+      "native-op:global:worklet.lerp",
+      "native-op:global:worklet.output",
+      "native-op:global:worklet.runOnJS",
+      "native-op:global:worklet.sharedValue",
+    ]);
     expect(
       rows.every(
         (recipe) =>
@@ -1849,9 +1869,27 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
             0 &&
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
-            "closed-armed-native-global-absence" &&
+            "closed-armed-native-global-absence",
+      ),
+    ).toBe(true);
+    expect(
+      directRows.every(
+        (recipe) =>
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
             .publicInvocation.kind === "native-global-function",
+      ),
+    ).toBe(true);
+    expect(
+      workletRows.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+            .installationBranches.length === 1 &&
+          ["evaluated-native-script", "native-jsi-global"].includes(
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+              .installationBranches[0].route,
+          ) &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+            .installationBranches[0].targetVariant === "worklet",
       ),
     ).toBe(true);
   });

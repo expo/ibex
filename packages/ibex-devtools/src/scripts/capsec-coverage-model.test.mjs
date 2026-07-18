@@ -331,6 +331,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["ipc:channel"],
     ],
     [
+      "application-runtime worklet helper closed",
+      globalApi("worklet", "clamp"),
+      "closed",
+      ["worker:create"],
+    ],
+    [
       "heap inspection closed",
       surface("native-op", "__exactGetHeapInfo"),
       "closed",

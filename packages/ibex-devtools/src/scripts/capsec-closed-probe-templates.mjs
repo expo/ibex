@@ -250,6 +250,20 @@ const ARMED_NATIVE_ABSENT_GLOBALS = new Set([
   "__exactSetCwd",
 ]);
 
+const APP_RUNTIME_ABSENT_WORKLET_GLOBALS = new Set([
+  "global:measure",
+  "global:scheduleOnAppRuntime",
+  "global:worklet",
+  "global:worklet.capture",
+  "global:worklet.captureGet",
+  "global:worklet.captureSet",
+  "global:worklet.clamp",
+  "global:worklet.lerp",
+  "global:worklet.output",
+  "global:worklet.runOnJS",
+  "global:worklet.sharedValue",
+]);
+
 const EXACT_OPERATION_MANIFEST_DIGEST =
   "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEA";
 const EXACT_APP_OPERATION_IDS = Object.freeze([7, 11]);
@@ -1141,8 +1155,11 @@ function armedNativeGlobalAbsenceProbe({
   const surfaceObservedKey = route.surfaceObservedKeys[0];
   const prefix = "native-op:";
   if (!surfaceObservedKey.startsWith(prefix)) return null;
-  const globalName = surfaceObservedKey.slice(prefix.length);
-  if (!ARMED_NATIVE_ABSENT_GLOBALS.has(globalName)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  const directArmedGlobal = ARMED_NATIVE_ABSENT_GLOBALS.has(surfaceName);
+  const appRuntimeAbsentWorkletGlobal =
+    APP_RUNTIME_ABSENT_WORKLET_GLOBALS.has(surfaceName);
+  if (!directArmedGlobal && !appRuntimeAbsentWorkletGlobal) return null;
   const live = liveByObservedKey.get(surfaceObservedKey);
   const edge = coverageByObservedKey.get(surfaceObservedKey);
   const metadata = live?.metadata;
@@ -1153,25 +1170,58 @@ function armedNativeGlobalAbsenceProbe({
       branch.route === "native-jsi-global" &&
       branch.targetVariant === "default",
   );
+  const workletBranch = branches?.find(
+    (branch) =>
+      ["evaluated-native-script", "native-jsi-global"].includes(
+        branch.route,
+      ) &&
+      branch.targetVariant === "worklet",
+  );
+  const globalName = metadata?.globalName;
+  const expectedExportName =
+    metadata?.memberName == null
+      ? globalName
+      : `${globalName}.${metadata.memberName}`;
+  const reviewedDirectGlobal =
+    directArmedGlobal &&
+    metadata?.sourceKey === "native_jsi_global" &&
+    globalName === surfaceName &&
+    metadata?.memberName === null &&
+    canonicalJson(metadata?.memberKinds) === canonicalJson(["native-root"]) &&
+    publicInvocation?.kind === "native-global-function" &&
+    publicInvocation.globalName === globalName &&
+    Number.isSafeInteger(publicInvocation.arity) &&
+    publicInvocation.arity >= 0 &&
+    typeof publicInvocation.sourceRef === "string" &&
+    defaultBranch?.sourceRefs.includes(publicInvocation.sourceRef);
+  const reviewedWorkletGlobal =
+    appRuntimeAbsentWorkletGlobal &&
+    `global:${expectedExportName}` === surfaceName &&
+    Array.isArray(branches) &&
+    branches.length === 1 &&
+    canonicalJson(workletBranch?.sourceRefs) === canonicalJson(live?.sourceRefs) &&
+    (metadata?.sourceKey === "native_jsi_global"
+      ? workletBranch?.route === "native-jsi-global" &&
+        canonicalJson(metadata?.memberKinds) ===
+          canonicalJson([
+            metadata?.memberName === null
+              ? "native-root"
+              : "native-object-member",
+          ])
+      : metadata?.sourceKey === "evaluated_native_script" &&
+        workletBranch?.route === "evaluated-native-script" &&
+        metadata.evaluatedScript === "kPrelude" &&
+        canonicalJson(metadata.sourceUrls) ===
+          canonicalJson(["worklet-prelude.js"]));
   if (
     live?.kind !== "native-op" ||
-    live.name !== globalName ||
+    live.name !== surfaceName ||
     metadata?.surfaceType !== "global-api" ||
-    metadata?.sourceKey !== "native_jsi_global" ||
-    metadata?.globalName !== globalName ||
-    metadata?.memberName !== null ||
-    metadata?.exportName !== globalName ||
-    canonicalJson(metadata?.memberKinds) !== canonicalJson(["native-root"]) ||
-    publicInvocation?.kind !== "native-global-function" ||
-    publicInvocation.globalName !== globalName ||
-    !Number.isSafeInteger(publicInvocation.arity) ||
-    publicInvocation.arity < 0 ||
-    typeof publicInvocation.sourceRef !== "string" ||
+    metadata?.exportName !== expectedExportName ||
+    (!reviewedDirectGlobal && !reviewedWorkletGlobal) ||
     !Array.isArray(live.sourceRefs) ||
     live.sourceRefs.length === 0 ||
     !Array.isArray(branches) ||
-    !defaultBranch ||
-    !defaultBranch.sourceRefs.includes(publicInvocation.sourceRef) ||
     edge?.id !== plan.edgeIds[0] ||
     edge.classification !== "closed" ||
     route.alternatives[0].terminalObservedKey !== surfaceObservedKey
@@ -1182,11 +1232,14 @@ function armedNativeGlobalAbsenceProbe({
     kind: "closed-armed-native-global-absence",
     surfaceObservedKey,
     globalName,
+    ...(metadata.memberName === null
+      ? {}
+      : { memberName: metadata.memberName }),
     targetTriple: target.triple,
     sourceRefs: structuredClone(live.sourceRefs),
     sourceMetadata: structuredClone(metadata),
   };
-  const expectedError = `armed runtime does not expose ${globalName}`;
+  const expectedError = `armed runtime does not expose ${expectedExportName}`;
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
@@ -1195,12 +1248,15 @@ function armedNativeGlobalAbsenceProbe({
       invocationSchema: "ibex/capsec-closed-surface-invocation/1",
       kind: "closed-surface",
       surfaceKind: "native-op",
-      surfaceName: globalName,
+      surfaceName,
       sourceDescriptor,
       sourceDescriptorDigest: taggedDigest(sourceDescriptor),
       operation: {
         kind: "armed-native-global-absence",
         globalName,
+        ...(metadata.memberName === null
+          ? {}
+          : { memberName: metadata.memberName }),
         expectedError,
       },
       expectedResult: "closed",

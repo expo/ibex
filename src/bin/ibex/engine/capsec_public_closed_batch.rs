@@ -182,6 +182,8 @@ enum ClosedOperation {
     ArmedNativeGlobalAbsence {
         #[serde(rename = "globalName")]
         global_name: String,
+        #[serde(default, rename = "memberName")]
+        member_name: Option<String>,
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
@@ -1807,6 +1809,34 @@ fn reviewed_armed_native_absent_surface(surface_name: &str) -> bool {
             | "__exactPollSignal"
             | "__exactResetSignal"
             | "__exactSetCwd"
+            | "global:measure"
+            | "global:scheduleOnAppRuntime"
+            | "global:worklet"
+            | "global:worklet.capture"
+            | "global:worklet.captureGet"
+            | "global:worklet.captureSet"
+            | "global:worklet.clamp"
+            | "global:worklet.lerp"
+            | "global:worklet.output"
+            | "global:worklet.runOnJS"
+            | "global:worklet.sharedValue"
+    )
+}
+
+fn reviewed_app_runtime_absent_worklet_surface(surface_name: &str) -> bool {
+    matches!(
+        surface_name,
+        "global:measure"
+            | "global:scheduleOnAppRuntime"
+            | "global:worklet"
+            | "global:worklet.capture"
+            | "global:worklet.captureGet"
+            | "global:worklet.captureSet"
+            | "global:worklet.clamp"
+            | "global:worklet.lerp"
+            | "global:worklet.output"
+            | "global:worklet.runOnJS"
+            | "global:worklet.sharedValue"
     )
 }
 
@@ -1828,8 +1858,9 @@ async fn execute_closed_shared_runtime_global_absence(
         } => (global_name, member_name.as_ref(), expected_error, false),
         ClosedOperation::ArmedNativeGlobalAbsence {
             global_name,
+            member_name,
             expected_error,
-        } => (global_name, None, expected_error, true),
+        } => (global_name, member_name.as_ref(), expected_error, true),
         _ => panic!("global absence probe has the wrong operation"),
     };
     assert_eq!(recipe.status, "fully-executable");
@@ -1904,18 +1935,43 @@ async fn execute_closed_shared_runtime_global_absence(
         .as_array()
         .expect("shared-runtime global source must name installation branches");
     if armed_native {
-        assert_eq!(metadata["sourceKey"], "native_jsi_global");
-        assert_eq!(metadata["memberKinds"], serde_json::json!(["native-root"]));
-        let public_invocation = metadata["publicInvocation"]
-            .as_object()
-            .expect("armed native source must carry a public invocation");
-        assert_eq!(public_invocation["kind"], "native-global-function");
-        assert_eq!(public_invocation["globalName"], global_name.as_str());
-        assert!(public_invocation["arity"].as_u64().is_some());
-        assert!(branches.iter().any(|branch| {
-            branch["route"] == "native-jsi-global"
-                && branch["targetVariant"] == "default"
-        }));
+        if reviewed_app_runtime_absent_worklet_surface(&invocation.surface_name) {
+            assert_eq!(branches.len(), 1);
+            assert_eq!(branches[0]["targetVariant"], "worklet");
+            assert_eq!(
+                branches[0]["sourceRefs"],
+                serde_json::json!(descriptor.source_refs)
+            );
+            if metadata["sourceKey"] == "native_jsi_global" {
+                assert_eq!(branches[0]["route"], "native-jsi-global");
+                assert_eq!(
+                    metadata["memberKinds"],
+                    serde_json::json!([if member_name.is_some() {
+                        "native-object-member"
+                    } else {
+                        "native-root"
+                    }])
+                );
+            } else {
+                assert_eq!(metadata["sourceKey"], "evaluated_native_script");
+                assert_eq!(branches[0]["route"], "evaluated-native-script");
+                assert_eq!(metadata["evaluatedScript"], "kPrelude");
+                assert_eq!(metadata["sourceUrls"], serde_json::json!(["worklet-prelude.js"]));
+            }
+        } else {
+            assert_eq!(metadata["sourceKey"], "native_jsi_global");
+            assert_eq!(metadata["memberKinds"], serde_json::json!(["native-root"]));
+            let public_invocation = metadata["publicInvocation"]
+                .as_object()
+                .expect("armed native source must carry a public invocation");
+            assert_eq!(public_invocation["kind"], "native-global-function");
+            assert_eq!(public_invocation["globalName"], global_name.as_str());
+            assert!(public_invocation["arity"].as_u64().is_some());
+            assert!(branches.iter().any(|branch| {
+                branch["route"] == "native-jsi-global"
+                    && branch["targetVariant"] == "default"
+            }));
+        }
         assert_eq!(
             expected_error,
             &format!("armed runtime does not expose {export_name}")
@@ -3094,8 +3150,8 @@ async fn capsec_public_closed_recipe_batch() {
     );
     let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
         match catalog.target.triple.as_str() {
-            "aarch64-apple-darwin" => (18, 322, 9),
-            "x86_64-pc-windows-msvc" => (18, 322, 9),
+            "aarch64-apple-darwin" => (18, 322, 20),
+            "x86_64-pc-windows-msvc" => (18, 322, 20),
             target => panic!("closed public batch has no reviewed target shape for {target}"),
         };
     assert_eq!(

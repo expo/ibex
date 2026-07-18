@@ -249006,23 +249006,23 @@
     },
     {
       "id": "surface.native.op.global.worklet.clamp.10ckbeu",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:worklet.clamp"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "worker:create",
+      "rationale": "Worklet-only helpers are closed with the absent worklet namespace on the application runtime."
     },
     {
       "id": "surface.native.op.global.worklet.lerp.0ljvwxi",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:worklet.lerp"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "worker:create",
+      "rationale": "Worklet-only helpers are closed with the absent worklet namespace on the application runtime."
     },
     {
       "id": "surface.native.op.global.worklet.output.1ij3raq",

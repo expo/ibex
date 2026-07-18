@@ -243815,9 +243815,9 @@
       "sourceRefs": [
         "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.clamp"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.worklet.clamp.10ckbeu.worklet.non-capability"
+        "surface.native.op.global.worklet.clamp.10ckbeu.worklet.closed"
       ]
     },
     {
@@ -243847,9 +243847,9 @@
       "sourceRefs": [
         "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.lerp"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.worklet.lerp.0ljvwxi.worklet.non-capability"
+        "surface.native.op.global.worklet.lerp.0ljvwxi.worklet.closed"
       ]
     },
     {
@@ -264622,9 +264622,11 @@
         "surface.host.abi.ex.worklet.invoke.14qubev",
         "surface.host.abi.ex.worklet.invoke.typed.0vm7ato",
         "surface.native.op.global.worklet.0kkuh0r",
+        "surface.native.op.global.worklet.clamp.10ckbeu",
+        "surface.native.op.global.worklet.lerp.0ljvwxi",
         "surface.startup.installer.installworkletglobals.0hrm4zr"
       ],
-      "rationale": "Closed by 48 observed surface edges."
+      "rationale": "Closed by 50 observed surface edges."
     }
   ],
   "outputs": [
@@ -264636,12 +264638,12 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-vljWaxh0p5XnNKoZzfke5j6YcFk_0bQN2L_azloPG0Q"
+      "rawContentDigest": "sha256-_76zbo_X_ZhUnkh_ZDyhTpPN67bXQOUWGxEApAw_DsI"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-7_g5cMlXB29C5Y45j-2p5XMupSaVZNlA9bu0pbHzD-E"
+      "rawContentDigest": "sha256-dT76GGttFpl4qwYrzqi1oK8WWBNuYoTCLDfYDI493zY"
     },
     {
       "kind": "typescript",

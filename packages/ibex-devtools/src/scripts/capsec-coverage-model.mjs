@@ -11183,7 +11183,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (globalName === "worklet") {
     if (member === "clamp" || member === "lerp") {
-      return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+      return closedSpec(
+        "worker:create",
+        "WP7",
+        "Worklet-only helpers are closed with the absent worklet namespace on the application runtime.",
+      );
     }
     if (
       /^(?:capture|captureget|captureset|output|runonjs|sharedvalue)$/u.test(
