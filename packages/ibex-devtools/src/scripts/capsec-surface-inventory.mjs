@@ -9632,7 +9632,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
         "scripts/build-hermes-windows.ps1":
           "sha256-14518d3f4a54f0c1ea340844c26bb293872299805c53bcba3c7747bcfa51b78c",
         "scripts/build-hermes.sh":
-          "sha256-9aca630d1dd2ad913e52a5045ed373ebb6602d31c4c2f35f828fb498d8a88cfb",
+          "sha256-0ec681637a341c2d3577d1124df1f6cdf2298a5ac70f694e815e857daa3df9af",
       },
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
