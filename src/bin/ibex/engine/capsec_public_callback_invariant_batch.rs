@@ -26,7 +26,13 @@ const CALLBACK_BATCH_COMMAND: [&str; 9] = [
 struct RecipeCatalog {
     recipe_catalog_schema: String,
     recipe_catalog_digest: String,
+    target: CatalogTarget,
     recipes: Vec<Recipe>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CatalogTarget {
+    triple: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2291,11 +2297,28 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    assert_eq!(recipes.len(), 2_898);
-    assert_eq!(by_scenario.get("attribution-missing-deny"), Some(&554));
-    assert_eq!(by_scenario.get("generation-recheck"), Some(&554));
-    assert_eq!(by_scenario.get("principal-restore"), Some(&554));
-    assert_eq!(by_scenario.get("snapshot-mismatch-deny"), Some(&554));
+    let target_wide_scenario_count = match catalog.target.triple.as_str() {
+        "aarch64-apple-darwin" => 552,
+        "x86_64-pc-windows-msvc" => 552,
+        target => panic!("callback invariant batch has no reviewed target shape for {target}"),
+    };
+    assert_eq!(recipes.len(), target_wide_scenario_count * 4 + 682);
+    assert_eq!(
+        by_scenario.get("attribution-missing-deny"),
+        Some(&target_wide_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("generation-recheck"),
+        Some(&target_wide_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("principal-restore"),
+        Some(&target_wide_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("snapshot-mismatch-deny"),
+        Some(&target_wide_scenario_count)
+    );
     assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&337));
     assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&337));
     assert_eq!(by_scenario.get("non-capability"), Some(&8));

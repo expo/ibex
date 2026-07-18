@@ -22,6 +22,14 @@
         "native-compartments",
         "native-lockdown"
       ]
+    },
+    {
+      "triple": "x86_64-pc-windows-msvc",
+      "features": [
+        "hermes-frame-attribution",
+        "native-compartments",
+        "native-lockdown"
+      ]
     }
   ],
   "surfaces": [
@@ -264740,7 +264748,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-SfpPZ3G2SU3hdZjK9RHVyQyoNbsUNiTZswdSjcnOp0c"
+      "rawContentDigest": "sha256-CBu18pejtw-4U48InP8ExbD14dk21V89CZ7Xu3VYyg4"
     },
     {
       "kind": "markdown",
@@ -264755,22 +264763,22 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-Hz8YnkK_YA2AKgHPLTVIM3dyPDJ36ULIK9GI3poli0k"
+      "rawContentDigest": "sha256-2xpeSO9u6B1Nf8VPxcAu-NlrmqwzFAY6Lw0xDpvC-4A"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-jK2Hey4xPOHOMKCVHphac8kcDWOgQbluagnJr5d99BU"
+      "rawContentDigest": "sha256-8EZhd6NqDjweqQTTaeQ0lXl-HOVTUk1Rks1gV7i2FZw"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-kRCP539S16nc7FUJoJbkJvVRV-lkumnruf_Gj2ZoXm8"
+      "rawContentDigest": "sha256-PnSko-y04k35FoLIs_1DnJebrXkKwyBim0mgUYMbnOo"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-q4HCYM926sXGxmmkBK10HmroMkY-S2gQ8e2a-NCui4w"
+      "rawContentDigest": "sha256-i0AWGZLOC-c1ZvCcaeh1PNKSefZKryrF2ox69Bq4eFI"
     }
   ],
   "counts": {
@@ -264778,6 +264786,6 @@
     "logicalSurfaces": 7108,
     "enforcementBranches": 7307,
     "coverageEdges": 7108,
-    "targetCells": 7108
+    "targetCells": 14216
   }
 }

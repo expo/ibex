@@ -265,6 +265,8 @@ execFileSync(
       repoRoot,
       "packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs",
     ),
+    "--target",
+    target.triple,
     "--output",
     recipeCatalogPath,
   ],

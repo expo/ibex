@@ -27,6 +27,8 @@ describe("exact-target CapSec executable recipes", () => {
   let capabilityDefinitions;
   let occurrenceExamples;
   let selectorExamples;
+  let windowsRecipes;
+  let windowsExpectedFixtureIds;
 
   beforeAll(async () => {
     const coverage = readJson("capsec/registry/coverage-edges.json");
@@ -34,11 +36,24 @@ describe("exact-target CapSec executable recipes", () => {
       "capsec/generated/implementation-manifest.json",
     );
     const rules = readJson("capsec/registry/policy-rules.json");
-    const target = rules.initialProfile.candidateTargets[0];
+    const target = rules.initialProfile.candidateTargets.find(
+      (candidate) => candidate.triple === "aarch64-apple-darwin",
+    );
+    const windowsTarget = rules.initialProfile.candidateTargets.find(
+      (candidate) => candidate.triple === "x86_64-pc-windows-msvc",
+    );
+    if (!target || !windowsTarget) {
+      throw new Error("expected both exact candidates");
+    }
     const catalog = fixtureCatalogForTarget({
       coverage,
       implementation,
       target,
+    });
+    const windowsCatalog = fixtureCatalogForTarget({
+      coverage,
+      implementation,
+      target: windowsTarget,
     });
     expectedFixtureIds = fixtureExecutionPlans(catalog).map(
       (plan) => plan.fixtureId,
@@ -52,15 +67,29 @@ describe("exact-target CapSec executable recipes", () => {
     selectorExamples = readJson(
       "capsec/examples/authority-selectors.canonical.json",
     );
+    const inventory = await discoverRepositorySurfaces(repoRoot);
     recipes = buildConformanceRecipeCatalog({
       catalog,
       coverage,
       implementation,
-      inventory: await discoverRepositorySurfaces(repoRoot),
+      inventory,
       occurrenceExamples,
       selectorExamples,
       capabilityDefinitions,
       target,
+    });
+    windowsExpectedFixtureIds = fixtureExecutionPlans(windowsCatalog).map(
+      (plan) => plan.fixtureId,
+    );
+    windowsRecipes = buildConformanceRecipeCatalog({
+      catalog: windowsCatalog,
+      coverage,
+      implementation,
+      inventory,
+      occurrenceExamples,
+      selectorExamples,
+      capabilityDefinitions,
+      target: windowsTarget,
     });
   }, 60_000);
 
@@ -164,6 +193,40 @@ describe("exact-target CapSec executable recipes", () => {
     expect(() => assertRecipeCatalogComplete(recipes)).toThrow(
       /executable recipe catalog is incomplete/,
     );
+  });
+
+  test("accounts for the Windows candidate without borrowing Apple probes", () => {
+    expect(windowsRecipes.target.triple).toBe("x86_64-pc-windows-msvc");
+    expect(windowsRecipes.summary.requiredFixtures).toBe(
+      windowsExpectedFixtureIds.length,
+    );
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_118);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_825);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_293);
+    const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
+      (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
+    );
+    expect(windowsAbsenceRecipes).toHaveLength(8);
+    expect(
+      windowsAbsenceRecipes.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.expectedResult === "absent" &&
+          recipe.publicSurfaceProbe.command.includes(
+            "capsec_public_native_recipe_batch",
+          ) &&
+          !recipe.publicSurfaceProbe.command.includes(
+            "capsec_public_target_absence_batch",
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.command?.includes(
+            "capsec_public_closed_recipe_batch",
+          ),
+      ),
+    ).toHaveLength(269);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {

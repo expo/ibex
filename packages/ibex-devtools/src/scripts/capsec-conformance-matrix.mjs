@@ -4,8 +4,14 @@
  * establish that the bound revision is otherwise green before fixture-specific
  * evidence is accepted.
  */
+const pythonCommand = process.platform === "win32" ? "python" : "python3";
+
 export const CONFORMANCE_COMMANDS = Object.freeze([
-  ["rust-default-full", "./scripts/run-tests.sh", ["--", "--test-threads=1"]],
+  [
+    "rust-default-full",
+    "bash",
+    ["./scripts/run-tests.sh", "--", "--test-threads=1"],
+  ],
   [
     "rust-workspace-all-features-executable-tests",
     "cargo",
@@ -28,11 +34,15 @@ export const CONFORMANCE_COMMANDS = Object.freeze([
   ],
   ["devtools-js-full", "bun", ["test", "packages/ibex-devtools/src/scripts"]],
   ["runtime-js-full", "bun", ["test", "packages/ibex-runtime-js/src"]],
-  ["android-websocket-behavioral", "bun", ["run", "test:android-java"]],
+  [
+    "android-websocket-behavioral",
+    "bash",
+    ["./scripts/test-android-java.sh"],
+  ],
   ["hermes-transform-loader-corpora", "bun", ["run", "test:hermes-compat"]],
   ["capsec-registry-drift", "bun", ["run", "check:capsec-registry"]],
   ["capsec-contract-drift", "bun", ["run", "check:capsec-contract"]],
   ["generated-policy-drift", "bun", ["run", "check:example-policy"]],
-  ["all-generated-drift", "./scripts/check-generated-drift.sh", []],
-  ["linked-literate-references", "./ref-check", []],
+  ["all-generated-drift", "bash", ["./scripts/check-generated-drift.sh"]],
+  ["linked-literate-references", pythonCommand, ["./ref-check"]],
 ]);

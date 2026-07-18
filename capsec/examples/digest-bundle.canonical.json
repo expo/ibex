@@ -264801,6 +264801,14 @@
                 "native-compartments",
                 "native-lockdown"
               ]
+            },
+            {
+              "triple": "x86_64-pc-windows-msvc",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
             }
           ],
           "targetFeatureMeaning": "structural-security-properties-required-by-the-exact-capsec-profile-not-cargo-feature-names",

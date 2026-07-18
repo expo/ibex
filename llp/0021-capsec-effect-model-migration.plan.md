@@ -616,9 +616,13 @@ checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed catalog has 23,118 required
-fixtures, 5,031 fully executable recipes, and 18,087 unresolved
-fixtures. The latest source-bound tranches add 61 armed shared-runtime global
+advertisements remain incomplete. The refreshed per-target catalogs each have
+23,118 required fixtures: Apple has 5,031 fully executable recipes and 18,087
+unresolved fixtures, while Windows has 4,825 executable and 18,293 unresolved.
+The Windows difference is explicit target applicability: 88 Apple-only closed
+probes and 102 Apple target-absence probes are not applicable, while 16
+Windows non-capability paths remain unauthored. None of those differences is
+credited as a pass. The latest source-bound tranches add 61 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
 terminal-builtin closure recipes, four
@@ -661,7 +665,7 @@ native state in one bounded invocation. Fourteen Linux/Android-only
 real public module path rather than remaining generic availability residuals.
 Async evidence remains open through a bounded event-loop quiescence drain and
 binds both the dispatch edge and the worker edge actually observed at runtime.
-The existing Apple matrix therefore remains unsupported;
+Both candidate matrices therefore remain unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
 
@@ -678,7 +682,8 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes and 18,087 unresolved fixtures. Nine direct native
+are 7,043 ambiguous routes with 18,087 unresolved Apple fixtures and 18,293
+unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
 exact source-derived JSI cells prove physical absence. The armed runtime also
@@ -1352,10 +1357,10 @@ the binding; the probe can never promote a different embedded library. Those
 broad results remain prerequisite suite evidence only, and command logs are
 streamed to files with full digests plus bounded tails rather than retained
 unbounded in the report.
-The same runner is now the arm64 macOS CI gate. CI invokes
-`verify:capsec-conformance --expect-incomplete`, which still runs the entire
-matrix and emits exact command, adapter, public-surface, execution, and report
-artifacts. That mode succeeds only after the report is generated, remains
+The same runner is now the arm64 macOS and x64 Windows CI gate. CI invokes
+`verify:capsec-conformance --target <triple> --expect-incomplete`, which still
+runs the entire matrix and emits exact command, adapter, public-surface,
+execution, and report artifacts. That mode succeeds only after the report is generated, remains
 `incomplete`, independently fails the recipe/public/report promotion checks,
 and has no matching committed target attestation. It fails automatically once
 the target becomes conformant, forcing CI to remove the expectation and adopt
@@ -1542,8 +1547,14 @@ for comparison. The release workflow has now built and inspected that DLL on a
 Windows runner and published the exact checksummed Release bundle; its DLL
 digest is
 `6f5190b9f8bf943b073e62dc5dbc2e297b77b7becbac3ca0c209b12d92828b6a`.
-WP10 must still execute a complete Windows exact-target runtime report before
-any Windows target cell or advertisement can change.
+Windows x64 is now a declared but unadvertised candidate alongside Apple arm64.
+The complete-matrix workflow installs the checked Release DLL, revalidates its
+manifest, digest, patched export, and debugger-free profile, then explicitly
+selects `x86_64-pc-windows-msvc` for recipe generation and report execution.
+Its current catalog has 4,825 executable and 18,293 unresolved fixtures. The
+first authoritative Windows report must still finish and be inspected before
+any Windows target cell or advertisement can change; incomplete evidence is
+retained as a refusal artifact, not promotion authority.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

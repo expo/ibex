@@ -18,8 +18,8 @@ test("conformance prerequisite matrix covers every product test layer", () => {
     "rust-workspace-all-features-executable-tests",
   ]);
   expect(byId.get("rust-default-full")).toEqual([
-    "./scripts/run-tests.sh",
-    ["--", "--test-threads=1"],
+    "bash",
+    ["./scripts/run-tests.sh", "--", "--test-threads=1"],
   ]);
   const executable = byId.get("rust-workspace-all-features-executable-tests");
   expect(executable[0]).toBe("cargo");
@@ -35,7 +35,15 @@ test("conformance prerequisite matrix covers every product test layer", () => {
   expect(byId.get("devtools-js-full")[1]).toContain("packages/ibex-devtools/src/scripts");
   expect(byId.get("runtime-js-full")[1]).toContain("packages/ibex-runtime-js/src");
   expect(byId.get("android-websocket-behavioral")).toEqual([
-    "bun",
-    ["run", "test:android-java"],
+    "bash",
+    ["./scripts/test-android-java.sh"],
+  ]);
+  expect(byId.get("all-generated-drift")).toEqual([
+    "bash",
+    ["./scripts/check-generated-drift.sh"],
+  ]);
+  expect(byId.get("linked-literate-references")).toEqual([
+    process.platform === "win32" ? "python" : "python3",
+    ["./ref-check"],
   ]);
 });

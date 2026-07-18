@@ -12,7 +12,13 @@ use std::io::Write as _;
 struct RecipeCatalog {
     recipe_catalog_schema: String,
     recipe_catalog_digest: String,
+    target: CatalogTarget,
     recipes: Vec<Recipe>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CatalogTarget {
+    triple: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2993,17 +2999,23 @@ async fn capsec_public_closed_recipe_batch() {
         terminal_builtin_count, 106,
         "expected every source facet of the five terminal builtin modules"
     );
+    let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
+        match catalog.target.triple.as_str() {
+            "aarch64-apple-darwin" => (18, 61, 9),
+            "x86_64-pc-windows-msvc" => (0, 0, 0),
+            target => panic!("closed public batch has no reviewed target shape for {target}"),
+        };
     assert_eq!(
-        debugger_abi_count, 18,
-        "expected every debugger ABI and native-operation facet on Apple"
+        debugger_abi_count, expected_debugger_abi,
+        "expected every target-applicable debugger ABI and native-operation facet"
     );
     assert_eq!(
-        shared_runtime_global_absence_count, 61,
-        "expected every reviewed shared-runtime global path to be absent"
+        shared_runtime_global_absence_count, expected_shared_runtime_absence,
+        "expected every target-applicable reviewed shared-runtime global path"
     );
     assert_eq!(
-        armed_native_global_absence_count, 9,
-        "expected every reviewed armed native global to be absent"
+        armed_native_global_absence_count, expected_native_absence,
+        "expected every target-applicable reviewed armed native global"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
