@@ -1581,9 +1581,12 @@ Its current catalog has 5,005 executable and 17,933 unresolved fixtures. The
 first authoritative Windows attempt physically rejected the published DLL:
 although its manifest claimed the no-debugger Release profile, its PE export
 table still contained the full `AsyncDebuggerAPI`/CDP implementation. The
-Windows builder now checks the configured CMake cache and the completed DLL
-before writing a manifest, and install/publication paths independently reject
-that export mismatch. A rebuilt physical artifact and complete report must
+Windows builder now passes a quoted, typed `HERMES_ENABLE_DEBUGGER:BOOL=OFF`
+argument (the prior unquoted PowerShell token preserved `$debugger` literally),
+checks the configured CMake cache, and rejects the implementation-only
+`CDPAgent`/`CDPDebugAPI` exports before writing a manifest. Install and
+publication paths independently enforce the same implementation-symbol check.
+A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not
 promotion authority.

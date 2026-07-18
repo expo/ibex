@@ -52,7 +52,7 @@ function Test-InstallComplete {
   }
   if (Get-Command dumpbin -ErrorAction SilentlyContinue) {
     $exports = dumpbin /exports (Join-Path $targetRoot "bin\hermesvm.dll") | Out-String
-    if ($exports -match 'AsyncDebuggerAPI') {
+    if ($exports -match 'CDPAgent|CDPDebugAPI') {
       return $false
     }
   }
@@ -139,7 +139,7 @@ try {
     if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
       throw "Downloaded Windows Hermes DLL lacks the patched attribution export"
     }
-    if ($exports -match 'AsyncDebuggerAPI') {
+    if ($exports -match 'CDPAgent|CDPDebugAPI') {
       throw "Downloaded Windows Hermes DLL is not a no-debugger build"
     }
   }

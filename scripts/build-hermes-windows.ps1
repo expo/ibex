@@ -151,8 +151,8 @@ if (-not $Debug) {
     throw "dumpbin is required to attest the no-debugger Windows Hermes profile"
   }
   $hermesExports = dumpbin /exports $hermesDll.FullName | Out-String
-  if ($hermesExports -match 'AsyncDebuggerAPI') {
-    throw "No-debugger Windows Hermes build still exports AsyncDebuggerAPI"
+  if ($hermesExports -match 'CDPAgent|CDPDebugAPI') {
+    throw "No-debugger Windows Hermes build still exports the CDP debugger implementation"
   }
 }
 

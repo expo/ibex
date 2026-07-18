@@ -322,7 +322,7 @@ jobs:
           if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
             throw "Patched Windows Hermes DLL lacks ex_hermes_vm_current_package_id"
           }
-          if ($exports -match 'AsyncDebuggerAPI') {
+          if ($exports -match 'CDPAgent|CDPDebugAPI') {
             throw "Patched Windows Hermes DLL exports debugger symbols"
           }
           & (Join-Path $install "bin\hermes.exe") --help | Out-Null

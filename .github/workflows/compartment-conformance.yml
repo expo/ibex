@@ -214,7 +214,7 @@ jobs:
           if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
             throw "Hermes DLL lacks the patched attribution export"
           }
-          if ($exports -match 'AsyncDebuggerAPI') {
+          if ($exports -match 'CDPAgent|CDPDebugAPI') {
             throw "Hermes DLL exports debugger symbols"
           }
 

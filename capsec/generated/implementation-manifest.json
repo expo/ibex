@@ -167352,7 +167352,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167373,7 +167373,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167402,7 +167402,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167424,14 +167424,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167447,7 +167447,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -184857,7 +184857,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -184884,7 +184884,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -184919,7 +184919,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/bootstrap/compat-polyfills.js#eval",
         "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -184947,14 +184947,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
@@ -184970,7 +184970,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
@@ -196094,7 +196094,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196115,7 +196115,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196144,7 +196144,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196166,14 +196166,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196189,7 +196189,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196304,7 +196304,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196325,7 +196325,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196354,7 +196354,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-0c1126eede488dbac6a855bfbef44d63b2f3010652342248764408d1b19f5116",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196376,14 +196376,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196399,7 +196399,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-3ba021e6b365265dfa32d40432a435fedf8fcd8a0b5aca96b2204b14936a57c8",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-e632f2a11bcbf63576bcd40c3bec01ee6bb05cb3762fdbcc66d96f5ac1ac83a1",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -264638,7 +264638,7 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-_16SDQvXb5XO1ATDKaXdUR7G4LQCB_BsCJWqg9Lxgcc"
+      "rawContentDigest": "sha256-clmbJK8ArgmYaSQyVhI9UEeGUTTOkL0yuNvS0t1u-eg"
     },
     {
       "kind": "registry",
