@@ -3045,11 +3045,20 @@ export function validatePublicFixtureRuntimeObservation(
     }
     terminalObservedKey = [...terminals][0];
   }
+  const directTerminalBuiltinClosure =
+    recipe.classification === "closed" &&
+    recipe.scenario === "closed" &&
+    authored.operation?.kind === "terminal-builtin-import" &&
+    recipe.route?.alternatives?.length === 0 &&
+    canonicalJson(recipe.route?.surfaceObservedKeys) ===
+      canonicalJson([terminalObservedKey]);
   const allowed = auxiliaryCarrier
     ? [recipe.publicSurfaceProbe.surfaceObservedKey]
-    : recipe.route?.alternatives?.map(
-        (alternative) => alternative.terminalObservedKey,
-      );
+    : directTerminalBuiltinClosure
+      ? [terminalObservedKey]
+      : recipe.route?.alternatives?.map(
+          (alternative) => alternative.terminalObservedKey,
+        );
   const exactTargetAbsence =
     authored.expectedResult === "absent" &&
     recipe.expectedObservation?.kind === "target-absence";

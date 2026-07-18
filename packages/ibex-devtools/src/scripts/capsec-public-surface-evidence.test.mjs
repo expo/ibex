@@ -2423,6 +2423,28 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).not.toThrow();
 
+    const directImportGate = structuredClone(recipe);
+    directImportGate.route.alternatives = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: directImportGate,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(directImportGate),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const unboundDirectImportGate = structuredClone(directImportGate);
+    unboundDirectImportGate.route.surfaceObservedKeys = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: unboundDirectImportGate,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(unboundDirectImportGate),
+        coverage,
+      }),
+    ).toThrow(/outside the bound route/);
+
     const oneAlias = closedRuntimeObservation(recipe);
     oneAlias.invocation.result.errorMessage =
       "node:vm: Import denied: 'node:vm'";

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 binds direct terminal-builtin import-gate closure when the static route has no downstream alternative, after the complete Apple run exposed the validator mismatch)
 **Revised:** 2026-07-17 (ENG-24933 closes the armed Exact/Bun accessibility application-state namespace after trusted bootstrap and binds its source-derived cells to physical absence)
 **Revised:** 2026-07-17 (ENG-24933 restamps the reviewed Hermes evaluator identity after the Release artifact builder changed, preserving fail-closed source-authority drift detection)
 **Revised:** 2026-07-17 (ENG-24933 versions the conformance cache by the no-debugger build profile and reattests every restored framework before execution)
@@ -1193,6 +1194,16 @@ deny set for `async_hooks`, `inspector`, `vm`, `wasi`, and `worker_threads`
 otherwise authenticated snapshot cannot re-enable those runtime-inspection,
 VM, WASI, or worker escape surfaces; ordinary typed builtins such as `node:fs`
 remain governed by the snapshot import policy.
+For a terminal builtin with no downstream static call-graph terminal, the
+authenticated import gate is itself the runtime terminal. Its closure recipe
+therefore may have one exact surface key and zero route alternatives. Evidence
+accepts that direct route only for the terminal-builtin import operation, only
+when the recipe is the closed scenario, and only when the runtime-derived key
+equals that sole bound surface. The complete Apple run at `510ba04e` executed
+all 106 terminal-builtin source and alias facets successfully before exposing
+the former validator contradiction; the retained evidence digests remain
+unchanged under the corrected rule. A missing surface binding still fails
+closed rather than turning an empty alternative set into wildcard authority.
 On-disk `.node` native-addon and `.wasm` module candidates now refuse in the
 native resolver before their bytes are read into the JavaScript compilation
 path. Exact loaded-engine fixtures use valid JavaScript payloads under both
