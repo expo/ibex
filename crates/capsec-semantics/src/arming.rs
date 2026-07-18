@@ -2408,6 +2408,22 @@ mod tests {
             .unwrap()
             .last_mut()
             .unwrap()["value"] = Value::String("Caf\u{e9}-lib".into());
+        value["packageGraph"]["nodes"][0]["virtualAliases"][0]["components"][1]["value"] =
+            Value::String("Caf\u{e9}-lib".into());
+        let package_graph_digest = crate::digest::compute_domain_digest(
+            "ibex:capsec:package-graph:1",
+            &value["packageGraph"],
+            &["digest".to_owned()],
+        )
+        .unwrap();
+        value["packageGraph"]["digest"] = Value::String(package_graph_digest.clone());
+        expected.package_graph_digest = Digest::new(package_graph_digest).unwrap();
+        expected
+            .protected_artifacts
+            .iter_mut()
+            .find(|artifact| artifact.role == ProtectedArtifactRole::PackageGraph)
+            .unwrap()
+            .content_digest = expected.package_graph_digest.clone();
         let bytes = redigest(&mut value);
         expected.armed_snapshot_digest =
             Digest::new(value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
