@@ -59,6 +59,7 @@ describe("test-only WebGPU wrapper generator", () => {
       "GPU.requestAdapter",
       "GPUAdapter.requestDevice",
       "GPUDevice.createCommandEncoder",
+      "GPUDevice.createShaderModule",
       "GPUDevice.destroy",
     ]);
     expect(nativePrograms.routes[0].request.catalog.wireTag).toBe(2);
@@ -112,7 +113,21 @@ describe("test-only WebGPU wrapper generator", () => {
     expect(createCommandEncoder.completion.variants.map(
       (variant) => variant.name,
     )).toEqual(["operation-success"]);
-    const deviceDestroy = nativePrograms.routes[3];
+    const createShaderModule = nativePrograms.routes[3];
+    expect(createShaderModule.request.catalog.wireTag).toBe(7);
+    expect(createShaderModule.completion.catalog.wireTag).toBe(2);
+    expect(createShaderModule.request.executablePrerequisites).toEqual([]);
+    expect(nativePrograms.types.shaderModuleDescriptorV1.fields).toEqual([
+      { name: "label", required: true, value: { kind: "string" } },
+      { name: "code", required: true, value: { kind: "string" } },
+    ]);
+    expect(createShaderModule.request.carrierConstraints.find(
+      (constraint) => constraint.carrierPath === "target.kind",
+    )?.valueFrom).toBe("objectKindTags.GPUShaderModule");
+    expect(createShaderModule.completion.variants.map(
+      (variant) => variant.name,
+    )).toEqual(["operation-success"]);
+    const deviceDestroy = nativePrograms.routes[4];
     expect(deviceDestroy.request.catalog.wireTag).toBe(12);
     expect(deviceDestroy.completion.catalog.wireTag).toBe(2);
     expect(deviceDestroy.request.executablePrerequisites).toEqual([]);
@@ -428,29 +443,41 @@ describe("test-only WebGPU wrapper generator", () => {
       .completion.variants[2].carrierConstraints[0].value = 1;
     mutations.push(nativeRequestDeviceTransition);
 
+    const nativeShaderDescriptor = clone(authority);
+    nativeShaderDescriptor.payload.wireEnvelope.nativeCodecPrograms.types
+      .shaderModuleDescriptorV1.unknownFields = "ignore";
+    mutations.push(nativeShaderDescriptor);
+
+    const nativeShaderTarget = clone(authority);
+    nativeShaderTarget.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+      .request.carrierConstraints.find(
+        (constraint) => constraint.carrierPath === "target.kind",
+      ).valueFrom = "objectKindTags.GPUCommandEncoder";
+    mutations.push(nativeShaderTarget);
+
     const nativeDeviceDestroyTimeline = clone(authority);
-    nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+    nativeDeviceDestroyTimeline.payload.wireEnvelope.nativeCodecPrograms.routes[4]
       .request.valueConstraints[0].operator = "exact-empty-sequence";
     mutations.push(nativeDeviceDestroyTimeline);
 
     const nativeDeviceDestroyAdmission = clone(authority);
-    nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+    nativeDeviceDestroyAdmission.payload.wireEnvelope.nativeCodecPrograms.routes[4]
       .completion.variants[1].carrierConstraints[1].operator = "equal";
     mutations.push(nativeDeviceDestroyAdmission);
 
     const nativeDeviceDestroyTerminal = clone(authority);
-    nativeDeviceDestroyTerminal.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+    nativeDeviceDestroyTerminal.payload.wireEnvelope.nativeCodecPrograms.routes[4]
       .completion.semanticTerminalMapping.terminals[2].terminalId =
         "generic-admitted-cleanup";
     mutations.push(nativeDeviceDestroyTerminal);
 
     const nativeDeviceDestroyTerminalCount = clone(authority);
-    nativeDeviceDestroyTerminalCount.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+    nativeDeviceDestroyTerminalCount.payload.wireEnvelope.nativeCodecPrograms.routes[4]
       .completion.semanticTerminalMapping.terminals[2].providerTokenCount = 0;
     mutations.push(nativeDeviceDestroyTerminalCount);
 
     const nativeDeviceDestroyErrorMapping = clone(authority);
-    nativeDeviceDestroyErrorMapping.payload.wireEnvelope.nativeCodecPrograms.routes[3]
+    nativeDeviceDestroyErrorMapping.payload.wireEnvelope.nativeCodecPrograms.routes[4]
       .completion.semanticTerminalMapping.terminals[1].event.kind =
         "operation-result";
     mutations.push(nativeDeviceDestroyErrorMapping);

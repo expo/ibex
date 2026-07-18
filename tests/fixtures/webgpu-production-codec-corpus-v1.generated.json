@@ -1,11 +1,11 @@
 {
   "schema": "ibex/webgpu-production-codec-corpus/2",
-  "disposition": "generated-language-neutral-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
+  "disposition": "generated-language-neutral-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
   "supportClaim": "none",
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "5ce3179914655d91623c7eead3957e7b4d88b8b8cf081ed23c9080be986efa21"
+    "manifestSha256": "f1d835cda6bfe7cdfde07d90034e7cf7d9852f48aa7e4915a1bf442aa269ded5"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-phase-1a-v1",
@@ -13,8 +13,8 @@
     "operationSet": "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
     "semanticProgramSet": "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
     "runtimeRouting": "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-    "webgpuCVocabulary": "94101b73111fcda3d7a65990386367917f835e57b15523a6cea876cb157966b0",
-    "projection": "eb67b94d673a8932d882a46a3b88e9e3e55c7b9e5ab50a0091773668f542aa75"
+    "webgpuCVocabulary": "debe1416e37616cc0a81b0d78ba9d3c1336c0144b95826f22ff74b53d7c0a25f",
+    "projection": "72ac73d8d2cd1d9bef1ae7f30b66a91094fa2048897b7f8b503cd8d79804a92b"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
@@ -62,6 +62,61 @@
       "productionExecutableFromCurrentAuthenticatedInputs": true,
       "semanticTerminalMapping": {
         "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createCommandEncoder]",
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "errorTiming": "synchronous-webidl",
+            "resultDisposition": "throw",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "no-service-call",
+              "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "errorTiming": "device-timeline",
+            "resultDisposition": "return-invalid-object-and-report-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "device-error",
+              "kindValue": 2,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+              "completionPayloadEncoderEligibility": "excluded-not-an-operation-result"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "errorTiming": "none",
+            "resultDisposition": "return-object",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "operation-success"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "operationId": "GPUDevice.createShaderModule",
+      "wireId": 599085487,
+      "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
+      "requestCodec": "gpu-create-shader-module-service-request-v1",
+      "requestCodecTag": 7,
+      "completionCodec": "terminal-receipt-service-completion-v1",
+      "completionCodecTag": 2,
+      "productionExecutableFromCurrentAuthenticatedInputs": true,
+      "semanticTerminalMapping": {
+        "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createShaderModule]",
         "terminals": [
           {
             "terminalId": "webidl-rejection",
@@ -1287,6 +1342,123 @@
                 "kind": 15,
                 "flags": 0,
                 "object_id": "82",
+                "object_generation": "1"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "create-shader-module-request",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 599085487,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "14",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 3,
+          "flags": 0,
+          "object_id": "80",
+          "object_generation": "2"
+        },
+        "target": {
+          "kind": 12,
+          "flags": 0,
+          "object_id": "84",
+          "object_generation": "1"
+        }
+      },
+      "trust": "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
+      "semanticOwner": "native-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101000700af51b5230350000000000000000200000000000000370000000000000001000000000000000900000000000000010c5400000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070200000004000000636f646505140000004076657274657820666e206d61696e2829207b7d050000006c6162656c050d000000636f727075732d736861646572",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUShaderModule",
+          "objectId": "84",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "corpus-shader",
+          "code": "@vertex fn main() {}"
+        }
+      }
+    },
+    {
+      "id": "create-shader-module-operation-success-result",
+      "kind": "result",
+      "semanticTerminalId": "operation-success",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 599085487,
+              "operation_instance_id": "14",
+              "promise_id": "0",
+              "provider_admission": 1,
+              "physical_sequence": "9",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 3,
+                "flags": 0,
+                "object_id": "80",
+                "object_generation": "2"
+              },
+              "target": {
+                "kind": 12,
+                "flags": 0,
+                "object_id": "84",
                 "object_generation": "1"
               }
             }

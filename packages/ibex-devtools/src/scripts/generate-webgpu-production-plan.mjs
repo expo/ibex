@@ -227,7 +227,7 @@ function renderPlan(authority, workloadStaging) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     activeRouteSubset: {
       scopeId: payload.scopeId,
@@ -349,6 +349,9 @@ function buildCodecManifest(authority, semantics) {
   const createCommandEncoderProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createCommandEncoder",
   );
+  const createShaderModuleProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUDevice.createShaderModule",
+  );
   const deviceDestroyProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.destroy",
   );
@@ -360,6 +363,10 @@ function buildCodecManifest(authority, semantics) {
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createCommandEncoder",
     );
+  const createShaderModuleSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUDevice.createShaderModule",
+    );
   const objectCompletion = requestAdapterProgram?.completion.variants.find(
     (variant) => variant.name === "object",
   );
@@ -370,12 +377,15 @@ function buildCodecManifest(authority, semantics) {
     !requestAdapterProgram ||
     !requestDeviceProgram ||
     !createCommandEncoderProgram ||
+    !createShaderModuleProgram ||
     !deviceDestroyProgram ||
     !createCommandEncoderSemanticProgram ||
+    !createShaderModuleSemanticProgram ||
     !deviceDestroySemanticProgram ||
     headerVocabulary.tags.GPU !== 1 ||
     headerVocabulary.tags.GPUAdapter !== 2 ||
     headerVocabulary.tags.GPUDevice !== 3 ||
+    headerVocabulary.tags.GPUShaderModule !== 12 ||
     headerVocabulary.tags.GPUCommandEncoder !== 15 ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 !==
       requestAdapterProgram.completion.commonCarrierConstraints[0].value ||
@@ -390,6 +400,8 @@ function buildCodecManifest(authority, semantics) {
       deviceDestroyProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createCommandEncoderProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      createShaderModuleProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_V2 !== 1 ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 !== 2 ||
     headerVocabulary.carrierConstants.EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 !== 0 ||
@@ -399,6 +411,7 @@ function buildCodecManifest(authority, semantics) {
     requestDeviceProgram.request.executablePrerequisites.join(",") !==
       "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity" ||
     createCommandEncoderProgram.request.executablePrerequisites.length !== 0 ||
+    createShaderModuleProgram.request.executablePrerequisites.length !== 0 ||
     deviceDestroyProgram.request.executablePrerequisites.length !== 0
   ) {
     throw new Error("native WebGPU codec program C vocabulary drifted");
@@ -501,10 +514,57 @@ function buildCodecManifest(authority, semantics) {
       "GPUDevice.createCommandEncoder native completion mapping differs from semantic terminals",
     );
   }
+  const createShaderModuleCompletionEvents = {
+    "webidl-rejection": {
+      kind: "no-service-call",
+      completionPayloadEncoderEligibility: "excluded-before-service-ingress",
+    },
+    "later-predicate-rejection": {
+      kind: "device-error",
+      kindValue:
+        headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2,
+      kindSymbol: "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+      completionPayloadEncoderEligibility:
+        "excluded-not-an-operation-result",
+    },
+    "operation-success": {
+      kind: "operation-result",
+      kindValue:
+        headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2,
+      kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+      resultKind: headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
+      resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+      status: 0,
+      completionVariant: "operation-success",
+    },
+  };
+  const expectedCreateShaderModuleTerminalMapping = {
+    authorityPath:
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createShaderModule]",
+    terminals: createShaderModuleSemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+      event: createShaderModuleCompletionEvents[terminal.terminalId],
+    })),
+  };
+  if (
+    canonicalJson(createShaderModuleProgram.completion.semanticTerminalMapping) !==
+      canonicalJson(expectedCreateShaderModuleTerminalMapping) ||
+    expectedCreateShaderModuleTerminalMapping.terminals.some(
+      (terminal) => !terminal.event,
+    )
+  ) {
+    throw new Error(
+      "GPUDevice.createShaderModule native completion mapping differs from semantic terminals",
+    );
+  }
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,

@@ -17,11 +17,11 @@ import crypto from "node:crypto";
 import { portableWebGpuTestWrapperFactory } from "./webgpu-test-wrapper-portable.mjs";
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  projection: "eb67b94d673a8932d882a46a3b88e9e3e55c7b9e5ab50a0091773668f542aa75",
+  projection: "72ac73d8d2cd1d9bef1ae7f30b66a91094fa2048897b7f8b503cd8d79804a92b",
   operationSet: "8e19265cf3acf2ee228857bfceb1f7add75cd737580375ba4f21aaa4766db201",
   semanticProgramSet: "6ccd84073c6cdf6c567d44e908119f165fcb531a1496a16bbb0499240c194b1c",
   runtimeRouting: "41f616d7434c5a36dd6ff7ddfb1f67e34111ead239e8d941a6104e3deb82d0b9",
-  webgpuCVocabulary: "94101b73111fcda3d7a65990386367917f835e57b15523a6cea876cb157966b0",
+  webgpuCVocabulary: "debe1416e37616cc0a81b0d78ba9d3c1336c0144b95826f22ff74b53d7c0a25f",
 });
 
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
@@ -101,7 +101,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -205,6 +205,7 @@ function validateNativeCodecPrograms(payload) {
       "optionalReferenceV1",
       "requestAdapterOptionsV1",
       "requestDeviceDescriptorV1",
+      "shaderModuleDescriptorV1",
       "sortedUniqueFeatureSequenceV1",
     ],
     "native codec type inventory",
@@ -401,6 +402,27 @@ function validateNativeCodecPrograms(payload) {
     "native createCommandEncoder descriptor type",
   );
   assertCanonical(
+    types.shaderModuleDescriptorV1,
+    {
+      kind: "closed-dictionary",
+      encodingType: "canonicalValueV1",
+      unknownFields: "reject",
+      fields: [
+        {
+          name: "label",
+          required: true,
+          value: { kind: "string" },
+        },
+        {
+          name: "code",
+          required: true,
+          value: { kind: "string" },
+        },
+      ],
+    },
+    "native createShaderModule descriptor type",
+  );
+  assertCanonical(
     types.sortedUniqueFeatureSequenceV1,
     {
       kind: "sequence",
@@ -454,8 +476,8 @@ function validateNativeCodecPrograms(payload) {
     "native requestDevice completion body type",
   );
 
-  assert(Array.isArray(program.routes) && program.routes.length === 4,
-    "native codec program must contain exactly requestAdapter, requestDevice, createCommandEncoder, and device destroy routes");
+  assert(Array.isArray(program.routes) && program.routes.length === 5,
+    "native codec program must contain exactly requestAdapter, requestDevice, createCommandEncoder, createShaderModule, and device destroy routes");
   const route = program.routes.find(
     (candidate) => candidate.operationId === "GPU.requestAdapter",
   );
@@ -1419,6 +1441,309 @@ function validateNativeCodecPrograms(payload) {
     "native createCommandEncoder codec route",
   );
 
+  const createShaderModuleRoute = program.routes.find(
+    (candidate) => candidate.operationId === "GPUDevice.createShaderModule",
+  );
+  const createShaderModuleOperation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPUDevice.createShaderModule",
+  );
+  assert(
+    createShaderModuleRoute && createShaderModuleOperation &&
+      createShaderModuleRoute.wireId === createShaderModuleOperation.wireId,
+    "native createShaderModule operation identity drifted",
+  );
+  const createShaderModuleRequestCatalogIndex =
+    payload.codecCatalog.serviceArguments.findIndex(
+      (codec) => codec.tag === createShaderModuleOperation.serviceArgumentCodec,
+    );
+  const createShaderModuleCompletionCatalogIndex =
+    payload.codecCatalog.serviceCompletions.findIndex(
+      (codec) => codec.tag === createShaderModuleOperation.serviceCompletionCodec,
+    );
+  assertCanonical(
+    createShaderModuleRoute,
+    {
+      operationId: "GPUDevice.createShaderModule",
+      wireId: createShaderModuleOperation.wireId,
+      request: {
+        payloadRole:
+          "service-request-payload-decoder-plus-operation-specific-call-joins",
+        catalog: {
+          name: "serviceArguments",
+          tag: "gpu-create-shader-module-service-request-v1",
+          wireTag: createShaderModuleRequestCatalogIndex + 1,
+        },
+        payload: {
+          kind: "struct",
+          fields: [
+            {
+              name: "header",
+              type: "headerV1",
+              constants: {
+                magic: envelope.codecLayout.requestMagic,
+                version: envelope.codecLayout.version,
+                codecTag: createShaderModuleRequestCatalogIndex + 1,
+                operationWireId: createShaderModuleOperation.wireId,
+              },
+            },
+            { name: "receiver", type: "objectReferenceV1" },
+            { name: "target", type: "optionalReferenceV1" },
+            { name: "capturedScopeId", type: "u64le" },
+            { name: "adapterOrdinal", type: "u64le" },
+            { name: "deviceIngressOrdinal", type: "u64le" },
+            { name: "queueIngressOrdinal", type: "u64le" },
+            { name: "sealedLocalTimeline", type: "canonicalValueV1" },
+            {
+              name: "convertedArguments",
+              type: "canonicalValueV1",
+              constraintType: "shaderModuleDescriptorV1",
+            },
+          ],
+        },
+        carrierJoins: [
+          ["header.operationWireId", "operation_id"],
+          ["receiver.kind", "receiver.kind"],
+          ["receiver.objectId", "receiver.object_id"],
+          ["receiver.objectGeneration", "receiver.object_generation"],
+          ["receiver.logicalDeviceId", "ingress_device.logical_device_id"],
+          ["receiver.logicalDeviceGeneration", "ingress_device.logical_device_generation"],
+          ["receiver.providerGeneration", "ingress_device.provider_generation"],
+          ["receiver.providerGeneration", "provider_generation"],
+          ["target.kind", "target.kind"],
+          ["target.objectId", "target.object_id"],
+          ["target.objectGeneration", "target.object_generation"],
+          ["target.logicalDeviceId", "ingress_device.logical_device_id"],
+          ["target.logicalDeviceGeneration", "ingress_device.logical_device_generation"],
+          ["target.providerGeneration", "ingress_device.provider_generation"],
+          ["target.providerGeneration", "provider_generation"],
+          ["capturedScopeId", "captured_scope_id"],
+          ["adapterOrdinal", "adapter_ordinal"],
+          ["deviceIngressOrdinal", "device_ingress_ordinal"],
+          ["queueIngressOrdinal", "queue_ingress_ordinal"],
+        ].map(([payloadPath, carrierPath]) => ({
+          payloadPath,
+          carrierPath,
+          operator: "equal",
+        })),
+        carrierConstraints: [
+          {
+            carrierPath: "operation_id",
+            operator: "equal",
+            value: createShaderModuleOperation.wireId,
+          },
+          { carrierPath: "flags", operator: "equal", value: 0 },
+          {
+            carrierPath: "topology_id",
+            operator: "equal",
+            valueFrom: "constants.providerTopologyId",
+          },
+          { carrierPath: "ingress_device", operator: "positive" },
+          { carrierPath: "provider_generation", operator: "positive" },
+          { carrierPath: "operation_instance_id", operator: "positive" },
+          { carrierPath: "promise_id", operator: "equal", value: "0" },
+          {
+            carrierPath: "receiver.kind",
+            operator: "equal",
+            valueFrom: "objectKindTags.GPUDevice",
+          },
+          { carrierPath: "receiver.flags", operator: "equal", value: 0 },
+          { carrierPath: "receiver.object_id", operator: "positive" },
+          { carrierPath: "receiver.object_generation", operator: "positive" },
+          {
+            carrierPath: "target.kind",
+            operator: "equal",
+            valueFrom: "objectKindTags.GPUShaderModule",
+          },
+          { carrierPath: "target.flags", operator: "equal", value: 0 },
+          { carrierPath: "target.object_id", operator: "positive" },
+          { carrierPath: "target.object_generation", operator: "positive" },
+          { carrierPath: "adapter_ordinal", operator: "equal", value: "0" },
+          { carrierPath: "device_ingress_ordinal", operator: "positive" },
+          { carrierPath: "queue_ingress_ordinal", operator: "equal", value: "0" },
+        ],
+        valueConstraints: [
+          {
+            payloadPath: "sealedLocalTimeline",
+            operator: "canonical-sequence-within-layout-bounds",
+          },
+          {
+            payloadPath: "sealedLocalTimeline",
+            operator: "untrusted-wrapper-record-prefix-join-only-never-authority",
+          },
+          {
+            payloadPath: "convertedArguments",
+            operator: "conforms-to-type",
+            type: "shaderModuleDescriptorV1",
+          },
+        ],
+        semanticServiceBoundary: {
+          stateAuthority:
+            "authenticated-device-object-account-coverage-and-reservation-tables",
+          payloadRole: "comparison-input-only-never-authority",
+          requiredAfterDecode: [
+            "authenticate-contiguous-sealed-local-timeline-prefix",
+            "validate-current-live-device-generation",
+            "validate-operation-coverage",
+            "validate-authorized-live-account",
+            "reserve-shader-module-handle-and-aggregate-envelope",
+            "authenticate-wrapper-allocated-shader-module-target",
+            "select-provider-admission-and-physical-sequence",
+          ],
+          completionEncodingRequires: [
+            "authenticated-retained-call",
+            "service-owned-operation-result",
+          ],
+        },
+        executablePrerequisites: [],
+        noTrailingBytes: true,
+      },
+      completion: {
+        payloadRole:
+          "service-completion-payload-codec-plus-operation-specific-event-joins",
+        catalog: {
+          name: "serviceCompletions",
+          tag: "terminal-receipt-service-completion-v1",
+          wireTag: createShaderModuleCompletionCatalogIndex + 1,
+        },
+        commonCarrierConstraints: [
+          {
+            carrierPath: "kind",
+            operator: "equal",
+            value: 1,
+            symbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+          },
+          { carrierPath: "record.operation_result.status", operator: "equal", value: 0 },
+          {
+            carrierPath: "record.operation_result.operation.operation_id",
+            operator: "equal",
+            value: createShaderModuleOperation.wireId,
+          },
+          {
+            carrierPath: "record.operation_result.operation.device_transition",
+            operator: "equal",
+            value: 0,
+            symbol: "EXACT_GPU_DEVICE_UNCHANGED_V2",
+          },
+          {
+            carrierPath: "record.operation_result.operation.ingress_device",
+            operator: "positive",
+          },
+          {
+            carrierPath: "record.operation_result.operation.result_device",
+            operator: "positive",
+          },
+          {
+            carrierPath: "record.operation_result.operation.provider_generation",
+            operator: "positive",
+          },
+          {
+            carrierPath: "record.operation_result.operation.promise_id",
+            operator: "equal",
+            value: "0",
+          },
+          {
+            carrierPath: "record.operation_result.operation.receiver.kind",
+            operator: "equal",
+            valueFrom: "objectKindTags.GPUDevice",
+          },
+          {
+            carrierPath: "record.operation_result.operation.target.kind",
+            operator: "equal",
+            valueFrom: "objectKindTags.GPUShaderModule",
+          },
+          {
+            carrierPath: "record.operation_result.operation.adapter_ordinal",
+            operator: "equal",
+            value: "0",
+          },
+          {
+            carrierPath: "record.operation_result.operation.device_ingress_ordinal",
+            operator: "positive",
+          },
+          {
+            carrierPath: "record.operation_result.operation.queue_ingress_ordinal",
+            operator: "equal",
+            value: "0",
+          },
+          {
+            carrierPath: "record.operation_result.result_kind",
+            operator: "equal",
+            value: 0,
+            symbol: "EXACT_GPU_RESULT_NONE_V2",
+          },
+        ],
+        payload: { kind: "empty", exactLengthBytes: 0 },
+        semanticTerminalMapping: {
+          authorityPath:
+            "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createShaderModule]",
+          terminals: [
+            {
+              terminalId: "webidl-rejection",
+              errorTiming: "synchronous-webidl",
+              resultDisposition: "throw",
+              providerTokenCount: 0,
+              physicalSequenceCount: 0,
+              event: {
+                kind: "no-service-call",
+                completionPayloadEncoderEligibility:
+                  "excluded-before-service-ingress",
+              },
+            },
+            {
+              terminalId: "later-predicate-rejection",
+              errorTiming: "device-timeline",
+              resultDisposition: "return-invalid-object-and-report-error",
+              providerTokenCount: 0,
+              physicalSequenceCount: 0,
+              event: {
+                kind: "device-error",
+                kindValue: 2,
+                kindSymbol: "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+                completionPayloadEncoderEligibility:
+                  "excluded-not-an-operation-result",
+              },
+            },
+            {
+              terminalId: "operation-success",
+              errorTiming: "none",
+              resultDisposition: "return-object",
+              providerTokenCount: 1,
+              physicalSequenceCount: 1,
+              event: {
+                kind: "operation-result",
+                kindValue: 1,
+                kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+                resultKind: 0,
+                resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+                status: 0,
+                completionVariant: "operation-success",
+              },
+            },
+          ],
+        },
+        variants: [
+          {
+            name: "operation-success",
+            carrierConstraints: [
+              {
+                carrierPath: "record.operation_result.operation.provider_admission",
+                operator: "equal",
+                value: 1,
+                symbol: "EXACT_GPU_PROVIDER_ADMITTED_V2",
+              },
+              {
+                carrierPath: "record.operation_result.operation.physical_sequence",
+                operator: "positive",
+              },
+            ],
+          },
+        ],
+        noTrailingBytes: true,
+      },
+    },
+    "native createShaderModule codec route",
+  );
+
   const deviceDestroyRoute = program.routes.find(
     (candidate) => candidate.operationId === "GPUDevice.destroy",
   );
@@ -1786,7 +2111,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

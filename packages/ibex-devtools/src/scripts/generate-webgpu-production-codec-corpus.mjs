@@ -39,6 +39,7 @@ const outputPath =
 const operationId = "GPU.requestAdapter";
 const requestDeviceOperationId = "GPUAdapter.requestDevice";
 const createCommandEncoderOperationId = "GPUDevice.createCommandEncoder";
+const createShaderModuleOperationId = "GPUDevice.createShaderModule";
 const deviceDestroyOperationId = "GPUDevice.destroy";
 
 function fail(message) {
@@ -913,6 +914,175 @@ function buildCorpus() {
     }),
   });
 
+  const createShaderModuleRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === createShaderModuleOperationId,
+  );
+  const createShaderModuleRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === createShaderModuleRoute?.serviceArgumentCodec,
+    );
+  const createShaderModuleCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === createShaderModuleRoute?.serviceCompletionCodec,
+    );
+  const createShaderModuleNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === createShaderModuleOperationId,
+    );
+  if (
+    !createShaderModuleRoute ||
+    !createShaderModuleRequestCodec?.executableFromCurrentAuthenticatedInputs ||
+    !createShaderModuleRequestCodec.nativeProgramPrerequisitesRepresented ||
+    createShaderModuleRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !createShaderModuleCompletionCodec ||
+    !createShaderModuleNativeRoute ||
+    createShaderModuleNativeRoute.request.catalog.wireTag !==
+      createShaderModuleRequestCodec.wireTag ||
+    createShaderModuleNativeRoute.completion.catalog.wireTag !==
+      createShaderModuleCompletionCodec.wireTag
+  ) {
+    fail(
+      "GPUDevice.createShaderModule native codegen program is not executable from authenticated inputs",
+    );
+  }
+  const createShaderModuleReceiver = Object.freeze({
+    kind: "GPUDevice",
+    objectId: "80",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const createShaderModuleTarget = Object.freeze({
+    kind: "GPUShaderModule",
+    objectId: "84",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const convertedCreateShaderModuleArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      createShaderModuleOperationId,
+      [Object.freeze({ label: "corpus-shader", code: "@vertex fn main() {}" })],
+      wrapperAccess,
+    );
+  if (
+    canonicalJson(convertedCreateShaderModuleArguments) !==
+      canonicalJson({ label: "corpus-shader", code: "@vertex fn main() {}" })
+  ) {
+    fail("GPUDevice.createShaderModule descriptor projection drifted");
+  }
+  const createShaderModuleBytes =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      Object.freeze({
+        operationId: createShaderModuleOperationId,
+        wireId: createShaderModuleRoute.wireId,
+        convertedArguments: convertedCreateShaderModuleArguments,
+        receiver: createShaderModuleReceiver,
+        target: createShaderModuleTarget,
+        capturedScopeId: "2",
+        adapterOrdinal: "0",
+        deviceIngressOrdinal: "3",
+        queueIngressOrdinal: "0",
+        sealedLocalTimeline: Object.freeze([]),
+      }),
+    );
+  const expectedCreateShaderModuleRequest = Object.freeze({
+    receiver: createShaderModuleReceiver,
+    target: createShaderModuleTarget,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+    convertedArguments: convertedCreateShaderModuleArguments,
+  });
+  const inspectedCreateShaderModule =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      createShaderModuleBytes,
+    );
+  if (
+    canonicalJson(inspectedCreateShaderModule) !== canonicalJson({
+      operationId: createShaderModuleOperationId,
+      codec: createShaderModuleRequestCodec.tag,
+      ...expectedCreateShaderModuleRequest,
+    })
+  ) {
+    fail(
+      "GPUDevice.createShaderModule generated request does not round-trip through inspection",
+    );
+  }
+  const createShaderModuleCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createShaderModuleOperationId,
+      { kind: "none" },
+    );
+  if (createShaderModuleCompletion.byteLength !== 0) {
+    fail(
+      "GPUDevice.createShaderModule terminal receipt must have an empty completion payload",
+    );
+  }
+  const createShaderModuleRequestCarrier = Object.freeze({
+    operation_id: createShaderModuleRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: "14",
+    promise_id: "0",
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: "3",
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+      flags: 0,
+      object_id: "80",
+      object_generation: "2",
+    }),
+    target: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUShaderModule,
+      flags: 0,
+      object_id: "84",
+      object_generation: "1",
+    }),
+  });
+  const createShaderModuleCompletionCarrier = Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: createShaderModuleRoute.wireId,
+          operation_instance_id: "14",
+          promise_id: "0",
+          provider_admission: 1,
+          physical_sequence: "9",
+          captured_scope_id: "2",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "3",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: createShaderModuleRequestCarrier.ingress_device,
+          result_device: createShaderModuleRequestCarrier.ingress_device,
+          provider_generation: "9",
+          receiver: createShaderModuleRequestCarrier.receiver,
+          target: createShaderModuleRequestCarrier.target,
+        }),
+      }),
+    }),
+  });
+
   const deviceDestroyRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === deviceDestroyOperationId,
   );
@@ -1118,7 +1288,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -1177,6 +1347,19 @@ function buildCorpus() {
         productionExecutableFromCurrentAuthenticatedInputs: true,
         semanticTerminalMapping:
           createCommandEncoderNativeRoute.completion.semanticTerminalMapping,
+      },
+      {
+        operationId: createShaderModuleOperationId,
+        wireId: createShaderModuleRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createShaderModuleRequestCodec.tag,
+        requestCodecTag: createShaderModuleRequestCodec.wireTag,
+        completionCodec: createShaderModuleCompletionCodec.tag,
+        completionCodecTag: createShaderModuleCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createShaderModuleNativeRoute.completion.semanticTerminalMapping,
       },
       {
         operationId: deviceDestroyOperationId,
@@ -1411,6 +1594,25 @@ function buildCorpus() {
         expected: { kind: "terminal-receipt", value: "undefined" },
       },
       {
+        id: "create-shader-module-request",
+        kind: "request",
+        carrierProjection: createShaderModuleRequestCarrier,
+        trust:
+          "untrusted-wrapper-record-prefix-and-descriptor-join-only-never-authority",
+        semanticOwner:
+          "native-semantic-service-before-provider-admission",
+        bytesHex: toHex(createShaderModuleBytes),
+        expected: expectedCreateShaderModuleRequest,
+      },
+      {
+        id: "create-shader-module-operation-success-result",
+        kind: "result",
+        semanticTerminalId: "operation-success",
+        carrierProjection: createShaderModuleCompletionCarrier,
+        bytesHex: toHex(createShaderModuleCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      {
         id: "device-destroy-sealed-timeline-request",
         kind: "request",
         carrierProjection: deviceDestroyRequestCarrier,
@@ -1455,7 +1657,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createCommandEncoder, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }

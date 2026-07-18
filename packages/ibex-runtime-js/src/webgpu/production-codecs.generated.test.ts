@@ -138,6 +138,8 @@ function serviceInput(
     })
     : operationId === 'GPUDevice.createCommandEncoder'
     ? Object.freeze({ label: 'encoder' })
+    : operationId === 'GPUDevice.createShaderModule'
+    ? Object.freeze({ label: 'shader', code: '@vertex fn main() {}' })
     : operationId === 'GPUDevice.destroy'
     ? null
     : Object.freeze({ sample: true }),
@@ -279,6 +281,12 @@ function mutateU16(value: Uint8Array, offset: number, replacement: number): Uint
   return output;
 }
 
+function mutateU32(value: Uint8Array, offset: number, replacement: number): Uint8Array {
+  const output = value.slice();
+  new DataView(output.buffer).setUint32(offset, replacement, true);
+  return output;
+}
+
 function completeLimits(value = 4): Record<string, number> {
   return Object.fromEntries(
     WEBGPU_EXECUTABLE_CODEC_MANIFEST.completeLimitNames.map((name) => [name, value]),
@@ -306,7 +314,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -324,6 +332,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
+        { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
         { operationId: 'GPUDevice.destroy', wireId: 206890944 },
       ],
     });
@@ -962,6 +971,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
             ? null
             : route.operationId === 'GPUDevice.createCommandEncoder'
             ? { label: 'encoder' }
+            : route.operationId === 'GPUDevice.createShaderModule'
+            ? { label: 'shader', code: '@vertex fn main() {}' }
             : { sample: true },
         });
       }
@@ -969,7 +980,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
   });
 
   test('request encoding is canonical and rejects unknown tags, trailing bytes, and bounds', () => {
-    const input = serviceInput('GPUDevice.createShaderModule', Object.freeze({
+    const input = serviceInput('GPUDevice.createRenderPipeline', Object.freeze({
       z: 1,
       a: 'first',
     }));
@@ -980,7 +991,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     ]);
     const bytes = first as Uint8Array;
     const utf8Ordered = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createShaderModule', Object.freeze({
+      serviceInput('GPUDevice.createRenderPipeline', Object.freeze({
         '\u{10000}': 'supplementary-plane',
         '\ue000': 'basic-multilingual-plane',
       })),
@@ -1004,19 +1015,19 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toThrow('reviewed byte bound');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
       serviceInput(
-        'GPUDevice.createShaderModule',
+        'GPUDevice.createRenderPipeline',
         Array.from({ length: 1025 }, () => null),
       ),
     )).toThrow('reviewed count bound');
     const tooManyFields: Record<string, number> = {};
     for (let index = 0; index < 129; index += 1) tooManyFields[`k${index}`] = index;
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createShaderModule', tooManyFields),
+      serviceInput('GPUDevice.createRenderPipeline', tooManyFields),
     )).toThrow('reviewed field bound');
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createShaderModule', cyclic),
+      serviceInput('GPUDevice.createRenderPipeline', cyclic),
     )).toThrow('contains a cycle');
     const nested: Record<string, unknown> = {};
     let cursor = nested;
@@ -1026,10 +1037,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
       cursor = next;
     }
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createShaderModule', nested),
+      serviceInput('GPUDevice.createRenderPipeline', nested),
     )).toThrow('reviewed nesting bound');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createShaderModule', '\ud800'),
+      serviceInput('GPUDevice.createRenderPipeline', '\ud800'),
     )).toThrow('not well-formed UTF-16');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
       ...serviceInput('GPUDevice.createCommandEncoder'),
@@ -1294,6 +1305,140 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(completion.byteLength).toBe(0);
     expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
       'GPUDevice.createCommandEncoder',
+      { kind: 'null' },
+    )).toThrow('wrong shape');
+  });
+
+  test('executes the private createShaderModule request program and rejects hostile inputs', () => {
+    const input = serviceInput('GPUDevice.createShaderModule');
+    const nativeRoute = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes
+      .find((candidate) => candidate.operationId === 'GPUDevice.createShaderModule')!;
+    const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === 'gpu-create-shader-module-service-request-v1',
+    )!;
+    expect(nativeRoute.wireId).toBe(599085487);
+    expect(nativeRoute.request.catalog.wireTag).toBe(7);
+    expect(nativeRoute.completion.catalog.wireTag).toBe(2);
+    expect(nativeRoute.request.executablePrerequisites).toEqual([]);
+    expect(nativeRoute.completion.semanticTerminalMapping.terminals.map(
+      (terminal) => ({
+        terminalId: terminal.terminalId,
+        kind: terminal.event.kind,
+      }),
+    )).toEqual([
+      { terminalId: 'webidl-rejection', kind: 'no-service-call' },
+      { terminalId: 'later-predicate-rejection', kind: 'device-error' },
+      { terminalId: 'operation-success', kind: 'operation-result' },
+    ]);
+    expect(codec.nativeProgramPrerequisitesRepresented).toBe(true);
+    expect(codec.executableFromCurrentAuthenticatedInputs).toBe(true);
+    expect(codec.unavailableSemanticFields).toEqual([]);
+
+    const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(input);
+    expect(new DataView(
+      payload.buffer,
+      payload.byteOffset,
+      payload.byteLength,
+    ).getUint16(6, true)).toBe(7);
+    expect(new DataView(
+      payload.buffer,
+      payload.byteOffset,
+      payload.byteLength,
+    ).getUint32(8, true)).toBe(599085487);
+    expect(Array.from(payload.slice(53, 55))).toEqual([
+      1,
+      WEBGPU_OBJECT_KIND_TAGS.GPUShaderModule,
+    ]);
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(input))
+      .toEqual(payload);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      payload,
+    )).toMatchObject({
+      operationId: 'GPUDevice.createShaderModule',
+      codec: 'gpu-create-shader-module-service-request-v1',
+      receiver: {
+        kind: 'GPUDevice',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      target: {
+        kind: 'GPUShaderModule',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      adapterOrdinal: '0',
+      deviceIngressOrdinal: '3',
+      queueIngressOrdinal: '0',
+      convertedArguments: {
+        label: 'shader',
+        code: '@vertex fn main() {}',
+      },
+    });
+
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({ ...input, target: undefined }))
+      .toThrow('wrapper-allocated target');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        receiver: reference('GPUAdapter'),
+      })).toThrow('authenticated GPUDevice receiver');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        target: reference('GPUCommandEncoder'),
+      })).toThrow('authenticated device provenance');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        target: { ...input.target!, logicalDeviceId: '18' },
+      })).toThrow('authenticated device provenance');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        convertedArguments: { label: 'shader', code: 'wgsl', extra: true },
+      })).toThrow('reviewed descriptor shape');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        convertedArguments: { label: 'shader' },
+      })).toThrow('reviewed descriptor shape');
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        sealedLocalTimeline: [cyclic],
+      })).toThrow('contains a cycle');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        sealedLocalTimeline: Array.from(
+          {
+            length:
+              WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.sequenceMaxCount + 1,
+          },
+          () => null,
+        ),
+      })).toThrow('bounded sequence');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...input,
+        wireId: routeWireId('GPUDevice.createCommandEncoder'),
+      })).toThrow('wire identity mismatch');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      mutateU32(payload, 8, routeWireId('GPUDevice.createCommandEncoder')),
+    )).toThrow('operation/codec mismatch');
+
+    const completion = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeServiceResult('GPUDevice.createShaderModule', { kind: 'none' });
+    expect(completion.byteLength).toBe(0);
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUDevice.createShaderModule',
       { kind: 'null' },
     )).toThrow('wrong shape');
   });
