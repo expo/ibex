@@ -1406,6 +1406,42 @@ const nativeProjectReaddirTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectOpendirTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [literalArgument("target/ibex-capsec-opendir")],
+    expectedCleanup: "removed-owned-directory",
+    expectedDecisionCounts: {
+      allow: 4,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "repeat", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-opendir"),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -1436,6 +1472,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
   ["__exactAppendFile", nativeProjectAppendFileTemplate()],
   ["__exactMkdir", nativeProjectMkdirTemplate()],
+  ["__exactOpendir", nativeProjectOpendirTemplate()],
   ["__exactReaddir", nativeProjectReaddirTemplate()],
   ["__exactWriteFile", nativeProjectWriteFileTemplate()],
   ["__exactStatfs", nativeProjectStatfsTemplate()],

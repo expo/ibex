@@ -1992,25 +1992,36 @@ async fn execute_native_public_recipe(
         std::fs::write(path, b"ibex-capsec-fsopen-owned")
             .expect("create direct fs-open fixture");
     }
-    let direct_readdir_fixture = if invocation.global_name == "__exactReaddir" {
+    let direct_directory_list_fixture = if matches!(
+        invocation.global_name.as_str(),
+        "__exactOpendir" | "__exactReaddir"
+    ) {
         match invocation.arguments.first() {
-            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some((
+                invocation.global_name.clone(),
                 path.as_str()
-                    .expect("direct readdir fixture path must be a string")
+                    .expect("direct directory-list fixture path must be a string")
                     .to_owned(),
-            ),
+            )),
             _ => None,
         }
     } else {
         None
     };
-    if let Some(path) = &direct_readdir_fixture {
-        assert_eq!(path, "target/ibex-capsec-readdir");
+    if let Some((global_name, path)) = &direct_directory_list_fixture {
+        assert_eq!(
+            path,
+            if global_name == "__exactOpendir" {
+                "target/ibex-capsec-opendir"
+            } else {
+                "target/ibex-capsec-readdir"
+            }
+        );
         let _ = std::fs::remove_file(format!("{path}/entry.txt"));
         let _ = std::fs::remove_dir(path);
-        std::fs::create_dir(path).expect("create direct readdir fixture");
-        std::fs::write(format!("{path}/entry.txt"), b"ibex-capsec-readdir")
-            .expect("create direct readdir fixture entry");
+        std::fs::create_dir(path).expect("create direct directory-list fixture");
+        std::fs::write(format!("{path}/entry.txt"), b"ibex-capsec-directory-list")
+            .expect("create direct directory-list fixture entry");
     }
     let fs_path_async_file_fixture = if invocation.global_name == "__exactFsPathAsync" {
         match (
@@ -2229,10 +2240,23 @@ async fn execute_native_public_recipe(
             );
         }
     }
-    if let Some(path) = &direct_readdir_fixture {
+    if let Some((_, path)) = &direct_directory_list_fixture {
+        if invocation_result["kind"] == "return" {
+            let listed: serde_json::Value = serde_json::from_str(
+                invocation_result["resultString"]
+                    .as_str()
+                    .expect("direct directory-list result must be JSON text"),
+            )
+            .expect("parse direct directory-list result");
+            assert_eq!(
+                listed,
+                serde_json::json!(["entry.txt"]),
+                "direct directory-list result did not enumerate the owned entry"
+            );
+        }
         std::fs::remove_file(format!("{path}/entry.txt"))
-            .expect("remove direct readdir fixture entry");
-        std::fs::remove_dir(path).expect("remove direct readdir fixture");
+            .expect("remove direct directory-list fixture entry");
+        std::fs::remove_dir(path).expect("remove direct directory-list fixture");
         if invocation_result["kind"] == "return" {
             invocation_result["cleanup"] =
                 serde_json::Value::String("removed-owned-directory".into());

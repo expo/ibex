@@ -4005,6 +4005,51 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactOpendir: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Enumerate only the retained directory and reauthorize it immediately before repeated reads.
+          constexpr uint32_t kFsOpendirSurface = 16;
+          auto descriptors = openArmedListTarget(
+              runtime, path, kFsOpendirSurface, O_RDONLY | O_DIRECTORY, "");
+          int directoryFd = ::dup(*descriptors.target);
+          if (directoryFd < 0) throwFsError(runtime, "dup", path);
+          DIR* directory = ::fdopendir(directoryFd);
+          if (!directory) {
+            int savedErrno = errno;
+            ::close(directoryFd);
+            errno = savedErrno;
+            throwFsError(runtime, "opendir", path);
+          }
+          std::ostringstream entriesJson;
+          entriesJson << "[";
+          bool first = true;
+          RepeatedFsAuthorizationLease authorizationLease;
+          while (true) {
+            if (authorizeRepeatedFsWithLease(
+                    authorizationLease, currentPrincipalId(), path.c_str(),
+                    kFsOpendirSurface, 5, *descriptors.parent,
+                    *descriptors.target, 0, 0, nullptr) != 1) {
+              ::closedir(directory);
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            errno = 0;
+            auto* entry = ::readdir(directory);
+            if (!entry) break;
+            std::string name(entry->d_name);
+            if (name == "." || name == "..") continue;
+            if (!first) entriesJson << ",";
+            first = false;
+            appendJsonString(entriesJson, name);
+          }
+          int readErrno = errno;
+          ::closedir(directory);
+          if (readErrno != 0) {
+            errno = readErrno;
+            throwFsError(runtime, "readdir", path);
+          }
+          entriesJson << "]";
+          return facebook::jsi::String::createFromUtf8(
+              runtime, entriesJson.str());
+        }
         if (!isAllowAll()) {
           std::string cap = "fs:read:" + path;
           if (!checkCapability(cap)) {

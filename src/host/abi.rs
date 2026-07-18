@@ -1634,6 +1634,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
         ),
         14 => ("fs-statfs", "surface.native.op.exactstatfs.151kkzo"),
         15 => ("fs-truncate", "surface.native.op.exacttruncate.13gh223"),
+        16 => ("fs-opendir", "surface.native.op.exactopendir.0eh7ha4"),
         _ => return -1,
     };
     let follow_mode = if matches!(surface, 10 | 11) {
