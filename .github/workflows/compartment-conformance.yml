@@ -6,6 +6,16 @@ name: CapSec full matrix and evidence
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: Physical target to execute
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - macos
+          - windows
   schedule:
     # Weekly, Monday 08:00 UTC (after the patch canary).
     - cron: "0 8 * * 1"
@@ -15,12 +25,15 @@ on:
       - main
 
 concurrency:
-  group: capsec-full-matrix-${{ github.ref }}
+  # Manual target-only probes must not cancel a retained full-matrix run for
+  # the same ref. Automatic runs have no input and therefore share `both`.
+  group: capsec-full-matrix-${{ github.ref }}-${{ inputs.target || 'both' }}
   cancel-in-progress: true
 
 jobs:
   conformance:
     name: Complete matrix + unadvertised evidence (macOS arm64)
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'both' || inputs.target == 'macos' }}
     runs-on: macos-14
     timeout-minutes: 180
     env:
@@ -120,6 +133,7 @@ jobs:
 
   conformance-windows:
     name: Complete matrix + unadvertised evidence (Windows x64)
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'both' || inputs.target == 'windows' }}
     runs-on: windows-2022
     timeout-minutes: 240
     env:

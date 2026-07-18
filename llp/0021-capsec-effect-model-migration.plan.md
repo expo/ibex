@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 permits isolated manual physical-target reruns without weakening or canceling the required two-target matrix)
 **Revised:** 2026-07-18 (ENG-24933 binds physical test-host project roots to the complete target-local path and actual object identity on both Unix and Windows)
 **Revised:** 2026-07-18 (ENG-24933 derives POSIX-only native-global branches and target-specific public ABI descriptors from the build graph so Windows evidence neither invokes an unlinked backend nor borrows POSIX arities and arguments)
 **Revised:** 2026-07-18 (ENG-24933 distinguishes the intentional Windows legacy console-layer absence from the forbidden startup-control skip)
@@ -1781,6 +1782,11 @@ Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
 consume an authoritative matrix run before refusing the report.
+Manual target-only dispatches may shorten the target-specific repair loop
+without canceling an in-flight full-matrix run. Scheduled, pull-request, and
+`main` executions still require both physical targets; manual selection changes
+only job scheduling, never the target catalog, validators, retained evidence,
+or promotion criteria.
 Its current catalog has 22,672 required fixtures, 4,962 executable recipes, and
 17,710 unresolved fixtures. The
 source-derived class-factory traversal is path-cycle safe: a uniquely resolved
