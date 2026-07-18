@@ -65,6 +65,7 @@ std::mutex g_files_mutex;
 std::unordered_map<int, FileEntry> g_files;
 int g_next_fd = 3;
 thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
+constexpr size_t kMaxTypedPrincipalStack = 256;
 
 extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
@@ -989,22 +990,62 @@ bool parseWindowsIoVecArguments(
 
 } // namespace
 
+static std::vector<uint64_t> normalizeTypedPrincipalStack(
+    const std::vector<uint64_t>& collected) {
+#ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  return collected;
+#else
+  // kNoUserPrincipal is an absence marker, not an additional authority
+  // dimension, when the same walk also recovered a real user/scheduler
+  // principal. Preserve the explicit truncation sentinel appended below.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  if (collected.size() > kMaxTypedPrincipalStack) return collected;
+  bool hasRealPrincipal = std::any_of(
+      collected.begin(), collected.end(), [](uint64_t principal) {
+        return principal != static_cast<uint64_t>(kNoUserPrincipalId) &&
+            principal != static_cast<uint64_t>(kRuntimePrincipalId);
+      });
+  if (!hasRealPrincipal) return collected;
+
+  std::vector<uint64_t> normalized;
+  normalized.reserve(collected.size());
+  for (uint64_t principal : collected) {
+    if (principal != static_cast<uint64_t>(kNoUserPrincipalId)) {
+      normalized.push_back(principal);
+    }
+  }
+  return normalized;
+#endif
+}
+
 std::vector<uint64_t> exactCollectTypedPrincipalStack() {
   std::vector<uint64_t> principals;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   if (g_vm_runtime != nullptr) {
-    auto frames = g_vm_runtime->getStackTrace(
-        facebook::hermes::HermesRuntime::StackTraceKind::NoSourceLocation);
-    for (auto& frame : frames) {
-      auto domain = frame.getDomain();
-      if (domain && *domain != kRuntimePrincipalId &&
-          *domain != kNoUserPrincipalId &&
-          std::find(principals.begin(), principals.end(), *domain) == principals.end()) {
-        principals.push_back(*domain);
+    // @ref LLP 0013#mechanism-3-frame-derived-attribution — use the carried
+    // Hermes C bridge so the opaque VM pointer never depends on private VM
+    // headers or a platform-specific concrete runtime type.
+    uint32_t ids[kMaxTypedPrincipalStack];
+    size_t count = ex_hermes_vm_collect_package_ids(
+        g_vm_runtime, ids, kMaxTypedPrincipalStack);
+    principals.reserve(count + 1);
+    for (size_t index = 0; index < count; ++index) {
+      auto id = static_cast<uint64_t>(ids[index]);
+      if (id == static_cast<uint64_t>(kRuntimePrincipalId) ||
+          id == static_cast<uint64_t>(kNoUserPrincipalId)) {
+        continue;
       }
+      if (principals.empty() || principals.back() != id) principals.push_back(id);
+    }
+    if (count == kMaxTypedPrincipalStack) {
+      principals.push_back(static_cast<uint64_t>(kNoUserPrincipalId));
     }
   }
 #endif
+  // A captured scheduler/owner stack is an additional constrained dimension,
+  // not a replacement for live callback frames. On a worker thread
+  // g_vm_runtime is null; on the runtime thread this intersects both authors.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
   if (g_typed_principal_stack) {
     for (auto id : *g_typed_principal_stack) {
       if (std::find(principals.begin(), principals.end(), id) == principals.end()) {
@@ -1022,12 +1063,14 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
     principals.push_back(scheduler);
   }
   if (principals.empty()) principals.push_back(currentPrincipalId());
-  return principals;
+  return normalizeTypedPrincipalStack(principals);
 }
 
 ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(
     const std::vector<uint64_t>& principals)
     : principals_(principals), previous_(g_typed_principal_stack) {
+  // Scheduler records may be erased by their own callback; keep the captured
+  // constraint alive for this full dynamic scope.
   g_typed_principal_stack = &principals_;
 }
 
