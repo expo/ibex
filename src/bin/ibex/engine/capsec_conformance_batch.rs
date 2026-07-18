@@ -1841,6 +1841,23 @@ async fn execute_native_public_recipe(
         assert_eq!(path, "target/ibex-capsec-write-file");
         let _ = std::fs::remove_file(path);
     }
+    let direct_append_file_fixture = if invocation.global_name == "__exactAppendFile" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+                path.as_str()
+                    .expect("direct append-file fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_append_file_fixture {
+        assert_eq!(path, "target/ibex-capsec-append-file");
+        std::fs::write(path, b"ibex-capsec-append-prefix:")
+            .expect("create direct append-file fixture");
+    }
     let direct_readdir_fixture = if invocation.global_name == "__exactReaddir" {
         match invocation.arguments.first() {
             Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
@@ -1986,6 +2003,22 @@ async fn execute_native_public_recipe(
                 b"ibex-capsec-write-file"
             );
             std::fs::remove_file(path).expect("remove direct write-file fixture");
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-owned-file".into());
+        }
+    }
+    if let Some(path) = &direct_append_file_fixture {
+        let expected = if invocation_result["kind"] == "return" {
+            b"ibex-capsec-append-prefix:ibex-capsec-append-suffix".as_slice()
+        } else {
+            b"ibex-capsec-append-prefix:".as_slice()
+        };
+        assert_eq!(
+            std::fs::read(path).expect("read direct append-file fixture"),
+            expected
+        );
+        std::fs::remove_file(path).expect("remove direct append-file fixture");
+        if invocation_result["kind"] == "return" {
             invocation_result["cleanup"] =
                 serde_json::Value::String("removed-owned-file".into());
         }

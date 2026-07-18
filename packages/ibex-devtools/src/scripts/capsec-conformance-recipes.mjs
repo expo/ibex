@@ -1049,6 +1049,72 @@ const nativeProjectWriteFileTemplate = () =>
     requiredSourceArity: 3,
     setup: [],
   });
+const nativeProjectAppendFileTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-append-file"),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex-capsec-append-suffix"),
+      ]),
+      literalArgument(null),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 5,
+      deny: 1,
+      malformed: 5,
+      "missing-attribution": 5,
+      "wrong-principal": 5,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(
+          "target",
+          "ibex-capsec-append-file",
+        ),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(
+          "target",
+          "ibex-capsec-append-file",
+        ),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: [],
+  });
 const nativeProjectReaddirTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -1115,6 +1181,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  ["__exactAppendFile", nativeProjectAppendFileTemplate()],
   ["__exactMkdir", nativeProjectMkdirTemplate()],
   ["__exactReaddir", nativeProjectReaddirTemplate()],
   ["__exactWriteFile", nativeProjectWriteFileTemplate()],

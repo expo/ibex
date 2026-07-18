@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 binds direct append to an exact pre-seeded file, proves preserved prefix bytes and denial non-mutation, and removes the owned fixture)
 **Revised:** 2026-07-18 (ENG-24933 executes direct directory enumeration against one harness-owned entry with retained repeat evidence and unconditional cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct whole-file creation to source-derived bytes, an exact harness-owned floor, and verified content cleanup)
 **Revised:** 2026-07-18 (ENG-24933 binds direct non-recursive directory creation to an exact harness-owned floor and proves post-operation cleanup)
@@ -1554,6 +1555,12 @@ and `fs:write` floor. Passing evidence requires requested, retained-parent and
 created-target discovery, commit, and repeat decisions, exact written bytes,
 and removal of the file after the
 call; denial stops at requested before creation.
+Direct `__exactAppendFile` uses the same typed retained-object route against a
+pre-seeded exact harness-owned file. Passing evidence must preserve the known
+prefix, append all source-derived suffix bytes, observe requested, two
+discovery, commit, and repeat decisions, and then remove the file. Denial stops
+at requested, leaves the prefix byte-identical, and still removes the harness
+fixture outside the observation.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
 harness-owned file. Passing evidence must select requested, discovery, and two
 repeat decisions: one retained-target authorization and one generation-bound

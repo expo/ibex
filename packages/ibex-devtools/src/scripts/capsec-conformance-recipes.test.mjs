@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_144);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_794);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_149);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_789);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(445);
+    expect(nativePublicFixtures).toHaveLength(450);
     expect(
       nativePublicFixtures
         .filter(
@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_938);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_026);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_912);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_031);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_907);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
@@ -966,6 +966,52 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.arguments[0]).toEqual({
         kind: "json-literal",
         value: "target/ibex-capsec-write-file",
+      });
+      expect(invocation.arguments[1]).toMatchObject({
+        kind: "native-global-result",
+        globalName: "__exactStringToUtf8Bytes",
+        sourceDescriptor: {
+          arity: 1,
+          globalName: "__exactStringToUtf8Bytes",
+        },
+      });
+      expect(invocation.arguments[2]).toEqual({
+        kind: "json-literal",
+        value: null,
+      });
+      expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(invocation.expectedActionIds).toEqual(
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "discovery", "commit", "repeat"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "deny" ? 1 : 5,
+      );
+      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
+        "fs:list",
+        "fs:write",
+      ]);
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+  });
+
+  test("appends a direct native file only under an exact owned floor", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactAppendFile",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments[0]).toEqual({
+        kind: "json-literal",
+        value: "target/ibex-capsec-append-file",
       });
       expect(invocation.arguments[1]).toMatchObject({
         kind: "native-global-result",
