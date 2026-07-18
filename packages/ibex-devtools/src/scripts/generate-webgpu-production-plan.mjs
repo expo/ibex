@@ -64,6 +64,10 @@ const REQUIRED_WORKLOAD_BLOCKERS = Object.freeze([
 const WRAPPER_LOCAL_METADATA_OPERATION_IDS = Object.freeze([
   "GPUBuffer.mapState",
   "GPUBuffer.usage",
+  "GPUTexture.dimension",
+  "GPUTexture.format",
+  "GPUTexture.height",
+  "GPUTexture.width",
 ]);
 const IMMUTABLE_TRIANGLE_ROUTE_IDS = Object.freeze([
   "GPU.getPreferredCanvasFormat",
@@ -138,18 +142,25 @@ function readPinnedWebIdlVocabulary() {
     path.join(repositoryRoot, webGpuTypesDeclarationPath),
   );
   const declaration = declarationBytes.toString("utf8");
-  const match = /\btype\s+GPUTextureFormat\s*=\s*([\s\S]*?);/u.exec(declaration);
-  if (!match) {
-    throw new Error("pinned @webgpu/types omits GPUTextureFormat");
-  }
-  const body = match[1];
-  const gpuTextureFormats = [...body.matchAll(/\|\s*"([^"]+)"/gu)]
-    .map((entry) => entry[1]);
-  const unparsed = body.replace(/\|\s*"[^"]+"/gu, "").replace(/\s/gu, "");
+  const stringUnion = (name, expectedCount) => {
+    const match = new RegExp(`\\btype\\s+${name}\\s*=\\s*([\\s\\S]*?);`, "u")
+      .exec(declaration);
+    if (!match) throw new Error(`pinned @webgpu/types omits ${name}`);
+    const body = match[1];
+    const values = [...body.matchAll(/\|\s*"([^"]+)"/gu)]
+      .map((entry) => entry[1]);
+    const unparsed = body.replace(/\|\s*"[^"]+"/gu, "").replace(/\s/gu, "");
+    if (
+      unparsed !== "" ||
+      values.length !== expectedCount ||
+      new Set(values).size !== values.length
+    ) {
+      throw new Error(`pinned ${name} vocabulary drifted`);
+    }
+    return Object.freeze(values);
+  };
+  const gpuTextureFormats = stringUnion("GPUTextureFormat", 101);
   if (
-    unparsed !== "" ||
-    gpuTextureFormats.length !== 101 ||
-    new Set(gpuTextureFormats).size !== gpuTextureFormats.length ||
     !gpuTextureFormats.includes("r16unorm") ||
     !gpuTextureFormats.includes("bc7-rgba-unorm") ||
     !gpuTextureFormats.includes("astc-12x12-unorm-srgb")
@@ -166,6 +177,12 @@ function readPinnedWebIdlVocabulary() {
       .update(declarationBytes)
       .digest("hex"),
     gpuTextureFormats: Object.freeze(gpuTextureFormats),
+    gpuAddressModes: stringUnion("GPUAddressMode", 3),
+    gpuFilterModes: stringUnion("GPUFilterMode", 2),
+    gpuMipmapFilterModes: stringUnion("GPUMipmapFilterMode", 2),
+    gpuCompareFunctions: stringUnion("GPUCompareFunction", 8),
+    gpuTextureDimensions: stringUnion("GPUTextureDimension", 3),
+    gpuTextureViewDimensions: stringUnion("GPUTextureViewDimension", 6),
   });
 }
 

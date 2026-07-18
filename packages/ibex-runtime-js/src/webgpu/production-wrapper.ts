@@ -81,6 +81,12 @@ interface WrapperState {
   currentOrigin: Readonly<Record<string, unknown>> | undefined;
   bufferUsage: number | undefined;
   bufferMapState: 'mapped' | 'pending' | 'unmapped' | undefined;
+  textureDimension: '1d' | '2d' | '3d' | undefined;
+  textureFormat: string | undefined;
+  textureWidth: number | undefined;
+  textureHeight: number | undefined;
+  drawingBufferWidth: number | undefined;
+  drawingBufferHeight: number | undefined;
 }
 
 interface PendingPromiseCall {
@@ -111,6 +117,8 @@ export interface ProductionWebGpuPrivateBinding {
     identity: Readonly<{
       objectId: string;
       objectGeneration: string;
+      drawingBufferWidth: number;
+      drawingBufferHeight: number;
     }>,
   ) => object;
   readonly revoke: () => void;
@@ -303,6 +311,7 @@ function createPrototypeTable(): Record<ProductionGpuWrapperKind, object> {
     GPUBindGroupLayout: Object.create(null),
     GPUBuffer: Object.create(null),
     GPUPipelineLayout: Object.create(null),
+    GPUSampler: Object.create(null),
     GPUCanvasContext: Object.create(null),
     GPUCommandBuffer: Object.create(null),
     GPUCommandEncoder: Object.create(null),
@@ -342,6 +351,18 @@ function asRecord(value: unknown, label: string): Record<string, unknown> {
     throw new TypeError(`${label} must be a dictionary`);
   }
   return value as Record<string, unknown>;
+}
+
+function drawingBufferCoordinate(value: unknown, label: string): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isInteger(value) ||
+    value <= 0 ||
+    value >= 0x1_0000_0000
+  ) {
+    throw new TypeError(`${label} must be a positive unsigned 32-bit integer`);
+  }
+  return value;
 }
 
 function makeIllegalConstructor(name: string, prototype: object): object {
@@ -485,6 +506,12 @@ export function createProductionWebGpuPrivateBinding(
       currentOrigin: undefined,
       bufferUsage: undefined,
       bufferMapState: undefined,
+      textureDimension: undefined,
+      textureFormat: undefined,
+      textureWidth: undefined,
+      textureHeight: undefined,
+      drawingBufferWidth: undefined,
+      drawingBufferHeight: undefined,
     };
     realm.wrappers.set(wrapper, state);
     return state;
@@ -1017,6 +1044,20 @@ export function createProductionWebGpuPrivateBinding(
         'GPUTexture',
         context.configuredDevice,
       );
+      if (
+        context.drawingBufferWidth === undefined ||
+        context.drawingBufferHeight === undefined
+      ) {
+        throw new Error('GPUCanvasContext lacks its drawing-buffer extent');
+      }
+      const configuredFormat = context.configuration.format;
+      if (typeof configuredFormat !== 'string') {
+        throw new Error('GPUCanvasContext lacks its converted texture format');
+      }
+      texture.textureDimension = '2d';
+      texture.textureFormat = configuredFormat;
+      texture.textureWidth = context.drawingBufferWidth;
+      texture.textureHeight = context.drawingBufferHeight;
       context.currentEpoch = incrementDecimal(context.currentEpoch);
       texture.currentOrigin = Object.freeze({
         contextObjectId: context.objectId,
@@ -1106,6 +1147,36 @@ export function createProductionWebGpuPrivateBinding(
       false,
     );
     return layout.wrapper;
+  });
+
+  defineMethod(mutablePrototypes.GPUDevice, 'createSampler', function (
+    this: object,
+    descriptor?: unknown,
+  ) {
+    const state = requireState(this, 'GPUDevice');
+    const converted = convert('GPUDevice.createSampler', [descriptor]);
+    const sampler = allocateWrapper('GPUSampler', state.device);
+    submitService('GPUDevice.createSampler', state, sampler, converted, false);
+    return sampler.wrapper;
+  });
+
+  defineMethod(mutablePrototypes.GPUDevice, 'createTexture', function (
+    this: object,
+    descriptor: unknown,
+  ) {
+    const state = requireState(this, 'GPUDevice');
+    const converted = convert('GPUDevice.createTexture', [descriptor]) as Readonly<{
+      dimension: '1d' | '2d' | '3d';
+      format: string;
+      size: Readonly<{ width: number; height: number }>;
+    }>;
+    const texture = allocateWrapper('GPUTexture', state.device);
+    texture.textureDimension = converted.dimension;
+    texture.textureFormat = converted.format;
+    texture.textureWidth = converted.size.width;
+    texture.textureHeight = converted.size.height;
+    submitService('GPUDevice.createTexture', state, texture, converted, false);
+    return texture.wrapper;
   });
 
   defineMethod(mutablePrototypes.GPUDevice, 'createCommandEncoder', function (
@@ -1512,6 +1583,34 @@ export function createProductionWebGpuPrivateBinding(
     }
     return buffer.bufferMapState;
   });
+  defineGetter(mutablePrototypes.GPUTexture, 'dimension', function (this: object) {
+    const texture = requireState(this, 'GPUTexture');
+    if (texture.textureDimension === undefined) {
+      throw new TypeError('GPUTexture dimension metadata is unavailable');
+    }
+    return texture.textureDimension;
+  });
+  defineGetter(mutablePrototypes.GPUTexture, 'format', function (this: object) {
+    const texture = requireState(this, 'GPUTexture');
+    if (texture.textureFormat === undefined) {
+      throw new TypeError('GPUTexture format metadata is unavailable');
+    }
+    return texture.textureFormat;
+  });
+  defineGetter(mutablePrototypes.GPUTexture, 'height', function (this: object) {
+    const texture = requireState(this, 'GPUTexture');
+    if (texture.textureHeight === undefined) {
+      throw new TypeError('GPUTexture height metadata is unavailable');
+    }
+    return texture.textureHeight;
+  });
+  defineGetter(mutablePrototypes.GPUTexture, 'width', function (this: object) {
+    const texture = requireState(this, 'GPUTexture');
+    if (texture.textureWidth === undefined) {
+      throw new TypeError('GPUTexture width metadata is unavailable');
+    }
+    return texture.textureWidth;
+  });
 
   for (const prototype of Object.values(mutablePrototypes)) Object.freeze(prototype);
 
@@ -1530,6 +1629,7 @@ export function createProductionWebGpuPrivateBinding(
       'GPUPipelineLayout',
       mutablePrototypes.GPUPipelineLayout,
     ),
+    GPUSampler: makeIllegalConstructor('GPUSampler', mutablePrototypes.GPUSampler),
     GPUCanvasContext: makeIllegalConstructor(
       'GPUCanvasContext',
       mutablePrototypes.GPUCanvasContext,
@@ -1626,9 +1726,20 @@ export function createProductionWebGpuPrivateBinding(
     mintCanvasContext(identity: Readonly<{
       objectId: string;
       objectGeneration: string;
+      drawingBufferWidth: number;
+      drawingBufferHeight: number;
     }>) {
       if (!realm.active) throw namedError('SecurityError', 'WebGPU realm is revoked');
-      return allocateWrapper('GPUCanvasContext', undefined, identity).wrapper;
+      const context = allocateWrapper('GPUCanvasContext', undefined, identity);
+      context.drawingBufferWidth = drawingBufferCoordinate(
+        identity.drawingBufferWidth,
+        'GPUCanvasContext drawingBufferWidth',
+      );
+      context.drawingBufferHeight = drawingBufferCoordinate(
+        identity.drawingBufferHeight,
+        'GPUCanvasContext drawingBufferHeight',
+      );
+      return context.wrapper;
     },
     revoke() {
       if (revoked) return;
@@ -1649,6 +1760,7 @@ const PUBLIC_INTERFACE_NAMES = Object.freeze([
   'GPUBindGroupLayout',
   'GPUBuffer',
   'GPUPipelineLayout',
+  'GPUSampler',
   'GPUCanvasContext',
   'GPUCommandBuffer',
   'GPUCommandEncoder',

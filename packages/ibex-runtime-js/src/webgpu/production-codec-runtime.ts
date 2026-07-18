@@ -586,6 +586,12 @@ export interface ExecutableWebGpuCodecManifest {
     declarationPath: 'node_modules/@webgpu/types/dist/index.d.ts';
     declarationSha256: string;
     gpuTextureFormats: readonly string[];
+    gpuAddressModes: readonly string[];
+    gpuFilterModes: readonly string[];
+    gpuMipmapFilterModes: readonly string[];
+    gpuCompareFunctions: readonly string[];
+    gpuTextureDimensions: readonly string[];
+    gpuTextureViewDimensions: readonly string[];
   }>;
   readonly publicArguments: readonly CodecCatalogRow[];
   readonly serviceArguments: readonly ServiceCodecCatalogRow[];
@@ -608,6 +614,7 @@ const PRODUCTION_WRAPPER_KINDS = Object.freeze([
   'GPUBindGroupLayout',
   'GPUBuffer',
   'GPUPipelineLayout',
+  'GPUSampler',
   'GPUDevice',
   'GPUQueue',
   'GPUTexture',
@@ -3478,6 +3485,87 @@ function finiteNumber(value: unknown, label: string): number {
   return converted;
 }
 
+function restrictedFloat(value: unknown, label: string): number {
+  const converted = +(value as number);
+  if (!Number.isFinite(converted)) {
+    throw new TypeError(`${label} must be a finite float`);
+  }
+  const rounded = Math.fround(converted);
+  if (!Number.isFinite(rounded)) {
+    throw new TypeError(`${label} is outside the finite float range`);
+  }
+  return rounded;
+}
+
+function clampUnsignedShort(value: unknown, label: string): number {
+  const converted = +(value as number);
+  if (Number.isNaN(converted) || converted <= 0) return 0;
+  if (converted >= 0xffff) return 0xffff;
+  const lower = Math.floor(converted);
+  const fraction = converted - lower;
+  if (fraction < 0.5) return lower;
+  if (fraction > 0.5) return lower + 1;
+  return lower % 2 === 0 ? lower : lower + 1;
+}
+
+function convertExtent3D(value: unknown): Readonly<{
+  width: number;
+  height: number;
+  depthOrArrayLayers: number;
+}> {
+  if (!isObjectLike(value)) {
+    throw new TypeError('GPUTextureDescriptor.size must be an iterable or dictionary');
+  }
+  const iteratorMethod = value[Symbol.iterator];
+  if (iteratorMethod !== undefined) {
+    if (typeof iteratorMethod !== 'function') {
+      throw new TypeError('GPUTextureDescriptor.size @@iterator must be callable');
+    }
+    const sourceIterator = Reflect.apply(iteratorMethod, value, []);
+    if (!isObjectLike(sourceIterator)) {
+      throw new TypeError('GPUTextureDescriptor.size iterator must be an object');
+    }
+    const converted: number[] = [];
+    const iterable = {
+      [Symbol.iterator]() {
+        return sourceIterator as Iterator<unknown>;
+      },
+    };
+    for (const member of iterable) {
+      if (converted.length >= 3) {
+        throw new TypeError('GPUTextureDescriptor.size sequence must contain one to three members');
+      }
+      converted.push(
+        u32(member, `GPUTextureDescriptor.size[${converted.length}]`),
+      );
+    }
+    if (converted.length === 0) {
+      throw new TypeError('GPUTextureDescriptor.size sequence must contain one to three members');
+    }
+    return frozenRecord({
+      width: converted[0],
+      height: converted[1] ?? 1,
+      depthOrArrayLayers: converted[2] ?? 1,
+    });
+  }
+
+  // Web IDL dictionary conversion observes members lexicographically.
+  const depthValue = value.depthOrArrayLayers;
+  const depthOrArrayLayers = u32(
+    depthValue,
+    'GPUTextureDescriptor.size.depthOrArrayLayers',
+    1,
+  );
+  const heightValue = value.height;
+  const height = u32(heightValue, 'GPUTextureDescriptor.size.height', 1);
+  const widthValue = value.width;
+  if (widthValue === undefined) {
+    throw new TypeError('GPUTextureDescriptor.size.width is required');
+  }
+  const width = u32(widthValue, 'GPUTextureDescriptor.size.width');
+  return frozenRecord({ width, height, depthOrArrayLayers });
+}
+
 function sequence(
   value: unknown,
   label: string,
@@ -3915,6 +4003,155 @@ function convertBufferDescriptor(value: unknown): unknown {
   }
   const usage = u32(usageValue, 'GPUBufferDescriptor.usage');
   return frozenRecord({ label, mappedAtCreation, size, usage });
+}
+
+function convertSamplerDescriptor(
+  value: unknown,
+  vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
+): unknown {
+  const source = dictionary(value, 'GPUSamplerDescriptor');
+  const addressModeUValue = source.addressModeU;
+  const addressModeU = addressModeUValue === undefined
+    ? 'clamp-to-edge'
+    : enumValue(addressModeUValue, vocabulary.gpuAddressModes, 'GPUSamplerDescriptor.addressModeU');
+  const addressModeVValue = source.addressModeV;
+  const addressModeV = addressModeVValue === undefined
+    ? 'clamp-to-edge'
+    : enumValue(addressModeVValue, vocabulary.gpuAddressModes, 'GPUSamplerDescriptor.addressModeV');
+  const addressModeWValue = source.addressModeW;
+  const addressModeW = addressModeWValue === undefined
+    ? 'clamp-to-edge'
+    : enumValue(addressModeWValue, vocabulary.gpuAddressModes, 'GPUSamplerDescriptor.addressModeW');
+  const compareValue = source.compare;
+  const compare = compareValue === undefined
+    ? undefined
+    : enumValue(compareValue, vocabulary.gpuCompareFunctions, 'GPUSamplerDescriptor.compare');
+  const labelValue = source.label;
+  const label = labelValue === undefined
+    ? ''
+    : webIdlString(labelValue, 'GPUSamplerDescriptor.label');
+  const lodMaxClampValue = source.lodMaxClamp;
+  const lodMaxClamp = lodMaxClampValue === undefined
+    ? 32
+    : restrictedFloat(lodMaxClampValue, 'GPUSamplerDescriptor.lodMaxClamp');
+  const lodMinClampValue = source.lodMinClamp;
+  const lodMinClamp = lodMinClampValue === undefined
+    ? 0
+    : restrictedFloat(lodMinClampValue, 'GPUSamplerDescriptor.lodMinClamp');
+  const magFilterValue = source.magFilter;
+  const magFilter = magFilterValue === undefined
+    ? 'nearest'
+    : enumValue(magFilterValue, vocabulary.gpuFilterModes, 'GPUSamplerDescriptor.magFilter');
+  const maxAnisotropyValue = source.maxAnisotropy;
+  const maxAnisotropy = maxAnisotropyValue === undefined
+    ? 1
+    : clampUnsignedShort(maxAnisotropyValue, 'GPUSamplerDescriptor.maxAnisotropy');
+  const minFilterValue = source.minFilter;
+  const minFilter = minFilterValue === undefined
+    ? 'nearest'
+    : enumValue(minFilterValue, vocabulary.gpuFilterModes, 'GPUSamplerDescriptor.minFilter');
+  const mipmapFilterValue = source.mipmapFilter;
+  const mipmapFilter = mipmapFilterValue === undefined
+    ? 'nearest'
+    : enumValue(
+      mipmapFilterValue,
+      vocabulary.gpuMipmapFilterModes,
+      'GPUSamplerDescriptor.mipmapFilter',
+    );
+  return frozenRecord({
+    addressModeU,
+    addressModeV,
+    addressModeW,
+    ...(compare === undefined ? {} : { compare }),
+    label,
+    lodMaxClamp,
+    lodMinClamp,
+    magFilter,
+    maxAnisotropy,
+    minFilter,
+    mipmapFilter,
+  });
+}
+
+function convertTextureDescriptor(
+  value: unknown,
+  maximum: number,
+  vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
+): unknown {
+  const source = dictionary(value, 'GPUTextureDescriptor');
+  const dimensionValue = source.dimension;
+  const dimension = dimensionValue === undefined
+    ? '2d'
+    : enumValue(
+      dimensionValue,
+      vocabulary.gpuTextureDimensions,
+      'GPUTextureDescriptor.dimension',
+    );
+  const formatValue = source.format;
+  if (formatValue === undefined) {
+    throw new TypeError('GPUTextureDescriptor.format is required');
+  }
+  const format = enumValue(
+    formatValue,
+    vocabulary.gpuTextureFormats,
+    'GPUTextureDescriptor.format',
+  );
+  const labelValue = source.label;
+  const label = labelValue === undefined
+    ? ''
+    : webIdlString(labelValue, 'GPUTextureDescriptor.label');
+  const mipLevelCountValue = source.mipLevelCount;
+  const mipLevelCount = u32(
+    mipLevelCountValue,
+    'GPUTextureDescriptor.mipLevelCount',
+    1,
+  );
+  const sampleCountValue = source.sampleCount;
+  const sampleCount = u32(sampleCountValue, 'GPUTextureDescriptor.sampleCount', 1);
+  const sizeValue = source.size;
+  if (sizeValue === undefined) {
+    throw new TypeError('GPUTextureDescriptor.size is required');
+  }
+  const size = convertExtent3D(sizeValue);
+  const textureBindingViewDimensionValue = source.textureBindingViewDimension;
+  const textureBindingViewDimension = textureBindingViewDimensionValue === undefined
+    ? undefined
+    : enumValue(
+      textureBindingViewDimensionValue,
+      vocabulary.gpuTextureViewDimensions,
+      'GPUTextureDescriptor.textureBindingViewDimension',
+    );
+  const usageValue = source.usage;
+  if (usageValue === undefined) {
+    throw new TypeError('GPUTextureDescriptor.usage is required');
+  }
+  const usage = u32(usageValue, 'GPUTextureDescriptor.usage');
+  const viewFormatsValue = source.viewFormats;
+  const viewFormats = viewFormatsValue === undefined
+    ? []
+    : sequence(
+      viewFormatsValue,
+      'GPUTextureDescriptor.viewFormats',
+      maximum,
+      (viewFormat) => enumValue(
+        viewFormat,
+        vocabulary.gpuTextureFormats,
+        'GPUTextureDescriptor.viewFormats member',
+      ),
+    );
+  return frozenRecord({
+    dimension,
+    format,
+    label,
+    mipLevelCount,
+    sampleCount,
+    size,
+    ...(textureBindingViewDimension === undefined
+      ? {}
+      : { textureBindingViewDimension }),
+    usage,
+    viewFormats: Object.freeze(viewFormats),
+  });
 }
 
 function convertPipelineLayoutDescriptor(
@@ -5899,6 +6136,27 @@ export function createExecutableWebGpuCodecs(
     manifest.webIdlVocabulary.gpuTextureFormats[0] !== 'r8unorm' ||
     manifest.webIdlVocabulary.gpuTextureFormats.at(-1) !==
       'astc-12x12-unorm-srgb' ||
+    JSON.stringify(manifest.webIdlVocabulary.gpuAddressModes) !==
+      JSON.stringify(['clamp-to-edge', 'repeat', 'mirror-repeat']) ||
+    JSON.stringify(manifest.webIdlVocabulary.gpuFilterModes) !==
+      JSON.stringify(['nearest', 'linear']) ||
+    JSON.stringify(manifest.webIdlVocabulary.gpuMipmapFilterModes) !==
+      JSON.stringify(['nearest', 'linear']) ||
+    JSON.stringify(manifest.webIdlVocabulary.gpuCompareFunctions) !==
+      JSON.stringify([
+        'never',
+        'less',
+        'equal',
+        'less-equal',
+        'greater',
+        'not-equal',
+        'greater-equal',
+        'always',
+      ]) ||
+    JSON.stringify(manifest.webIdlVocabulary.gpuTextureDimensions) !==
+      JSON.stringify(['1d', '2d', '3d']) ||
+    JSON.stringify(manifest.webIdlVocabulary.gpuTextureViewDimensions) !==
+      JSON.stringify(['1d', '2d', '2d-array', 'cube', 'cube-array', '3d']) ||
     manifest.publicArguments.some((row, index) => row.wireTag !== index + 1) ||
     manifest.serviceArguments.some((row, index) => row.wireTag !== index + 1) ||
     manifest.serviceCompletions.some((row, index) => row.wireTag !== index + 1)
@@ -6011,6 +6269,14 @@ export function createExecutableWebGpuCodecs(
         );
       case 'gpu-buffer-descriptor-v1':
         return convertBufferDescriptor(args[0]);
+      case 'gpu-sampler-descriptor-v1':
+        return convertSamplerDescriptor(args[0], manifest.webIdlVocabulary);
+      case 'gpu-texture-descriptor-v1':
+        return convertTextureDescriptor(
+          args[0],
+          manifest.layout.sequenceMaxCount,
+          manifest.webIdlVocabulary,
+        );
       case 'gpu-pipeline-layout-descriptor-v1':
         return convertPipelineLayoutDescriptor(
           args[0],

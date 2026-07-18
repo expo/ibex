@@ -11,6 +11,7 @@ export type ProductionGpuWrapperKind =
   | 'GPUBindGroupLayout'
   | 'GPUBuffer'
   | 'GPUPipelineLayout'
+  | 'GPUSampler'
   | 'GPUCanvasContext'
   | 'GPUCommandBuffer'
   | 'GPUCommandEncoder'
