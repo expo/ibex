@@ -5530,12 +5530,15 @@ export function scanStaticGlobalApiSurfaces(
   options = {},
 ) {
   const fullProgram = parseJavaScript(text, sourcePath);
-  const webStreamsWrapperMarker = "\n(function () {\n  var globalObject = ";
-  const webStreamsWrapperOffset = text.indexOf(webStreamsWrapperMarker);
+  const webStreamsWrapperMatch =
+    /(?:^|\r?\n)(?=\(function \(\) \{\r?\n  var globalObject = )/u.exec(text);
+  const webStreamsWrapperOffset = webStreamsWrapperMatch
+    ? webStreamsWrapperMatch.index + webStreamsWrapperMatch[0].length
+    : -1;
   const sourceText =
     webStreamsWrapperOffset === -1
       ? text
-      : text.slice(webStreamsWrapperOffset + 1);
+      : text.slice(webStreamsWrapperOffset);
   const program =
     webStreamsWrapperOffset === -1
       ? fullProgram
