@@ -933,7 +933,11 @@ async fn run_native_setup(
                 assert!(
                     matches!(
                         path.as_str(),
-                        "target/ibex-capsec-fsync" | "target/ibex-capsec-fdatasync"
+                        "target/ibex-capsec-fsync"
+                            | "target/ibex-capsec-fdatasync"
+                            | "target/ibex-capsec-ftruncate"
+                            | "target/ibex-capsec-fchmod"
+                            | "target/ibex-capsec-futimes"
                     ),
                     "retained write setup escaped its exact owned paths"
                 );
@@ -1441,6 +1445,9 @@ fn validate_native_runtime_observation(
             | "__exactFsFstatSync"
             | "__exactFsFsyncSync"
             | "__exactFsFdatasyncSync"
+            | "__exactFsFtruncateSync"
+            | "__exactFsFchmodSync"
+            | "__exactFsFutimesSync"
     ) {
         Some("native-op:__exactFsOpen")
     } else if invocation.global_name == "__exactFsPathAsync" {
@@ -2070,7 +2077,12 @@ async fn execute_native_public_recipe(
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
     if matches!(
         invocation.global_name.as_str(),
-        "__exactFsFstatSync" | "__exactFsFsyncSync" | "__exactFsFdatasyncSync"
+        "__exactFsFstatSync"
+            | "__exactFsFsyncSync"
+            | "__exactFsFdatasyncSync"
+            | "__exactFsFtruncateSync"
+            | "__exactFsFchmodSync"
+            | "__exactFsFutimesSync"
     ) {
         let descriptor = setup_state
             .fs_file_descriptor
@@ -2087,10 +2099,41 @@ async fn execute_native_public_recipe(
             .expect("retained descriptor cleanup returned invalid JSON");
         assert_eq!(cleanup["kind"], "return", "retained descriptor cleanup failed");
         if let Some(path) = &setup_state.fs_file_path {
+            let expected_bytes = if invocation.global_name == "__exactFsFtruncateSync" {
+                b"ib".as_slice()
+            } else {
+                b"ibex-capsec-retained-sync".as_slice()
+            };
             assert_eq!(
                 std::fs::read(path).expect("read retained sync fixture"),
-                b"ibex-capsec-retained-sync"
+                expected_bytes
             );
+            #[cfg(unix)]
+            if invocation.global_name == "__exactFsFchmodSync" {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(
+                    std::fs::metadata(path)
+                        .expect("read retained fchmod fixture metadata")
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o600,
+                    "retained fchmod fixture has the wrong final mode"
+                );
+            }
+            if invocation.global_name == "__exactFsFutimesSync" {
+                assert_eq!(
+                    std::fs::metadata(path)
+                        .expect("read retained futimes fixture metadata")
+                        .modified()
+                        .expect("read retained futimes modified time")
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("retained futimes timestamp predates epoch")
+                        .as_secs(),
+                    2,
+                    "retained futimes fixture has the wrong final timestamp"
+                );
+            }
             std::fs::remove_file(path).expect("remove retained sync fixture");
             if invocation_result["kind"] == "return" {
                 invocation_result["cleanup"] = serde_json::Value::String(

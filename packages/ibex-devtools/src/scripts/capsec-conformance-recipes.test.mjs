@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_197);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_741);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_209);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_729);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(498);
+    expect(nativePublicFixtures).toHaveLength(510);
     expect(
       nativePublicFixtures
         .filter(
@@ -1240,6 +1240,62 @@ describe("exact-target CapSec executable recipes", () => {
           "native-public-deny-scenario-not-authored",
         );
       }
+    }
+  });
+
+  test("mutates only exact owned retained files on typed Apple descriptors", () => {
+    for (const [globalName, path, extraArguments] of [
+      ["__exactFsFtruncateSync", "target/ibex-capsec-ftruncate", [2]],
+      ["__exactFsFchmodSync", "target/ibex-capsec-fchmod", [0o600]],
+      ["__exactFsFutimesSync", "target/ibex-capsec-futimes", [1, 2]],
+    ]) {
+      const rows = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(rows).toHaveLength(4);
+      for (const recipe of rows) {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          { kind: "harness-fs-file-descriptor" },
+          ...extraArguments.map((value) => ({ kind: "json-literal", value })),
+        ]);
+        expect(invocation.setup[0]).toMatchObject({
+          kind: "fs-write-file",
+          globalName: "__exactFsOpen",
+          path,
+        });
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(invocation.expectedActionIds).toEqual(["fs:write"]);
+        expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+        expect(invocation.expectedTypedDecisionCount).toBe(1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor-removed-owned-file",
+        );
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+      const denied = recipes.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey === `native-op:${globalName}` &&
+          recipe.scenario === "deny",
+      );
+      expect(denied.publicSurfaceProbe).toBeNull();
+      expect(denied.residualReasons).toContain(
+        "native-public-deny-scenario-not-authored",
+      );
+      const windowsRows = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(windowsRows).toHaveLength(0);
+      expect(
+        windowsRecipes.recipes.find(
+          (recipe) =>
+            recipe.terminalObservedKey === `native-op:${globalName}` &&
+            recipe.scenario === "allow",
+        ).residualReasons,
+      ).toContain("native-public-operation-not-installed-on-target");
     }
   });
 

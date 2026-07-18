@@ -1232,11 +1232,16 @@ const nativeRetainedFsFstatTemplate = () =>
     unsupportedTargetReason: "native-public-operation-not-typed-on-target",
     unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
   });
-const nativeRetainedFsSyncTemplate = (path) =>
+const nativeRetainedFsWriteTemplate = ({
+  path,
+  argumentsList = [],
+  requiredSourceArity = 1,
+  unsupportedTargetTriples = [],
+}) =>
   Object.freeze({
     actionIds: ["fs:write"],
     additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
-    arguments: [harnessFsFileDescriptorArgument()],
+    arguments: [harnessFsFileDescriptorArgument(), ...argumentsList],
     expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
     expectedDecisionCounts: {
       allow: 1,
@@ -1272,8 +1277,11 @@ const nativeRetainedFsSyncTemplate = (path) =>
         resource: projectPathExactResource(...path.split("/")),
       },
     ],
-    requiredSourceArity: 1,
+    requiredSourceArity,
     setup: fsWriteFileSetup(path),
+    ...(unsupportedTargetTriples.length > 0
+      ? { unsupportedTargetTriples }
+      : {}),
   });
 const nativeProjectReaddirTemplate = () =>
   Object.freeze({
@@ -1521,11 +1529,38 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
   [
     "__exactFsFsyncSync",
-    nativeRetainedFsSyncTemplate("target/ibex-capsec-fsync"),
+    nativeRetainedFsWriteTemplate({ path: "target/ibex-capsec-fsync" }),
   ],
   [
     "__exactFsFdatasyncSync",
-    nativeRetainedFsSyncTemplate("target/ibex-capsec-fdatasync"),
+    nativeRetainedFsWriteTemplate({ path: "target/ibex-capsec-fdatasync" }),
+  ],
+  [
+    "__exactFsFtruncateSync",
+    nativeRetainedFsWriteTemplate({
+      path: "target/ibex-capsec-ftruncate",
+      argumentsList: [literalArgument(2)],
+      requiredSourceArity: 2,
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+    }),
+  ],
+  [
+    "__exactFsFchmodSync",
+    nativeRetainedFsWriteTemplate({
+      path: "target/ibex-capsec-fchmod",
+      argumentsList: [literalArgument(0o600)],
+      requiredSourceArity: 2,
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+    }),
+  ],
+  [
+    "__exactFsFutimesSync",
+    nativeRetainedFsWriteTemplate({
+      path: "target/ibex-capsec-futimes",
+      argumentsList: [literalArgument(1), literalArgument(2)],
+      requiredSourceArity: 3,
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+    }),
   ],
   [
     "__exactTcpConnect",
