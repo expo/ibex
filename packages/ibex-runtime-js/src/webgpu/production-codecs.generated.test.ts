@@ -418,7 +418,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
-        { operationId: 'GPUDevice.createBuffer', wireId: 1497473481 },
+        { operationId: 'GPUDevice.createBuffer', wireId: 3212558232 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
@@ -1861,7 +1861,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
       (candidate) => candidate.tag === 'gpu-create-buffer-service-request-v1',
     )!;
-    expect(nativeRoute.wireId).toBe(1497473481);
+    expect(nativeRoute.wireId).toBe(3212558232);
     expect(nativeRoute.request.catalog.wireTag).toBe(17);
     expect(nativeRoute.completion.catalog.wireTag).toBe(2);
     expect(nativeRoute.request.executablePrerequisites).toEqual([]);
@@ -2020,7 +2020,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       payload.buffer,
       payload.byteOffset,
       payload.byteLength,
-    ).getUint32(8, true)).toBe(1497473481);
+    ).getUint32(8, true)).toBe(3212558232);
     expect(Array.from(payload.slice(53, 55))).toEqual([
       1,
       WEBGPU_OBJECT_KIND_TAGS.GPUBuffer,

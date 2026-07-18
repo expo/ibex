@@ -79,11 +79,11 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "52131b02df0ecc91b0d4d28cc0a6cb6d2ac30ff47cf87cde62a41c1091d6b11d",
-    "semanticProgramSet": "fe6d766216a77bbc9c1e8221294414280e10e3f82cdd1629a21d25d32e0b5648",
-    "runtimeRouting": "7822220e6269e973472d7eb4d4fa2d296a56d986eef14706195d8ff424adbbf8",
-    "webgpuCVocabulary": "ef58699aecc6940587ede30d9f40d116cc9a204219f5b7063c0de8274f43802d",
-    "projection": "8f221c18eef28478fdbb0c0d03605450ad7af2eca1ac102a2d36358f70f3e6dd"
+    "operationSet": "76253c3e6e9b2352877dadfff521eafdaf259e5ae86ab4604c1d7ce32661bdea",
+    "semanticProgramSet": "6fb7169e4f1a3c197cceda4e9b3570013a12c2090a636cab237247aabdb3631a",
+    "runtimeRouting": "fbdc1e4c0e382655f6ed591e86f928bcf357d41d7a58c79a6cfa8acaa54b1e89",
+    "webgpuCVocabulary": "c1b9cfa3ddd550087d066408ed174f1cc7c41c771e5cd32c0133d27d5846cfad",
+    "projection": "d195bc83f1bec557f70d66afd7657bdc1604c274f0f59b6dfdddee34a9ad614d"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -2130,7 +2130,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUDevice.createBuffer",
-        "wireId": 1497473481,
+        "wireId": 3212558232,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -2148,7 +2148,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 17,
-                  "operationWireId": 1497473481
+                  "operationWireId": 3212558232
                 }
               },
               {
@@ -2287,7 +2287,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 1497473481
+              "value": 3212558232
             },
             {
               "carrierPath": "flags",
@@ -2431,7 +2431,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 1497473481
+              "value": 3212558232
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",

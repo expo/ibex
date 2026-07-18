@@ -70,7 +70,7 @@ interface NativeCodecField {
       | 1660448199
       | 194635792
       | 206890944
-      | 1497473481
+      | 3212558232
       | 2544948076
       | 3373402978
       | 599085487
@@ -342,7 +342,7 @@ interface NativeCodecCreatePipelineLayoutRoute {
 
 interface NativeCodecCreateBufferRoute {
   readonly operationId: 'GPUDevice.createBuffer';
-  readonly wireId: 1497473481;
+  readonly wireId: 3212558232;
   readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
@@ -638,7 +638,7 @@ const CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC =
 const CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_BUFFER_OPERATION_ID = 'GPUDevice.createBuffer';
-const CREATE_BUFFER_WIRE_ID = 1497473481;
+const CREATE_BUFFER_WIRE_ID = 3212558232;
 const CREATE_BUFFER_MAX_LABEL_UTF8_BYTES = 16_777_017;
 const CREATE_BUFFER_REQUEST_CODEC = 'gpu-create-buffer-service-request-v1';
 const CREATE_BUFFER_COMPLETION_CODEC =

@@ -15,11 +15,11 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "operationSetSha256": "52131b02df0ecc91b0d4d28cc0a6cb6d2ac30ff47cf87cde62a41c1091d6b11d",
-    "semanticProgramSetSha256": "fe6d766216a77bbc9c1e8221294414280e10e3f82cdd1629a21d25d32e0b5648",
-    "runtimeRoutingSha256": "7822220e6269e973472d7eb4d4fa2d296a56d986eef14706195d8ff424adbbf8",
-      "webgpuCVocabularySha256": "ef58699aecc6940587ede30d9f40d116cc9a204219f5b7063c0de8274f43802d",
-      "projectionPayloadSha256": "8f221c18eef28478fdbb0c0d03605450ad7af2eca1ac102a2d36358f70f3e6dd"
+    "operationSetSha256": "76253c3e6e9b2352877dadfff521eafdaf259e5ae86ab4604c1d7ce32661bdea",
+    "semanticProgramSetSha256": "6fb7169e4f1a3c197cceda4e9b3570013a12c2090a636cab237247aabdb3631a",
+    "runtimeRoutingSha256": "fbdc1e4c0e382655f6ed591e86f928bcf357d41d7a58c79a6cfa8acaa54b1e89",
+    "webgpuCVocabularySha256": "c1b9cfa3ddd550087d066408ed174f1cc7c41c771e5cd32c0133d27d5846cfad",
+    "projectionPayloadSha256": "d195bc83f1bec557f70d66afd7657bdc1604c274f0f59b6dfdddee34a9ad614d"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -2492,7 +2492,7 @@
           },
           {
             "operationId": "GPUDevice.createBuffer",
-            "wireId": 1497473481,
+            "wireId": 3212558232,
             "request": {
               "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
               "catalog": {
@@ -2510,7 +2510,7 @@
                       "magic": "IBGQ",
                       "version": 1,
                       "codecTag": 17,
-                      "operationWireId": 1497473481
+                      "operationWireId": 3212558232
                     }
                   },
                   {
@@ -2649,7 +2649,7 @@
                 {
                   "carrierPath": "operation_id",
                   "operator": "equal",
-                  "value": 1497473481
+                  "value": 3212558232
                 },
                 {
                   "carrierPath": "flags",
@@ -2793,7 +2793,7 @@
                 {
                   "carrierPath": "record.operation_result.operation.operation_id",
                   "operator": "equal",
-                  "value": 1497473481
+                  "value": 3212558232
                 },
                 {
                   "carrierPath": "record.operation_result.operation.device_transition",
@@ -5578,8 +5578,8 @@
       },
       {
         "operationId": "GPUDevice.createBuffer",
-        "wireId": 1497473481,
-        "semanticSha256": "d285e4af0f9fb1c2bea233fd6aa3185ad906050949aade624f334984915056ba",
+        "wireId": 3212558232,
+        "semanticSha256": "df7bcc24a2bdf5b288a74fe36dbfaf8c84b1a0672e1b6457a1d95d54d45cdc26",
         "memberKind": "method",
         "dispatchClass": "service-submit",
         "logicalExecutionKind": "service-enqueue",
@@ -6145,10 +6145,10 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "ef58699aecc6940587ede30d9f40d116cc9a204219f5b7063c0de8274f43802d",
-      "operationSetDigest": "52131b02df0ecc91b0d4d28cc0a6cb6d2ac30ff47cf87cde62a41c1091d6b11d",
-      "semanticProgramDigest": "fe6d766216a77bbc9c1e8221294414280e10e3f82cdd1629a21d25d32e0b5648",
-      "runtimeRoutingDigest": "7822220e6269e973472d7eb4d4fa2d296a56d986eef14706195d8ff424adbbf8",
+      "webgpuCVocabularyDigest": "c1b9cfa3ddd550087d066408ed174f1cc7c41c771e5cd32c0133d27d5846cfad",
+      "operationSetDigest": "76253c3e6e9b2352877dadfff521eafdaf259e5ae86ab4604c1d7ce32661bdea",
+      "semanticProgramDigest": "6fb7169e4f1a3c197cceda4e9b3570013a12c2090a636cab237247aabdb3631a",
+      "runtimeRoutingDigest": "fbdc1e4c0e382655f6ed591e86f928bcf357d41d7a58c79a6cfa8acaa54b1e89",
       "sortedOperationIds": [
         194635792,
         206890944,
@@ -6159,7 +6159,6 @@
         935342475,
         1287763171,
         1311136574,
-        1497473481,
         1660448199,
         1724778411,
         1846872529,
@@ -6173,6 +6172,7 @@
         2933046788,
         3054695767,
         3157634281,
+        3212558232,
         3293775739,
         3373402978,
         3810427763,

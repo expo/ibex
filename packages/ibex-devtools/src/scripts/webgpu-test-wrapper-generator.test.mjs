@@ -135,7 +135,7 @@ describe("test-only WebGPU wrapper generator", () => {
       "select-provider-admission-and-physical-sequence",
     ]);
     const createBuffer = nativeRoute(authority, "GPUDevice.createBuffer");
-    expect(createBuffer.wireId).toBe(1497473481);
+    expect(createBuffer.wireId).toBe(3212558232);
     expect(createBuffer.request.catalog.wireTag).toBe(17);
     expect(createBuffer.completion.catalog.wireTag).toBe(2);
     expect(createBuffer.request.executablePrerequisites).toEqual([]);
