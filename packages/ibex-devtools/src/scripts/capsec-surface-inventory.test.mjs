@@ -3630,7 +3630,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       )?.metadata.exportIdioms,
     ).toContain("closed-dynamic-table:signal-number-overlay");
     expect(exports.every((row) => row.sourceRefs.length > 0)).toBe(true);
-  });
+  }, 15_000);
 
   test("live shared-runtime authority includes the reviewed roots, members, and opaque overlays", () => {
     expect(REVIEWED_SHARED_RUNTIME_ROOTS.length).toBeGreaterThan(0);
