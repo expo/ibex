@@ -203,20 +203,25 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_932);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_057);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_875);
-    expect(
-      windowsRecipes.recipes.filter(
-        (recipe) =>
-          recipe.publicSurfaceProbe?.invocation?.globalName ===
-          "__exactFsOpenAsync",
-      ),
-    ).toHaveLength(0);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_672);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_074);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_598);
+    const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactFsOpenAsync",
+    );
+    expect(windowsPosixFsOpenRows).toHaveLength(1);
+    expect(windowsPosixFsOpenRows[0].publicSurfaceProbe).toMatchObject({
+      kind: "target-absence-probe",
+      invocation: {
+        expectedResult: "absent",
+      },
+    });
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(windowsAbsenceRecipes).toHaveLength(8);
+    expect(windowsAbsenceRecipes).toHaveLength(85);
     expect(
       windowsAbsenceRecipes.every(
         (recipe) =>
@@ -235,7 +240,7 @@ describe("exact-target CapSec executable recipes", () => {
           "capsec_public_closed_recipe_batch",
         ),
       ),
-    ).toHaveLength(633);
+    ).toHaveLength(626);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -256,7 +261,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
           "armed-native-global-absence",
       ),
-    ).toHaveLength(20);
+    ).toHaveLength(13);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {
@@ -1397,7 +1402,7 @@ describe("exact-target CapSec executable recipes", () => {
       ["__exactFsFsyncSync", "target/ibex-capsec-fsync"],
       ["__exactFsFdatasyncSync", "target/ibex-capsec-fdatasync"],
     ]) {
-      for (const catalog of [recipes, windowsRecipes]) {
+      for (const catalog of [recipes]) {
         const rows = catalog.recipes.filter(
           (recipe) =>
             recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
@@ -1437,6 +1442,17 @@ describe("exact-target CapSec executable recipes", () => {
           "native-public-deny-scenario-not-authored",
         );
       }
+      const windowsRows = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(windowsRows).toHaveLength(1);
+      expect(windowsRows[0].publicSurfaceProbe).toMatchObject({
+        kind: "target-absence-probe",
+        invocation: {
+          expectedResult: "absent",
+        },
+      });
     }
   });
 
@@ -1483,14 +1499,11 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
       );
-      expect(windowsRows).toHaveLength(0);
-      expect(
-        windowsRecipes.recipes.find(
-          (recipe) =>
-            recipe.terminalObservedKey === `native-op:${globalName}` &&
-            recipe.scenario === "allow",
-        ).residualReasons,
-      ).toContain("native-public-operation-not-installed-on-target");
+      expect(windowsRows).toHaveLength(1);
+      expect(windowsRows[0].publicSurfaceProbe).toMatchObject({
+        kind: "target-absence-probe",
+        invocation: { expectedResult: "absent" },
+      });
     }
     for (const globalName of ["__exactFsFchmodSync", "__exactFsFutimesSync"]) {
       expect(
@@ -1499,6 +1512,15 @@ describe("exact-target CapSec executable recipes", () => {
             recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
         ),
       ).toHaveLength(0);
+      const windowsRows = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(windowsRows).toHaveLength(1);
+      expect(windowsRows[0].publicSurfaceProbe).toMatchObject({
+        kind: "target-absence-probe",
+        invocation: { expectedResult: "absent" },
+      });
     }
   });
 
@@ -1561,12 +1583,15 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
     }
-    expect(
-      windowsRecipes.recipes.filter(
-        (recipe) =>
-          recipe.publicSurfaceProbe?.invocation?.globalName === "__exactOpendir",
-      ),
-    ).toHaveLength(0);
+    const windowsRows = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactOpendir",
+    );
+    expect(windowsRows).toHaveLength(1);
+    expect(windowsRows[0].publicSurfaceProbe).toMatchObject({
+      kind: "target-absence-probe",
+      invocation: { expectedResult: "absent" },
+    });
   });
 
   test("executes the typed cached-system-info authorization surface", () => {

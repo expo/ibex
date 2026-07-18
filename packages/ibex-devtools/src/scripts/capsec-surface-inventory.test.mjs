@@ -3812,6 +3812,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       processRows.some((row) => row.name === "global:process.stdout.write"),
     ).toBe(true);
     expect(
+      processRows.every(
+        (row) => row.metadata.branches[0].targetVariant === "posix",
+      ),
+    ).toBe(true);
+    expect(
       processRows.some(
         (row) =>
           row.name ===
@@ -4081,7 +4086,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ])
         .sort((left, right) => left[1].localeCompare(right[1])),
     ).toEqual([
-      ["native-jsi-global", "default", "alternative"],
+      ["native-jsi-global", "posix", "alternative"],
       ["native-jsi-global", "windows", "alternative"],
     ]);
     const unixConnectBranches = first.nativeOps.find(
@@ -4094,7 +4099,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         .sort((left, right) => left[0].localeCompare(right[0])),
     ).toEqual([
       [
-        "default",
+        "posix",
         [
           "src/engine/hermes_runtime_net.cc#__exactUnixConnect",
           "src/engine/hermes_runtime_net.cc#jsi-global:__exactUnixConnect",
@@ -4187,8 +4192,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       expect.arrayContaining([
         expect.objectContaining({
           branchKind: "alternative",
-          routes: ["native-jsi-global", "shared-runtime"],
+          routes: ["shared-runtime"],
           targetVariant: "default",
+        }),
+        expect.objectContaining({
+          branchKind: "alternative",
+          routes: ["native-jsi-global"],
+          targetVariant: "posix",
         }),
         expect.objectContaining({
           branchKind: "alternative",

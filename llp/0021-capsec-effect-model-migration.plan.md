@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 derives POSIX-only native-global branches from the build graph so Windows evidence never invokes an unlinked backend)
 **Revised:** 2026-07-18 (ENG-24933 distinguishes the intentional Windows legacy console-layer absence from the forbidden startup-control skip)
 **Revised:** 2026-07-18 (ENG-24933 evaluates the embedded Windows runtime bundle before structural lockdown so reviewed intrinsic polyfills exist before prototypes freeze)
 **Revised:** 2026-07-18 (ENG-24933 binds Windows conformance to the actual Cargo-staged mapped DLL identity and independently requires its bytes to equal the selected Release artifact)
@@ -639,14 +640,15 @@ checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed per-target catalogs each have
-22,932 required fixtures: Apple has 5,226 fully executable recipes and 17,706
-unresolved fixtures, while Windows has 5,057 executable and 17,875 unresolved.
-The Windows difference is explicit target applicability and implementation:
-102 Apple target-absence probes are not applicable, 46 target-absence source
-invocations remain unavailable, and 56 Apple-only native operations are absent
-or not yet typed on Windows; 16 additional Windows non-capability paths remain
-unauthored. None of those differences is credited as a pass.
+advertisements remain incomplete. The refreshed catalogs are target-specific:
+Apple has 22,932 required fixtures, 5,226 fully executable recipes, and 17,706
+unresolved fixtures; Windows has 22,672 required fixtures, 5,074 executable,
+and 17,598 unresolved. The build graph excludes 260 POSIX-only enforcement
+fixtures from Windows instead of treating their translation units as fallback
+implementations. Windows executes 85 source-bound native target-absence probes;
+69 additional target-absence source invocations remain unavailable, alongside
+11 operations absent from the target and 11 not yet typed there. None of those
+differences is borrowed from Apple or credited without target-local evidence.
 The latest source-bound tranches add 322 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
@@ -709,7 +711,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,706 unresolved Apple fixtures and 17,875
+are 7,043 ambiguous routes with 17,706 unresolved Apple fixtures and 17,598
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -1750,7 +1752,8 @@ Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
 consume an authoritative matrix run before refusing the report.
-Its current catalog has 5,057 executable and 17,875 unresolved fixtures. The
+Its current catalog has 22,672 required fixtures, 5,074 executable recipes, and
+17,598 unresolved fixtures. The
 source-derived class-factory traversal is path-cycle safe: a uniquely resolved
 factory may be revisited after its current return chain unwinds, but a mutually
 recursive return chain cannot recurse forever or invent a class shape. The

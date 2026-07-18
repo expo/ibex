@@ -1360,10 +1360,14 @@ function armedNativeGlobalAbsenceProbe({
   const metadata = live?.metadata;
   const branches = metadata?.installationBranches;
   const publicInvocation = metadata?.publicInvocation;
-  const defaultBranch = branches?.find(
+  const targetNativeVariants = target.triple.includes("-windows-")
+    ? ["windows", "default"]
+    : ["macos", "apple", "posix", "default"];
+  const targetBranch = branches?.find(
     (branch) =>
       branch.route === "native-jsi-global" &&
-      branch.targetVariant === "default",
+      targetNativeVariants.includes(branch.targetVariant) &&
+      branch.sourceRefs.includes(publicInvocation?.sourceRef),
   );
   const workletBranch = branches?.find(
     (branch) =>
@@ -1388,7 +1392,7 @@ function armedNativeGlobalAbsenceProbe({
     Number.isSafeInteger(publicInvocation.arity) &&
     publicInvocation.arity >= 0 &&
     typeof publicInvocation.sourceRef === "string" &&
-    defaultBranch?.sourceRefs.includes(publicInvocation.sourceRef);
+    targetBranch?.sourceRefs.includes(publicInvocation.sourceRef);
   const reviewedWorkletGlobal =
     appRuntimeAbsentWorkletGlobal &&
     `global:${expectedExportName}` === surfaceName &&

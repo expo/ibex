@@ -9522,7 +9522,22 @@ export function scanCppGlobalPropertySurfaces(
     }
   }
 
-  const targetVariant = sourcePath.includes("windows")
+  // @ref LLP 0005#c-compilation — build.rs replaces these complete native
+  // backends with Windows-specific translation units. Their globals are POSIX
+  // implementation branches, not fallback branches available on Windows.
+  const posixOnlySourcePaths = new Set([
+    "src/engine/hermes_runtime_crypto.cc",
+    "src/engine/hermes_runtime_debugger.cc",
+    "src/engine/hermes_runtime_dns.cc",
+    "src/engine/hermes_runtime_fs.cc",
+    "src/engine/hermes_runtime_net.cc",
+    "src/engine/hermes_runtime_osinfo.cc",
+    "src/engine/hermes_runtime_process.cc",
+    "src/engine/hermes_runtime_process_setup.cc",
+  ]);
+  const targetVariant = posixOnlySourcePaths.has(sourcePath)
+    ? "posix"
+    : sourcePath.includes("windows")
     ? "windows"
     : sourcePath.includes("ios")
       ? "ios"
