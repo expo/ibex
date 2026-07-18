@@ -1480,6 +1480,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         },
       ),
     ).not.toThrow();
+
+    const cyclicFactory = scanStaticBuiltinExports(
+      "function first() { return second(); } function second() { return first(); } module.exports.Public = first();",
+      {
+        sourceKey: "node_cyclic_factory",
+        sourcePath: "src/builtins/cyclic-factory.js",
+      },
+    );
+    expect(
+      cyclicFactory.some((row) =>
+        /^Public\.\[\[dynamic-table:inherited-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.metadata.exportName,
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("legacy accessors and reflective prototype mutations are exact and fail closed", () => {
@@ -1765,6 +1780,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     );
     expect(
       opaqueFactoryRows.some((row) =>
+        /^global:Public\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.name,
+        ),
+      ),
+    ).toBe(true);
+    const cyclicFactoryRows = scanStaticGlobalApiSurfaces(
+      "function first() { return second(); } function second() { return first(); } globalThis.Public = first();",
+      "src/engine/bootstrap/cyclic-factory.js",
+    );
+    expect(
+      cyclicFactoryRows.some((row) =>
         /^global:Public\.\[\[dynamic-table:call-result-[a-f0-9]{12}-properties\]\]$/u.test(
           row.name,
         ),
