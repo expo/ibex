@@ -6,7 +6,15 @@
  */
 const pythonCommand = process.platform === "win32" ? "python" : "python3";
 
-export const CONFORMANCE_COMMANDS = Object.freeze([
+export const CONFORMANCE_PREFLIGHT_COMMANDS = Object.freeze([
+  ["capsec-registry-drift", "bun", ["run", "check:capsec-registry"]],
+  ["capsec-contract-drift", "bun", ["run", "check:capsec-contract"]],
+  ["generated-policy-drift", "bun", ["run", "check:example-policy"]],
+  ["all-generated-drift", "bash", ["./scripts/check-generated-drift.sh"]],
+  ["linked-literate-references", pythonCommand, ["./ref-check"]],
+]);
+
+export const CONFORMANCE_PRODUCT_COMMANDS = Object.freeze([
   [
     "rust-default-full",
     "bash",
@@ -40,9 +48,9 @@ export const CONFORMANCE_COMMANDS = Object.freeze([
     ["./scripts/test-android-java.sh"],
   ],
   ["hermes-transform-loader-corpora", "bun", ["run", "test:hermes-compat"]],
-  ["capsec-registry-drift", "bun", ["run", "check:capsec-registry"]],
-  ["capsec-contract-drift", "bun", ["run", "check:capsec-contract"]],
-  ["generated-policy-drift", "bun", ["run", "check:example-policy"]],
-  ["all-generated-drift", "bash", ["./scripts/check-generated-drift.sh"]],
-  ["linked-literate-references", pythonCommand, ["./ref-check"]],
+]);
+
+export const CONFORMANCE_COMMANDS = Object.freeze([
+  ...CONFORMANCE_PREFLIGHT_COMMANDS,
+  ...CONFORMANCE_PRODUCT_COMMANDS,
 ]);

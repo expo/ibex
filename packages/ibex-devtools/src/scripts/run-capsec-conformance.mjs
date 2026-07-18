@@ -21,7 +21,10 @@ import {
   mergePublicBatchExecutions,
   validatePublicSurfaceExecutionArtifact,
 } from "./capsec-public-surface-evidence.mjs";
-import { CONFORMANCE_COMMANDS } from "./capsec-conformance-matrix.mjs";
+import {
+  CONFORMANCE_PREFLIGHT_COMMANDS,
+  CONFORMANCE_PRODUCT_COMMANDS,
+} from "./capsec-conformance-matrix.mjs";
 import {
   commandEvidenceIdSuffix,
   runObservedCommand,
@@ -221,9 +224,21 @@ const runEngineAttestation = (id, identityPath) => {
     },
   });
 };
-const commandEvidence = [
+const runMatrixCommands = (commands) =>
+  commands.map(([id, command, commandArgs]) =>
+    runObservedCommand({
+      id,
+      command,
+      args: commandArgs,
+      cwd: repoRoot,
+      evidenceDirectory,
+      env: exactEngineEnvironment,
+    }),
+  );
+const commandEvidence = runMatrixCommands(CONFORMANCE_PREFLIGHT_COMMANDS);
+commandEvidence.push(
   runEngineAttestation("exact-loaded-engine-attestation", engineIdentityPath),
-];
+);
 const loadedEngineIdentity = readOwnedJson(
   engineIdentityPath,
   "loaded engine identity",
@@ -367,15 +382,7 @@ const publicExecutions = mergePublicBatchExecutions({
   recipeCatalog,
   loadedEngineIdentity,
 });
-commandEvidence.push(...CONFORMANCE_COMMANDS.map(([id, command, commandArgs]) =>
-  runObservedCommand({
-    id,
-    command,
-    args: commandArgs,
-    cwd: repoRoot,
-    evidenceDirectory,
-    env: exactEngineEnvironment,
-  })));
+commandEvidence.push(...runMatrixCommands(CONFORMANCE_PRODUCT_COMMANDS));
 commandEvidence.push(
   runEngineAttestation(
     "exact-loaded-engine-attestation-after-suites",

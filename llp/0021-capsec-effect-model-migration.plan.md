@@ -1573,6 +1573,10 @@ Windows x64 is now a declared but unadvertised candidate alongside Apple arm64.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
 manifest, digest, patched export, and debugger-free profile, then explicitly
 selects `x86_64-pc-windows-msvc` for recipe generation and report execution.
+Deterministic registry, contract, generated-policy, aggregate-generated, and
+LLP-reference drift checks run as an evidence-retained preflight before engine
+attestation or physical fixture execution, so stale source artifacts cannot
+consume an authoritative matrix run before refusing the report.
 Its current catalog has 5,005 executable and 17,933 unresolved fixtures. The
 first authoritative Windows report must still finish and be inspected before
 any Windows target cell or advertisement can change; incomplete evidence is

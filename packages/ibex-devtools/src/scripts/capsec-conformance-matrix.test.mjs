@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { CONFORMANCE_COMMANDS } from "./capsec-conformance-matrix.mjs";
+import {
+  CONFORMANCE_COMMANDS,
+  CONFORMANCE_PREFLIGHT_COMMANDS,
+  CONFORMANCE_PRODUCT_COMMANDS,
+} from "./capsec-conformance-matrix.mjs";
 
 test("conformance prerequisite matrix covers every product test layer", () => {
   const byId = new Map(CONFORMANCE_COMMANDS.map((entry) => [entry[0], entry.slice(1)]));
@@ -45,5 +49,16 @@ test("conformance prerequisite matrix covers every product test layer", () => {
   expect(byId.get("linked-literate-references")).toEqual([
     process.platform === "win32" ? "python" : "python3",
     ["./ref-check"],
+  ]);
+  expect(CONFORMANCE_COMMANDS).toEqual([
+    ...CONFORMANCE_PREFLIGHT_COMMANDS,
+    ...CONFORMANCE_PRODUCT_COMMANDS,
+  ]);
+  expect(CONFORMANCE_PREFLIGHT_COMMANDS.map(([id]) => id)).toEqual([
+    "capsec-registry-drift",
+    "capsec-contract-drift",
+    "generated-policy-drift",
+    "all-generated-drift",
+    "linked-literate-references",
   ]);
 });
