@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-18 (ENG-24933 installs the Windows shared runtime from embedded source before structural lockdown while retaining the compiler-specific HBC exclusion)
 **Revised:** 2026-07-18 (ENG-24933 makes Windows artifact publication reopen an existing bundle and rebuild it when its embedded build-authority/profile identity is stale)
 **Revised:** 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
 **Revised:** 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
@@ -162,9 +163,12 @@ managed Windows toolchain now builds the same pinned patched Hermes source as
 Apple/Linux, but `build.rs` continues to emit source startup headers until a
 Windows run explicitly proves the newer compiler/runtime path; changing the
 artifact does not silently remove the fallback boundary `[observed]`
-(`build.rs`; `scripts/build-hermes-windows.ps1`). Windows also continues to
-skip shared-runtime-bundle HBC because startup does not install that bundle
-`[observed]` (`src/engine/hermes_bootstrap.cc`; `build.rs`).
+(`build.rs`; `scripts/build-hermes-windows.ps1`). Windows continues to skip
+shared-runtime-bundle HBC, but native startup evaluates the embedded source
+bundle before structural lockdown; deferring it to the later disk runtime load
+would freeze `Array.prototype` before the bundle can install its reviewed
+compatibility methods `[observed]`
+(`src/engine/hermes_bootstrap.cc`; `build.rs`).
 
 The macOS Hermes 0.11 compiler is stricter than the runtime authoring surface
 too: it rejects BigInt literal syntax in bootstrap files while accepting

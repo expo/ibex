@@ -2136,9 +2136,9 @@ fn generate_runtime_bundle_bytecode_header(
     safe_remove_file(&bundled_runtime_hbc);
     safe_remove_file(&header_path);
 
-    // @ref LLP 0005#bytecode-precompilation-hermesc — Windows startup does not
-    // install the shared runtime bundle, and the Windows Hermes compiler rejects
-    // modern bundle syntax, so HBC generation is intentionally skipped.
+    // @ref LLP 0005#bytecode-precompilation-hermesc — the Windows Hermes
+    // compiler rejects modern bundle syntax, so HBC generation is intentionally
+    // skipped; native startup evaluates the embedded source before lockdown.
     if target_os == "windows" {
         println!("cargo:warning=Skipping shared runtime bundle HBC generation on Windows");
         return;

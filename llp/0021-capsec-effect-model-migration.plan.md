@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 evaluates the embedded Windows runtime bundle before structural lockdown so reviewed intrinsic polyfills exist before prototypes freeze)
 **Revised:** 2026-07-18 (ENG-24933 binds Windows conformance to the actual Cargo-staged mapped DLL identity and independently requires its bytes to equal the selected Release artifact)
 **Revised:** 2026-07-18 (ENG-24933 rebuilds a Windows Release bundle from source when its commit/patch/profile match but its reviewed build-authority digest is stale)
 **Revised:** 2026-07-18 (ENG-24933 pins tracked text to canonical LF and makes the appended web-streams bootstrap boundary CRLF-tolerant after Windows reached different public-surface and Hermes-identity graphs)
@@ -1737,6 +1738,10 @@ object, and separately requires the hash and DLL name to equal the selected
 Release artifact. It does not require the copy's pathname or file index to
 equal its source, which cannot hold for a copied DLL.
 Windows x64 is now a declared but unadvertised candidate alongside Apple arm64.
+Because Windows intentionally omits runtime-bundle HBC, native startup evaluates
+the same embedded source bundle before structural lockdown. The later disk-load
+path remains idempotent, but it is not allowed to be the first installer after
+lockdown has frozen intrinsic prototypes.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
 manifest, digest, patched export, and debugger-free profile, then explicitly
 selects `x86_64-pc-windows-msvc` for recipe generation and report execution.

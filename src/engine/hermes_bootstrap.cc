@@ -74,15 +74,6 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
     return false;
   }
 
-#if defined(_WIN32)
-  if (startup_trace_enabled()) {
-    fprintf(stderr,
-            "[startup]   shared_runtime_bundle skipped on Windows "
-            "(disk runtime loads after native startup)\n");
-  }
-  return false;
-#endif
-
   if (env_flag_enabled("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE")) {
     if (startup_trace_enabled()) {
       fprintf(
@@ -101,6 +92,9 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
     if (handle->armed) throw;
   }
 
+  // @ref LLP 0005#bytecode-precompilation-hermesc — Windows deliberately has
+  // no bundle HBC, but the embedded source must still run before structural
+  // lockdown freezes the intrinsic prototypes that its polyfills complete.
   bool sourceSharedRuntimeBundle = env_flag_enabled("EX_SHARED_RUNTIME_BUNDLE_SOURCE");
 #ifdef HAS_SHARED_RUNTIME_BUNDLE_HBC
   const uint8_t* sharedRuntimeBundleHbc =
