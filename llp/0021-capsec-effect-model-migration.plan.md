@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-17 (ENG-24578 moves the lockdown startup postcondition to authenticated direct-file native-graph execution while retaining a separate zero-decision startup window, because persistent-session lowering intentionally closes evaluator syntax)
 **Revised:** 2026-07-17 (ENG-24578 moves the four lockdown-tamed evaluator probes from the deliberately syntax-closed persistent-session route to authenticated direct-file native-graph admission, preserving exact loaded-engine evidence without reopening REPL dynamic code)
 **Revised:** 2026-07-17 (ENG-24933 restamps the reviewed Hermes evaluator identity after the Release artifact builder changed, preserving fail-closed source-authority drift detection)
 **Revised:** 2026-07-17 (ENG-24578 binds native-public async completion to event-loop quiescence, reconciles retained-path live traces with the source-bound internal observer-stage contract, and keeps armed `mkdtemp` residual because its public entry point remains closed)
@@ -1570,7 +1571,11 @@ eager lazy-installer sealing, lockdown, freeze-hatch sealing, compartment
 registry installation, and explicitly enabled Web Streams installation. Each
 stage has one fixed source descriptor and an independently validated
 postcondition; the probe then executes a project marker and requires zero
-legacy or typed decisions. Scanner-only script URLs, evaluation/call-site
+legacy or typed decisions. The lockdown-stage self-check uses authenticated
+direct-file native-graph admission so it can inspect the tamed evaluator
+without bypassing the persistent-session syntax closure; its startup,
+admission, and execution observation windows are independently empty.
+Scanner-only script URLs, evaluation/call-site
 facets, installer definitions, skipped legacy bootstraps, and platform-only
 routes remain residual rather than inheriting these stage results.
 The runtime-create descriptor binds `ex_hermes_create_armed`, not the historical

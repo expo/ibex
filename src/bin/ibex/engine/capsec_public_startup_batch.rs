@@ -422,6 +422,172 @@ fn assert_exact_fact_set(
     );
 }
 
+async fn execute_lockdown_startup_postcondition(
+    expected: &ExpectedStartupStage,
+    marker: &str,
+    engine_binary_digest: &str,
+) -> BTreeMap<String, bool> {
+    use ibex_runtime::module_loader::runner_pipeline::{
+        build_authenticated_source_graph_v1_for_host, SourceModuleGraphBuildV1,
+    };
+
+    assert_eq!(expected.postcondition, "lockdown-installed");
+    let directory = tempfile::tempdir().expect("create lockdown startup project root");
+    let project_root = std::fs::canonicalize(directory.path())
+        .expect("canonicalize lockdown startup project root");
+    std::fs::write(
+        project_root.join("package.json"),
+        r#"{"name":"capsec-lockdown-startup","private":true,"type":"module"}"#,
+    )
+    .expect("write lockdown startup package manifest");
+    let probe_expression = startup_postcondition_script(expected.postcondition, marker);
+    let expected_facts = serde_json::to_string(expected.required_facts)
+        .expect("serialize lockdown startup fact names");
+    let source = format!(
+        r#"
+const encoded = {probe_expression};
+const observed = JSON.parse(encoded);
+const expectedFacts = {expected_facts}.slice().sort();
+const observedFacts = observed && observed.observedFacts;
+const observedNames = observedFacts && typeof observedFacts === "object"
+  ? Object.keys(observedFacts).sort()
+  : [];
+if (
+  observed.projectCodeExecuted !== true ||
+  JSON.stringify(observedNames) !== JSON.stringify(expectedFacts) ||
+  !expectedFacts.every((fact) => observedFacts[fact] === true)
+) {{
+  throw new Error(`lockdown startup postcondition failed: ${{JSON.stringify(observed)}}`);
+}}
+"#
+    );
+    let entry = project_root.join("entry.mjs");
+    std::fs::write(&entry, source).expect("write lockdown startup authenticated module entry");
+
+    // Persistent-session lowering deliberately closes evaluator syntax. The
+    // lockdown postcondition instead enters through an authenticated file and
+    // the production native-graph seam; source acquisition remains setup, not
+    // zero-decision startup evidence.
+    // @ref LLP 0024#scope
+    // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
+    let entry_identity = "file:///project/entry.mjs";
+    let (host, snapshot_digest) = build_armed_test_host_custom(
+        Some(&project_root),
+        false,
+        true,
+        true,
+        Vec::new(),
+        None,
+        |snapshot| {
+            snapshot["entry"] = serde_json::json!({
+                "kind": "file",
+                "identity": entry_identity,
+                "mode": "program",
+            });
+        },
+    );
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+    let _reset = HostResetGuard;
+    let bootstrap_session_id = format!("startup-observation:{marker}:bootstrap");
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &bootstrap_session_id,
+    ));
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create exact lockdown startup engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load exact lockdown startup runtime");
+    let (bootstrap_legacy, bootstrap_typed) =
+        ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(bootstrap_legacy.is_empty());
+    assert!(bootstrap_typed.is_empty());
+
+    let vfs = host
+        .virtual_file_system()
+        .expect("create lockdown startup virtual filesystem");
+    let namespace = vfs
+        .resolve_root_file_url(entry_identity, None)
+        .expect("resolve authenticated lockdown startup entry");
+    let session = host
+        .mint_armed_session_token()
+        .expect("mint lockdown startup armed session");
+    let mut sequence = ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
+        .expect("create lockdown startup submission sequence");
+    let submission = sequence
+        .mint_file(
+            namespace
+                .logical_referrer()
+                .expect("derive lockdown startup logical referrer"),
+            &[],
+        )
+        .expect("mint lockdown startup file submission");
+    let request = host
+        .authenticated_vfs_file_read(&vfs, namespace, submission)
+        .expect("read authenticated lockdown startup entry")
+        .into_capsule()
+        .into_request()
+        .expect("construct lockdown startup source request");
+
+    let graph_host = host.clone();
+    let graph_entry = entry.clone();
+    let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
+        .expect("loaded engine digest is canonical");
+    let hermes_target = bytecode_cache_identity();
+    let admission_session_id = format!("startup-observation:{marker}:admission");
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &admission_session_id,
+    ));
+    let execution_session_id = format!("startup-observation:{marker}:execution");
+    let evaluation = engine
+        .evaluate_authenticated_module_graph(
+            &session,
+            request,
+            Box::new(move |_admitted_request| {
+                let (admission_legacy, admission_typed) =
+                    ibex_runtime::host::abi::take_installed_conformance_observations();
+                assert!(admission_legacy.is_empty());
+                assert!(admission_typed.is_empty());
+                let graph = match build_authenticated_source_graph_v1_for_host(
+                    &graph_host,
+                    &graph_entry,
+                    producer_digest,
+                    &hermes_target,
+                )? {
+                    SourceModuleGraphBuildV1::Native(graph) => graph,
+                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => anyhow::bail!(
+                        "lockdown startup graph unexpectedly required legacy: {}",
+                        requirement.reason
+                    ),
+                };
+                assert!(
+                    ibex_runtime::host::abi::begin_installed_conformance_observation(
+                        &execution_session_id,
+                    )
+                );
+                Ok(crate::engine::AuthenticatedModuleGraphPreparation::Native(
+                    graph,
+                ))
+            }),
+        )
+        .await
+        .expect("execute authenticated lockdown startup module graph");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+    assert!(
+        matches!(evaluation, AuthenticatedEvaluation::Empty),
+        "authenticated lockdown startup module did not complete its self-check: {evaluation:?}"
+    );
+    vfs.close();
+
+    expected
+        .required_facts
+        .iter()
+        .map(|fact| ((*fact).to_owned(), true))
+        .collect()
+}
+
 async fn execute_startup_recipe(
     recipe: &Recipe,
     coverage: &BTreeMap<String, (String, String)>,
@@ -502,40 +668,47 @@ async fn execute_startup_recipe(
     let _environment = StartupEnvironmentRestore::configure(
         invocation.operation.environment.as_ref(),
     );
-    let (host, snapshot_digest) =
-        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
-    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
-    let _reset = HostResetGuard;
-    let session_id = format!("startup-observation:{}", recipe.plan_digest);
-    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
-        &session_id
-    ));
-    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
-        .expect("create exact startup probe engine");
-    engine
-        .load_runtime()
-        .await
-        .expect("load exact startup probe runtime");
-    let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
-    let encoded = evaluator
-        .eval_string(
-            &engine,
-            &startup_postcondition_script(
-            expected.postcondition,
+    let observed_facts = if expected.postcondition == "lockdown-installed" {
+        execute_lockdown_startup_postcondition(
+            expected,
             &recipe.plan_digest,
-            ),
+            engine_binary_digest,
         )
-        .await;
-    let observed: serde_json::Value =
-        serde_json::from_str(&encoded).expect("startup postcondition result must be JSON");
-    let observed_facts: BTreeMap<String, bool> =
-        serde_json::from_value(observed["observedFacts"].clone())
-            .expect("startup observed facts must be booleans");
+        .await
+    } else {
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+        let _reset = HostResetGuard;
+        let session_id = format!("startup-observation:{}", recipe.plan_digest);
+        assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+            &session_id
+        ));
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact startup probe engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact startup probe runtime");
+        let mut evaluator = AuthenticatedReplTestEvaluator::new(&host);
+        let encoded = evaluator
+            .eval_string(
+                &engine,
+                &startup_postcondition_script(expected.postcondition, &recipe.plan_digest),
+            )
+            .await;
+        let observed: serde_json::Value =
+            serde_json::from_str(&encoded).expect("startup postcondition result must be JSON");
+        let observed_facts: BTreeMap<String, bool> =
+            serde_json::from_value(observed["observedFacts"].clone())
+                .expect("startup observed facts must be booleans");
+        assert_eq!(observed["projectCodeExecuted"], true);
+        let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert!(typed.is_empty());
+        observed_facts
+    };
     assert_exact_fact_set(&observed_facts, expected);
-    assert_eq!(observed["projectCodeExecuted"], true);
-    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
-    assert!(legacy.is_empty());
-    assert!(typed.is_empty());
 
     let result = serde_json::json!({
         "kind": "return",
@@ -558,7 +731,7 @@ async fn execute_startup_recipe(
             "sourceDescriptorDigest": invocation.source_descriptor_digest,
             "result": result,
         },
-        "legacyObservationCount": legacy.len(),
+        "legacyObservationCount": 0,
         "typedDecisions": [],
     });
     let mut observation = recipe.expected_observation.clone();
