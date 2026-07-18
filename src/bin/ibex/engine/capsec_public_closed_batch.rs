@@ -2277,9 +2277,22 @@ async fn execute_closed_shared_runtime_global_absence(
             assert_eq!(public_invocation["kind"], "native-global-function");
             assert_eq!(public_invocation["globalName"], global_name.as_str());
             assert!(public_invocation["arity"].as_u64().is_some());
+            // @ref LLP 0005#c-compilation — the reviewed native installation
+            // branch must be one selected for this target, not an assumed
+            // default translation unit.
+            let target_variants: &[&str] = if catalog_target_triple.contains("-windows-") {
+                &["windows", "default"]
+            } else {
+                &["macos", "apple", "posix", "default"]
+            };
             assert!(branches.iter().any(|branch| {
                 branch["route"] == "native-jsi-global"
-                    && branch["targetVariant"] == "default"
+                    && branch["targetVariant"]
+                        .as_str()
+                        .is_some_and(|variant| target_variants.contains(&variant))
+                    && branch["sourceRefs"].as_array().is_some_and(|source_refs| {
+                        source_refs.contains(&public_invocation["sourceRef"])
+                    })
             }));
         }
         assert_eq!(
