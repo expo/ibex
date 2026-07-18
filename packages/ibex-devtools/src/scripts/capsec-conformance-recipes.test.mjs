@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_185);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_753);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_189);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_749);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(486);
+    expect(nativePublicFixtures).toHaveLength(490);
     expect(
       nativePublicFixtures
         .filter(
@@ -1139,6 +1139,60 @@ describe("exact-target CapSec executable recipes", () => {
         expect(recipe.status).toBe("fully-executable");
       }
     }
+  });
+
+  test("reads retained descriptor metadata and closes its source-bound setup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactFsFstatSync",
+    );
+    expect(rows).toHaveLength(4);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "harness-fs-file-descriptor" },
+      ]);
+      expect(invocation.setup).toHaveLength(1);
+      expect(invocation.setup[0].globalName).toBe("__exactFsOpen");
+      expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+      expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
+        "fs:list",
+        "fs:read",
+      ]);
+      expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+      expect(invocation.expectedTypedDecisionCount).toBe(1);
+      expect(invocation.expectedCleanup).toBe("closed-fs-file-descriptor");
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactFsFstatSync",
+      ),
+    ).toHaveLength(0);
+    const denied = recipes.recipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactFsFstatSync" &&
+        recipe.scenario === "deny",
+    );
+    expect(denied.publicSurfaceProbe).toBeNull();
+    expect(denied.residualReasons).toContain(
+      "native-public-deny-scenario-not-authored",
+    );
+    const windowsResiduals = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactFsFstatSync" &&
+        recipe.scenario === "allow",
+    ).residualReasons;
+    expect(windowsResiduals).toContain(
+      "native-public-operation-not-typed-on-target",
+    );
+    expect(windowsResiduals).not.toContain(
+      "native-public-operation-not-installed-on-target",
+    );
   });
 
   test("enumerates a direct native directory with retained repeat evidence", () => {

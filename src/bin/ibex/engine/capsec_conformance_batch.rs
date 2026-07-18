@@ -1375,9 +1375,13 @@ fn validate_native_runtime_observation(
         );
     }
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
-    // an async dispatcher may observe its source-selected worker or cleanup
-    // edge, but no unrelated edge may be admitted by the authored recipe.
-    let auxiliary_worker_terminal = if invocation.global_name == "__exactFsOpenAsync" {
+    // an async dispatcher or retained-object operation may observe its
+    // source-selected worker, cleanup, or object-gate edge, but no unrelated
+    // edge may be admitted by the authored recipe.
+    let auxiliary_worker_terminal = if matches!(
+        invocation.global_name.as_str(),
+        "__exactFsOpenAsync" | "__exactFsFstatSync"
+    ) {
         Some("native-op:__exactFsOpen")
     } else if invocation.global_name == "__exactFsPathAsync" {
         match invocation.arguments.first() {
@@ -2004,6 +2008,26 @@ async fn execute_native_public_recipe(
         .expect("native public invocation returned no result");
     let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
+    if invocation.global_name == "__exactFsFstatSync" {
+        let descriptor = setup_state
+            .fs_file_descriptor
+            .expect("retained fstat requires an owned setup descriptor");
+        let cleanup = engine
+            .eval_immediate(&format!(
+                "JSON.stringify((function(){{try{{globalThis.__exactFsClose({});return {{kind:\"return\"}};}}catch(e){{return {{kind:\"throw\",errorMessage:String(e&&e.message||e)}};}}}})())",
+                serde_json::to_string(&descriptor).expect("serialize setup descriptor")
+            ))
+            .await
+            .expect("close retained fstat setup descriptor")
+            .expect("retained fstat cleanup returned no result");
+        let cleanup: serde_json::Value = serde_json::from_str(&cleanup)
+            .expect("retained fstat cleanup returned invalid JSON");
+        assert_eq!(cleanup["kind"], "return", "retained fstat cleanup failed");
+        if invocation_result["kind"] == "return" {
+            invocation_result["cleanup"] =
+                serde_json::Value::String("closed-fs-file-descriptor".into());
+        }
+    }
     if let Some(property_count) = empty_environment_property_count {
         invocation_result
             .as_object_mut()

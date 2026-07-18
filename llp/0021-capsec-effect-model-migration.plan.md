@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor metadata on Apple, closes the setup descriptor outside observation, and leaves prerequisite-conflicting denial and the legacy Windows path residual)
 **Revised:** 2026-07-18 (ENG-24933 keeps POSIX evidence directories mode-private while treating Windows' synthetic POSIX mode bits as non-authoritative)
 **Revised:** 2026-07-18 (ENG-24933 executes all three asynchronous descriptor-open branches through event-loop quiescence on Apple, closes returned descriptors, and keeps the uninstalled Windows surface residual)
 **Revised:** 2026-07-18 (ENG-24933 executes all three direct descriptor-open access branches against exact pre-seeded files, closes returned descriptors, proves non-mutation, and removes the fixtures)
@@ -1582,6 +1583,17 @@ closes the returned descriptor, proves unchanged bytes, and removes the file;
 denial stops at requested and removes its unchanged fixture. The Windows
 backend does not install `__exactFsOpenAsync`, so Windows recipes remain
 explicitly residual instead of borrowing the POSIX invocation.
+Retained `__exactFsFstatSync` metadata now has four physical Apple recipes. The
+harness opens source-bound `Cargo.toml` before observation under exact
+`fs:list` and `fs:read` floors, passes only the retained descriptor to the
+metadata surface, requires one typed `fs:list` repeat decision, and closes the
+descriptor after collecting observations. Cleanup therefore cannot contribute
+an unrelated decision to the recipe it proves. The deny recipe remains
+residual: denying the same principal's `fs:list` authority would prevent the
+prerequisite descriptor from being opened, so the harness cannot honestly
+stage that retained-object scenario. Windows remains residual independently
+because its installed descriptor-metadata implementation still uses the
+legacy capability check rather than the typed retained-object gate.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
 harness-owned file. Passing evidence must select requested, discovery, and two
 repeat decisions: one retained-target authorization and one generation-bound

@@ -1179,6 +1179,51 @@ const nativeProjectFsOpenTemplate = ({
         }
       : {}),
   });
+const nativeRetainedFsFstatTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [harnessFsFileDescriptorArgument()],
+    expectedCleanup: "closed-fs-file-descriptor",
+    expectedDecisionCounts: {
+      allow: 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:list"],
+      malformed: ["fs:list"],
+      "missing-attribution": ["fs:list"],
+      "wrong-principal": ["fs:list"],
+    },
+    expectedResults: {
+      allow: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: fsReadFileSetup(),
+    unsupportedTargetReason: "native-public-operation-not-typed-on-target",
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
 const nativeProjectReaddirTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -1422,6 +1467,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       ],
     }),
   ],
+  ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
   [
     "__exactTcpConnect",
     Object.freeze({
@@ -3035,7 +3081,9 @@ function nativePublicProbeForPlan({
   if (template.unsupportedTargetTriples?.includes(target.triple)) {
     return {
       probe: null,
-      unavailableReason: "native-public-operation-not-installed-on-target",
+      unavailableReason:
+        template.unsupportedTargetReason ??
+        "native-public-operation-not-installed-on-target",
     };
   }
   if (
