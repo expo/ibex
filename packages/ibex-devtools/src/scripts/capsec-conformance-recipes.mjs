@@ -874,12 +874,12 @@ const nativeProjectStatAsyncPathTemplate = () =>
       timeoutMilliseconds: 1_000,
     },
     expectedDecisionCounts: {
-      allow: 3,
-      "branch-selection": 3,
+      allow: 4,
+      "branch-selection": 4,
       deny: 1,
-      malformed: 3,
-      "missing-attribution": 3,
-      "wrong-principal": 3,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
     },
     expectedResults: {
       allow: "return",
@@ -890,12 +890,12 @@ const nativeProjectStatAsyncPathTemplate = () =>
       "wrong-principal": "return",
     },
     expectedStages: {
-      allow: ["requested", "discovery", "repeat"],
-      "branch-selection": ["requested", "discovery", "repeat"],
+      allow: ["requested", "discovery", "repeat", "repeat"],
+      "branch-selection": ["requested", "discovery", "repeat", "repeat"],
       deny: ["requested"],
-      malformed: ["requested", "discovery", "repeat"],
-      "missing-attribution": ["requested", "discovery", "repeat"],
-      "wrong-principal": ["requested", "discovery", "repeat"],
+      malformed: ["requested", "discovery", "repeat", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
     },
     requiredFloor: [
       {

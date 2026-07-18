@@ -1196,10 +1196,10 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "deny"
           ? ["requested"]
-          : ["requested", "discovery", "repeat"],
+          : ["requested", "discovery", "repeat", "repeat"],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "deny" ? 1 : 3,
+        recipe.scenario === "deny" ? 1 : 4,
       );
       expect(invocation.requiredFloor).toEqual([
         {
