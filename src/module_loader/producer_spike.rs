@@ -55,7 +55,6 @@ fn unsupported_module_runner_shape(requirement: LegacyModuleRunnerRequirement) -
     UnsupportedModuleRunnerShape(requirement).into()
 }
 
-#[cfg(any(test, feature = "module-runner"))]
 pub fn unsupported_module_runner_reason(
     error: &anyhow::Error,
 ) -> Option<&LegacyModuleRunnerRequirement> {
