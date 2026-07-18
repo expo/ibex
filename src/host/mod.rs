@@ -9711,6 +9711,7 @@ mod tests {
     }
 
     // @ref LLP 0026#security-invariants — authenticated source and prepared records must execute in their defining package compartment
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — armed namespace serialization stays closed, so the graph asserts its own compartment invariants.
     #[cfg(all(feature = "capsec-conformance-observer", not(target_os = "windows")))]
     #[test]
     fn authenticated_package_principal_executes_in_distinct_source_and_prepared_compartments() {
@@ -9760,7 +9761,7 @@ mod tests {
         std::fs::write(
             &entry,
             format!(
-                "import {{ packageObservation }} from 'image-lib';\nconst marker = {marker:?};\nconst observations = {{ packageObservation }};\nconst packageOwnsMarker = observations.packageObservation.ownsMarker;\nconst packageMarker = observations.packageObservation.marker;\nexport const result = {{ packageOwnsMarker: packageOwnsMarker, packageMarker: packageMarker, rootOwnsMarker: Object.prototype.hasOwnProperty.call(globalThis, marker) }};\n",
+                "import {{ packageObservation }} from 'image-lib';\nconst marker = {marker:?};\nconst observations = {{ packageObservation }};\nconst packageOwnsMarker = observations.packageObservation.ownsMarker;\nconst packageMarker = observations.packageObservation.marker;\nconst rootOwnsMarker = Object.prototype.hasOwnProperty.call(globalThis, marker);\nif (!packageOwnsMarker || packageMarker !== 'package-local' || rootOwnsMarker) {{ throw new Error('package compartment isolation failed'); }}\nexport const result = true;\n",
                 marker = MARKER,
             ),
         )
@@ -9871,27 +9872,14 @@ mod tests {
                 }
                 .unwrap();
                 native.evaluate().unwrap();
-                let namespace: serde_json::Value =
-                    serde_json::from_str(&native.namespace_json(graph.entry()).unwrap()).unwrap();
                 drop(native);
                 drop(runtime);
                 ex_hermes_destroy(raw);
-                namespace
             }
         };
 
-        let expected = serde_json::json!({
-            "result": {
-                "packageOwnsMarker": true,
-                "packageMarker": "package-local",
-                "rootOwnsMarker": false,
-            }
-        });
-        let source_result = execute(&source_graph, false);
-        let prepared_result = execute(&prepared_graph, true);
-        assert_eq!(source_result, expected);
-        assert_eq!(prepared_result, expected);
-        assert_eq!(source_result, prepared_result);
+        execute(&source_graph, false);
+        execute(&prepared_graph, true);
     }
 
     #[test]
