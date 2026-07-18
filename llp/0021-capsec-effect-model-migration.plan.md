@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 removes the stale descriptor durability-read branch under LLP 0023's write-authorized durability contract, physically executes the asynchronous durability-write branch on Apple, and keeps the aggregate metadata-write branch residual pending an exact open/closed split)
 **Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor truncate, mode, and timestamp mutation on exact Apple-owned files while keeping absent Windows surfaces and prerequisite-conflicting denial residual)
 **Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor durability on Apple through typed fsync/fdatasync repeat gates and owned-file cleanup, while prerequisite-conflicting denial remains residual)
 **Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor metadata on Apple, closes the setup descriptor outside observation, and leaves prerequisite-conflicting denial and the legacy Windows path residual)
@@ -1615,6 +1616,20 @@ three globals are not installed by the Windows filesystem backend, so Windows
 remains explicitly residual; the Apple deny recipes also remain residual
 because their required writable-descriptor setup cannot survive the same
 principal's `fs:write` denial.
+The conditional `__exactFsFdAsync` registry now matches that retained-object
+contract instead of claiming an unreachable `durability-read` branch. LLP 0023
+places `fsync`, `fdatasync`, and their `FileHandle` aliases in the open-write
+family because they act on a descriptor already authorized to write; the
+runtime likewise requires a writable owned descriptor and emits `fs:write`.
+Apple public evidence selects `durability-write` with `fsync`, awaits event-loop
+quiescence, requires exactly one typed repeat decision, then closes the
+descriptor and verifies the unchanged owned file before removal. Its deny case
+remains residual because the setup itself requires the authority being denied,
+and the Windows backend does not install this dispatcher. The aggregate
+`metadata-write` branch remains residual: it currently combines open-family
+`ftruncate` with `fchmod`, `fchown`, and `futimes`, which LLP 0023 keeps closed
+pending object-bound mutation work. One `ftruncate` execution therefore cannot
+honestly prove that branch; its registry/runtime split is follow-up work.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
 harness-owned file. Passing evidence must select requested, discovery, and two
 repeat decisions: one retained-target authorization and one generation-bound

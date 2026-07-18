@@ -1244,13 +1244,13 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(fdDispatcher.edge.logicalBranches).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "durability-read",
+          id: "durability-write",
           effectOwnerSource: "descriptor-owner",
         }),
-        expect.objectContaining({ id: "durability-write" }),
         expect.objectContaining({ id: "metadata-write" }),
       ]),
     );
+    expect(fdDispatcher.edge.logicalBranches).toHaveLength(2);
 
     for (const name of [
       "__exactFsReadFileAsync",

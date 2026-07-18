@@ -938,6 +938,7 @@ async fn run_native_setup(
                             | "target/ibex-capsec-ftruncate"
                             | "target/ibex-capsec-fchmod"
                             | "target/ibex-capsec-futimes"
+                            | "target/ibex-capsec-fdasync-durability"
                     ),
                     "retained write setup escaped its exact owned paths"
                 );
@@ -1442,6 +1443,7 @@ fn validate_native_runtime_observation(
     let auxiliary_worker_terminal = if matches!(
         invocation.global_name.as_str(),
         "__exactFsOpenAsync"
+            | "__exactFsFdAsync"
             | "__exactFsFstatSync"
             | "__exactFsFsyncSync"
             | "__exactFsFdatasyncSync"
@@ -2083,6 +2085,7 @@ async fn execute_native_public_recipe(
             | "__exactFsFtruncateSync"
             | "__exactFsFchmodSync"
             | "__exactFsFutimesSync"
+            | "__exactFsFdAsync"
     ) {
         let descriptor = setup_state
             .fs_file_descriptor

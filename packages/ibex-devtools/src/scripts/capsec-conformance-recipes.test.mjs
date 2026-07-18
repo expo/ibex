@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(22_938);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_209);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_729);
+    expect(recipes.summary.requiredFixtures).toBe(22_932);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_214);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_718);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(510);
+    expect(nativePublicFixtures).toHaveLength(515);
     expect(
       nativePublicFixtures
         .filter(
@@ -203,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_938);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_932);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_057);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_881);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_875);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -1193,6 +1193,65 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsResiduals).not.toContain(
       "native-public-operation-not-installed-on-target",
     );
+  });
+
+  test("executes async retained durability without overclaiming metadata", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactFsFdAsync",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      expect(recipe.fixtureId).toContain(".logical.durability-write.");
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation).toMatchObject({
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        globalName: "__exactFsFdAsync",
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
+        expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+        expectedActionIds: ["fs:write"],
+        expectedTypedStages: ["repeat"],
+        expectedTypedDecisionCount: 1,
+      });
+      expect(invocation.arguments).toEqual([
+        {
+          kind: "json-literal",
+          value: "fsync",
+        },
+        { kind: "harness-fs-file-descriptor" },
+        { kind: "json-literal", value: 0 },
+        { kind: "json-literal", value: 0 },
+      ]);
+      expect(invocation.setup).toHaveLength(1);
+      expect(invocation.setup[0]).toMatchObject({
+        kind: "fs-write-file",
+        globalName: "__exactFsOpen",
+        path: "target/ibex-capsec-fdasync-durability",
+      });
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    const denyRows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.fixtureId.includes(".exactfsfdasync.") &&
+        recipe.scenario === "deny",
+    );
+    expect(denyRows).toHaveLength(2);
+    expect(denyRows.every((recipe) => recipe.status === "unresolved")).toBe(
+      true,
+    );
+    const metadataRows = recipes.recipes.filter((recipe) =>
+      recipe.fixtureId.includes(".exactfsfdasync.") &&
+      recipe.fixtureId.includes(".logical.metadata-write."),
+    );
+    expect(metadataRows).toHaveLength(6);
+    expect(
+      metadataRows.every((recipe) => recipe.status === "unresolved"),
+    ).toBe(true);
   });
 
   test("flushes retained writable descriptors and removes their owned files", () => {

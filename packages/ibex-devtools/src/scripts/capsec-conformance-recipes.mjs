@@ -1283,6 +1283,66 @@ const nativeRetainedFsWriteTemplate = ({
       ? { unsupportedTargetTriples }
       : {}),
   });
+const nativeRetainedFsAsyncWriteTemplate = ({
+  path,
+  operation,
+  argumentsList = [],
+}) =>
+  Object.freeze({
+    actionIds: ["fs:write"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [
+      literalArgument(operation),
+      harnessFsFileDescriptorArgument(),
+      ...argumentsList,
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 1,
+      "branch-selection": 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:write"],
+      "branch-selection": ["fs:write"],
+      malformed: ["fs:write"],
+      "missing-attribution": ["fs:write"],
+      "wrong-principal": ["fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      "branch-selection": ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+    ],
+    requiredSourceArity: 4,
+    setup: fsWriteFileSetup(path),
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
 const nativeProjectReaddirTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -2188,6 +2248,19 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
 ]);
 
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
+  [
+    "__exactFsFdAsync",
+    new Map([
+      [
+        "durability-write",
+        nativeRetainedFsAsyncWriteTemplate({
+          path: "target/ibex-capsec-fdasync-durability",
+          operation: "fsync",
+          argumentsList: [literalArgument(0), literalArgument(0)],
+        }),
+      ],
+    ]),
+  ],
   [
     "__exactFsOpen",
     new Map([

@@ -196295,22 +196295,6 @@
       },
       "effects": [
         {
-          "cap": "fs:read",
-          "selectorNormalizer": "fs.path.selector.v1",
-          "occurrenceNormalizer": "fs.path.occurrence.v1",
-          "stages": [
-            "commit",
-            "repeat"
-          ],
-          "positiveSources": [
-            "ambient-root",
-            "handle",
-            "implicit-self",
-            "session",
-            "static-floor"
-          ]
-        },
-        {
           "cap": "fs:write",
           "selectorNormalizer": "fs.path.selector.v1",
           "occurrenceNormalizer": "fs.path.occurrence.v1",
@@ -196334,54 +196318,6 @@
       "gate": "reclassifies",
       "effectMode": "conditional",
       "logicalBranches": [
-        {
-          "id": "durability-read",
-          "when": [
-            {
-              "fact": "filesystem.descriptor.operation",
-              "equals": "durability-read"
-            }
-          ],
-          "effects": [
-            {
-              "cap": "fs:read",
-              "selectorNormalizer": "fs.path.selector.v1",
-              "occurrenceNormalizer": "fs.path.occurrence.v1",
-              "stages": [
-                "commit",
-                "repeat"
-              ],
-              "positiveSources": [
-                "ambient-root",
-                "handle",
-                "implicit-self",
-                "session",
-                "static-floor"
-              ]
-            }
-          ],
-          "principalSources": [
-            "descriptor-owner",
-            "frame-set",
-            "schedule-time"
-          ],
-          "effectOwnerSource": "descriptor-owner",
-          "lifetimeContract": "file-handle",
-          "barriers": {
-            "authorizeBefore": [
-              "path-discovery",
-              "object-open",
-              "first-use"
-            ],
-            "recheckAt": [
-              "object-use"
-            ],
-            "cancelAt": [
-              "negative-generation-change",
-              "object-identity-mismatch"
-            ]
-          }
-        },
         {
           "id": "durability-write",
           "when": [

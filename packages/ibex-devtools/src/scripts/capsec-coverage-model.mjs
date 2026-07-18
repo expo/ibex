@@ -7236,7 +7236,6 @@ function filesystemDescriptorDispatcherEffectSpec() {
   });
   return conditionalBranchEffectSpec(
     [
-      branch("durability-read", ["fs:read"]),
       branch("durability-write", ["fs:write"]),
       branch("metadata-write", ["fs:write"]),
     ],

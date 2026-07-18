@@ -153141,7 +153141,7 @@
       "edgeId": "surface.native.op.exactfsfdasync.1iinzl8",
       "observedKey": "native-op:__exactFsFdAsync",
       "branchId": "surface.native.op.exactfsfdasync.1iinzl8.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -153168,24 +153168,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-read.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-read.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-read.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-read.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-read.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-read.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.durability-write.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.metadata-write.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.metadata-write.branch-selection",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.metadata-write.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.metadata-write.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.metadata-write.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.0orfoa6.logical.metadata-write.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.durability-write.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.branch-selection",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactfsfdasync.08bwdsd.logical.metadata-write.wrong-principal"
       ]
     },
     {
@@ -261385,7 +261379,6 @@
         "surface.loader.route.transform.rust.wait.for.transpile.test.barrier.19oz3na",
         "surface.loader.route.transform.rust.walk.0772jxs",
         "surface.native.op.exactcopyfile.0rn0zb2",
-        "surface.native.op.exactfsfdasync.1iinzl8",
         "surface.native.op.exactfsopen.05ao6wa",
         "surface.native.op.exactfsopenasync.1jie13i",
         "surface.native.op.exactfspathasync.10cb78b",
@@ -261423,7 +261416,7 @@
         "surface.startup.env.ibex.repo.root.0qhf2d7",
         "surface.startup.env.node.extra.ca.certs.0brff6f"
       ],
-      "rationale": "Covered by 277 observed effect edges."
+      "rationale": "Covered by 276 observed effect edges."
     },
     {
       "definitionId": "fs:watch",
@@ -264633,37 +264626,37 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-CBu18pejtw-4U48InP8ExbD14dk21V89CZ7Xu3VYyg4"
+      "rawContentDigest": "sha256-mc9SfI3Ei6Wb7zkwgYBYyav6s2mXSiM6SJhE3pAsa64"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-clmbJK8ArgmYaSQyVhI9UEeGUTTOkL0yuNvS0t1u-eg"
+      "rawContentDigest": "sha256-oEEkPSbOZk1vQ4FcnZ_oLxYiA9ONLTWPl7JU50uTwjY"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-dT76GGttFpl4qwYrzqi1oK8WWBNuYoTCLDfYDI493zY"
+      "rawContentDigest": "sha256-9T_1Vk4b_j0P7x61Ak1V3751o_NWQ24Cp0nqPFJr-Gg"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-2xpeSO9u6B1Nf8VPxcAu-NlrmqwzFAY6Lw0xDpvC-4A"
+      "rawContentDigest": "sha256-Abk7oTyA8X4x6tJQHdBhLRPCck3liZ9bW3QIVfzyvdY"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-8EZhd6NqDjweqQTTaeQ0lXl-HOVTUk1Rks1gV7i2FZw"
+      "rawContentDigest": "sha256-qOnDd6rChQtFiADJ8NqoKahTwjmchW8xUlsVnZ-oSIc"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-PnSko-y04k35FoLIs_1DnJebrXkKwyBim0mgUYMbnOo"
+      "rawContentDigest": "sha256-5Ov6wFzgfvOuxijrCvG_fecowo6u1dBcUVby0A3Zk9k"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-i0AWGZLOC-c1ZvCcaeh1PNKSefZKryrF2ox69Bq4eFI"
+      "rawContentDigest": "sha256-G8HTolD7rpewZz1t7-ryfSSsDN38oOCj48HTCV6C_1o"
     }
   ],
   "counts": {
