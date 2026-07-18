@@ -989,16 +989,18 @@ function buildCorpus() {
         [rawDescriptor],
         wrapperAccess,
       );
-    let observedError = "";
-    try {
+    const requestBytes =
       WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
         createBindGroupLayoutInput(convertedArguments),
       );
-    } catch (error) {
-      observedError = error instanceof Error ? error.message : String(error);
-    }
-    if (!observedError.includes(expectedErrorIncludes)) {
-      fail(`${id} did not fail closed at the reviewed descriptor boundary`);
+    const inspected = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      requestBytes,
+    );
+    if (
+      canonicalJson(inspected.convertedArguments) !==
+        canonicalJson(convertedArguments)
+    ) {
+      fail(`${id} did not reach the post-decode semantic boundary intact`);
     }
     return Object.freeze({
       id,
@@ -1010,9 +1012,10 @@ function buildCorpus() {
       physicalSequenceCount: 0,
       rawDescriptor,
       convertedArguments,
+      bytesHex: toHex(requestBytes),
       expected: Object.freeze({
-        codegenDisposition: "rejected-before-bytes",
-        errorIncludes: expectedErrorIncludes,
+        codegenDisposition: "encoded-for-post-decode-semantic-validation",
+        semanticErrorIncludes: expectedErrorIncludes,
       }),
     });
   };
@@ -1039,6 +1042,16 @@ function buildCorpus() {
         entries: [
           { binding: 0, visibility: 7, buffer: {} },
           { binding: 2, visibility: 7, buffer: {} },
+        ],
+      },
+      "violates binding, visibility, or resource closure",
+    ),
+    bindGroupLayoutRejectionVector(
+      "create-bind-group-layout-duplicate-binding-rejected",
+      {
+        entries: [
+          { binding: 0, visibility: 7, buffer: {} },
+          { binding: 0, visibility: 7, buffer: {} },
         ],
       },
       "violates binding, visibility, or resource closure",

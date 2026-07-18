@@ -3290,27 +3290,33 @@ function enumValue(
 
 function u32(value: unknown, label: string, defaultValue?: number): number {
   if (value === undefined && defaultValue !== undefined) return defaultValue;
-  const converted = Number(value);
-  if (
-    !Number.isFinite(converted) ||
-    !Number.isInteger(converted) ||
-    converted < 0 ||
-    converted > 0xffff_ffff
-  ) {
+  // Web IDL [EnforceRange] uses ToNumber, not the Number constructor. Unary
+  // plus preserves that distinction: primitive BigInts and objects whose
+  // numeric primitive is a BigInt throw instead of being explicitly accepted
+  // by Number(...).
+  const converted = +(value as number);
+  if (!Number.isFinite(converted)) {
     throw new TypeError(`${label} must be an unsigned 32-bit integer`);
   }
-  return converted;
+  const integer = Math.trunc(converted);
+  if (integer < 0 || integer >= 0x1_0000_0000) {
+    throw new TypeError(`${label} must be an unsigned 32-bit integer`);
+  }
+  return Object.is(integer, -0) ? 0 : integer;
 }
 
 function u64Number(value: unknown, label: string): number {
-  const converted = Number(value);
-  if (
-    !Number.isSafeInteger(converted) ||
-    converted < 0
-  ) {
-    throw new TypeError(`${label} must be a safe nonnegative integer`);
+  const converted = +(value as number);
+  if (!Number.isFinite(converted)) {
+    throw new TypeError(`${label} must be an unsigned 64-bit integer`);
   }
-  return converted;
+  const integer = Math.trunc(converted);
+  // Web IDL narrows both signed and unsigned 64-bit conversions to the safe
+  // integer interval so [EnforceRange] remains unambiguous in ECMAScript.
+  if (integer < 0 || integer > Number.MAX_SAFE_INTEGER) {
+    throw new TypeError(`${label} must be an unsigned 64-bit integer`);
+  }
+  return Object.is(integer, -0) ? 0 : integer;
 }
 
 function finiteNumber(value: unknown, label: string): number {
@@ -3325,23 +3331,32 @@ function sequence(
   value: unknown,
   label: string,
   maximum: number,
+  convertMember: (member: unknown, index: number) => unknown = (member) => member,
 ): readonly unknown[] {
-  if (value === null || value === undefined) {
+  if (!isObjectLike(value)) {
     throw new TypeError(`${label} must be iterable`);
   }
-  const iterator = (value as { [Symbol.iterator]?: unknown })[Symbol.iterator];
+  const iterator = value[Symbol.iterator];
   if (typeof iterator !== 'function') {
     throw new TypeError(`${label} must be iterable`);
   }
   const output: unknown[] = [];
-  const iterable = Reflect.apply(iterator, value, []) as Iterator<unknown>;
-  while (true) {
-    const step = iterable.next();
-    if (step.done) break;
+  const sourceIterator = Reflect.apply(iterator, value, []);
+  if (!isObjectLike(sourceIterator)) {
+    throw new TypeError(`${label} iterator must be an object`);
+  }
+  // The wrapper lets native for-of own IteratorStep and IteratorClose while
+  // preserving the single observable Get/Call of the source @@iterator.
+  const iterable = {
+    [Symbol.iterator]() {
+      return sourceIterator as Iterator<unknown>;
+    },
+  };
+  for (const member of iterable) {
     if (output.length >= maximum) {
       throw new TypeError(`${label} exceeds the reviewed sequence bound`);
     }
-    output.push(step.value);
+    output.push(convertMember(member, output.length));
   }
   return output;
 }
@@ -3353,9 +3368,10 @@ function frozenRecord(
 }
 
 function optionalLabel(value: Record<PropertyKey, unknown>): string {
-  return value.label === undefined
+  const label = value.label;
+  return label === undefined
     ? ''
-    : webIdlString(value.label, 'label');
+    : webIdlString(label, 'label');
 }
 
 function convertConstants(
@@ -3557,130 +3573,170 @@ function convertBindGroupLayoutDescriptor(
   maximum: number,
 ): unknown {
   const source = dictionary(value, 'GPUBindGroupLayoutDescriptor');
-  if (source.entries === undefined) {
+  // GPUBindGroupLayoutDescriptor inherits label before its own entries member.
+  // Convert each Get immediately so observable mutations affect later members
+  // exactly as Web IDL specifies.
+  const label = optionalLabel(source);
+  const entriesValue = source.entries;
+  if (entriesValue === undefined) {
     throw new TypeError('GPUBindGroupLayoutDescriptor.entries is required');
   }
   const entries = sequence(
-    source.entries,
+    entriesValue,
     'GPUBindGroupLayoutDescriptor.entries',
     maximum,
-  ).map((entry, index) => {
-    const row = dictionary(entry, `GPUBindGroupLayoutEntry[${index}]`);
-    if (row.binding === undefined || row.visibility === undefined) {
-      throw new TypeError(
-        `GPUBindGroupLayoutEntry[${index}] binding and visibility are required`,
-      );
-    }
-    const converted: Record<string, unknown> = {
-      binding: u32(row.binding, `GPUBindGroupLayoutEntry[${index}].binding`),
-      visibility: u32(
-        row.visibility,
-        `GPUBindGroupLayoutEntry[${index}].visibility`,
-      ),
-    };
-    if (row.buffer !== undefined) {
-      const buffer = dictionary(
-        row.buffer,
-        `GPUBufferBindingLayout[${index}]`,
-      );
-      converted.buffer = frozenRecord({
-        type: buffer.type === undefined
-          ? 'uniform'
-          : enumValue(
-            buffer.type,
-            ['uniform', 'storage', 'read-only-storage'],
-            `GPUBufferBindingLayout[${index}].type`,
-          ),
-        hasDynamicOffset: Boolean(buffer.hasDynamicOffset),
-        minBindingSize: buffer.minBindingSize === undefined
-          ? 0
-          : u64Number(
-            buffer.minBindingSize,
-            `GPUBufferBindingLayout[${index}].minBindingSize`,
-          ),
-      });
-    }
-    if (row.sampler !== undefined) {
-      const sampler = dictionary(
-        row.sampler,
-        `GPUSamplerBindingLayout[${index}]`,
-      );
-      converted.sampler = frozenRecord({
-        type: sampler.type === undefined
-          ? 'filtering'
-          : enumValue(
-            sampler.type,
-            ['filtering', 'non-filtering', 'comparison'],
-            `GPUSamplerBindingLayout[${index}].type`,
-          ),
-      });
-    }
-    if (row.texture !== undefined) {
-      const texture = dictionary(
-        row.texture,
-        `GPUTextureBindingLayout[${index}]`,
-      );
-      converted.texture = frozenRecord({
-        sampleType: texture.sampleType === undefined
-          ? 'float'
-          : enumValue(
-            texture.sampleType,
-            ['float', 'unfilterable-float', 'depth', 'sint', 'uint'],
-            `GPUTextureBindingLayout[${index}].sampleType`,
-          ),
-        viewDimension: texture.viewDimension === undefined
-          ? '2d'
-          : enumValue(
-            texture.viewDimension,
-            ['1d', '2d', '2d-array', 'cube', 'cube-array', '3d'],
-            `GPUTextureBindingLayout[${index}].viewDimension`,
-          ),
-        multisampled: Boolean(texture.multisampled),
-      });
-    }
-    if (row.storageTexture !== undefined) {
-      const storageTexture = dictionary(
-        row.storageTexture,
-        `GPUStorageTextureBindingLayout[${index}]`,
-      );
-      if (storageTexture.format === undefined) {
+    (entry, index) => {
+      const row = dictionary(entry, `GPUBindGroupLayoutEntry[${index}]`);
+      const bindingValue = row.binding;
+      if (bindingValue === undefined) {
         throw new TypeError(
-          `GPUStorageTextureBindingLayout[${index}].format is required`,
+          `GPUBindGroupLayoutEntry[${index}].binding is required`,
         );
       }
-      converted.storageTexture = frozenRecord({
-        access: storageTexture.access === undefined
+      const converted: Record<string, unknown> = {
+        binding: u32(
+          bindingValue,
+          `GPUBindGroupLayoutEntry[${index}].binding`,
+        ),
+      };
+
+      const bufferValue = row.buffer;
+      if (bufferValue !== undefined) {
+        const buffer = dictionary(
+          bufferValue,
+          `GPUBufferBindingLayout[${index}]`,
+        );
+        const hasDynamicOffset = Boolean(buffer.hasDynamicOffset);
+        const minBindingSizeValue = buffer.minBindingSize;
+        const minBindingSize = minBindingSizeValue === undefined
+          ? 0
+          : u64Number(
+            minBindingSizeValue,
+            `GPUBufferBindingLayout[${index}].minBindingSize`,
+          );
+        const typeValue = buffer.type;
+        const type = typeValue === undefined
+          ? 'uniform'
+          : enumValue(
+            typeValue,
+            ['uniform', 'storage', 'read-only-storage'],
+            `GPUBufferBindingLayout[${index}].type`,
+          );
+        converted.buffer = frozenRecord({ hasDynamicOffset, minBindingSize, type });
+      }
+
+      const externalTextureValue = row.externalTexture;
+      if (externalTextureValue !== undefined) {
+        dictionary(
+          externalTextureValue,
+          `GPUExternalTextureBindingLayout[${index}]`,
+        );
+        converted.externalTexture = frozenRecord({});
+      }
+
+      const samplerValue = row.sampler;
+      if (samplerValue !== undefined) {
+        const sampler = dictionary(
+          samplerValue,
+          `GPUSamplerBindingLayout[${index}]`,
+        );
+        const typeValue = sampler.type;
+        converted.sampler = frozenRecord({
+          type: typeValue === undefined
+            ? 'filtering'
+            : enumValue(
+              typeValue,
+              ['filtering', 'non-filtering', 'comparison'],
+              `GPUSamplerBindingLayout[${index}].type`,
+            ),
+        });
+      }
+
+      const storageTextureValue = row.storageTexture;
+      if (storageTextureValue !== undefined) {
+        const storageTexture = dictionary(
+          storageTextureValue,
+          `GPUStorageTextureBindingLayout[${index}]`,
+        );
+        const accessValue = storageTexture.access;
+        const access = accessValue === undefined
           ? 'write-only'
           : enumValue(
-            storageTexture.access,
+            accessValue,
             ['write-only', 'read-only', 'read-write'],
             `GPUStorageTextureBindingLayout[${index}].access`,
-          ),
-        format: enumValue(
-          storageTexture.format,
+          );
+        const formatValue = storageTexture.format;
+        if (formatValue === undefined) {
+          throw new TypeError(
+            `GPUStorageTextureBindingLayout[${index}].format is required`,
+          );
+        }
+        const format = enumValue(
+          formatValue,
           TEXTURE_FORMATS,
           `GPUStorageTextureBindingLayout[${index}].format`,
-        ),
-        viewDimension: storageTexture.viewDimension === undefined
+        );
+        const viewDimensionValue = storageTexture.viewDimension;
+        const viewDimension = viewDimensionValue === undefined
           ? '2d'
           : enumValue(
-            storageTexture.viewDimension,
+            viewDimensionValue,
             ['1d', '2d', '2d-array', '3d'],
             `GPUStorageTextureBindingLayout[${index}].viewDimension`,
-          ),
-      });
-    }
-    if (row.externalTexture !== undefined) {
-      dictionary(
-        row.externalTexture,
-        `GPUExternalTextureBindingLayout[${index}]`,
+          );
+        converted.storageTexture = frozenRecord({
+          access,
+          format,
+          viewDimension,
+        });
+      }
+
+      const textureValue = row.texture;
+      if (textureValue !== undefined) {
+        const texture = dictionary(
+          textureValue,
+          `GPUTextureBindingLayout[${index}]`,
+        );
+        const multisampled = Boolean(texture.multisampled);
+        const sampleTypeValue = texture.sampleType;
+        const sampleType = sampleTypeValue === undefined
+          ? 'float'
+          : enumValue(
+            sampleTypeValue,
+            ['float', 'unfilterable-float', 'depth', 'sint', 'uint'],
+            `GPUTextureBindingLayout[${index}].sampleType`,
+          );
+        const viewDimensionValue = texture.viewDimension;
+        const viewDimension = viewDimensionValue === undefined
+          ? '2d'
+          : enumValue(
+            viewDimensionValue,
+            ['1d', '2d', '2d-array', 'cube', 'cube-array', '3d'],
+            `GPUTextureBindingLayout[${index}].viewDimension`,
+          );
+        converted.texture = frozenRecord({
+          multisampled,
+          sampleType,
+          viewDimension,
+        });
+      }
+
+      const visibilityValue = row.visibility;
+      if (visibilityValue === undefined) {
+        throw new TypeError(
+          `GPUBindGroupLayoutEntry[${index}].visibility is required`,
+        );
+      }
+      converted.visibility = u32(
+        visibilityValue,
+        `GPUBindGroupLayoutEntry[${index}].visibility`,
       );
-      converted.externalTexture = frozenRecord({});
-    }
-    return frozenRecord(converted);
-  });
+      return frozenRecord(converted);
+    },
+  );
   return frozenRecord({
-    label: optionalLabel(source),
+    label,
     entries: Object.freeze(entries),
   });
 }
@@ -4733,37 +4789,83 @@ function validateCreateCommandEncoderDescriptorForService(
   }
 }
 
+function hasExactOwnProperties(
+  value: Readonly<Record<string, unknown>>,
+  names: readonly string[],
+): boolean {
+  const keys = Reflect.ownKeys(value);
+  return keys.length === names.length &&
+    names.every((name) => Object.prototype.hasOwnProperty.call(value, name));
+}
+
+function isConvertedU32(value: unknown): value is number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value < 0x1_0000_0000;
+}
+
+function isConvertedU64(value: unknown): value is number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= Number.MAX_SAFE_INTEGER;
+}
+
 function validateCreateBindGroupLayoutDescriptorForService(
   value: unknown,
+  sequenceMaximum: number,
 ): void {
   if (
     typeof value !== 'object' ||
     value === null ||
     Array.isArray(value) ||
-    Reflect.ownKeys(value).length !== 2 ||
-    !Object.prototype.hasOwnProperty.call(value, 'label') ||
-    !Object.prototype.hasOwnProperty.call(value, 'entries')
+    !hasExactOwnProperties(
+      value as Readonly<Record<string, unknown>>,
+      ['label', 'entries'],
+    )
   ) {
     throw new TypeError(
-      'GPUDevice.createBindGroupLayout converted arguments must be the reviewed closed descriptor',
+      'GPUDevice.createBindGroupLayout converted arguments must be a canonical descriptor',
     );
   }
   const descriptor = value as Readonly<Record<string, unknown>>;
   if (
     typeof descriptor.label !== 'string' ||
-    encodeUtf8(descriptor.label).byteLength > 57 ||
     !Array.isArray(descriptor.entries) ||
-    descriptor.entries.length < 1 ||
-    descriptor.entries.length > 5
+    descriptor.entries.length > sequenceMaximum
   ) {
     throw new TypeError(
-      'GPUDevice.createBindGroupLayout descriptor exceeds the reviewed workload bounds',
+      'GPUDevice.createBindGroupLayout converted descriptor exceeds structural transport bounds',
     );
   }
-  const visibilityValues = new Set([2, 6, 7]);
   const bufferTypes = new Set(['uniform', 'storage', 'read-only-storage']);
-  const samplerTypes = new Set(['filtering', 'non-filtering']);
-  const resourceNames = ['buffer', 'sampler', 'texture', 'storageTexture'];
+  const samplerTypes = new Set(['filtering', 'non-filtering', 'comparison']);
+  const textureSampleTypes = new Set([
+    'float',
+    'unfilterable-float',
+    'depth',
+    'sint',
+    'uint',
+  ]);
+  const textureViewDimensions = new Set([
+    '1d',
+    '2d',
+    '2d-array',
+    'cube',
+    'cube-array',
+    '3d',
+  ]);
+  const storageAccessValues = new Set(['write-only', 'read-only', 'read-write']);
+  const storageViewDimensions = new Set(['1d', '2d', '2d-array', '3d']);
+  const resourceNames = [
+    'buffer',
+    'externalTexture',
+    'sampler',
+    'storageTexture',
+    'texture',
+  ] as const;
+  const entryNames = new Set<string>(['binding', 'visibility', ...resourceNames]);
   descriptor.entries.forEach((entry, index) => {
     if (
       typeof entry !== 'object' ||
@@ -4775,52 +4877,72 @@ function validateCreateBindGroupLayoutDescriptorForService(
       );
     }
     const row = entry as Readonly<Record<string, unknown>>;
-    const presentResources = resourceNames.filter((name) =>
-      Object.prototype.hasOwnProperty.call(row, name));
+    const keys = Reflect.ownKeys(row);
     if (
-      Reflect.ownKeys(row).length !== 3 ||
-      row.binding !== index ||
-      typeof row.visibility !== 'number' ||
-      !visibilityValues.has(row.visibility) ||
-      presentResources.length !== 1
+      keys.some((key) => typeof key !== 'string' || !entryNames.has(key)) ||
+      !Object.prototype.hasOwnProperty.call(row, 'binding') ||
+      !Object.prototype.hasOwnProperty.call(row, 'visibility') ||
+      !isConvertedU32(row.binding) ||
+      !isConvertedU32(row.visibility)
     ) {
       throw new TypeError(
-        `GPUDevice.createBindGroupLayout entry ${index} violates binding, visibility, or resource closure`,
+        `GPUDevice.createBindGroupLayout entry ${index} is not a canonical WebIDL dictionary`,
       );
     }
-    const resourceName = presentResources[0];
-    const resource = row[resourceName];
-    if (
-      typeof resource !== 'object' ||
-      resource === null ||
-      Array.isArray(resource)
-    ) {
-      throw new TypeError(
-        `GPUDevice.createBindGroupLayout entry ${index} resource must be a closed dictionary`,
-      );
-    }
-    const layout = resource as Readonly<Record<string, unknown>>;
-    const valid = resourceName === 'buffer'
-      ? Reflect.ownKeys(layout).length === 3 &&
-        bufferTypes.has(String(layout.type)) &&
-        layout.hasDynamicOffset === false &&
-        layout.minBindingSize === 0
-      : resourceName === 'sampler'
-        ? Reflect.ownKeys(layout).length === 1 &&
-          samplerTypes.has(String(layout.type))
-        : resourceName === 'texture'
-          ? Reflect.ownKeys(layout).length === 3 &&
-            layout.sampleType === 'float' &&
-            layout.viewDimension === '2d' &&
-            layout.multisampled === false
-          : Reflect.ownKeys(layout).length === 3 &&
-            layout.access === 'write-only' &&
-            layout.format === 'rgba16float' &&
-            layout.viewDimension === '2d';
-    if (!valid) {
-      throw new TypeError(
-        `GPUDevice.createBindGroupLayout entry ${index} is outside the pinned TypeGPU resource subset`,
-      );
+
+    for (const resourceName of resourceNames) {
+      if (!Object.prototype.hasOwnProperty.call(row, resourceName)) continue;
+      const resource = row[resourceName];
+      if (
+        typeof resource !== 'object' ||
+        resource === null ||
+        Array.isArray(resource)
+      ) {
+        throw new TypeError(
+          `GPUDevice.createBindGroupLayout entry ${index} resource must be a closed dictionary`,
+        );
+      }
+      const layout = resource as Readonly<Record<string, unknown>>;
+      const valid = resourceName === 'buffer'
+        ? hasExactOwnProperties(
+          layout,
+          ['hasDynamicOffset', 'minBindingSize', 'type'],
+        ) &&
+          typeof layout.hasDynamicOffset === 'boolean' &&
+          isConvertedU64(layout.minBindingSize) &&
+          typeof layout.type === 'string' &&
+          bufferTypes.has(layout.type)
+        : resourceName === 'externalTexture'
+          ? Reflect.ownKeys(layout).length === 0
+          : resourceName === 'sampler'
+            ? hasExactOwnProperties(layout, ['type']) &&
+              typeof layout.type === 'string' &&
+              samplerTypes.has(layout.type)
+            : resourceName === 'storageTexture'
+              ? hasExactOwnProperties(
+                layout,
+                ['access', 'format', 'viewDimension'],
+              ) &&
+                typeof layout.access === 'string' &&
+                storageAccessValues.has(layout.access) &&
+                typeof layout.format === 'string' &&
+                TEXTURE_FORMATS.includes(layout.format) &&
+                typeof layout.viewDimension === 'string' &&
+                storageViewDimensions.has(layout.viewDimension)
+              : hasExactOwnProperties(
+                layout,
+                ['multisampled', 'sampleType', 'viewDimension'],
+              ) &&
+                typeof layout.multisampled === 'boolean' &&
+                typeof layout.sampleType === 'string' &&
+                textureSampleTypes.has(layout.sampleType) &&
+                typeof layout.viewDimension === 'string' &&
+                textureViewDimensions.has(layout.viewDimension);
+      if (!valid) {
+        throw new TypeError(
+          `GPUDevice.createBindGroupLayout entry ${index} resource is not a canonical WebIDL dictionary`,
+        );
+      }
     }
   });
 }
@@ -4899,7 +5021,10 @@ function validateCreateBindGroupLayoutRequestFields(
       'GPUDevice.createBindGroupLayout sealed local timeline must be a bounded sequence',
     );
   }
-  validateCreateBindGroupLayoutDescriptorForService(convertedArguments);
+  validateCreateBindGroupLayoutDescriptorForService(
+    convertedArguments,
+    sequenceMaximum,
+  );
 }
 
 function validateCreateCommandEncoderRequestFields(

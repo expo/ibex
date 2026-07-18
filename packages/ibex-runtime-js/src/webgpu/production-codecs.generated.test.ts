@@ -1413,7 +1413,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toThrow('wrong shape');
   });
 
-  test('executes the private createBindGroupLayout request program and enforces the workload closure', () => {
+  test('executes the private createBindGroupLayout request program and defers the workload closure', () => {
     const operationId = 'GPUDevice.createBindGroupLayout';
     const input = serviceInput(operationId);
     const nativeRoute = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes
@@ -1494,9 +1494,11 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(convertedComparison).toMatchObject({
       entries: [{ sampler: { type: 'comparison' } }],
     });
-    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
-      .encodeNativeCodegenRequest(serviceInput(operationId, convertedComparison)))
-      .toThrow('outside the pinned TypeGPU resource subset');
+    const comparisonPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, convertedComparison));
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      comparisonPayload,
+    )).toMatchObject({ convertedArguments: convertedComparison });
 
     const convertedExternalTexture = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
       .convertPublicArguments(operationId, [{
@@ -1505,9 +1507,11 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(convertedExternalTexture).toMatchObject({
       entries: [{ externalTexture: {} }],
     });
-    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
-      .encodeNativeCodegenRequest(serviceInput(operationId, convertedExternalTexture)))
-      .toThrow('violates binding, visibility, or resource closure');
+    const externalTexturePayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, convertedExternalTexture));
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      externalTexturePayload,
+    )).toMatchObject({ convertedArguments: convertedExternalTexture });
 
     const base = convertedBindGroupLayoutDescriptor() as Readonly<{
       label: string;
@@ -1518,33 +1522,29 @@ describe('generated injection-only WebGPU executable codecs', () => {
       visibility: 7,
       buffer: { type: 'uniform', hasDynamicOffset: false, minBindingSize: 0 },
     });
-    const rejectedDescriptors: ReadonlyArray<readonly [unknown, string]> = [
-      [{ ...base, entries: [] }, 'exceeds the reviewed workload bounds'],
-      [{ ...base, label: '💡'.repeat(15) }, 'exceeds the reviewed workload bounds'],
-      [{ ...base, entries: [...base.entries, bufferEntry(4), bufferEntry(5)] },
-        'exceeds the reviewed workload bounds'],
-      [{ ...base, entries: base.entries.map((entry, index) =>
+    const semanticallyRejectedDescriptors: readonly unknown[] = [
+      { ...base, entries: [] },
+      { ...base, label: '💡'.repeat(15) },
+      { ...base, entries: [...base.entries, bufferEntry(4), bufferEntry(5)] },
+      { ...base, entries: base.entries.map((entry, index) =>
         index === 1 ? { ...entry, binding: 2 } : entry) },
-        'violates binding, visibility, or resource closure'],
-      [{ ...base, entries: base.entries.map((entry, index) =>
+      { ...base, entries: base.entries.map((entry, index) =>
         index === 1 ? { ...entry, binding: 0 } : entry) },
-        'violates binding, visibility, or resource closure'],
-      [{ ...base, entries: base.entries.map((entry, index) =>
+      { ...base, entries: base.entries.map((entry, index) =>
         index === 1 ? { ...entry, visibility: 1 } : entry) },
-        'violates binding, visibility, or resource closure'],
-      [{ ...base, entries: base.entries.map((entry, index) => index === 0
+      { ...base, entries: base.entries.map((entry, index) => index === 0
         ? {
           ...entry,
           buffer: { type: 'uniform', hasDynamicOffset: true, minBindingSize: 0 },
         }
-        : entry) }, 'outside the pinned TypeGPU resource subset'],
-      [{ ...base, entries: base.entries.map((entry, index) => index === 0
+        : entry) },
+      { ...base, entries: base.entries.map((entry, index) => index === 0
         ? {
           ...entry,
           buffer: { type: 'uniform', hasDynamicOffset: false, minBindingSize: 1 },
         }
-        : entry) }, 'outside the pinned TypeGPU resource subset'],
-      [{ ...base, entries: base.entries.map((entry, index) => index === 2
+        : entry) },
+      { ...base, entries: base.entries.map((entry, index) => index === 2
         ? {
           ...entry,
           texture: {
@@ -1553,8 +1553,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
             multisampled: true,
           },
         }
-        : entry) }, 'outside the pinned TypeGPU resource subset'],
-      [{ ...base, entries: base.entries.map((entry, index) => index === 3
+        : entry) },
+      { ...base, entries: base.entries.map((entry, index) => index === 3
         ? {
           ...entry,
           storageTexture: {
@@ -1563,16 +1563,40 @@ describe('generated injection-only WebGPU executable codecs', () => {
             viewDimension: '3d',
           },
         }
-        : entry) }, 'outside the pinned TypeGPU resource subset'],
-      [{ ...base, entries: base.entries.map((entry, index) => index === 0
+        : entry) },
+      { ...base, entries: base.entries.map((entry, index) => index === 0
         ? { ...entry, sampler: { type: 'filtering' } }
-        : entry) }, 'violates binding, visibility, or resource closure'],
+        : entry) },
+      { ...base, entries: base.entries.map((entry, index) => index === 0
+        ? { binding: entry.binding, visibility: entry.visibility }
+        : entry) },
     ];
-    for (const [convertedArguments, message] of rejectedDescriptors) {
-      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
-        .encodeNativeCodegenRequest(serviceInput(operationId, convertedArguments)))
-        .toThrow(message);
+    for (const convertedArguments of semanticallyRejectedDescriptors) {
+      const semanticBoundaryPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .encodeNativeCodegenRequest(serviceInput(operationId, convertedArguments));
+      expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        semanticBoundaryPayload,
+      )).toMatchObject({ convertedArguments });
     }
+
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, {
+        ...base,
+        extra: true,
+      }))).toThrow('canonical descriptor');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, {
+        ...base,
+        entries: [{ binding: 0, visibility: 7, sampler: { type: 'invalid' } }],
+      }))).toThrow('canonical WebIDL dictionary');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput(operationId, {
+        ...base,
+        entries: Array.from(
+          { length: WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.sequenceMaxCount + 1 },
+          (_, binding) => bufferEntry(binding),
+        ),
+      }))).toThrow('structural transport bounds');
 
     expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
       .encodeNativeCodegenRequest({ ...input, target: undefined }))
@@ -1600,6 +1624,495 @@ describe('generated injection-only WebGPU executable codecs', () => {
       operationId,
       { kind: 'null' },
     )).toThrow('wrong shape');
+  });
+
+  test('converts createBindGroupLayout dictionaries in observable WebIDL order with one Get each', () => {
+    const log: string[] = [];
+    let labelRead = false;
+    let labelConverted = false;
+    let firstEntryConverted = false;
+    let bufferType = 'uniform';
+    let storageFormat = 'rgba16float';
+    let storageViewDimension = '2d';
+    let textureViewDimension = '2d';
+
+    const buffer = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperties(buffer, {
+      hasDynamicOffset: {
+        get() {
+          log.push('buffer.hasDynamicOffset:get');
+          return false;
+        },
+      },
+      minBindingSize: {
+        get() {
+          log.push('buffer.minBindingSize:get');
+          return {
+            valueOf() {
+              log.push('buffer.minBindingSize:convert');
+              bufferType = 'storage';
+              return 3.9;
+            },
+          };
+        },
+      },
+      type: {
+        get() {
+          log.push('buffer.type:get');
+          return bufferType;
+        },
+      },
+    });
+    const sampler = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(sampler, 'type', {
+      get() {
+        log.push('sampler.type:get');
+        return 'comparison';
+      },
+    });
+    const storageTexture = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperties(storageTexture, {
+      access: {
+        get() {
+          log.push('storage.access:get');
+          return {
+            toString() {
+              log.push('storage.access:convert');
+              storageFormat = 'rgba8unorm';
+              return 'read-only';
+            },
+          };
+        },
+      },
+      format: {
+        get() {
+          log.push('storage.format:get');
+          return {
+            toString() {
+              log.push('storage.format:convert');
+              storageViewDimension = '3d';
+              return storageFormat;
+            },
+          };
+        },
+      },
+      viewDimension: {
+        get() {
+          log.push('storage.viewDimension:get');
+          return storageViewDimension;
+        },
+      },
+    });
+    const textureLayout = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperties(textureLayout, {
+      multisampled: {
+        get() {
+          log.push('texture.multisampled:get');
+          return 1;
+        },
+      },
+      sampleType: {
+        get() {
+          log.push('texture.sampleType:get');
+          return {
+            toString() {
+              log.push('texture.sampleType:convert');
+              textureViewDimension = 'cube';
+              return 'depth';
+            },
+          };
+        },
+      },
+      viewDimension: {
+        get() {
+          log.push('texture.viewDimension:get');
+          return textureViewDimension;
+        },
+      },
+    });
+    const entry = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperties(entry, {
+      binding: {
+        get() {
+          log.push('entry.binding:get');
+          return {
+            valueOf() {
+              log.push('entry.binding:convert');
+              return 0.9;
+            },
+          };
+        },
+      },
+      buffer: {
+        get() {
+          log.push('entry.buffer:get');
+          return buffer;
+        },
+      },
+      externalTexture: {
+        get() {
+          log.push('entry.externalTexture:get');
+          return Object.create(null);
+        },
+      },
+      sampler: {
+        get() {
+          log.push('entry.sampler:get');
+          return sampler;
+        },
+      },
+      storageTexture: {
+        get() {
+          log.push('entry.storageTexture:get');
+          return storageTexture;
+        },
+      },
+      texture: {
+        get() {
+          log.push('entry.texture:get');
+          return textureLayout;
+        },
+      },
+      visibility: {
+        get() {
+          log.push('entry.visibility:get');
+          firstEntryConverted = true;
+          return 7;
+        },
+      },
+    });
+
+    let nextIndex = 0;
+    const sourceIterator = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(sourceIterator, 'next', {
+      get() {
+        log.push('iterator.next:get');
+        return () => {
+          log.push(`iterator.next:${nextIndex}`);
+          if (nextIndex === 0) {
+            nextIndex += 1;
+            return { done: false, value: entry };
+          }
+          if (!firstEntryConverted) {
+            throw new Error('sequence consumed the next member before conversion');
+          }
+          return { done: true, value: undefined };
+        };
+      },
+    });
+    const entries = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(entries, Symbol.iterator, {
+      get() {
+        log.push('entries.iterator:get');
+        return () => {
+          log.push('entries.iterator:call');
+          return sourceIterator;
+        };
+      },
+    });
+    const descriptorPrototype = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(descriptorPrototype, 'label', {
+      get() {
+        log.push('descriptor.label:get');
+        labelRead = true;
+        return {
+          toString() {
+            log.push('descriptor.label:convert');
+            labelConverted = true;
+            return 'observable-layout';
+          },
+        };
+      },
+    });
+    const descriptor = Object.create(descriptorPrototype) as Record<PropertyKey, unknown>;
+    Object.defineProperty(descriptor, 'entries', {
+      get() {
+        log.push('descriptor.entries:get');
+        if (!labelRead || !labelConverted) {
+          throw new Error('inherited label was not converted first');
+        }
+        return entries;
+      },
+    });
+
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [descriptor],
+      wrappers,
+    )).toEqual({
+      label: 'observable-layout',
+      entries: [{
+        binding: 0,
+        buffer: {
+          hasDynamicOffset: false,
+          minBindingSize: 3,
+          type: 'storage',
+        },
+        externalTexture: {},
+        sampler: { type: 'comparison' },
+        storageTexture: {
+          access: 'read-only',
+          format: 'rgba8unorm',
+          viewDimension: '3d',
+        },
+        texture: {
+          multisampled: true,
+          sampleType: 'depth',
+          viewDimension: 'cube',
+        },
+        visibility: 7,
+      }],
+    });
+    expect(log).toEqual([
+      'descriptor.label:get',
+      'descriptor.label:convert',
+      'descriptor.entries:get',
+      'entries.iterator:get',
+      'entries.iterator:call',
+      'iterator.next:get',
+      'iterator.next:0',
+      'entry.binding:get',
+      'entry.binding:convert',
+      'entry.buffer:get',
+      'buffer.hasDynamicOffset:get',
+      'buffer.minBindingSize:get',
+      'buffer.minBindingSize:convert',
+      'buffer.type:get',
+      'entry.externalTexture:get',
+      'entry.sampler:get',
+      'sampler.type:get',
+      'entry.storageTexture:get',
+      'storage.access:get',
+      'storage.access:convert',
+      'storage.format:get',
+      'storage.format:convert',
+      'storage.viewDimension:get',
+      'entry.texture:get',
+      'texture.multisampled:get',
+      'texture.sampleType:get',
+      'texture.sampleType:convert',
+      'texture.viewDimension:get',
+      'entry.visibility:get',
+      'iterator.next:1',
+    ]);
+  });
+
+  test('closes the createBindGroupLayout iterator when element conversion throws', () => {
+    const failure = new Error('binding getter failed');
+    let returnGets = 0;
+    let returnCalls = 0;
+    let nextCalls = 0;
+    const entry = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(entry, 'binding', {
+      get() {
+        throw failure;
+      },
+    });
+    const iterator = {
+      next() {
+        nextCalls += 1;
+        return { done: false, value: entry };
+      },
+      get return() {
+        returnGets += 1;
+        return () => {
+          returnCalls += 1;
+          throw new Error('iterator close failed');
+        };
+      },
+    };
+    const entries = {
+      [Symbol.iterator]() {
+        return iterator;
+      },
+    };
+
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [{ entries }],
+      wrappers,
+    )).toThrow(failure);
+    expect(nextCalls).toBe(1);
+    expect(returnGets).toBe(1);
+    expect(returnCalls).toBe(1);
+  });
+
+  test('reads earlier optional entry members before rejecting missing visibility', () => {
+    const gets: string[] = [];
+    let returnCalls = 0;
+    const entry = new Proxy(Object.create(null) as Record<PropertyKey, unknown>, {
+      get(_target, property) {
+        if (typeof property === 'string') gets.push(property);
+        if (property === 'binding') return 0;
+        if (property === 'sampler') return Object.freeze({});
+        return undefined;
+      },
+    });
+    const entries = {
+      [Symbol.iterator]() {
+        let yielded = false;
+        return {
+          next() {
+            if (yielded) return { done: true, value: undefined };
+            yielded = true;
+            return { done: false, value: entry };
+          },
+          return() {
+            returnCalls += 1;
+            return { done: true, value: undefined };
+          },
+        };
+      },
+    };
+
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [{ entries }],
+      wrappers,
+    )).toThrow('visibility is required');
+    expect(gets).toEqual([
+      'binding',
+      'buffer',
+      'externalTexture',
+      'sampler',
+      'storageTexture',
+      'texture',
+      'visibility',
+    ]);
+    expect(returnCalls).toBe(1);
+  });
+
+  test('closes bounded bind-group-layout iteration before converting the overflow member', () => {
+    const maximum = WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.sequenceMaxCount;
+    let nextCalls = 0;
+    let returnCalls = 0;
+    let poisonGets = 0;
+    const validEntry = { binding: 0, visibility: 7, buffer: {} };
+    const poisonEntry = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(poisonEntry, 'binding', {
+      get() {
+        poisonGets += 1;
+        return 0;
+      },
+    });
+    const entries = {
+      [Symbol.iterator]() {
+        return {
+          next() {
+            const index = nextCalls;
+            nextCalls += 1;
+            return {
+              done: false,
+              value: index < maximum ? validEntry : poisonEntry,
+            };
+          },
+          return() {
+            returnCalls += 1;
+            return { done: true, value: undefined };
+          },
+        };
+      },
+    };
+
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [{ entries }],
+      wrappers,
+    )).toThrow('reviewed sequence bound');
+    expect(nextCalls).toBe(maximum + 1);
+    expect(returnCalls).toBe(1);
+    expect(poisonGets).toBe(0);
+
+    for (const nonSequence of ['entry', { 0: validEntry, length: 1 }]) {
+      expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        'GPUDevice.createBindGroupLayout',
+        [{ entries: nonSequence }],
+        wrappers,
+      )).toThrow('must be iterable');
+    }
+  });
+
+  test('applies EnforceRange truncation and rejects BigInt for bind-group-layout integers', () => {
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [{
+        entries: [{
+          binding: 1.9,
+          visibility: 7.8,
+          buffer: { minBindingSize: -0.5 },
+        }],
+      }],
+      wrappers,
+    ) as Readonly<{ entries: ReadonlyArray<Readonly<Record<string, unknown>>> }>;
+    expect(converted.entries[0]).toMatchObject({
+      binding: 1,
+      visibility: 7,
+      buffer: { minBindingSize: 0 },
+    });
+
+    const large = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [{
+        entries: [{
+          binding: -0.5,
+          visibility: 7,
+          buffer: { minBindingSize: Number.MAX_SAFE_INTEGER },
+        }],
+      }],
+      wrappers,
+    ) as Readonly<{ entries: ReadonlyArray<Readonly<Record<string, unknown>>> }>;
+    expect(large.entries[0]).toMatchObject({
+      binding: 0,
+      buffer: { minBindingSize: Number.MAX_SAFE_INTEGER },
+    });
+
+    const u32Edge = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [{
+        entries: [{
+          binding: 0xffff_ffff + 0.9,
+          visibility: 7,
+          buffer: {},
+        }],
+      }],
+      wrappers,
+    ) as Readonly<{ entries: ReadonlyArray<Readonly<Record<string, unknown>>> }>;
+    expect(u32Edge.entries[0]).toMatchObject({ binding: 0xffff_ffff });
+
+    for (const binding of [Number.NaN, Number.POSITIVE_INFINITY, -1, 2 ** 32]) {
+      expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        'GPUDevice.createBindGroupLayout',
+        [{ entries: [{ binding, visibility: 7, buffer: {} }] }],
+        wrappers,
+      )).toThrow(TypeError);
+    }
+
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroupLayout',
+      [{
+        entries: [{
+          binding: 0,
+          visibility: 7,
+          buffer: { minBindingSize: Number.MAX_SAFE_INTEGER + 1 },
+        }],
+      }],
+      wrappers,
+    )).toThrow(TypeError);
+
+    for (const binding of [BigInt(1), Object(BigInt(1))]) {
+      expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        'GPUDevice.createBindGroupLayout',
+        [{ entries: [{ binding, visibility: 7, buffer: {} }] }],
+        wrappers,
+      )).toThrow(TypeError);
+    }
+    for (const minBindingSize of [BigInt(1), Object(BigInt(1))]) {
+      expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        'GPUDevice.createBindGroupLayout',
+        [{ entries: [{ binding: 0, visibility: 7, buffer: { minBindingSize } }] }],
+        wrappers,
+      )).toThrow(TypeError);
+    }
   });
 
   test('executes the private createShaderModule request program and rejects hostile inputs', () => {
