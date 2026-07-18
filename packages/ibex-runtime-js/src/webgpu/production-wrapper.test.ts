@@ -1263,9 +1263,17 @@ describe('production-private WebGPU wrapper factory', () => {
     }) as TestCanvasContext;
     expect(resetChild.getConfiguration()).toBeNull();
     expect(distinct.getConfiguration()).toBeNull();
-    expect(inspectBinding(binding).current.indexedCanvasContextCount).toBe(2);
+    expect(inspectBinding(binding).current).toMatchObject({
+      indexedCanvasContextCount: 2,
+      indexedCanvasObjectCount: 2,
+      indexedCanvasSurfaceTokenCount: 2,
+    });
     binding.revoke();
-    expect(inspectBinding(binding).lastClose?.indexedCanvasContextCount).toBe(2);
+    expect(inspectBinding(binding).lastClose).toMatchObject({
+      indexedCanvasContextCount: 2,
+      indexedCanvasObjectCount: 2,
+      indexedCanvasSurfaceTokenCount: 2,
+    });
   });
 
   test('device destroy synchronously enters canvas LOST exactly once and preserves stale origin', async () => {
@@ -1382,6 +1390,148 @@ describe('production-private WebGPU wrapper factory', () => {
     // configure A, configure B, unconfigure, configure C. Loss of the two
     // unlinked devices contributes no extra generation transition.
     expect(latestCanvasTextureOrigin(bridge).configurationGeneration).toBe('4');
+    binding.revoke();
+  });
+
+  test('keeps an initial configure LOST when device loss is delivered inside submit', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    const configureWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPUCanvasContext.configure',
+    )?.wireId;
+    if (configureWireId === undefined) throw new Error('missing configure route');
+    let inlineLossCount = 0;
+    bridge.setSubmitHook((operationId) => {
+      if (operationId !== configureWireId) return;
+      inlineLossCount += 1;
+      emitDeviceLoss(bridge, '301', String(inlineLossCount));
+    });
+
+    context.configure({ device, format: 'bgra8unorm' });
+    expect(await device.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    expect(context.getConfiguration()?.format).toBe('bgra8unorm');
+    const invalidTexture = context.getCurrentTexture();
+    expect(context.getCurrentTexture()).toBe(invalidTexture);
+    expect(inspectBinding(binding).current).toMatchObject({
+      routedDeviceCount: 0,
+      indexedCanvasContextCount: 1,
+      indexedCanvasObjectCount: 1,
+      indexedCanvasSurfaceTokenCount: 1,
+      invalidCurrentTextureCount: 1,
+    });
+    invalidTexture.createView();
+    expect(latestCanvasTextureOrigin(bridge).configurationGeneration).toBe('2');
+
+    emitDeviceLoss(bridge, '301', '2');
+    emitProviderLoss(bridge);
+    expect(context.getCurrentTexture()).toBe(invalidTexture);
+    expect(await device.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    expect(() => context.configure({ device, format: 'bgra8unorm' }))
+      .toThrow('GPUDevice is unavailable');
+    expect(inlineLossCount).toBe(1);
+    binding.revoke();
+  });
+
+  test('does not let inline loss resurrect a reconfigured context', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    const beforeLoss = context.getCurrentTexture();
+    beforeLoss.createView();
+    const beforeLossOrigin = latestCanvasTextureOrigin(bridge);
+    const configureWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPUCanvasContext.configure',
+    )?.wireId;
+    if (configureWireId === undefined) throw new Error('missing configure route');
+    bridge.setSubmitHook((operationId) => {
+      if (operationId === configureWireId) emitDeviceLoss(bridge, '301', '1');
+    });
+
+    context.configure({ device, format: 'rgba8unorm' });
+    expect(await device.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    expect(context.getConfiguration()?.format).toBe('rgba8unorm');
+    const afterLoss = context.getCurrentTexture();
+    expect(afterLoss).not.toBe(beforeLoss);
+    expect(context.getCurrentTexture()).toBe(afterLoss);
+    afterLoss.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
+      configurationGeneration: '3',
+      currentEpoch: '2',
+      format: 'rgba8unorm',
+    });
+    expect(inspectBinding(binding).current.invalidCurrentTextureCount).toBe(1);
+
+    beforeLoss.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toEqual(beforeLossOrigin);
+    emitDeviceLoss(bridge, '301', '2');
+    emitProviderLoss(bridge);
+    expect(context.getCurrentTexture()).toBe(afterLoss);
+    expect(await device.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    binding.revoke();
+  });
+
+  test('fails closed when inline configure loss cannot advance its installed generation', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      {
+        counterSeeds: { canvasConfigurationGeneration: U64_MAX_MINUS_ONE },
+        enableStateInspection: true,
+      },
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    const configureWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPUCanvasContext.configure',
+    )?.wireId;
+    if (configureWireId === undefined) throw new Error('missing configure route');
+    bridge.setSubmitHook((operationId) => {
+      if (operationId === configureWireId) emitDeviceLoss(bridge, '301', '1');
+    });
+
+    expect(() => context.configure({ device, format: 'bgra8unorm' }))
+      .toThrow('realm closed during GPUCanvasContext.configure');
+    expect(await device.lost).toEqual({
+      reason: 'unknown',
+      message:
+        'The WebGPU realm closed because canvas configuration generation was exhausted',
+    });
+    expect(() => context.getCurrentTexture()).toThrow('realm is revoked');
+    expect(inspectBinding(binding).current).toMatchObject({
+      active: false,
+      routedDeviceCount: 0,
+      indexedCanvasContextCount: 0,
+      indexedCanvasObjectCount: 0,
+      indexedCanvasSurfaceTokenCount: 0,
+      indexedCanvasObjectCount: 0,
+      indexedCanvasSurfaceTokenCount: 0,
+      invalidCurrentTextureCount: 0,
+      pendingLocalRecordCount: 0,
+      pendingPromiseCount: 0,
+    });
+    expect(inspectBinding(binding).lastClose).toMatchObject({
+      routedDeviceCount: 1,
+      indexedCanvasContextCount: 1,
+      indexedCanvasObjectCount: 1,
+      indexedCanvasSurfaceTokenCount: 1,
+      canvasLossTransitionCount: 0,
+    });
+    emitDeviceLoss(bridge, '301', '2');
+    emitProviderLoss(bridge);
+    expect(await device.lost).toMatchObject({ reason: 'unknown' });
     binding.revoke();
   });
 
@@ -1779,6 +1929,102 @@ describe('production-private WebGPU wrapper factory', () => {
     }
   });
 
+  test('uses the final adapter request ordinal exactly once before fail-closed exhaustion', async () => {
+    const requestDeviceWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === 'GPUAdapter.requestDevice',
+    )?.wireId;
+    if (requestDeviceWireId === undefined) {
+      throw new Error('missing requestDevice route');
+    }
+    for (const [seed, successCount] of [
+      [U64_MAX_MINUS_ONE, 2],
+      [U64_MAX, 1],
+    ] as const) {
+      const bridge = createFakeBridge();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs([], { distinctLiveDevices: true }),
+        {
+          counterSeeds: { nextAdapterOrdinal: seed },
+          enableStateInspection: true,
+        },
+      );
+      const adapter = await (binding.gpu as {
+        requestAdapter(): Promise<unknown>;
+      }).requestAdapter() as {
+        requestDevice(): Promise<unknown>;
+      };
+      const attempts = Array.from(
+        { length: successCount + 1 },
+        () => adapter.requestDevice(),
+      );
+      const outcomes = await Promise.allSettled(attempts);
+      expect(outcomes.at(-1)?.status).toBe('rejected');
+      expect((outcomes.at(-1) as PromiseRejectedResult).reason).toBeInstanceOf(
+        RangeError,
+      );
+      expect(
+        bridge.submissions
+          .filter((submission) => submission.operationId === requestDeviceWireId)
+          .map((submission) => submission.metadata.adapterOrdinal),
+      ).toEqual(successCount === 2 ? [U64_MAX_MINUS_ONE, U64_MAX] : [U64_MAX]);
+      expect(inspectBinding(binding).current).toMatchObject({
+        active: false,
+        routedDeviceCount: 0,
+        pendingPromiseCount: 0,
+      });
+      expect(inspectBinding(binding).lastClose?.closeReason)
+        .toBe('counter-exhausted:adapter request ordinal');
+      binding.revoke();
+    }
+  });
+
+  test('uses the final error scope identity exactly once before fail-closed exhaustion', async () => {
+    for (const [seed, successCount] of [
+      [U64_MAX_MINUS_ONE, 2],
+      [U64_MAX, 1],
+    ] as const) {
+      const bridge = createFakeBridge();
+      const codecs = createFakeCodecs();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        codecs,
+        {
+          counterSeeds: { nextScopeId: seed },
+          enableStateInspection: true,
+        },
+      );
+      const device = await requestTestDevice(binding) as TestGpuDevice & {
+        pushErrorScope(filter: string): void;
+      };
+      for (let index = 0; index < successCount; index += 1) {
+        device.pushErrorScope('validation');
+      }
+      expect(
+        codecs.encodings
+          .filter((encoding) =>
+            encoding.operationId === 'GPUDevice.pushErrorScope'
+          )
+          .map((encoding) =>
+            (encoding.convertedArguments as { scopeId: string }).scopeId
+          ),
+      ).toEqual(successCount === 2 ? [U64_MAX_MINUS_ONE, U64_MAX] : [U64_MAX]);
+      const submissionCount = bridge.submissions.length;
+      expect(() => device.pushErrorScope('validation')).toThrow(RangeError);
+      expect(bridge.submissions).toHaveLength(submissionCount);
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      expect(inspectBinding(binding).current).toMatchObject({
+        active: false,
+        routedDeviceCount: 0,
+        pendingLocalRecordCount: 0,
+        pendingPromiseCount: 0,
+      });
+      expect(inspectBinding(binding).lastClose?.closeReason)
+        .toBe('counter-exhausted:error scope identity');
+      binding.revoke();
+    }
+  });
+
   test('fails canvas generation and epoch exhaustion closed before submission or texture allocation', async () => {
     const configureWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
       (candidate) => candidate.operationId === 'GPUCanvasContext.configure',
@@ -1897,6 +2143,8 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(inspection.lastClose).toMatchObject({
       routedDeviceCount: 1,
       indexedCanvasContextCount: 2,
+      indexedCanvasObjectCount: 2,
+      indexedCanvasSurfaceTokenCount: 2,
       canvasLossTransitionCount: 0,
     });
     emitProviderLoss(bridge);

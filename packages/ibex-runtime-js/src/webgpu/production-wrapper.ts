@@ -151,6 +151,9 @@ export interface ProductionWebGpuPrivateBindingInspection {
   readonly canvasLossTransitionCount: number;
   readonly routedDeviceCount: number;
   readonly indexedCanvasContextCount: number;
+  readonly indexedCanvasObjectCount: number;
+  readonly indexedCanvasSurfaceTokenCount: number;
+  readonly invalidCurrentTextureCount: number;
   readonly pendingLocalRecordCount: number;
   readonly pendingPromiseCount: number;
 }
@@ -831,6 +834,19 @@ export function createProductionWebGpuPrivateBinding(
       canvasLossTransitionCount: realm.canvasLossTransitionCount,
       routedDeviceCount: realm.devices.size,
       indexedCanvasContextCount: realm.hostCanvasContextsByIdentity.size,
+      indexedCanvasObjectCount: realm.currentHostCanvasContextByObject.size,
+      indexedCanvasSurfaceTokenCount:
+        realm.currentHostCanvasContextBySurfaceToken.size,
+      invalidCurrentTextureCount:
+        [...realm.hostCanvasContextsByIdentity.values()].reduce(
+          (count, context) => {
+            const current = context.currentTexture === undefined
+              ? undefined
+              : realm.wrappers.get(context.currentTexture);
+            return count + (current?.invalid ? 1 : 0);
+          },
+          0,
+        ),
       pendingLocalRecordCount:
         [...realm.devices.values()].reduce(
           (count, device) => count + device.pendingLocalTimeline.length,
@@ -855,6 +871,15 @@ export function createProductionWebGpuPrivateBinding(
       canvasLossTransitionCount: realm.canvasLossTransitionCount,
       routedDeviceCount: devices.length,
       indexedCanvasContextCount: contexts.length,
+      indexedCanvasObjectCount: realm.currentHostCanvasContextByObject.size,
+      indexedCanvasSurfaceTokenCount:
+        realm.currentHostCanvasContextBySurfaceToken.size,
+      invalidCurrentTextureCount: contexts.reduce((count, context) => {
+        const current = context.currentTexture === undefined
+          ? undefined
+          : realm.wrappers.get(context.currentTexture);
+        return count + (current?.invalid ? 1 : 0);
+      }, 0),
       pendingLocalRecordCount: devices.reduce(
         (count, device) => count + device.pendingLocalTimeline.length,
         0,
@@ -1779,6 +1804,7 @@ export function createProductionWebGpuPrivateBinding(
     ) {
       throw namedError('InvalidStateError', 'GPUDevice is unavailable');
     }
+    const configuredDevice = deviceState.device;
     const nextConfigurationGeneration = advanceCounterOrClose(
       context.configurationGeneration,
       'canvas configuration generation',
@@ -1786,11 +1812,12 @@ export function createProductionWebGpuPrivateBinding(
     const servicePlan = prepareServiceCounters(
       'GPUCanvasContext.configure',
       context,
-      deviceState.device,
+      configuredDevice,
     );
+    const copiedConfiguration = cloneConfiguration(converted);
     // The semantic call carries the configured device as ingress while the
     // service receiver remains the complete canvas-context reference.
-    context.device = deviceState.device;
+    context.device = configuredDevice;
     try {
       submitService(
         'GPUCanvasContext.configure',
@@ -1799,18 +1826,61 @@ export function createProductionWebGpuPrivateBinding(
         converted,
         false,
         servicePlan,
+        () => {
+          if (
+            !realm.active ||
+            configuredDevice.destroyed ||
+            configuredDevice.lost.settled
+          ) {
+            throw namedError('InvalidStateError', 'GPUDevice is unavailable');
+          }
+          // LLP 0368 §2.2 installs the copied configuration before later
+          // device-timeline validation. A loss delivered reentrantly by the
+          // bridge must therefore observe and terminalize this generation.
+          unlinkConfiguredCanvasContext(context);
+          expireCurrentTexture(context);
+          context.configurationGeneration = nextConfigurationGeneration;
+          context.configuration = copiedConfiguration;
+          context.configuredDevice = configuredDevice;
+          context.configuredDeviceWrapper = deviceWrapper as object;
+          context.canvasContextLifecycle = 'configured';
+          configuredDevice.configuredCanvasContexts.add(context);
+        },
       );
     } finally {
       context.device = undefined;
     }
-    unlinkConfiguredCanvasContext(context);
-    expireCurrentTexture(context);
-    context.configurationGeneration = nextConfigurationGeneration;
-    context.configuration = cloneConfiguration(converted);
-    context.configuredDevice = deviceState.device;
-    context.configuredDeviceWrapper = deviceWrapper as object;
-    context.canvasContextLifecycle = 'configured';
-    deviceState.device.configuredCanvasContexts.add(context);
+    if (configuredDevice.lost.settled) {
+      if (
+        context.canvasContextLifecycle !== 'lost' ||
+        context.configuredDevice !== configuredDevice ||
+        configuredDevice.configuredCanvasContexts.has(context)
+      ) {
+        closeRealmCounterIndependently(
+          'canvas-configure-terminal-race',
+          'The WebGPU realm closed after a canvas configure terminal race',
+        );
+        throw namedError(
+          'OperationError',
+          'GPUCanvasContext configure terminal state is inconsistent',
+        );
+      }
+      return;
+    }
+    if (
+      context.canvasContextLifecycle !== 'configured' ||
+      context.configuredDevice !== configuredDevice ||
+      !configuredDevice.configuredCanvasContexts.has(context)
+    ) {
+      closeRealmCounterIndependently(
+        'canvas-configure-publication-race',
+        'The WebGPU realm closed after a canvas configure publication race',
+      );
+      throw namedError(
+        'OperationError',
+        'GPUCanvasContext configure publication is inconsistent',
+      );
+    }
   });
 
   defineMethod(
