@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 binds direct path truncation to retained-object typed authorization and physically proves five Apple scenarios)
 **Revised:** 2026-07-18 (ENG-24933 removes the stale descriptor durability-read branch under LLP 0023's write-authorized durability contract, physically executes the asynchronous durability-write branch on Apple, and keeps the aggregate metadata-write branch residual pending an exact open/closed split)
 **Revised:** 2026-07-18 (ENG-24933 physically executes open-family retained descriptor truncation on an exact Apple-owned file while keeping closed metadata mutation, absent Windows surfaces, and prerequisite-conflicting denial residual)
 **Revised:** 2026-07-18 (ENG-24933 physically executes retained descriptor durability on Apple through typed fsync/fdatasync repeat gates and owned-file cleanup, while prerequisite-conflicting denial remains residual)
@@ -1617,6 +1618,13 @@ setup cannot survive the same principal's `fs:write` denial. Descriptor mode
 and timestamp mutation remain unresolved: LLP 0023 keeps `fchmod` and `futimes`
 closed pending object-bound mutation work, so physical execution alone would
 overclaim the governing contract.
+Direct `__exactTruncate` now uses the same object-bound shape on armed Apple
+runtimes: requested and retained-parent discovery decisions precede a
+non-truncating `openat`, commit binds the actual regular-file descriptor, and a
+repeat decision immediately precedes `ftruncate`. Five public recipes operate
+only on an exact harness-owned file, verify its two-byte result or unchanged
+denial bytes, and remove it. The legacy Windows backend remains residual until
+it can provide the same retained-object execution contract.
 The conditional `__exactFsFdAsync` registry now matches that retained-object
 contract instead of claiming an unreachable `durability-read` branch. LLP 0023
 places `fsync`, `fdatasync`, and their `FileHandle` aliases in the open-write

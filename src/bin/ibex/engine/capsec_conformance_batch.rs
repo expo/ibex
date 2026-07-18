@@ -1952,6 +1952,23 @@ async fn execute_native_public_recipe(
         std::fs::write(path, b"ibex-capsec-append-prefix:")
             .expect("create direct append-file fixture");
     }
+    let direct_truncate_fixture = if invocation.global_name == "__exactTruncate" {
+        match invocation.arguments.first() {
+            Some(NativeProbeArgument::JsonLiteral { value: path }) => Some(
+                path.as_str()
+                    .expect("direct truncate fixture path must be a string")
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some(path) = &direct_truncate_fixture {
+        assert_eq!(path, "target/ibex-capsec-truncate");
+        std::fs::write(path, b"ibex-capsec-truncate-owned")
+            .expect("create direct truncate fixture");
+    }
     let direct_fs_open_fixture = if matches!(
         invocation.global_name.as_str(),
         "__exactFsOpen" | "__exactFsOpenAsync"
@@ -2178,6 +2195,22 @@ async fn execute_native_public_recipe(
             expected
         );
         std::fs::remove_file(path).expect("remove direct append-file fixture");
+        if invocation_result["kind"] == "return" {
+            invocation_result["cleanup"] =
+                serde_json::Value::String("removed-owned-file".into());
+        }
+    }
+    if let Some(path) = &direct_truncate_fixture {
+        let expected = if invocation_result["kind"] == "return" {
+            b"ib".as_slice()
+        } else {
+            b"ibex-capsec-truncate-owned".as_slice()
+        };
+        assert_eq!(
+            std::fs::read(path).expect("read direct truncate fixture"),
+            expected
+        );
+        std::fs::remove_file(path).expect("remove direct truncate fixture");
         if invocation_result["kind"] == "return" {
             invocation_result["cleanup"] =
                 serde_json::Value::String("removed-owned-file".into());

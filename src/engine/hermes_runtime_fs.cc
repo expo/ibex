@@ -4139,12 +4139,28 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactTruncate: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        off_t len = 0;
+        if (count > 1 && args[1].isNumber()) len = static_cast<off_t>(args[1].asNumber());
+        if (ex_host_is_armed() == 1) {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Bind path truncation to the retained target and reauthorize that object immediately before mutation.
+          constexpr uint32_t kFsTruncateSurface = 15;
+          auto descriptors = openArmedWriteTarget(
+              runtime, path, kFsTruncateSurface, O_WRONLY, 0, true, "");
+          if (ex_host_authorize_typed_fs_open(
+                  currentPrincipalId(), path.c_str(), 2,
+                  kFsTruncateSurface, *descriptors.parent,
+                  *descriptors.target, 0, 1, nullptr) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          if (::ftruncate(*descriptors.target, len) != 0) {
+            throwFsError(runtime, "truncate", path);
+          }
+          return facebook::jsi::Value::undefined();
+        }
         // Truncation modifies file contents. (ENG-22627)
         if (!checkCapability("fs:write:" + path)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
-        off_t len = 0;
-        if (count > 1 && args[1].isNumber()) len = static_cast<off_t>(args[1].asNumber());
         if (::truncate(path.c_str(), len) != 0) {
           throwFsError(runtime, "truncate", path);
         }

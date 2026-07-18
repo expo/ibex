@@ -895,6 +895,58 @@ const nativeProjectStatfsTemplate = () =>
     requiredSourceArity: 1,
     setup: [],
   });
+const nativeProjectTruncateTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-truncate"),
+      literalArgument(2),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 5,
+      deny: 1,
+      malformed: 5,
+      "missing-attribution": 5,
+      "wrong-principal": 5,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+    },
+    requiredFloor: ["fs:list", "fs:write"].map((cap) => ({
+      cap,
+      resource: projectPathExactResource("target", "ibex-capsec-truncate"),
+    })),
+    requiredSourceArity: 2,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
 const nativeProjectReadFileTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:read"],
@@ -1387,6 +1439,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactReaddir", nativeProjectReaddirTemplate()],
   ["__exactWriteFile", nativeProjectWriteFileTemplate()],
   ["__exactStatfs", nativeProjectStatfsTemplate()],
+  ["__exactTruncate", nativeProjectTruncateTemplate()],
   [
     "__exactAuthorizeSystemInfo",
     nativeCachedSystemInfoTemplate("platform", 11),

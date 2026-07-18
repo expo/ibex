@@ -110,8 +110,8 @@ describe("exact-target CapSec executable recipes", () => {
       "ibex/capsec-executable-recipes/1",
     );
     expect(recipes.summary.requiredFixtures).toBe(22_932);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_206);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_726);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_211);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_721);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -134,7 +134,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(507);
+    expect(nativePublicFixtures).toHaveLength(512);
     expect(
       nativePublicFixtures
         .filter(
@@ -922,6 +922,39 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
     }
+  });
+
+  test("truncates a direct native path through a retained object", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactTruncate",
+    );
+    expect(rows).toHaveLength(5);
+    for (const recipe of rows) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation.arguments).toEqual([
+        { kind: "json-literal", value: "target/ibex-capsec-truncate" },
+        { kind: "json-literal", value: 2 },
+      ]);
+      expect(invocation.expectedActionIds).toEqual(
+        recipe.scenario === "deny" ? ["fs:list"] : ["fs:list", "fs:write"],
+      );
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "deny"
+          ? ["requested"]
+          : ["requested", "discovery", "discovery", "commit", "repeat"],
+      );
+      expect(invocation.expectedCleanup).toBe("removed-owned-file");
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactTruncate",
+      ),
+    ).toHaveLength(0);
   });
 
   test("creates a direct native directory only under an exact owned floor", () => {
