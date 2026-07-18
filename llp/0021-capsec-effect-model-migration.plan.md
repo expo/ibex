@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 physically proves direct directory opening and async path/descriptor metadata on Apple, hardens cross-platform runners, and refreshes exact Apple/Windows catalog counts)
 **Revised:** 2026-07-18 (ENG-24933 binds direct path truncation to retained-object typed authorization and physically proves five Apple scenarios)
 **Revised:** 2026-07-18 (ENG-24933 removes the stale descriptor durability-read branch under LLP 0023's write-authorized durability contract, physically executes the asynchronous durability-write branch on Apple, and keeps the aggregate metadata-write branch residual pending an exact open/closed split)
 **Revised:** 2026-07-18 (ENG-24933 physically executes open-family retained descriptor truncation on an exact Apple-owned file while keeping closed metadata mutation, absent Windows surfaces, and prerequisite-conflicting denial residual)
@@ -611,7 +612,7 @@ must be promoted only from the checked conformance report. Missing artifacts,
 wrong targets, identity or registry mismatches, fixed/stale nonces, replayed
 input, and unadvertised rows all remain startup refusals.
 
-Implementation status (2026-07-17): the dedicated binary app/agent ingress and
+Implementation status (2026-07-18): the dedicated binary app/agent ingress and
 single-use completion path exist and are usable by an armed runtime without
 making `__hostCall` reachable. Its setter publishes an immutable method on the
 stable pre-captured `exact` object and atomically completes the one-shot package
@@ -633,12 +634,14 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed per-target catalogs each have
-22,938 required fixtures: Apple has 5,129 fully executable recipes and 17,809
-unresolved fixtures, while Windows has 5,011 executable and 17,927 unresolved.
-The Windows difference is explicit target applicability: 102 Apple
-target-absence probes are not applicable and 16 Windows non-capability paths
-remain unauthored. None of those differences is credited as a pass. The latest
-source-bound tranches add 322 armed shared-runtime global
+22,932 required fixtures: Apple has 5,226 fully executable recipes and 17,706
+unresolved fixtures, while Windows has 5,057 executable and 17,875 unresolved.
+The Windows difference is explicit target applicability and implementation:
+102 Apple target-absence probes are not applicable, 46 target-absence source
+invocations remain unavailable, and 56 Apple-only native operations are absent
+or not yet typed on Windows; 16 additional Windows non-capability paths remain
+unauthored. None of those differences is credited as a pass.
+The latest source-bound tranches add 322 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
 terminal-builtin closure recipes, four public SQLite extension-load and
@@ -700,7 +703,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,809 unresolved Apple fixtures and 17,927
+are 7,043 ambiguous routes with 17,706 unresolved Apple fixtures and 17,875
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -1644,6 +1647,20 @@ harness-owned file. Passing evidence must select requested, discovery, and two
 repeat decisions: one retained-target authorization and one generation-bound
 enumeration lease. The harness removes the entry and directory after both
 success and denial, and successful evidence records that cleanup explicitly.
+Direct `__exactOpendir` now follows the same retained-directory contract on
+Apple. Five recipes enumerate a separate harness-owned directory, require the
+same requested, discovery, and two repeat decisions, verify the exact returned
+entry, and remove the owned directory after observation. Windows remains
+explicitly residual because its backend does not expose the typed operation.
+The Apple `__exactFsStatAsync` path branch now has six physical recipes. A
+source-bound `Cargo.toml` path passes through requested and discovery plus both
+retained metadata rechecks before event-loop quiescence; denial stops at the
+requested decision. Four descriptor-branch recipes open `Cargo.toml` before
+the observation window, pass only the retained descriptor to async `fstat`,
+require the exact repeat decision, verify the returned file size, and close the
+descriptor afterward. Descriptor denial and branch-selection remain residual
+because their denied setup cannot honestly manufacture the prerequisite
+descriptor, and the Windows implementation remains untyped for these recipes.
 The runtime-create descriptor binds `ex_hermes_create_armed`, not the historical
 `ex_hermes_create` symbol that production deliberately leaves non-executable.
 
@@ -1717,7 +1734,7 @@ Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot
 consume an authoritative matrix run before refusing the report.
-Its current catalog has 5,011 executable and 17,927 unresolved fixtures. The
+Its current catalog has 5,057 executable and 17,875 unresolved fixtures. The
 first authoritative Windows attempt physically rejected the published DLL:
 although its manifest claimed the no-debugger Release profile, its PE export
 table still contained the full `AsyncDebuggerAPI`/CDP implementation. The
