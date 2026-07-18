@@ -127,6 +127,7 @@ function main() {
         root,
         {
           EXACT_COMPAT_TEST: '1',
+          IBEX_COMPAT_LOADER_TEST: '1',
           IBEX_SKIP_AGENT_SKILLS_SYNC: '1',
         },
       );

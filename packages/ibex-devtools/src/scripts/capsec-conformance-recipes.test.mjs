@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(22_932);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_211);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_721);
+    expect(recipes.summary.requiredFixtures).toBe(23_116);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_303);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_813);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -203,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_932);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_057);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_875);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_116);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_149);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_967);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -427,7 +427,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_710);
+    expect(callbackRecipes).toHaveLength(2_800);
     expect(
       Object.fromEntries(
         [
@@ -449,8 +449,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 507,
       "principal-restore": 507,
       "snapshot-mismatch-deny": 507,
-      "cannot-widen-authority": 337,
-      "post-lockdown-invariant": 337,
+      "cannot-widen-authority": 382,
+      "post-lockdown-invariant": 382,
       "non-capability": 8,
     });
     for (const terminalObservedKey of [
@@ -3615,7 +3615,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "module-runner-source-graph",
     );
-    expect(rows).toHaveLength(24);
+    expect(rows).toHaveLength(26);
     expect(
       rows.map((recipe) => recipe.publicSurfaceProbe.invocation.functionName),
     ).toEqual([
@@ -3623,6 +3623,7 @@ describe("exact-target CapSec executable recipes", () => {
       "ex_hermes_commonjs_record_create_esm_adapter",
       "ex_hermes_commonjs_record_declare_export",
       "ex_hermes_commonjs_record_evaluate",
+      "ex_hermes_commonjs_record_link_computed_dynamic_import",
       "ex_hermes_commonjs_record_link_dynamic_import",
       "ex_hermes_commonjs_record_link_require",
       "ex_hermes_commonjs_record_link_require_esm",
@@ -3634,6 +3635,7 @@ describe("exact-target CapSec executable recipes", () => {
       "ex_hermes_module_pin_generation",
       "ex_hermes_module_record_declare_export",
       "ex_hermes_module_record_instantiate",
+      "ex_hermes_module_record_link_computed_dynamic_import",
       "ex_hermes_module_record_link_dependency",
       "ex_hermes_module_record_link_dynamic_import",
       "ex_hermes_module_record_link_export",

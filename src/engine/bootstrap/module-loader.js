@@ -5551,7 +5551,12 @@
     const invokeModuleBody = function(moduleBody) {
       manifestBuiltinEvaluationActive = isManifestBuiltinRecord;
       try {
-        moduleBody(
+        // CommonJS wraps each module with `this` bound to its initial exports
+        // object. Preserve that contract for raw `.cjs` passthrough entries as
+        // well as loader-served CJS dependencies.
+        // @ref LLP 0024#4-grammar-selection
+        moduleBody.call(
+          module.exports,
           localRequire,
           module,
           module.exports,

@@ -19,7 +19,7 @@ use std::path::PathBuf;
 #[command(propagate_version = true)]
 #[command(disable_version_flag = true)]
 #[command(
-    after_help = "Examples:\n  ibex app.ts                  Run a TypeScript file\n  ibex eval '1 + 1'            Evaluate an expression\n  ibex -p 'process.versions'   Evaluate and print the result\n  ibex --watch server.ts       Run with auto-restart on changes\n  ibex run dev                 Run a package script\n  ibex build app.ts            Compile to Hermes bytecode\n  ibex completions zsh         Generate shell completions\n  ibex debug modules           Print builtin module registry metadata\n  ibex repl                    Interactive REPL (also: ibex with no arguments)"
+    after_help = "Examples:\n  ibex app.ts                  Run a TypeScript file\n  ibex eval '1 + 1'            Evaluate an expression\n  ibex -p 'process.versions'   Evaluate and print the result\n  ibex --watch server.ts       Run with auto-restart on changes\n  ibex run dev                 Run a package script\n  ibex build app.ts            Compile to Hermes bytecode\n  ibex compile app.ts -o app  Build a single-file executable\n  ibex inspect-executable app Inspect an SFE without executing it\n  ibex completions zsh         Generate shell completions\n  ibex debug modules           Print builtin module registry metadata\n  ibex repl                    Interactive REPL (also: ibex with no arguments)"
 )]
 pub struct Cli {
     /// Print version information
@@ -237,6 +237,36 @@ pub enum Commands {
         outdir: Option<PathBuf>,
     },
 
+    /// Build a release-pinned single-file executable
+    Compile {
+        /// Application entry point
+        #[arg(required = true)]
+        entry: PathBuf,
+
+        /// Executable output path
+        #[arg(short = 'o', long = "output", required = true)]
+        output: PathBuf,
+
+        /// Prepared module carrier encoding
+        #[arg(long, value_enum, default_value = "hbc")]
+        carrier: CompileCarrier,
+
+        /// Canonical production policy (conflicts with root --policy)
+        #[arg(long = "policy", value_name = "FILE")]
+        compile_policy: Option<PathBuf>,
+
+        /// Refuse graphs containing guarded invocation-time unsupported sites
+        #[arg(long)]
+        deny_unsupported: bool,
+    },
+
+    /// Inspect a single-file executable without evaluating application code
+    InspectExecutable {
+        /// Executable to inspect
+        #[arg(required = true)]
+        file: PathBuf,
+    },
+
     /// Generate shell completions
     Completions {
         /// Target shell
@@ -376,6 +406,18 @@ pub enum PolicyCommands {
         /// Policy mode recorded in the artifact
         #[arg(long)]
         mode: Option<String>,
+
+        /// Deployment profile name (defaults to portable-v1 or sfe-v1)
+        #[arg(long)]
+        target_profile: Option<String>,
+
+        /// Compile for this exact target and bind the authenticated native graph
+        #[arg(long)]
+        target_triple: Option<String>,
+
+        /// Logical mount profile (derived from the target when omitted)
+        #[arg(long)]
+        mount_profile: Option<String>,
     },
     /// Regenerate and fail if the committed artifact drifted (CI gate)
     Check {
@@ -392,6 +434,18 @@ pub enum PolicyCommands {
         /// regeneration that defaults to `enforce`. (ENG-22642)
         #[arg(long)]
         mode: Option<String>,
+
+        /// Deployment profile name used by the committed artifact
+        #[arg(long)]
+        target_profile: Option<String>,
+
+        /// Compiled target triple used by the committed artifact
+        #[arg(long)]
+        target_triple: Option<String>,
+
+        /// Logical mount profile used by the committed artifact
+        #[arg(long)]
+        mount_profile: Option<String>,
     },
 }
 
@@ -451,6 +505,16 @@ impl BundleFormat {
             Self::Esm => "esm",
         }
     }
+}
+
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileCarrier {
+    /// Catalog-paired Hermes bytecode (release default)
+    #[value(name = "hbc")]
+    Hbc,
+    /// Diagnostic factory-table carrier; not release eligible
+    #[value(name = "factory-table")]
+    FactoryTable,
 }
 
 #[cfg(test)]
@@ -608,6 +672,21 @@ mod tests {
         }
 
         let mut argv = vec![command.get_name().to_string(), primary_name.to_string()];
+        for required in command
+            .get_arguments()
+            .filter(|candidate| candidate.get_index().is_none() && candidate.is_required_set())
+        {
+            let required_name = required
+                .get_long()
+                .map(|name| format!("--{name}"))
+                .or_else(|| required.get_short().map(|name| format!("-{name}")))
+                .unwrap_or_else(|| panic!("required option {} has no spelling", required.get_id()));
+            argv.push(required_name);
+            let count = required.get_num_args().unwrap_or_default().min_values();
+            for _ in 0..count {
+                argv.push(positional_probe_value(required));
+            }
+        }
         let required_positionals: Vec<&Arg> = command
             .get_positionals()
             .filter(|positional| positional.is_required_set())
@@ -1741,6 +1820,42 @@ mod tests {
     }
 
     #[test]
+    fn compile_and_executable_inspection_commands_parse_exactly() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "compile",
+            "app.ts",
+            "-o",
+            "dist/app",
+            "--carrier",
+            "hbc",
+            "--policy",
+            "ibex-policy.json",
+            "--deny-unsupported",
+        ]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Compile {
+                entry,
+                output,
+                carrier: CompileCarrier::Hbc,
+                compile_policy: Some(policy),
+                deny_unsupported: true,
+            }) if entry == PathBuf::from("app.ts")
+                && output == PathBuf::from("dist/app")
+                && policy == PathBuf::from("ibex-policy.json")
+        ));
+        assert!(Cli::try_parse_from(["ibex", "compile", "app.ts"]).is_err());
+
+        let cli = Cli::parse_from(["ibex", "inspect-executable", "dist/app"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::InspectExecutable { file })
+                if file == PathBuf::from("dist/app")
+        ));
+    }
+
+    #[test]
     fn test_engine_flag() {
         let cli = Cli::parse_from(["ibex", "--engine", "hermes", "test.js"]);
         assert_eq!(cli.engine, "hermes");
@@ -2015,5 +2130,34 @@ mod tests {
                 "Exact project name `{legacy}` must not be a clap subcommand"
             );
         }
+    }
+
+    /// Mechanical maintainer for the reviewed recursive clap inventory. Run
+    /// explicitly after changing the authored command tree, then review the
+    /// resulting manifest diff together with the command implementation.
+    #[test]
+    #[ignore]
+    fn update_runtime_surface_manifest() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime-surface.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).expect("read runtime surface"))
+                .expect("parse runtime surface");
+        let snapshot = clap_manifest_snapshot();
+        manifest["clapSurface"]["commands"] = json!(snapshot.commands);
+        manifest["clapSurface"]["semanticRelations"] = snapshot.semantic_relations;
+        let command = Cli::command();
+        manifest["visibleCommands"] = json!(command
+            .get_subcommands()
+            .filter(|command| !command.is_hide_set())
+            .map(|command| command.get_name())
+            .collect::<Vec<_>>());
+        manifest["hiddenHarnessCommands"] = json!(command
+            .get_subcommands()
+            .filter(|command| command.is_hide_set())
+            .map(|command| command.get_name())
+            .collect::<Vec<_>>());
+        let mut bytes = serde_json::to_vec_pretty(&manifest).expect("serialize runtime surface");
+        bytes.push(b'\n');
+        std::fs::write(path, bytes).expect("update runtime surface");
     }
 }

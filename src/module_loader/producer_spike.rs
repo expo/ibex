@@ -16,8 +16,8 @@ use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentTarget, CallExpression, Declaration,
     ExportDefaultDeclarationKind, Expression, ForOfStatement, FunctionBody, IdentifierReference,
     ImportAttributeKey, ImportDeclarationSpecifier, ImportExpression, ImportOrExportKind,
-    MetaProperty, Program, SimpleAssignmentTarget, Statement, UpdateExpression,
-    VariableDeclarationKind, WithClause,
+    MetaProperty, ObjectProperty, ObjectPropertyKind, Program, PropertyKind,
+    SimpleAssignmentTarget, Statement, UpdateExpression, VariableDeclarationKind, WithClause,
 };
 use oxc_ast_visit::{walk, Visit};
 use oxc_codegen::{Codegen, CodegenOptions};
@@ -37,74 +37,103 @@ use super::artifact::{
     MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
 };
 use super::commonjs_lexer::{lex_commonjs, CJS_MODULE_LEXER_VERSION};
+use super::compatibility::{
+    HermesSyntaxQuarantineReason, LegacyModuleRunnerRequirement, Tier3ForOfQuarantineReason,
+};
+use super::computed_candidates::OriginalSourceSpanV1;
 use super::identity::{ImportAttributes, SourceId};
-use capsec_semantics::model::{Digest as CapsecDigest, NonEmptyString};
+use super::transform_config_generated as transform_config;
+use capsec_semantics::model::{Digest as CapsecDigest, NonEmptyString, StableId};
 
-pub const SPIKE_TRANSFORM_FINGERPRINT: &str =
-    "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1";
+pub const SPIKE_TRANSFORM_FINGERPRINT: &str = transform_config::SPIKE_TRANSFORM_FINGERPRINT;
 
 #[derive(Debug, thiserror::Error)]
-#[error("{reason}")]
-struct UnsupportedModuleRunnerShape {
-    reason: String,
-}
+#[error("{0}")]
+struct UnsupportedModuleRunnerShape(LegacyModuleRunnerRequirement);
 
-fn unsupported_module_runner_shape(reason: impl Into<String>) -> anyhow::Error {
-    UnsupportedModuleRunnerShape {
-        reason: reason.into(),
-    }
-    .into()
+fn unsupported_module_runner_shape(requirement: LegacyModuleRunnerRequirement) -> anyhow::Error {
+    UnsupportedModuleRunnerShape(requirement).into()
 }
 
 #[cfg(any(test, feature = "module-runner"))]
-pub(crate) fn unsupported_module_runner_reason(error: &anyhow::Error) -> Option<&str> {
+pub fn unsupported_module_runner_reason(
+    error: &anyhow::Error,
+) -> Option<&LegacyModuleRunnerRequirement> {
     error
         .downcast_ref::<UnsupportedModuleRunnerShape>()
-        .map(|unsupported| unsupported.reason.as_str())
+        .map(|unsupported| &unsupported.0)
 }
 
-pub fn module_artifact_transform_fingerprint_v1(
-    hermes_target: &str,
-) -> Result<TransformFingerprintV1> {
-    let option_digest = |label: &str| {
-        source_integrity(label.as_bytes()).expect("static fingerprint input is valid")
-    };
+pub fn module_artifact_transform_cache_tag_v1() -> &'static str {
+    transform_config::TRANSFORM_CACHE_TAG
+}
+
+fn configured_digest(value: &'static str) -> Result<CapsecDigest> {
+    CapsecDigest::new(value).map_err(anyhow::Error::msg)
+}
+
+/// The producer identity comes exclusively from the generated projection of
+/// the authored transform configuration. Evaluator and HBC compiler identity
+/// belong to carrier admission and are deliberately not accepted as inputs.
+/// @ref LLP 0028#1-toolchain-and-pin-rotation--atomic-with-identity-rotation
+pub fn module_artifact_transform_fingerprint_v1() -> Result<TransformFingerprintV1> {
     Ok(TransformFingerprintV1 {
-        producer: NonEmptyString::new("ibex-oxc-module-producer").unwrap(),
-        parser_version: NonEmptyString::new("oxc-0.121.0").unwrap(),
-        transform_version: NonEmptyString::new("ibex-module-artifact-producer-1").unwrap(),
-        hermes_target: NonEmptyString::new(hermes_target).map_err(anyhow::Error::msg)?,
-        typescript_jsx_options_digest: option_digest(
-            "typescript=strip;jsx=classic;module-goal=true;decorators=off",
-        ),
-        module_runner_abi: NonEmptyString::new("ibex-module-runner-1").unwrap(),
-        hermes_compat_version: NonEmptyString::new("llp0019-hermes-compat-1").unwrap(),
-        commonjs_detector: NonEmptyString::new("cjs-module-lexer").unwrap(),
-        commonjs_detector_version: NonEmptyString::new("2.1.0").unwrap(),
-        output_options_digest: option_digest(
-            "factory=declare-execute;source-map=v3-source-id;minify=false",
-        ),
+        producer: NonEmptyString::new(transform_config::PRODUCER_ID).map_err(anyhow::Error::msg)?,
+        parser_version: NonEmptyString::new(transform_config::PARSER_VERSION_IDENTITY)
+            .map_err(anyhow::Error::msg)?,
+        transform_version: NonEmptyString::new(transform_config::TRANSFORM_VERSION_IDENTITY)
+            .map_err(anyhow::Error::msg)?,
+        hermes_target: NonEmptyString::new(transform_config::HERMES_TARGET)
+            .map_err(anyhow::Error::msg)?,
+        typescript_jsx_options_digest: configured_digest(transform_config::MODULE_OPTIONS_DIGEST)?,
+        module_runner_abi: NonEmptyString::new(transform_config::MODULE_RUNNER_ABI)
+            .map_err(anyhow::Error::msg)?,
+        hermes_compat_version: NonEmptyString::new(transform_config::HERMES_COMPAT_VERSION)
+            .map_err(anyhow::Error::msg)?,
+        commonjs_detector: NonEmptyString::new(transform_config::COMMONJS_DETECTOR)
+            .map_err(anyhow::Error::msg)?,
+        commonjs_detector_version: NonEmptyString::new(transform_config::COMMONJS_DETECTOR_VERSION)
+            .map_err(anyhow::Error::msg)?,
+        output_options_digest: configured_digest(transform_config::MODULE_OUTPUT_OPTIONS_DIGEST)?,
     })
 }
 
-fn commonjs_artifact_transform_fingerprint_v1(
-    hermes_target: &str,
-) -> Result<TransformFingerprintV1> {
-    let mut fingerprint = module_artifact_transform_fingerprint_v1(hermes_target)?;
+fn commonjs_artifact_transform_fingerprint_v1() -> Result<TransformFingerprintV1> {
+    let mut fingerprint = module_artifact_transform_fingerprint_v1()?;
     fingerprint.typescript_jsx_options_digest =
-        source_integrity(b"typescript=strip;jsx=classic;module-goal=false;decorators=off")?;
+        configured_digest(transform_config::COMMONJS_OPTIONS_DIGEST)?;
     fingerprint.output_options_digest =
-        source_integrity(b"factory=commonjs-wrapper;source-map=v3-source-id;minify=false")?;
+        configured_digest(transform_config::COMMONJS_OUTPUT_OPTIONS_DIGEST)?;
     Ok(fingerprint)
 }
 
-fn json_artifact_transform_fingerprint_v1(hermes_target: &str) -> Result<TransformFingerprintV1> {
-    let mut fingerprint = module_artifact_transform_fingerprint_v1(hermes_target)?;
+fn json_artifact_transform_fingerprint_v1() -> Result<TransformFingerprintV1> {
+    let mut fingerprint = module_artifact_transform_fingerprint_v1()?;
     fingerprint.typescript_jsx_options_digest =
-        source_integrity(b"strict-json=true;duplicate-keys=reject")?;
+        configured_digest(transform_config::JSON_OPTIONS_DIGEST)?;
     fingerprint.output_options_digest =
-        source_integrity(b"factory=json-default-export;source-map=v3-source-id;minify=false")?;
+        configured_digest(transform_config::JSON_OUTPUT_OPTIONS_DIGEST)?;
     Ok(fingerprint)
+}
+
+pub fn configured_transform_fingerprint_for_goal_v1(
+    goal: SourceGoalV1,
+) -> Result<TransformFingerprintV1> {
+    match goal {
+        SourceGoalV1::Module => module_artifact_transform_fingerprint_v1(),
+        SourceGoalV1::CommonJs | SourceGoalV1::Builtin => {
+            commonjs_artifact_transform_fingerprint_v1()
+        }
+        SourceGoalV1::Json => json_artifact_transform_fingerprint_v1(),
+    }
+}
+
+pub fn verify_current_transform_fingerprint_v1(semantics: &ModuleSemanticsV1) -> Result<()> {
+    let expected = configured_transform_fingerprint_for_goal_v1(semantics.source_goal)?.digest()?;
+    if semantics.transform_fingerprint.digest()? != expected {
+        bail!("artifact transform fingerprint predates the active configuration");
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,7 +197,31 @@ pub struct SpikeDynamicEdge {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub specifier: Option<String>,
     pub site: u32,
+    #[serde(skip)]
+    pub original_source_offset: u32,
+    #[serde(skip)]
+    pub original_source_end: u32,
     pub has_options: bool,
+    #[serde(skip)]
+    pub label: Option<String>,
+    #[serde(skip)]
+    pub attributes: BTreeMap<String, String>,
+    #[serde(skip)]
+    pub runtime_options_supported: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DynamicImportSiteV1 {
+    pub site: u32,
+    pub label: Option<StableId>,
+    pub original_source_span: OriginalSourceSpanV1,
+    pub attributes: ImportAttributes,
+    pub runtime_options_supported: bool,
+}
+
+pub struct ProducedModuleArtifactV1 {
+    pub artifact: ModuleArtifactV1,
+    pub dynamic_import_sites: Vec<DynamicImportSiteV1>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -250,7 +303,9 @@ pub struct Test262ArtifactCase {
 #[derive(Debug)]
 struct IntermediateSource {
     code: String,
-    map: SourceMap,
+    map: SourceMap<'static>,
+    authored_dynamic_imports: Vec<AuthoredDynamicImportSite>,
+    authored_computed_requires: Vec<OriginalSourceSpanV1>,
 }
 
 #[derive(Debug, Clone)]
@@ -275,8 +330,183 @@ struct NestedRewriteVisitor {
     context: String,
     replacements: Vec<Replacement>,
     dynamic_edges: Vec<SpikeDynamicEdge>,
+    dynamic_option_error: Option<String>,
     function_depth: usize,
     hermes_compat_passes: BTreeSet<String>,
+    tier3_for_of_quarantine: Option<(u32, Tier3ForOfQuarantineReason)>,
+}
+
+#[derive(Default)]
+struct HermesSyntaxVisitor {
+    quarantine: Option<(u32, HermesSyntaxQuarantineReason)>,
+}
+
+impl<'a> Visit<'a> for HermesSyntaxVisitor {
+    fn visit_function(
+        &mut self,
+        function: &oxc_ast::ast::Function<'a>,
+        flags: oxc_semantic::ScopeFlags,
+    ) {
+        if function.r#async && function.generator {
+            self.quarantine.get_or_insert((
+                function.span.start,
+                HermesSyntaxQuarantineReason::AsyncGenerator,
+            ));
+        }
+        walk::walk_function(self, function, flags);
+    }
+
+    fn visit_variable_declaration(&mut self, declaration: &oxc_ast::ast::VariableDeclaration<'a>) {
+        let reason = match declaration.kind {
+            VariableDeclarationKind::Using => Some(HermesSyntaxQuarantineReason::UsingDeclaration),
+            VariableDeclarationKind::AwaitUsing => {
+                Some(HermesSyntaxQuarantineReason::AwaitUsingDeclaration)
+            }
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            self.quarantine
+                .get_or_insert((declaration.span.start, reason));
+        }
+        walk::walk_variable_declaration(self, declaration);
+    }
+
+    fn visit_decorator(&mut self, decorator: &oxc_ast::ast::Decorator<'a>) {
+        self.quarantine.get_or_insert((
+            decorator.span.start,
+            HermesSyntaxQuarantineReason::Decorator,
+        ));
+        walk::walk_decorator(self, decorator);
+    }
+}
+
+// @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer — Tier 3 may
+// execute only corpus-proven shapes; every other row takes a typed quarantine
+// instead of silently diverging from the canonical pass.
+struct ForOfHazardVisitor<'n> {
+    loop_binding: &'n str,
+    function_depth: usize,
+    quarantine: Option<Tier3ForOfQuarantineReason>,
+}
+
+impl ForOfHazardVisitor<'_> {
+    fn quarantine(&mut self, reason: Tier3ForOfQuarantineReason) {
+        self.quarantine.get_or_insert(reason);
+    }
+}
+
+impl<'a> Visit<'a> for ForOfHazardVisitor<'_> {
+    fn visit_this_expression(&mut self, _expression: &oxc_ast::ast::ThisExpression) {
+        // Arrow functions retain lexical `this`, so this remains hazardous at
+        // every arrow depth. Ordinary functions are deliberately not walked.
+        self.quarantine(Tier3ForOfQuarantineReason::ThisExpression);
+    }
+
+    fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
+        if identifier.name == "arguments" {
+            self.quarantine(Tier3ForOfQuarantineReason::ArgumentsReference);
+        }
+        walk::walk_identifier_reference(self, identifier);
+    }
+
+    fn visit_break_statement(&mut self, _statement: &oxc_ast::ast::BreakStatement<'a>) {
+        if self.function_depth == 0 {
+            self.quarantine(Tier3ForOfQuarantineReason::BreakStatement);
+        }
+    }
+
+    fn visit_continue_statement(&mut self, _statement: &oxc_ast::ast::ContinueStatement<'a>) {
+        if self.function_depth == 0 {
+            self.quarantine(Tier3ForOfQuarantineReason::ContinueStatement);
+        }
+    }
+
+    fn visit_return_statement(&mut self, _statement: &oxc_ast::ast::ReturnStatement<'a>) {
+        if self.function_depth == 0 {
+            self.quarantine(Tier3ForOfQuarantineReason::ReturnStatement);
+        }
+    }
+
+    fn visit_await_expression(&mut self, expression: &oxc_ast::ast::AwaitExpression<'a>) {
+        if self.function_depth == 0 {
+            self.quarantine(Tier3ForOfQuarantineReason::AwaitExpression);
+        } else {
+            walk::walk_await_expression(self, expression);
+        }
+    }
+
+    fn visit_yield_expression(&mut self, expression: &oxc_ast::ast::YieldExpression<'a>) {
+        if self.function_depth == 0 {
+            self.quarantine(Tier3ForOfQuarantineReason::YieldExpression);
+        } else {
+            walk::walk_yield_expression(self, expression);
+        }
+    }
+
+    fn visit_variable_declaration(&mut self, declaration: &oxc_ast::ast::VariableDeclaration<'a>) {
+        if self.function_depth == 0 {
+            if declaration.kind == VariableDeclarationKind::Var {
+                self.quarantine(Tier3ForOfQuarantineReason::VarDeclaration);
+            }
+            if declaration.declarations.iter().any(|declarator| {
+                declarator
+                    .id
+                    .get_binding_identifiers()
+                    .into_iter()
+                    .any(|identifier| identifier.name == self.loop_binding)
+            }) {
+                self.quarantine(Tier3ForOfQuarantineReason::LoopBindingRedeclaration);
+            }
+        }
+        walk::walk_variable_declaration(self, declaration);
+    }
+
+    fn visit_function(
+        &mut self,
+        function: &oxc_ast::ast::Function<'a>,
+        _flags: oxc_semantic::ScopeFlags,
+    ) {
+        if self.function_depth == 0
+            && function.r#type == oxc_ast::ast::FunctionType::FunctionDeclaration
+        {
+            self.quarantine(Tier3ForOfQuarantineReason::FunctionDeclaration);
+        }
+        // A non-arrow function owns `this`, `arguments`, control flow, and
+        // declarations, so hazards in its body do not belong to the loop body.
+    }
+
+    fn visit_arrow_function_expression(
+        &mut self,
+        expression: &oxc_ast::ast::ArrowFunctionExpression<'a>,
+    ) {
+        self.function_depth += 1;
+        walk::walk_arrow_function_expression(self, expression);
+        self.function_depth -= 1;
+    }
+
+    fn visit_for_of_statement(&mut self, _statement: &ForOfStatement<'a>) {
+        self.quarantine(Tier3ForOfQuarantineReason::NestedForOf);
+    }
+
+    fn visit_call_expression(&mut self, expression: &CallExpression<'a>) {
+        if self.function_depth == 0
+            && matches!(&expression.callee, Expression::Identifier(identifier) if identifier.name == "eval")
+        {
+            self.quarantine(Tier3ForOfQuarantineReason::DirectEval);
+        }
+        walk::walk_call_expression(self, expression);
+    }
+
+    fn visit_super(&mut self, _super_reference: &oxc_ast::ast::Super) {
+        self.quarantine(Tier3ForOfQuarantineReason::SuperReference);
+    }
+
+    fn visit_meta_property(&mut self, property: &MetaProperty<'a>) {
+        if property.meta.name == "new" && property.property.name == "target" {
+            self.quarantine(Tier3ForOfQuarantineReason::NewTarget);
+        }
+        walk::walk_meta_property(self, property);
+    }
 }
 
 #[derive(Debug)]
@@ -285,7 +515,152 @@ struct CommonJsDependencyVisitor<'s> {
     require_specifiers: BTreeSet<String>,
     dynamic_edges: Vec<SpikeDynamicEdge>,
     replacements: Vec<Replacement>,
-    computed_require_site: Option<u32>,
+    computed_require_calls: Vec<Span>,
+    dynamic_option_error: Option<String>,
+}
+
+#[derive(Debug)]
+struct AuthoredComputedRequireVisitor<'s> {
+    scoping: &'s Scoping,
+    sites: Vec<OriginalSourceSpanV1>,
+}
+
+impl<'a> Visit<'a> for AuthoredComputedRequireVisitor<'_> {
+    fn visit_call_expression(&mut self, expression: &CallExpression<'a>) {
+        if expression
+            .callee
+            .is_global_reference_name("require".into(), self.scoping)
+            && !matches!(
+                expression.arguments.as_slice(),
+                [Argument::StringLiteral(_)]
+            )
+        {
+            self.sites.push(OriginalSourceSpanV1 {
+                start: expression.span.start,
+                end: expression.span.end,
+            });
+        }
+        walk::walk_call_expression(self, expression);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AuthoredDynamicImportSite {
+    computed: bool,
+    original_source_offset: u32,
+    original_source_end: u32,
+    label: Option<String>,
+    attributes: BTreeMap<String, String>,
+    runtime_options_supported: bool,
+}
+
+#[derive(Debug, Default)]
+struct AuthoredDynamicImportVisitor {
+    sites: Vec<AuthoredDynamicImportSite>,
+    source_option_error: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct DynamicImportOptionsAnalysis {
+    label: Option<String>,
+    runtime: BTreeMap<String, String>,
+    runtime_supported: bool,
+    source_error: Option<String>,
+}
+
+/// Classify authored options without turning runtime-only defects into build
+/// failures. The producer is the one parsing authority, so this same result
+/// supplies both the original-source correspondence table and the guarded
+/// factory ABI. Only statically visible misuse of LLP 0014's build-time-only
+/// policy vocabulary is an unconditional source error.
+/// @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
+fn dynamic_import_options(options: Option<&Expression<'_>>) -> DynamicImportOptionsAnalysis {
+    let Some(options) = options else {
+        return DynamicImportOptionsAnalysis {
+            runtime_supported: true,
+            ..DynamicImportOptionsAnalysis::default()
+        };
+    };
+    let Expression::ObjectExpression(options) = options else {
+        return DynamicImportOptionsAnalysis::default();
+    };
+    if options.properties.len() != 1 {
+        return DynamicImportOptionsAnalysis::default();
+    }
+    let ObjectPropertyKind::ObjectProperty(with_property) = &options.properties[0] else {
+        return DynamicImportOptionsAnalysis::default();
+    };
+    if with_property.kind != PropertyKind::Init
+        || with_property.method
+        || with_property.computed
+        || with_property.key.static_name().as_deref() != Some("with")
+    {
+        return DynamicImportOptionsAnalysis::default();
+    }
+    let Expression::ObjectExpression(attributes) = &with_property.value else {
+        return DynamicImportOptionsAnalysis::default();
+    };
+    let mut analysis = DynamicImportOptionsAnalysis {
+        runtime_supported: true,
+        ..DynamicImportOptionsAnalysis::default()
+    };
+    for property in &attributes.properties {
+        let ObjectPropertyKind::ObjectProperty(property) = property else {
+            analysis.runtime_supported = false;
+            continue;
+        };
+        let key = property.key.static_name();
+        if key.as_deref() == Some("authorities") {
+            analysis.source_error.get_or_insert_with(|| {
+                "reserved build-time import attribute authorities is invalid at runtime".to_string()
+            });
+            continue;
+        }
+        if property.kind != PropertyKind::Init || property.method || property.computed {
+            analysis.runtime_supported = false;
+            continue;
+        }
+        let (Some(key), Expression::StringLiteral(value)) = (key, &property.value) else {
+            analysis.runtime_supported = false;
+            continue;
+        };
+        match key.as_ref() {
+            "ibex:site" => {
+                if analysis.label.replace(value.value.to_string()).is_some() {
+                    analysis.runtime_supported = false;
+                }
+            }
+            "type" if value.value == "json" => {
+                if analysis
+                    .runtime
+                    .insert("type".into(), "json".into())
+                    .is_some()
+                {
+                    analysis.runtime_supported = false;
+                }
+            }
+            _ => analysis.runtime_supported = false,
+        }
+    }
+    analysis
+}
+
+impl<'a> Visit<'a> for AuthoredDynamicImportVisitor {
+    fn visit_import_expression(&mut self, expression: &ImportExpression<'a>) {
+        let analysis = dynamic_import_options(expression.options.as_ref());
+        if let Some(error) = analysis.source_error {
+            self.source_option_error.get_or_insert(error);
+        }
+        self.sites.push(AuthoredDynamicImportSite {
+            computed: !matches!(expression.source, Expression::StringLiteral(_)),
+            original_source_offset: expression.span.start,
+            original_source_end: expression.span.end,
+            label: analysis.label,
+            attributes: analysis.runtime,
+            runtime_options_supported: analysis.runtime_supported,
+        });
+        walk::walk_import_expression(self, expression);
+    }
 }
 
 impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
@@ -299,8 +674,7 @@ impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
                     self.require_specifiers.insert(specifier.value.to_string());
                 }
                 _ => {
-                    self.computed_require_site
-                        .get_or_insert(expression.span.start);
+                    self.computed_require_calls.push(expression.span);
                 }
             };
         }
@@ -312,6 +686,10 @@ impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
             Expression::StringLiteral(literal) => Some(literal.value.to_string()),
             _ => None,
         };
+        let analysis = dynamic_import_options(expression.options.as_ref());
+        if let Some(error) = analysis.source_error {
+            self.dynamic_option_error.get_or_insert(error);
+        }
         self.dynamic_edges.push(SpikeDynamicEdge {
             kind: if specifier.is_some() {
                 "literal".into()
@@ -320,16 +698,66 @@ impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
             },
             specifier,
             site: expression.span.start,
+            original_source_offset: expression.span.start,
+            original_source_end: expression.span.end,
             has_options: expression.options.is_some(),
+            label: analysis.label,
+            attributes: analysis.runtime,
+            runtime_options_supported: analysis.runtime_supported,
         });
         self.replacements.push(Replacement {
             span: expression.span,
-            text: "dynamicImport(__IBEX_IMPORT_ARGUMENTS__)".into(),
+            text: format!(
+                "dynamicImport(__IBEX_DYNAMIC_KIND_{0}__, __IBEX_DYNAMIC_START_{0}__, __IBEX_DYNAMIC_END_{0}__, __IBEX_DYNAMIC_OPTIONS_{0}__, __IBEX_IMPORT_ARGUMENTS__)",
+                expression.span.start
+            ),
         });
+        walk::walk_import_expression(self, expression);
     }
 }
 
 impl<'a> Visit<'a> for NestedRewriteVisitor {
+    fn visit_object_property(&mut self, property: &ObjectProperty<'a>) {
+        // Replacing only the value identifier of `{ imported }` would emit
+        // invalid `{ context.importValue(...) }` syntax. Expand the complete
+        // shorthand property before the ordinary identifier visitor runs.
+        if property.shorthand {
+            if let Expression::Identifier(identifier) = &property.value {
+                if let Some((specifier, imported)) = self.imported.get(identifier.name.as_str()) {
+                    self.replacements.push(Replacement {
+                        span: property.span,
+                        text: format!(
+                            "{}: {}.importValue({}, {})",
+                            identifier.name,
+                            self.context,
+                            js_string(specifier),
+                            js_string(imported)
+                        ),
+                    });
+                    return;
+                }
+            }
+        }
+        walk::walk_object_property(self, property);
+    }
+
+    fn visit_big_int_literal(&mut self, literal: &oxc_ast::ast::BigIntLiteral<'a>) {
+        let raw = literal
+            .raw
+            .as_ref()
+            .map_or_else(|| literal.value.to_string(), ToString::to_string);
+        let value = raw
+            .strip_suffix('n')
+            .unwrap_or(raw.as_str())
+            .replace('_', "");
+        self.replacements.push(Replacement {
+            span: literal.span,
+            text: format!("BigInt({})", js_string(&value)),
+        });
+        self.hermes_compat_passes
+            .insert("llp0019-bigint-constructor-v1".to_string());
+    }
+
     fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
         if self.function_depth == 0 && identifier.name == "arguments" {
             self.replacements.push(Replacement {
@@ -395,6 +823,10 @@ impl<'a> Visit<'a> for NestedRewriteVisitor {
             Expression::StringLiteral(literal) => Some(literal.value.to_string()),
             _ => None,
         };
+        let analysis = dynamic_import_options(expression.options.as_ref());
+        if let Some(error) = analysis.source_error {
+            self.dynamic_option_error.get_or_insert(error);
+        }
         self.dynamic_edges.push(SpikeDynamicEdge {
             kind: if specifier.is_some() {
                 "literal".into()
@@ -403,15 +835,21 @@ impl<'a> Visit<'a> for NestedRewriteVisitor {
             },
             specifier,
             site: expression.span.start,
+            original_source_offset: expression.span.start,
+            original_source_end: expression.span.end,
             has_options: expression.options.is_some(),
+            label: analysis.label,
+            attributes: analysis.runtime,
+            runtime_options_supported: analysis.runtime_supported,
         });
         self.replacements.push(Replacement {
             span: expression.span,
             text: format!(
-                "{}.dynamicImport({})",
-                self.context, "__IBEX_IMPORT_ARGUMENTS__"
+                "{0}.dynamicImport(__IBEX_DYNAMIC_KIND_{1}__, __IBEX_DYNAMIC_START_{1}__, __IBEX_DYNAMIC_END_{1}__, __IBEX_DYNAMIC_OPTIONS_{1}__, __IBEX_IMPORT_ARGUMENTS__)",
+                self.context, expression.span.start
             ),
         });
+        walk::walk_import_expression(self, expression);
     }
 
     fn visit_meta_property(&mut self, property: &MetaProperty<'a>) {
@@ -426,6 +864,46 @@ impl<'a> Visit<'a> for NestedRewriteVisitor {
     }
 
     fn visit_for_of_statement(&mut self, statement: &ForOfStatement<'a>) {
+        let quarantine = if statement.r#await {
+            Some(Tier3ForOfQuarantineReason::AwaitLoop)
+        } else {
+            match &statement.left {
+                oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) => {
+                    if declaration.kind == VariableDeclarationKind::Var {
+                        Some(Tier3ForOfQuarantineReason::VarLoopBinding)
+                    } else if declaration.declarations.len() != 1
+                        || declaration.declarations[0]
+                            .id
+                            .get_identifier_name()
+                            .is_none()
+                    {
+                        Some(Tier3ForOfQuarantineReason::DestructuredLoopBinding)
+                    } else if !matches!(&statement.body, Statement::BlockStatement(_)) {
+                        Some(Tier3ForOfQuarantineReason::NonBlockBody)
+                    } else {
+                        let loop_binding = declaration.declarations[0]
+                            .id
+                            .get_identifier_name()
+                            .expect("guarded identifier")
+                            .to_string();
+                        let mut hazards = ForOfHazardVisitor {
+                            loop_binding: loop_binding.as_str(),
+                            function_depth: 0,
+                            quarantine: None,
+                        };
+                        hazards.visit_statement(&statement.body);
+                        hazards.quarantine
+                    }
+                }
+                _ => Some(Tier3ForOfQuarantineReason::AssignmentLoopBinding),
+            }
+        };
+        if let Some(reason) = quarantine {
+            self.tier3_for_of_quarantine
+                .get_or_insert((statement.span.start, reason));
+            return;
+        }
+
         if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = &statement.left {
             if matches!(
                 declaration.kind,
@@ -571,11 +1049,11 @@ pub fn produce_spike_artifact(
     let intermediate = transform_with_oxc(source_path, source)?;
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &intermediate.code, SourceType::mjs()).parse();
-    if !parsed.errors.is_empty() {
+    if !parsed.diagnostics.is_empty() {
         bail!(
             "Oxc could not parse transformed {}: {:?}\ntransformed source:\n{}",
             source_name,
-            parsed.errors,
+            parsed.diagnostics,
             intermediate.code
         );
     }
@@ -736,7 +1214,19 @@ pub fn produce_spike_artifact(
         ..NestedRewriteVisitor::default()
     };
     visitor.visit_program(&program);
-
+    if let Some(error) = visitor.dynamic_option_error.take() {
+        bail!("{error}");
+    }
+    if let Some((site, quarantine)) = visitor.tier3_for_of_quarantine {
+        return Err(unsupported_module_runner_shape(
+            LegacyModuleRunnerRequirement::tier3_for_of(site, quarantine),
+        ));
+    }
+    finalize_dynamic_sites(
+        &mut visitor.dynamic_edges,
+        &mut visitor.replacements,
+        &intermediate.authored_dynamic_imports,
+    )?;
     let lowered = lower_module_body(
         &program,
         &intermediate.code,
@@ -769,10 +1259,6 @@ pub fn produce_spike_artifact(
         .unwrap_or("js")
         .to_ascii_uppercase();
     let integrity = Sha256::digest(source.as_bytes());
-    visitor.dynamic_edges.sort_by_key(|edge| edge.site);
-    for (site, edge) in visitor.dynamic_edges.iter_mut().enumerate() {
-        edge.site = u32::try_from(site).context("too many dynamic-import sites")?;
-    }
     Ok(SpikeModuleArtifact {
         fixture_id: fixture_id.to_string(),
         source_name: source_name.to_string(),
@@ -792,6 +1278,69 @@ pub fn produce_spike_artifact(
     })
 }
 
+fn finalize_dynamic_sites(
+    edges: &mut [SpikeDynamicEdge],
+    replacements: &mut [Replacement],
+    authored: &[AuthoredDynamicImportSite],
+) -> Result<()> {
+    edges.sort_by_key(|edge| edge.site);
+    let mut authored = authored.to_vec();
+    authored.sort_by_key(|site| site.original_source_offset);
+    if edges.len() != authored.len() {
+        bail!(
+            "Oxc transform changed the dynamic-import site count (authored {}, transformed {})",
+            authored.len(),
+            edges.len()
+        );
+    }
+    for (ordinal, (edge, authored)) in edges.iter_mut().zip(authored).enumerate() {
+        let ordinal = u32::try_from(ordinal).context("too many dynamic-import sites")?;
+        if (edge.specifier.is_none()) != authored.computed {
+            bail!("Oxc transform changed dynamic-import computedness at site {ordinal}");
+        }
+        let transformed_offset = edge.site;
+        edge.original_source_offset = authored.original_source_offset;
+        edge.original_source_end = authored.original_source_end;
+        edge.label = authored.label;
+        edge.attributes = authored.attributes;
+        edge.runtime_options_supported = authored.runtime_options_supported;
+        let kind_marker = format!("__IBEX_DYNAMIC_KIND_{transformed_offset}__");
+        let start_marker = format!("__IBEX_DYNAMIC_START_{transformed_offset}__");
+        let end_marker = format!("__IBEX_DYNAMIC_END_{transformed_offset}__");
+        let options_marker = format!("__IBEX_DYNAMIC_OPTIONS_{transformed_offset}__");
+        for replacement in replacements.iter_mut() {
+            if replacement.text.contains(&kind_marker) {
+                let kind = if authored.computed {
+                    ordinal.to_string()
+                } else {
+                    "-1".to_string()
+                };
+                replacement.text = replacement
+                    .text
+                    .replace(&kind_marker, &kind)
+                    .replace(&start_marker, &authored.original_source_offset.to_string())
+                    .replace(&end_marker, &authored.original_source_end.to_string())
+                    .replace(
+                        &options_marker,
+                        if authored.runtime_options_supported {
+                            "0"
+                        } else {
+                            "1"
+                        },
+                    );
+            }
+        }
+        edge.site = ordinal;
+    }
+    if replacements
+        .iter()
+        .any(|replacement| replacement.text.contains("__IBEX_DYNAMIC_"))
+    {
+        bail!("dynamic-import site marker has no producer edge");
+    }
+    Ok(())
+}
+
 /// Production v1 adapter over the proven Oxc spike producer. The adapter is
 /// intentionally typed and fail-closed: lossy spike fields do not pass through
 /// as free-form artifact variants.
@@ -803,10 +1352,30 @@ pub fn produce_module_artifact_v1(
     source_path: &Path,
     source: &str,
     producer_binary_digest: CapsecDigest,
-    hermes_target: &str,
 ) -> Result<ModuleArtifactV1> {
+    Ok(produce_module_artifact_with_sites_v1(
+        source_id,
+        source_name,
+        source_path,
+        source,
+        producer_binary_digest,
+    )?
+    .artifact)
+}
+
+/// Produce the immutable ModuleArtifact plus the producer-owned correspondence
+/// table used to join stable source labels to deployment candidate rows.
+/// ModuleArtifact v1 remains unchanged; only the separately versioned sidecar
+/// consumes this table. @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
+pub fn produce_module_artifact_with_sites_v1(
+    source_id: SourceId,
+    source_name: &str,
+    source_path: &Path,
+    source: &str,
+    producer_binary_digest: CapsecDigest,
+) -> Result<ProducedModuleArtifactV1> {
     let spike = produce_spike_artifact("module-artifact-v1", source_name, source_path, source)?;
-    let fingerprint = module_artifact_transform_fingerprint_v1(hermes_target)?;
+    let fingerprint = module_artifact_transform_fingerprint_v1()?;
     let static_edges = spike
         .static_edges
         .iter()
@@ -816,18 +1385,49 @@ pub fn produce_module_artifact_v1(
         .dynamic_edges
         .iter()
         .map(|edge| {
-            if edge.has_options {
-                return Err(unsupported_module_runner_shape(
-                    "dynamic import options are not yet representable in ModuleArtifact v1",
-                ));
+            let attributes = ImportAttributes::new(edge.attributes.clone())?;
+            if edge.specifier.is_some() && edge.label.is_some() {
+                bail!("ibex:site is valid only on computed dynamic imports");
+            }
+            if !edge.runtime_options_supported {
+                return Ok(DynamicEdgeV1::Computed { site: edge.site });
             }
             match edge.specifier.as_deref() {
                 Some(specifier) => Ok(DynamicEdgeV1::Literal {
                     specifier: non_empty(specifier, "dynamic import specifier")?,
-                    attributes: ImportAttributes::default(),
+                    attributes,
                 }),
                 None => Ok(DynamicEdgeV1::Computed { site: edge.site }),
             }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut labels = BTreeSet::new();
+    let dynamic_import_sites = spike
+        .dynamic_edges
+        .iter()
+        .filter(|edge| edge.specifier.is_none())
+        .map(|edge| {
+            let label = edge
+                .label
+                .as_ref()
+                .map(|value| StableId::new(value.clone()).map_err(anyhow::Error::msg))
+                .transpose()?;
+            if label
+                .as_ref()
+                .is_some_and(|label| !labels.insert(label.as_str().to_owned()))
+            {
+                bail!("computed dynamic-import labels must be unique per requester");
+            }
+            Ok(DynamicImportSiteV1 {
+                site: edge.site,
+                label,
+                original_source_span: OriginalSourceSpanV1 {
+                    start: edge.original_source_offset,
+                    end: edge.original_source_end,
+                },
+                attributes: ImportAttributes::new(edge.attributes.clone())?,
+                runtime_options_supported: edge.runtime_options_supported,
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     let export_descriptors = spike
@@ -881,27 +1481,48 @@ pub fn produce_module_artifact_v1(
         factory_digest,
         source_map,
     };
-    ModuleArtifactV1::new_inline(
+    let artifact = ModuleArtifactV1::new_inline(
         semantics,
         spike.factory_source,
         ProducerIdentityV1::InProcess {
             producer_id: NonEmptyString::new("ibex-runtime-oxc").map_err(anyhow::Error::msg)?,
             producer_binary_digest,
         },
-    )
+    )?;
+    Ok(ProducedModuleArtifactV1 {
+        artifact,
+        dynamic_import_sites,
+    })
 }
 
 /// Produce a script-goal CommonJS factory without invoking an ambient JS
 /// runtime. Literal require edges are authenticated separately from dynamic
-/// imports, and computed require remains an explicit bounded-fallback shape.
+/// imports, and computed require remains a guarded invocation-time refusal.
+/// @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
 pub fn produce_commonjs_artifact_v1(
     source_id: SourceId,
     source_name: &str,
     source_path: &Path,
     source: &str,
     producer_binary_digest: CapsecDigest,
-    hermes_target: &str,
 ) -> Result<ModuleArtifactV1> {
+    Ok(produce_commonjs_artifact_with_sites_v1(
+        source_id,
+        source_name,
+        source_path,
+        source,
+        producer_binary_digest,
+    )?
+    .artifact)
+}
+
+pub fn produce_commonjs_artifact_with_sites_v1(
+    source_id: SourceId,
+    source_name: &str,
+    source_path: &Path,
+    source: &str,
+    producer_binary_digest: CapsecDigest,
+) -> Result<ProducedModuleArtifactV1> {
     let intermediate = transform_with_oxc_goal(source_path, source, false)?;
     let allocator = Allocator::default();
     let parsed = Parser::new(
@@ -910,22 +1531,22 @@ pub fn produce_commonjs_artifact_v1(
         SourceType::default().with_module(false),
     )
     .parse();
-    if !parsed.errors.is_empty() {
+    if !parsed.diagnostics.is_empty() {
         bail!(
             "Oxc could not parse transformed CommonJS {}: {:?}",
             source_name,
-            parsed.errors
+            parsed.diagnostics
         );
     }
     let program = parsed.program;
     let semantic = SemanticBuilder::new()
         .with_check_syntax_error(true)
         .build(&program);
-    if !semantic.errors.is_empty() {
+    if !semantic.diagnostics.is_empty() {
         bail!(
             "Oxc semantics failed for transformed CommonJS {}: {:?}",
             source_name,
-            semantic.errors
+            semantic.diagnostics
         );
     }
     let mut visitor = CommonJsDependencyVisitor {
@@ -933,20 +1554,29 @@ pub fn produce_commonjs_artifact_v1(
         require_specifiers: BTreeSet::new(),
         dynamic_edges: Vec::new(),
         replacements: Vec::new(),
-        computed_require_site: None,
+        computed_require_calls: Vec::new(),
+        dynamic_option_error: None,
     };
     visitor.visit_program(&program);
-    if let Some(site) = visitor.computed_require_site {
-        return Err(unsupported_module_runner_shape(format!(
-            "computed CommonJS require at transformed byte offset {site} has no authenticated finite candidate table"
-        )));
+    if let Some(error) = visitor.dynamic_option_error.take() {
+        bail!("{error}");
     }
-    if visitor.dynamic_edges.iter().any(|edge| edge.has_options) {
-        return Err(unsupported_module_runner_shape(
-            "dynamic import options are not yet representable in ModuleArtifact v1",
-        ));
+    if visitor.computed_require_calls.len() != intermediate.authored_computed_requires.len() {
+        bail!("computed CommonJS require correspondence changed during Oxc lowering");
     }
-
+    for (call, original) in visitor
+        .computed_require_calls
+        .iter()
+        .zip(&intermediate.authored_computed_requires)
+    {
+        visitor.replacements.push(Replacement {
+            span: *call,
+            text: format!(
+                "computedRequire({}, {}__IBEX_REQUIRE_ARGUMENTS__)",
+                original.start, original.end
+            ),
+        });
+    }
     let detector = lex_commonjs(&intermediate.code)?;
     visitor
         .require_specifiers
@@ -960,19 +1590,54 @@ pub fn produce_commonjs_artifact_v1(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    visitor.dynamic_edges.sort_by_key(|edge| edge.site);
+    finalize_dynamic_sites(
+        &mut visitor.dynamic_edges,
+        &mut visitor.replacements,
+        &intermediate.authored_dynamic_imports,
+    )?;
     let dynamic_edges = visitor
         .dynamic_edges
         .iter()
-        .enumerate()
-        .map(|(site, edge)| match edge.specifier.as_deref() {
-            Some(specifier) => Ok(DynamicEdgeV1::Literal {
-                specifier: non_empty(specifier, "dynamic import specifier")?,
-                attributes: ImportAttributes::default(),
-            }),
-            None => Ok(DynamicEdgeV1::Computed {
-                site: u32::try_from(site).context("too many dynamic-import sites")?,
-            }),
+        .map(|edge| {
+            if !edge.runtime_options_supported {
+                return Ok(DynamicEdgeV1::Computed { site: edge.site });
+            }
+            match edge.specifier.as_deref() {
+                Some(specifier) => Ok(DynamicEdgeV1::Literal {
+                    specifier: non_empty(specifier, "dynamic import specifier")?,
+                    attributes: ImportAttributes::new(edge.attributes.clone())?,
+                }),
+                None => Ok(DynamicEdgeV1::Computed { site: edge.site }),
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut labels = BTreeSet::new();
+    let dynamic_import_sites = visitor
+        .dynamic_edges
+        .iter()
+        .filter(|edge| edge.specifier.is_none())
+        .map(|edge| {
+            let label = edge
+                .label
+                .as_ref()
+                .map(|value| StableId::new(value.clone()).map_err(anyhow::Error::msg))
+                .transpose()?;
+            if label
+                .as_ref()
+                .is_some_and(|label| !labels.insert(label.as_str().to_owned()))
+            {
+                bail!("computed dynamic-import labels must be unique per requester");
+            }
+            Ok(DynamicImportSiteV1 {
+                site: edge.site,
+                label,
+                original_source_span: OriginalSourceSpanV1 {
+                    start: edge.original_source_offset,
+                    end: edge.original_source_end,
+                },
+                attributes: ImportAttributes::new(edge.attributes.clone())?,
+                runtime_options_supported: edge.runtime_options_supported,
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     let rewritten = apply_replacements(
@@ -980,7 +1645,7 @@ pub fn produce_commonjs_artifact_v1(
         Span::new(0, intermediate.code.len() as u32),
         &visitor.replacements,
     )?;
-    let prefix = "function (require, module, exports, __filename, __dirname, dynamicImport) {\n";
+    let prefix = "function (require, module, exports, __filename, __dirname, dynamicImport, computedRequire) {\n";
     let suffix = "\n}\n";
     let factory_source = format!("{prefix}{rewritten}{suffix}");
     let line_origins = (0..intermediate.code.lines().count().max(1))
@@ -996,7 +1661,7 @@ pub fn produce_commonjs_artifact_v1(
     )?;
     let source_map = source_map_v1(source_id.clone(), &source_map_value)?;
     let dialect = source_dialect(source_path)?;
-    let fingerprint = commonjs_artifact_transform_fingerprint_v1(hermes_target)?;
+    let fingerprint = commonjs_artifact_transform_fingerprint_v1()?;
     let commonjs_exports = CommonJsExportsV1 {
         detector: fingerprint.commonjs_detector.clone(),
         detector_version: non_empty(CJS_MODULE_LEXER_VERSION, "CommonJS detector version")?,
@@ -1013,7 +1678,7 @@ pub fn produce_commonjs_artifact_v1(
     };
     let factory_digest =
         digest_bytes(MODULE_ARTIFACT_FACTORY_DOMAIN_V1, factory_source.as_bytes())?;
-    ModuleArtifactV1::new_inline(
+    let artifact = ModuleArtifactV1::new_inline(
         ModuleSemanticsV1 {
             source_id: CanonicalSourceId(source_id),
             source_goal: SourceGoalV1::CommonJs,
@@ -1033,7 +1698,11 @@ pub fn produce_commonjs_artifact_v1(
             producer_id: NonEmptyString::new("ibex-runtime-oxc").map_err(anyhow::Error::msg)?,
             producer_binary_digest,
         },
-    )
+    )?;
+    Ok(ProducedModuleArtifactV1 {
+        artifact,
+        dynamic_import_sites,
+    })
 }
 
 /// Produce one strict JSON record whose sole export is `default`. The original
@@ -1043,7 +1712,6 @@ pub fn produce_json_artifact_v1(
     source_id: SourceId,
     source: &str,
     producer_binary_digest: CapsecDigest,
-    hermes_target: &str,
 ) -> Result<ModuleArtifactV1> {
     let value = capsec_semantics::strict_json::parse_strict(source)
         .map_err(|error| anyhow!("JSON module is not strict JSON: {error}"))?;
@@ -1061,7 +1729,7 @@ pub fn produce_json_artifact_v1(
             source_goal: SourceGoalV1::Json,
             dialect: None,
             source_integrity: source_integrity(source.as_bytes())?,
-            transform_fingerprint: json_artifact_transform_fingerprint_v1(hermes_target)?,
+            transform_fingerprint: json_artifact_transform_fingerprint_v1()?,
             static_edges: Vec::new(),
             dynamic_edges: Vec::new(),
             export_descriptors: Vec::new(),
@@ -1091,7 +1759,6 @@ pub fn produce_builtin_artifact_v1(
     source_name: &str,
     source: &str,
     producer_binary_digest: CapsecDigest,
-    hermes_target: &str,
 ) -> Result<ModuleArtifactV1> {
     let path = PathBuf::from(format!("{source_name}.js"));
     let staging_id = SourceId::synthetic("builtin-producer", source_name)?;
@@ -1101,7 +1768,6 @@ pub fn produce_builtin_artifact_v1(
         &path,
         source,
         producer_binary_digest,
-        hermes_target,
     )?;
     let ModulePayloadV1::Inline { factory_source, .. } = artifact.payload else {
         unreachable!()
@@ -1365,30 +2031,72 @@ fn transform_with_oxc_goal(
         .unwrap_or_else(|_| SourceType::mjs())
         .with_module(module_goal);
     let parsed = Parser::new(&allocator, source, source_type).parse();
-    if !parsed.errors.is_empty() {
+    if !parsed.diagnostics.is_empty() {
         bail!(
             "Oxc parse failed for {}: {:?}",
             path.display(),
-            parsed.errors
+            parsed.diagnostics
         );
     }
     let mut program = parsed.program;
+    let mut authored_dynamic_imports = AuthoredDynamicImportVisitor::default();
+    authored_dynamic_imports.visit_program(&program);
+    if let Some(error) = authored_dynamic_imports.source_option_error {
+        bail!("{error}");
+    }
+    let mut hermes_syntax = HermesSyntaxVisitor::default();
+    hermes_syntax.visit_program(&program);
+    if let Some((site, quarantine)) = hermes_syntax.quarantine {
+        return Err(unsupported_module_runner_shape(
+            LegacyModuleRunnerRequirement::hermes_syntax(site, quarantine),
+        ));
+    }
     let semantic = SemanticBuilder::new()
         .with_check_syntax_error(true)
+        // Oxc's TypeScript enum transform evaluates constant members through
+        // semantic scoping and panics if this projection was omitted. Keep the
+        // prerequisite adjacent to the production Transformer call.
+        // @ref LLP 0028#5-conformance-gates-telemetry-and-rollout
+        .with_enum_eval(true)
         .build(&program);
-    if !semantic.errors.is_empty() {
+    if !semantic.diagnostics.is_empty() {
         bail!(
             "Oxc semantics failed for {}: {:?}",
             path.display(),
-            semantic.errors
+            semantic.diagnostics
         );
     }
-    // The factory ABI, not Hermes' native module parser, consumes TLA. Keep
-    // Oxc's target at ES2022 so it preserves top-level await for the async
-    // execute function; the explicit LLP 0019 compatibility tier handles
-    // Hermes-specific syntax/runtime gaps separately.
-    let mut options = TransformOptions::from_target("es2022")
-        .map_err(|error| anyhow!("configure Oxc ES2022 target: {error}"))?;
+    let authored_computed_requires = if module_goal {
+        Vec::new()
+    } else {
+        let mut visitor = AuthoredComputedRequireVisitor {
+            scoping: semantic.semantic.scoping(),
+            sites: Vec::new(),
+        };
+        visitor.visit_program(&program);
+        visitor.sites
+    };
+    // The factory ABI, not Hermes' native module parser, consumes TLA. Every
+    // output-affecting option is generated from the canonical configuration;
+    // unsupported authored values fail closed instead of silently selecting an
+    // Oxc default. @ref LLP 0028#1-toolchain-and-pin-rotation--atomic-with-identity-rotation
+    if transform_config::OXC_MODULE_MODE != "preserve"
+        || transform_config::OXC_TYPESCRIPT_MODE != "strip"
+        || !transform_config::OXC_JSX_ENABLED
+        || transform_config::OXC_JSX_RUNTIME != "classic"
+        || transform_config::OXC_DECORATORS
+        || transform_config::CODEGEN_SOURCE_MAP != "v3-source-id"
+        || transform_config::CODEGEN_MINIFY
+    {
+        bail!("generated module-transform configuration is unsupported by this producer");
+    }
+    let mut options =
+        TransformOptions::from_target(transform_config::ECMASCRIPT_TARGET).map_err(|error| {
+            anyhow!(
+                "configure Oxc {} target: {error}",
+                transform_config::ECMASCRIPT_TARGET
+            )
+        })?;
     options.env.module = Module::Preserve;
     options.jsx = JsxOptions {
         runtime: JsxRuntime::Classic,
@@ -1396,11 +2104,11 @@ fn transform_with_oxc_goal(
     };
     let transformed = Transformer::new(&allocator, path, &options)
         .build_with_scoping(semantic.semantic.into_scoping(), &mut program);
-    if !transformed.errors.is_empty() {
+    if !transformed.diagnostics.is_empty() {
         bail!(
             "Oxc transform failed for {}: {:?}",
             path.display(),
-            transformed.errors
+            transformed.diagnostics
         );
     }
     let codegen = Codegen::new()
@@ -1416,7 +2124,9 @@ fn transform_with_oxc_goal(
         .ok_or_else(|| anyhow!("Oxc emitted no source map for {}", path.display()))?;
     Ok(IntermediateSource {
         code: codegen.code,
-        map,
+        map: map.into_owned(),
+        authored_dynamic_imports: authored_dynamic_imports.sites,
+        authored_computed_requires,
     })
 }
 
@@ -1487,6 +2197,7 @@ fn lower_module_body(
                                         js_string(&name)
                                     ),
                                     line_of(source, declarator.span.start),
+                                    line_of(source, declarator.span.end),
                                 );
                             }
                         }
@@ -1510,6 +2221,7 @@ fn lower_module_body(
                                 &mut lowered.execute_line_origins,
                                 &declaration,
                                 line_of(source, span.start),
+                                line_of(source, span.end),
                             );
                             for name in declaration_names(inner)? {
                                 append_mapped(
@@ -1517,6 +2229,7 @@ fn lower_module_body(
                                     &mut lowered.execute_line_origins,
                                     &format!("\n{export_callback}({}, {name});", js_string(&name)),
                                     line_of(source, span.start),
+                                    line_of(source, span.end),
                                 );
                             }
                             lowered.execute.push('\n');
@@ -1534,6 +2247,7 @@ fn lower_module_body(
                                     item.local.name()
                                 ),
                                 line_of(source, statement_span.start),
+                                line_of(source, statement_span.end),
                             );
                         }
                     }
@@ -1570,6 +2284,7 @@ fn lower_module_body(
                     &mut lowered.execute_line_origins,
                     &default_code,
                     line_of(source, span.start),
+                    line_of(source, span.end),
                 );
                 lowered.execute.push('\n');
             }
@@ -1580,6 +2295,7 @@ fn lower_module_body(
                     &mut lowered.execute_line_origins,
                     &statement,
                     line_of(source, statement_span.start),
+                    line_of(source, statement_span.end),
                 );
                 lowered.execute.push('\n');
             }
@@ -1597,38 +2313,83 @@ fn apply_replacements(source: &str, range: Span, replacements: &[Replacement]) -
         })
         .cloned()
         .collect::<Vec<_>>();
-    selected.sort_by_key(|replacement| (replacement.span.start, replacement.span.end));
-    for pair in selected.windows(2) {
-        if pair[0].span.end > pair[1].span.start {
-            bail!(
-                "producer spike encountered overlapping AST rewrites at {}..{} and {}..{}",
-                pair[0].span.start,
-                pair[0].span.end,
-                pair[1].span.start,
-                pair[1].span.end
-            );
+    selected.sort_by_key(|replacement| {
+        (
+            replacement.span.start,
+            std::cmp::Reverse(replacement.span.end),
+        )
+    });
+    let mut top_level: Vec<Replacement> = Vec::new();
+    for replacement in selected {
+        if let Some(parent) = top_level.last() {
+            if replacement.span.start < parent.span.end {
+                if replacement.span.end <= parent.span.end {
+                    continue;
+                }
+                bail!(
+                    "producer spike encountered crossing AST rewrites at {}..{} and {}..{}",
+                    parent.span.start,
+                    parent.span.end,
+                    replacement.span.start,
+                    replacement.span.end
+                );
+            }
         }
+        top_level.push(replacement);
     }
     let mut output = String::new();
     let mut cursor = range.start as usize;
-    for replacement in selected {
+    for replacement in top_level {
         output.push_str(&source[cursor..replacement.span.start as usize]);
-        output.push_str(&materialize_replacement(source, &replacement));
+        output.push_str(&materialize_replacement(
+            source,
+            &replacement,
+            replacements,
+        )?);
         cursor = replacement.span.end as usize;
     }
     output.push_str(&source[cursor..range.end as usize]);
     Ok(output)
 }
 
-fn materialize_replacement(source: &str, replacement: &Replacement) -> String {
-    let original = &source[replacement.span.start as usize..replacement.span.end as usize];
-    let mut text = replacement.text.replace("__IBEX_ORIGINAL__", original);
+fn materialize_replacement(
+    source: &str,
+    replacement: &Replacement,
+    replacements: &[Replacement],
+) -> Result<String> {
+    let nested = replacements
+        .iter()
+        .filter(|candidate| {
+            candidate.span.start >= replacement.span.start
+                && candidate.span.end <= replacement.span.end
+                && candidate.span != replacement.span
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let original = if nested.is_empty() {
+        source[replacement.span.start as usize..replacement.span.end as usize].to_owned()
+    } else {
+        apply_replacements(source, replacement.span, &nested)?
+    };
+    let mut text = replacement.text.replace("__IBEX_ORIGINAL__", &original);
     if text.contains("__IBEX_IMPORT_ARGUMENTS__") {
         let arguments = original
             .strip_prefix("import(")
             .and_then(|value| value.strip_suffix(')'))
-            .unwrap_or(original);
+            .unwrap_or(&original);
         text = text.replace("__IBEX_IMPORT_ARGUMENTS__", arguments);
+    }
+    if text.contains("__IBEX_REQUIRE_ARGUMENTS__") {
+        let arguments = original
+            .strip_prefix("require(")
+            .and_then(|value| value.strip_suffix(')'))
+            .ok_or_else(|| anyhow!("computed require rewrite lost its call expression"))?;
+        let arguments = if arguments.trim().is_empty() {
+            String::new()
+        } else {
+            format!(", {arguments}")
+        };
+        text = text.replace("__IBEX_REQUIRE_ARGUMENTS__", &arguments);
     }
     while let Some(start) = text.find("__IBEX_SPAN_") {
         let suffix = &text[start + "__IBEX_SPAN_".len()..];
@@ -1658,7 +2419,7 @@ fn materialize_replacement(source: &str, replacement: &Replacement) -> String {
             &source[from..to],
         );
     }
-    text
+    Ok(text)
 }
 
 fn append_mapped(
@@ -1666,20 +2427,27 @@ fn append_mapped(
     origins: &mut Vec<Option<u32>>,
     text: &str,
     first_source_line: u32,
+    last_source_line: u32,
 ) {
+    debug_assert!(first_source_line <= last_source_line);
     let start_line = output.lines().count() as u32;
     output.push_str(text);
     let line_count = text.lines().count().max(1);
     while origins.len() < start_line as usize + line_count {
         let offset = origins.len().saturating_sub(start_line as usize) as u32;
-        origins.push(Some(first_source_line + offset));
+        // Handwritten rewrites can expand one source statement into more
+        // generated lines than the statement occupied. Those synthetic lines
+        // retain the statement's last real source line instead of inventing
+        // out-of-range original locations.
+        // @ref LLP 0028#1-toolchain-and-pin-rotation--atomic-with-identity-rotation
+        origins.push(Some((first_source_line + offset).min(last_source_line)));
     }
 }
 
 fn compose_factory_source_map(
     source_name: &str,
     source: &str,
-    intermediate_map: &SourceMap,
+    intermediate_map: &SourceMap<'_>,
     body_line_offset: u32,
     line_origins: &[Option<u32>],
     factory_source: &str,
@@ -1687,7 +2455,8 @@ fn compose_factory_source_map(
     let stage_map = intermediate_map.clone();
     let lookup = stage_map.generate_lookup_table();
     let mut builder = SourceMapBuilder::default();
-    builder.set_file(&format!("{source_name}.factory.js"));
+    let factory_file = format!("{source_name}.factory.js");
+    builder.set_file(&factory_file);
     let source_id = builder.set_source_and_content(source_name, source);
     for (body_line, intermediate_line) in line_origins.iter().enumerate() {
         let Some(intermediate_line) = intermediate_line else {
@@ -1790,10 +2559,11 @@ mod tests {
         let bundle = generate_spike_bundle(&default_spike_manifest(root)).expect("generate");
         assert!(!bundle.fixtures.is_empty());
         let rendered = serde_json::to_string_pretty(&bundle).expect("serialize") + "\n";
-        let checked_in = std::fs::read_to_string(
-            root.join("tests/fixtures/module-runner-spike/canonical-artifacts.json"),
-        )
-        .expect("checked-in artifacts");
+        let golden = root.join("tests/fixtures/module-runner-spike/canonical-artifacts.json");
+        if std::env::var_os("IBEX_REGENERATE_MODULE_RUNNER_SPIKE_GOLDENS").is_some() {
+            std::fs::write(&golden, &rendered).expect("regenerate canonical spike artifacts");
+        }
+        let checked_in = std::fs::read_to_string(golden).expect("checked-in artifacts");
         assert_eq!(
             rendered, checked_in,
             "regenerate the canonical spike artifacts"
@@ -1815,10 +2585,11 @@ mod tests {
         assert_eq!(bundle.minimum_pass_rate["numerator"], Value::from(18));
         assert_eq!(bundle.expected_divergences.len(), 0);
         let rendered = serde_json::to_string_pretty(&bundle).expect("serialize") + "\n";
-        let checked_in = std::fs::read_to_string(
-            root.join("tests/fixtures/module-runner-spike/test262-artifacts.json"),
-        )
-        .expect("checked-in test262 artifacts");
+        let golden = root.join("tests/fixtures/module-runner-spike/test262-artifacts.json");
+        if std::env::var_os("IBEX_REGENERATE_MODULE_RUNNER_SPIKE_GOLDENS").is_some() {
+            std::fs::write(&golden, &rendered).expect("regenerate test262 spike artifacts");
+        }
+        let checked_in = std::fs::read_to_string(golden).expect("checked-in test262 artifacts");
         assert_eq!(
             rendered, checked_in,
             "regenerate the test262 spike artifacts"
@@ -1855,7 +2626,6 @@ mod tests {
             Path::new("entry.mjs"),
             "import { value } from 'dep'; export { value };",
             producer_digest.clone(),
-            "hermes-bytecode-96",
         )
         .unwrap();
         let bytes = artifact.encode_canonical().unwrap();
@@ -1870,17 +2640,56 @@ mod tests {
                     .unwrap(),
                     expected_producer_id: NonEmptyString::new("ibex-runtime-oxc").unwrap(),
                     producer_binary_digest: producer_digest,
-                    transform_fingerprint_digest: module_artifact_transform_fingerprint_v1(
-                        "hermes-bytecode-96",
-                    )
-                    .unwrap()
-                    .digest()
-                    .unwrap(),
+                    transform_fingerprint_digest: module_artifact_transform_fingerprint_v1()
+                        .unwrap()
+                        .digest()
+                        .unwrap(),
                 },
             )
             .unwrap();
         assert_eq!(decoded.semantics.static_edges.len(), 1);
         assert_eq!(decoded.semantics.export_descriptors.len(), 1);
+    }
+
+    #[test]
+    fn canonical_transform_config_rejects_pre_rotation_artifacts() {
+        let current = module_artifact_transform_fingerprint_v1().unwrap();
+        assert_eq!(
+            current.hermes_target.as_str(),
+            transform_config::HERMES_TARGET,
+            "producer syntax target must not come from a loaded evaluator"
+        );
+        assert!(module_artifact_transform_cache_tag_v1()
+            .contains(transform_config::TRANSFORM_CONFIGURATION_DIGEST));
+
+        let mut stale = current.clone();
+        stale.transform_version = NonEmptyString::new("pre-rotation-config").unwrap();
+        let mut semantics = ModuleSemanticsV1 {
+            source_id: CanonicalSourceId(
+                SourceId::synthetic("fixture", "stale-transform").unwrap(),
+            ),
+            source_goal: SourceGoalV1::Module,
+            dialect: Some(SourceDialectV1::Js),
+            source_integrity: source_integrity(b"export const value = 1;").unwrap(),
+            transform_fingerprint: stale,
+            static_edges: Vec::new(),
+            dynamic_edges: Vec::new(),
+            export_descriptors: Vec::new(),
+            commonjs_exports: None,
+            has_top_level_await: false,
+            factory_digest: source_integrity(b"factory").unwrap(),
+            source_map: SourceMapV1 {
+                version: 3,
+                source_ids: vec![CanonicalSourceId(
+                    SourceId::synthetic("fixture", "stale-transform").unwrap(),
+                )],
+                names: Vec::new(),
+                mappings: String::new(),
+            },
+        };
+        assert!(verify_current_transform_fingerprint_v1(&semantics).is_err());
+        semantics.transform_fingerprint = current;
+        verify_current_transform_fingerprint_v1(&semantics).unwrap();
     }
 
     #[test]
@@ -1892,7 +2701,6 @@ mod tests {
             Path::new("entry.mjs"),
             "import data from './data.json' with { type: 'json' }; export default data;",
             source_integrity(b"producer-binary").unwrap(),
-            "hermes-bytecode-96",
         )
         .unwrap();
         let StaticEdgeV1::Default { attributes, .. } = &artifact.semantics.static_edges[0] else {
@@ -1902,19 +2710,34 @@ mod tests {
     }
 
     #[test]
-    fn production_adapter_authenticates_literal_and_computed_dynamic_import_sites() {
-        let source_id = SourceId::synthetic("fixture", "dynamic-imports").unwrap();
-        let artifact = produce_module_artifact_v1(
-            source_id,
+    fn production_adapter_emits_site_bearing_computed_import_and_correspondence() {
+        let literal = produce_module_artifact_v1(
+            SourceId::synthetic("fixture", "literal-dynamic-import").unwrap(),
             "entry.mjs",
             Path::new("entry.mjs"),
-            "const name = './computed.mjs'; export const results = [import('./literal.mjs'), import(name)];",
+            "export const result = import('./literal.mjs');",
             source_integrity(b"producer-binary").unwrap(),
-            "hermes-bytecode-96",
         )
         .unwrap();
         assert_eq!(
-            artifact.semantics.dynamic_edges,
+            literal.semantics.dynamic_edges,
+            [DynamicEdgeV1::Literal {
+                specifier: NonEmptyString::new("./literal.mjs").unwrap(),
+                attributes: ImportAttributes::default(),
+            }]
+        );
+
+        let source = "const name = './computed.mjs'; export const results = [import('./literal.mjs'), import(name, { with: { 'ibex:site': 'routes' } })];";
+        let produced = produce_module_artifact_with_sites_v1(
+            SourceId::synthetic("fixture", "computed-dynamic-import").unwrap(),
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            source,
+            source_integrity(b"producer-binary").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            produced.artifact.semantics.dynamic_edges,
             [
                 DynamicEdgeV1::Literal {
                     specifier: NonEmptyString::new("./literal.mjs").unwrap(),
@@ -1923,18 +2746,269 @@ mod tests {
                 DynamicEdgeV1::Computed { site: 1 },
             ]
         );
-        let super::super::artifact::ModulePayloadV1::Inline {
-            factory_source: factory,
-            ..
-        } = &artifact.payload
-        else {
-            panic!("production spike producer emits inline artifacts")
+        let ModulePayloadV1::Inline { factory_source, .. } = &produced.artifact.payload else {
+            panic!("expected inline factory")
         };
-        assert!(
-            factory.contains(".dynamicImport('./literal.mjs')")
-                || factory.contains(".dynamicImport(\"./literal.mjs\")")
+        assert!(factory_source.contains(&format!(
+            "dynamicImport(1, {}, {}, 0, name",
+            source.find("import(name").unwrap(),
+            source.find("import(name").unwrap()
+                + source[source.find("import(name").unwrap()..]
+                    .find(')')
+                    .unwrap()
+                + 1
+        )));
+        assert_eq!(produced.dynamic_import_sites.len(), 1);
+        let site = &produced.dynamic_import_sites[0];
+        assert_eq!(site.site, 1);
+        assert_eq!(site.label.as_ref().unwrap().as_str(), "routes");
+        assert_eq!(
+            site.original_source_span.start,
+            u32::try_from(source.find("import(name").unwrap()).unwrap()
         );
-        assert!(factory.contains(".dynamicImport(name)"));
+    }
+
+    #[test]
+    fn computed_site_span_comes_from_authored_typescript_not_transformed_bytes() {
+        let source = "const prefix: string = './'; const name: string = prefix + 'target.mjs'; export const result = import(name, { with: { 'ibex:site': 'typed-route' } });";
+        let produced = produce_module_artifact_with_sites_v1(
+            SourceId::synthetic("fixture", "typed-computed-import").unwrap(),
+            "entry.ts",
+            Path::new("entry.ts"),
+            source,
+            source_integrity(b"producer-binary").unwrap(),
+        )
+        .unwrap();
+        let site = &produced.dynamic_import_sites[0];
+        let authored_start = u32::try_from(source.find("import(name").unwrap()).unwrap();
+        assert_eq!(site.original_source_span.start, authored_start);
+        let ModulePayloadV1::Inline { factory_source, .. } = produced.artifact.payload else {
+            unreachable!()
+        };
+        assert!(factory_source.contains(&format!("dynamicImport(0, {authored_start},")));
+    }
+
+    #[test]
+    fn non_reserved_option_defects_are_guarded_but_reserved_policy_keys_fail_generation() {
+        let unknown = "const name = './target.mjs'; if (false) import(name, { with: { mystery: 'value', 'ibex:site': 'guarded' } });";
+        let produced = produce_module_artifact_with_sites_v1(
+            SourceId::synthetic("fixture", "guarded-options").unwrap(),
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            unknown,
+            source_integrity(b"producer-binary").unwrap(),
+        )
+        .expect("an unknown option in a dead branch must remain loadable");
+        assert_eq!(
+            produced.dynamic_import_sites[0]
+                .label
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "guarded"
+        );
+        let ModulePayloadV1::Inline { factory_source, .. } = produced.artifact.payload else {
+            unreachable!()
+        };
+        assert!(factory_source.contains("dynamicImport(0,"));
+        assert!(factory_source.contains(", 1, name"));
+
+        let guarded_literal = produce_module_artifact_v1(
+            SourceId::synthetic("fixture", "guarded-literal-options").unwrap(),
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            "if (false) import('./must-not-resolve.mjs', { with: { mystery: 'value' } });",
+            source_integrity(b"producer-binary").unwrap(),
+        )
+        .expect("an invalid literal site must be representable without resolving its target");
+        assert_eq!(
+            guarded_literal.semantics.dynamic_edges,
+            [DynamicEdgeV1::Computed { site: 0 }]
+        );
+
+        let error = produce_module_artifact_v1(
+            SourceId::synthetic("fixture", "reserved-options").unwrap(),
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            "if (false) import('./target.mjs', { with: { authorities: 'fs' } });",
+            source_integrity(b"producer-binary").unwrap(),
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("reserved build-time import attribute"));
+    }
+
+    #[test]
+    fn nested_dynamic_imports_receive_distinct_site_metadata_and_rewrites() {
+        let source = "const name = './target.mjs'; export const nested = import(import(name, { with: { 'ibex:site': 'inner' } }));";
+        let produced = produce_module_artifact_with_sites_v1(
+            SourceId::synthetic("fixture", "nested-imports").unwrap(),
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            source,
+            source_integrity(b"producer-binary").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(produced.dynamic_import_sites.len(), 2);
+        assert_eq!(produced.dynamic_import_sites[0].site, 0);
+        assert_eq!(produced.dynamic_import_sites[1].site, 1);
+        assert_eq!(
+            produced.dynamic_import_sites[1]
+                .label
+                .as_ref()
+                .unwrap()
+                .as_str(),
+            "inner"
+        );
+        let ModulePayloadV1::Inline { factory_source, .. } = produced.artifact.payload else {
+            unreachable!()
+        };
+        assert!(!factory_source.contains("import("));
+        assert!(factory_source.matches("dynamicImport(").count() >= 2);
+    }
+
+    #[test]
+    fn tier3_for_of_hazards_return_typed_legacy_requirements() {
+        let cases = [
+            (
+                Tier3ForOfQuarantineReason::ReturnStatement,
+                "export function first(xs) { for (const value of xs) { return value; } }",
+            ),
+            (
+                Tier3ForOfQuarantineReason::ThisExpression,
+                "export function log(xs) { for (const value of xs) { console.log(this, value); } }",
+            ),
+            (
+                Tier3ForOfQuarantineReason::BreakStatement,
+                "for (const value of [1, 2]) { if (value) break; }",
+            ),
+            (
+                Tier3ForOfQuarantineReason::AwaitExpression,
+                "export async function visit(xs) { for (const value of xs) { await value; } }",
+            ),
+            (
+                Tier3ForOfQuarantineReason::VarDeclaration,
+                "for (const value of [1, 2]) { var observed = value; console.log(observed); }",
+            ),
+            (
+                Tier3ForOfQuarantineReason::DestructuredLoopBinding,
+                "for (const { value } of [{ value: 1 }]) { console.log(value); }",
+            ),
+            (
+                Tier3ForOfQuarantineReason::NonBlockBody,
+                "for (const value of [1, 2]) console.log(value);",
+            ),
+        ];
+
+        for (expected, source) in cases {
+            let error = produce_module_artifact_v1(
+                SourceId::synthetic("fixture", expected.as_str()).unwrap(),
+                "entry.mjs",
+                Path::new("entry.mjs"),
+                source,
+                source_integrity(b"producer-binary").unwrap(),
+            )
+            .unwrap_err();
+            let requirement = unsupported_module_runner_reason(&error)
+                .unwrap_or_else(|| panic!("missing typed fallback for {expected:?}: {error:#}"));
+            assert_eq!(
+                requirement.kind,
+                super::super::compatibility::LegacyModuleRunnerRequirementKind::Tier3ForOf(
+                    expected
+                )
+            );
+            assert_eq!(requirement.kind.stable_code(), "IBEX_LEGACY_TIER3_FOR_OF");
+            assert!(requirement.original_source_offset.is_some());
+        }
+    }
+
+    #[test]
+    fn tier3_for_of_keeps_the_proven_simple_capture_row_native() {
+        let artifact = produce_module_artifact_v1(
+            SourceId::synthetic("fixture", "simple-for-of-capture").unwrap(),
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            "const handlers = []; for (const value of [1, 2]) { handlers.push(() => value); } export { handlers };",
+            source_integrity(b"producer-binary").unwrap(),
+        )
+        .expect("the corpus-proven capture-only row remains native");
+        let ModulePayloadV1::Inline { factory_source, .. } = artifact.payload else {
+            unreachable!()
+        };
+        assert!(factory_source.contains("(function (value)"));
+    }
+
+    #[test]
+    fn expanded_rewrite_lines_never_invent_source_lines() {
+        let mut output = String::new();
+        let mut origins = Vec::new();
+        append_mapped(
+            &mut output,
+            &mut origins,
+            "synthetic one\nsynthetic two\noriginal body",
+            4,
+            5,
+        );
+        assert_eq!(origins, [Some(4), Some(5), Some(5)]);
+    }
+
+    #[test]
+    fn hermes_syntax_without_a_native_pass_is_typed_before_execution() {
+        let cases = [
+            (
+                HermesSyntaxQuarantineReason::AsyncGenerator,
+                "export async function* values() { yield 1; }",
+            ),
+            (
+                HermesSyntaxQuarantineReason::UsingDeclaration,
+                "using resource = acquire(); export { resource };",
+            ),
+            (
+                HermesSyntaxQuarantineReason::AwaitUsingDeclaration,
+                "await using resource = acquire(); export { resource };",
+            ),
+            (
+                HermesSyntaxQuarantineReason::Decorator,
+                "@sealed export class Example {}",
+            ),
+        ];
+        for (expected, source) in cases {
+            let error = produce_module_artifact_v1(
+                SourceId::synthetic("fixture", expected.as_str()).unwrap(),
+                "entry.mjs",
+                Path::new("entry.mjs"),
+                source,
+                source_integrity(b"producer-binary").unwrap(),
+            )
+            .unwrap_err();
+            let requirement = unsupported_module_runner_reason(&error)
+                .unwrap_or_else(|| panic!("missing typed fallback for {expected:?}: {error:#}"));
+            assert_eq!(
+                requirement.kind,
+                super::super::compatibility::LegacyModuleRunnerRequirementKind::HermesSyntax(
+                    expected
+                )
+            );
+            assert_eq!(requirement.kind.stable_code(), "IBEX_LEGACY_HERMES_SYNTAX");
+        }
+    }
+
+    #[test]
+    fn tier3_lowers_bigint_literals_with_the_canonical_constructor_shape() {
+        let artifact = produce_module_artifact_v1(
+            SourceId::synthetic("fixture", "bigint").unwrap(),
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            "export const values = [1_000n, 0xffn];",
+            source_integrity(b"producer-binary").unwrap(),
+        )
+        .unwrap();
+        let ModulePayloadV1::Inline { factory_source, .. } = artifact.payload else {
+            unreachable!()
+        };
+        assert!(factory_source.contains("BigInt(\"1000\")"));
+        assert!(factory_source.contains("BigInt(\"255\")"));
     }
 
     #[test]
@@ -1955,7 +3029,6 @@ mod tests {
             Path::new("entry.cts"),
             source,
             source_integrity(b"producer-binary").unwrap(),
-            "hermes-bytecode-96",
         )
         .unwrap();
 
@@ -1985,29 +3058,38 @@ mod tests {
             unreachable!()
         };
         assert!(factory_source.starts_with(
-            "function (require, module, exports, __filename, __dirname, dynamicImport)"
+            "function (require, module, exports, __filename, __dirname, dynamicImport, computedRequire)"
         ));
         assert!(!factory_source.contains("import('./async.mjs')"));
+        assert!(factory_source.contains("dynamicImport(-1,"));
         assert!(
-            factory_source.contains("dynamicImport('./async.mjs')")
-                || factory_source.contains("dynamicImport(\"./async.mjs\")")
+            factory_source.contains("'./async.mjs')")
+                || factory_source.contains("\"./async.mjs\")")
         );
         assert!(!factory_source.contains(": number"));
     }
 
     #[test]
-    fn commonjs_adapter_rejects_computed_require_without_candidate_table() {
-        let error = produce_commonjs_artifact_v1(
+    fn commonjs_adapter_guards_computed_require_until_invocation() {
+        let source = "const prefix: string = './'; if (false) { require(prefix + 'dead.cjs'); } const name = './dep.cjs'; module.exports = require(name);";
+        let artifact = produce_commonjs_artifact_v1(
             SourceId::synthetic("fixture", "computed-require").unwrap(),
             "entry.cjs",
-            Path::new("entry.cjs"),
-            "const name = './dep.cjs'; module.exports = require(name);",
+            Path::new("entry.cts"),
+            source,
             source_integrity(b"producer-binary").unwrap(),
-            "hermes-bytecode-96",
         )
-        .unwrap_err();
-        assert!(error.to_string().contains("computed CommonJS require"));
-        assert!(unsupported_module_runner_reason(&error).is_some());
+        .unwrap();
+        let ModulePayloadV1::Inline { factory_source, .. } = artifact.payload else {
+            unreachable!()
+        };
+        let dead_start = source.find("require(prefix").unwrap();
+        let dead_end = source[dead_start..].find(')').unwrap() + dead_start + 1;
+        let live_start = source.rfind("require(name)").unwrap();
+        let live_end = live_start + "require(name)".len();
+        assert!(factory_source.contains(&format!("computedRequire({dead_start}, {dead_end},")));
+        assert!(factory_source.contains(&format!("computedRequire({live_start}, {live_end},")));
+        assert!(!factory_source.contains("require(name)"));
     }
 
     #[test]
@@ -2016,7 +3098,6 @@ mod tests {
             SourceId::synthetic("fixture", "data-json").unwrap(),
             "{\"z\":1,\"a\":[true,null]}",
             source_integrity(b"producer-binary").unwrap(),
-            "hermes-bytecode-96",
         )
         .unwrap();
         assert_eq!(artifact.semantics.source_goal, SourceGoalV1::Json);
@@ -2030,7 +3111,6 @@ mod tests {
             SourceId::synthetic("fixture", "duplicate-json").unwrap(),
             "{\"value\":1,\"value\":2}",
             source_integrity(b"producer-binary").unwrap(),
-            "hermes-bytecode-96",
         )
         .unwrap_err();
         assert!(duplicate.to_string().contains("strict JSON"));

@@ -484,6 +484,7 @@ async fn execute_test_once(
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
         cmd.env("EXACT_COMPAT_TEST", "1");
+        cmd.env("IBEX_COMPAT_LOADER_TEST", "1");
         if section == "bun" {
             cmd.env("EXACT_COMPAT_BUN", "1");
         }

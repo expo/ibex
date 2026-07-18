@@ -7,7 +7,7 @@
 //! - Top-level await support (when engine supports it)
 
 use crate::engine::Engine;
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use colored::Colorize;
 use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
@@ -18,6 +18,7 @@ use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::{Context, Editor, Helper};
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -64,10 +65,20 @@ fn repl_inspect_expression() -> &'static str {
     "var _commitDisplay = function(_rendered) { var _text = String(_rendered); globalThis.$_ = _val; return _text; }; var _display = (typeof Exact !== 'undefined' && typeof Exact.inspect === 'function') ? Exact.inspect(_val, {colors: true, compact: true}) : String(_val); if (_display !== null && (typeof _display === 'object' || typeof _display === 'function')) { var _then = _display.then; if (typeof _then === 'function') { return new Promise(function(_resolve, _reject) { try { _then.call(_display, _resolve, _reject); } catch (_error) { _reject(_error); } }).then(_commitDisplay); } } return _commitDisplay(_display);"
 }
 
+#[cfg(test)]
 fn wrap_inspected_expression(code: &str, async_expression: bool) -> String {
+    wrap_inspected_prepared_expression("", code, async_expression)
+}
+
+fn wrap_inspected_prepared_expression(
+    preamble: &str,
+    code: &str,
+    async_expression: bool,
+) -> String {
     if async_expression {
         format!(
-            "(async function() {{ var __repl_slot = [ ({}) ]; var _val = __repl_slot[0]; {} }})()",
+            "(async function() {{ {}\nvar __repl_slot = [ ({}) ]; var _val = __repl_slot[0]; {} }})()",
+            preamble,
             code,
             repl_inspect_expression()
         )
@@ -791,7 +802,7 @@ pub async fn start(engine: Arc<dyn Engine>) -> Result<()> {
 async fn handle_repl_line(
     engine: &Arc<dyn Engine>,
     line: &str,
-    session_capabilities: &mut HashSet<String>,
+    _session_capabilities: &mut HashSet<String>,
 ) -> bool {
     let trimmed = line.trim();
     if trimmed.is_empty() {
@@ -809,69 +820,23 @@ async fn handle_repl_line(
         };
     }
 
-    // Evaluate JavaScript and wrap result in Exact.inspect for pretty printing
-    let async_expression = needs_top_level_await(trimmed) && !is_statement(trimmed);
-    let (code, use_inspect) = if is_import_statement(trimmed) {
-        // Transform import statement to require() and extract capabilities
-        match transform_import(trimmed) {
-            Some((transformed, capabilities)) => {
-                // Track capabilities for this REPL session
-                if !capabilities.is_empty() {
-                    for cap in &capabilities {
-                        session_capabilities.insert(cap.clone());
-                        println!("{}", format!("  [capability granted: {}]", cap).dimmed());
-                    }
-
-                    // Register capabilities with the runtime (module ID 0 for REPL)
-                    let cap_list: Vec<String> = session_capabilities.iter().cloned().collect();
-                    let cap_json = serde_json::to_string(&cap_list).unwrap_or_default();
-                    let register_code = format!(
-                        "(function() {{ \
-                            if (typeof Exact !== 'undefined' && Exact.setModuleCapabilities) {{ \
-                                Exact.setModuleCapabilities(0, {}); \
-                            }} \
-                        }})()",
-                        cap_json
-                    );
-                    let _ = engine.eval_immediate(&register_code).await;
-                }
-
-                (transformed, true) // Inspect import results to show module exports
-            }
-            None => {
-                eprintln!(
-                    "{}: Could not parse import statement. Try: import {{ x }} from 'mod' or const x = require('mod')",
-                    "Error".red().bold()
-                );
-                return true;
-            }
+    let prepared = match ibex_runtime::module_loader::script_frontend::prepare_hybrid_script(
+        trimmed,
+        Path::new("ibex-repl.ts"),
+        "ibex:repl",
+        "",
+    ) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            eprintln!("{}: {error:#}", "Error".red().bold());
+            return true;
         }
-    } else if async_expression {
-        (trimmed.to_string(), true)
-    } else if needs_top_level_await(trimmed) {
-        (wrap_top_level_await(trimmed), false)
-    } else if is_statement(trimmed) {
-        (trimmed.to_string(), false) // Statements don't return values to inspect
-    } else {
-        // Expression: will be wrapped by inspect below
-        (trimmed.to_string(), true)
     };
+    let (final_code, suppress_output) = render_repl_evaluation(&prepared);
 
-    // Transform import() to globalThis['import']() since Hermes parser doesn't support import() syntax
-    // Use bracket notation to avoid parser issues with 'import' keyword
-    let code = code.replace("import(", "globalThis['import'](");
-
-    // Wrap with Exact.inspect if it's an expression result
-    // Avoid wrapping user code in extra parens — use "var _val = CODE;" directly
-    // so syntax errors reference the user's code, not wrapper artifacts
-    let final_code = if use_inspect {
-        wrap_inspected_expression(&code, async_expression)
-    } else {
-        code
-    };
-
-    // Compute how many characters of wrapper precede the user's code
-    let wrapper_prefix_len = final_code.find(trimmed).unwrap_or(0);
+    // The bounded frontend retains the source label but composed session maps
+    // remain LLP 0024 work; use the transformed body's offset when available.
+    let wrapper_prefix_len = final_code.find(&prepared.body).unwrap_or(0);
 
     // Use `eval_immediate`, not `eval`: the native eval path already drains
     // microtasks and unwraps/awaits the result Promise before returning (so
@@ -882,12 +847,13 @@ async fn handle_repl_line(
     // `start` instead. Node's REPL returns immediately; match that. (ENG-22957,
     // ENG-23001)
     match engine.eval_immediate(&final_code).await {
-        Ok(Some(result)) => {
+        Ok(Some(result)) if !suppress_output => {
             println!("{}", result);
         }
-        Ok(None) => {
+        Ok(None) if !suppress_output => {
             println!("{}", "undefined".dimmed());
         }
+        Ok(_) => {}
         Err(e) => {
             eprintln!(
                 "{}",
@@ -897,6 +863,26 @@ async fn handle_repl_line(
     }
 
     true
+}
+
+fn render_repl_evaluation(
+    prepared: &ibex_runtime::module_loader::script_frontend::PreparedEvaluation,
+) -> (String, bool) {
+    let code = if let Some(expression) = prepared.expression.as_deref() {
+        wrap_inspected_prepared_expression(
+            &prepared.preamble,
+            expression,
+            prepared.needs_async_wrapper(),
+        )
+    } else if prepared.needs_async_wrapper() {
+        format!(
+            "(async () => {{\n{}\n{}\n}})()",
+            prepared.preamble, prepared.body
+        )
+    } else {
+        prepared.body.clone()
+    };
+    (code, prepared.empty_completion)
 }
 
 /// Clear the terminal and move the cursor home. Emits the ANSI sequence
@@ -929,36 +915,39 @@ async fn handle_command(cmd: &str, engine: &Arc<dyn Engine>) -> Result<bool> {
         }
         ".load" => {
             let file = arg.ok_or_else(|| anyhow::anyhow!("Usage: .load <file>"))?;
-            // `run_file_immediate`, not `run_file`: the latter drives the event
-            // loop to quiescence, so `.load server.js` (Bun.serve/setInterval)
-            // never returned and the prompt hard-wedged — the same ENG-22957
-            // wedge every other eval path already avoids. Background work runs
-            // via the idle pump instead. (ENG-23030 #2)
-            match engine.run_file_immediate(file).await {
-                Ok(Some(result)) => println!("{}", result),
-                Ok(None) => println!("{}", "Loaded".green()),
-                Err(e) => eprintln!("{}: {}", "Error".red().bold(), e),
+            match prepare_load_source(file) {
+                Ok(LoadEvaluation::Json(value)) => {
+                    println!("{}", serde_json::to_string_pretty(&value)?);
+                }
+                Ok(LoadEvaluation::Script(prepared)) => {
+                    let code = render_uninspected_evaluation(&prepared, true);
+                    match engine.eval_immediate(&code).await {
+                        Ok(Some(result)) => println!("{}", result),
+                        Ok(None) => println!("{}", "Loaded".green()),
+                        Err(e) => eprintln!("{}: {}", "Error".red().bold(), e),
+                    }
+                }
+                Err(error) => eprintln!("{}: {error:#}", "Error".red().bold()),
             }
             Ok(true)
         }
         ".time" => {
             let code = arg.ok_or_else(|| anyhow::anyhow!("Usage: .time <code>"))?;
             let start = std::time::Instant::now();
-            // `.time` reports the evaluated value but is not a history entry:
-            // neither its direct-expression path nor this top-level-await path
-            // implicitly mutates `$_`.
-            let code = if needs_top_level_await(code) {
-                wrap_top_level_await(code)
-            } else {
-                code.to_string()
-            };
+            let prepared = ibex_runtime::module_loader::script_frontend::prepare_hybrid_script(
+                code,
+                Path::new("ibex-repl.ts"),
+                "ibex:repl:.time",
+                "",
+            )?;
+            let code = render_uninspected_evaluation(&prepared, true);
             // Match the prompt's `eval_immediate` semantics so `.time` cannot
             // wedge on background work (setInterval/servers). (ENG-22957)
             let result = engine.eval_immediate(&code).await;
             let elapsed = start.elapsed();
 
             match result {
-                Ok(Some(val)) => println!("{}", val),
+                Ok(Some(result)) => println!("{}", result),
                 Ok(None) => println!("{}", "undefined".dimmed()),
                 Err(e) => eprintln!("{}: {}", "Error".red().bold(), e),
             }
@@ -983,251 +972,153 @@ async fn handle_command(cmd: &str, engine: &Arc<dyn Engine>) -> Result<bool> {
     }
 }
 
-fn needs_top_level_await(input: &str) -> bool {
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    if trimmed.starts_with("async ") || trimmed.starts_with("function") {
-        return false;
-    }
-    // Word-boundary + literal/comment-aware detection: a raw `contains("await")`
-    // fired on identifiers like `awaited`/`awaitTime` and on `"await"` inside a
-    // string, wrapping the line in an async IIFE and shifting `let`/`const`
-    // bindings out of the visible scope. Reuse the runtime's scanner. (ENG-22957)
-    crate::runtime::contains_await_keyword(trimmed)
+enum LoadEvaluation {
+    Script(ibex_runtime::module_loader::script_frontend::PreparedEvaluation),
+    Json(serde_json::Value),
 }
 
-/// Check if input starts with a statement keyword (not valid in expression position)
-fn is_statement(input: &str) -> bool {
-    let prefixes = [
-        "let ",
-        "let{",
-        "const ",
-        "const{",
-        "var ",
-        "var{",
-        "if ",
-        "if(",
-        "for ",
-        "for(",
-        "while ",
-        "while(",
-        "do ",
-        "do{",
-        "switch ",
-        "switch(",
-        "try ",
-        "try{",
-        "throw ",
-        "class ",
-        "function ",
-        "import ",
-    ];
-    prefixes.iter().any(|p| input.starts_with(p))
-}
-
-/// Check if input is an import statement
-fn is_import_statement(input: &str) -> bool {
-    let trimmed = input.trim();
-    trimmed.starts_with("import ") && !trimmed.starts_with("import(")
-}
-
-/// Parse import attributes from "with { needs: [...] }" clause
-/// Returns (module_specifier, capabilities)
-fn parse_import_with_clause(module_part: &str) -> (&str, Vec<String>) {
-    // Check if there's a "with" clause
-    if let Some(with_pos) = module_part.find(" with ") {
-        let module_spec = module_part[..with_pos].trim();
-        let with_clause = &module_part[with_pos + 6..]; // Skip " with "
-
-        // Parse "{ needs: [...] }" or "{ needs: '*' }"
-        if let Some(start) = with_clause.find('{') {
-            if let Some(end) = with_clause.find('}') {
-                let content = &with_clause[start + 1..end];
-
-                // Look for "needs:" followed by array or string
-                if let Some(needs_pos) = content.find("needs:") {
-                    let needs_value = content[needs_pos + 6..].trim();
-
-                    // Handle array: ['cap1', 'cap2']
-                    if needs_value.starts_with('[') {
-                        if let Some(end_bracket) = needs_value.find(']') {
-                            let array_content = &needs_value[1..end_bracket];
-                            let caps: Vec<String> = array_content
-                                .split(',')
-                                .map(|s| s.trim().trim_matches(|c| c == '\'' || c == '"'))
-                                .filter(|s| !s.is_empty())
-                                .map(String::from)
-                                .collect();
-                            return (module_spec, caps);
-                        }
-                    }
-                    // Handle string: any capability string
-                    else if needs_value.starts_with('\'') || needs_value.starts_with('"') {
-                        let cap = needs_value.trim_matches(|c| c == '\'' || c == '"' || c == ',');
-                        if !cap.is_empty() {
-                            return (module_spec, vec![cap.to_string()]);
-                        }
-                    }
-                }
-            }
-        }
-
-        (module_spec, vec![])
+fn prepare_load_source(file: &str) -> Result<LoadEvaluation> {
+    // `.load` selects only dialect by extension while retaining Script goal;
+    // module-asserting extensions are an explicit refusal, and JSON is the
+    // parse-and-display exception.
+    // @ref LLP 0024#4-grammar-selection
+    let path = PathBuf::from(file);
+    let path = if path.is_absolute() {
+        path
     } else {
-        (module_part, vec![])
+        std::env::current_dir()?.join(path)
+    };
+    let path = path
+        .canonicalize()
+        .with_context(|| format!("Could not resolve .load source {file}"))?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    if file_name.ends_with(".d.ts") {
+        anyhow::bail!(
+            ".load refuses TypeScript declaration files; import a runtime module instead"
+        );
+    }
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let source = std::fs::read_to_string(&path)
+        .with_context(|| format!("Could not read .load source {}", path.display()))?;
+    match extension.as_str() {
+        "json" => Ok(LoadEvaluation::Json(
+            serde_json::from_str(&source)
+                .with_context(|| format!("Invalid JSON in {}", path.display()))?,
+        )),
+        "js" | "jsx" | "ts" | "tsx" => {
+            let label = path.to_string_lossy();
+            let prepared = ibex_runtime::module_loader::script_frontend::prepare_hybrid_script(
+                &source, &path, &label, &label,
+            )?;
+            Ok(LoadEvaluation::Script(prepared))
+        }
+        "mjs" | "cjs" | "mts" | "cts" => anyhow::bail!(
+            ".load refuses module-kind extension .{extension}; use import() for {}",
+            path.display()
+        ),
+        "" => anyhow::bail!(".load refuses extensionless sources"),
+        _ => anyhow::bail!(".load does not recognize extension .{extension}"),
     }
 }
 
-/// Transform import statement to require (CommonJS)
-/// Converts: import fs from 'node:fs' with { needs: ['fs:read'] }
-/// To: globalThis.fs = require('node:fs')
-/// Also returns extracted capabilities
-/// (We use globalThis instead of const/let because eval() scope doesn't persist)
-fn transform_import(input: &str) -> Option<(String, Vec<String>)> {
-    let trimmed = input.trim();
-
-    // Handle: import fs from 'module' [with { needs: [...] }]
-    if let Some(rest) = trimmed.strip_prefix("import ") {
-        // Simple regex-like parsing
-        let parts: Vec<&str> = rest.splitn(2, " from ").collect();
-        if parts.len() == 2 {
-            let binding = parts[0].trim();
-            let module_with_attrs = parts[1].trim().trim_matches(';');
-
-            // Parse module specifier and capabilities
-            let (module, capabilities) = parse_import_with_clause(module_with_attrs);
-            let module = module.trim_matches(|c| c == '\'' || c == '"');
-
-            // Handle different import forms
-            if binding.starts_with('{') && binding.ends_with('}') {
-                // Named imports: import { foo, bar } from 'mod'
-                // Extract names and assign each to globalThis
-                let names = binding.trim_matches(|c| c == '{' || c == '}');
-                let bindings: Vec<&str> = names.split(',').map(|s| s.trim()).collect();
-                let assignments: Vec<String> = bindings
-                    .iter()
-                    .map(|name| {
-                        // Handle "foo as bar" syntax
-                        if name.contains(" as ") {
-                            let parts: Vec<&str> = name.splitn(2, " as ").collect();
-                            let orig = parts[0].trim();
-                            let alias = parts[1].trim();
-                            format!("globalThis.{} = _mod.{}", alias, orig)
-                        } else {
-                            format!("globalThis.{} = _mod.{}", name, name)
-                        }
-                    })
-                    .collect();
-                return Some((
-                    format!(
-                        "(function(){{ const _mod = require('{}'); {}; return _mod; }})()",
-                        module,
-                        assignments.join("; ")
-                    ),
-                    capabilities,
-                ));
-            } else if binding.contains(" as ") {
-                // Default with alias: import foo as bar from 'mod'
-                let alias_parts: Vec<&str> = binding.splitn(2, " as ").collect();
-                if alias_parts.len() == 2 {
-                    let _original = alias_parts[0].trim();
-                    let alias = alias_parts[1].trim();
-                    return Some((
-                        format!("globalThis.{} = require('{}')", alias, module),
-                        capabilities,
-                    ));
-                }
-            } else if binding.starts_with('*') {
-                // Star import: import * as foo from 'mod'
-                if let Some(name) = binding.strip_prefix("* as ") {
-                    let name = name.trim();
-                    return Some((
-                        format!("globalThis.{} = require('{}')", name, module),
-                        capabilities,
-                    ));
-                }
-            } else {
-                // Default import: import foo from 'mod'
-                // For ESM modules (marked with __esModule), use .default
-                return Some((
-                    format!(
-                        "(function(){{ var _m = require('{}'); globalThis.{} = _m && _m.__esModule ? _m.default : _m; return _m; }})()",
-                        module, binding
-                    ),
-                    capabilities,
-                ));
-            }
-        }
+fn render_uninspected_evaluation(
+    prepared: &ibex_runtime::module_loader::script_frontend::PreparedEvaluation,
+    preserve_expression_completion: bool,
+) -> String {
+    if !prepared.needs_async_wrapper() {
+        return prepared.body.clone();
     }
-
-    // Handle: import 'module' (side effects only)
-    if let Some(rest) = trimmed.strip_prefix("import ") {
-        if !rest.contains(" from ") {
-            let (module, capabilities) = parse_import_with_clause(rest);
-            let module = module.trim_matches(|c| c == '\'' || c == '"' || c == ';');
-            return Some((format!("require('{}')", module), capabilities));
-        }
-    }
-
-    None
-}
-
-fn wrap_top_level_await(input: &str) -> String {
-    let trimmed = input.trim();
-    if is_statement(trimmed) {
-        // Statements can't be wrapped in return(...), just execute them
-        format!("(async () => {{ {} }})()", trimmed)
+    let body = if preserve_expression_completion {
+        prepared
+            .expression
+            .as_deref()
+            .map(|expression| format!("return ({expression});"))
+            .unwrap_or_else(|| prepared.body.clone())
     } else {
-        // This helper is also used by `.time`, which displays a result without
-        // creating a REPL history entry. Only the inspected prompt wrapper may
-        // commit an expression result to `$_` after display materialization.
-        format!("(async () => {{ return ({}); }})()", trimmed)
-    }
+        prepared.body.clone()
+    };
+    format!("(async () => {{\n{}\n{}\n}})()", prepared.preamble, body)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        highlight_prompt_text, history_path_in, is_side_effect_free_path, needs_top_level_await,
-        plain_prompt, styled_prompt_with_colors, wrap_inspected_expression, wrap_top_level_await,
-        DEFAULT_PROMPT_SYMBOL,
+        highlight_prompt_text, history_path_in, is_side_effect_free_path, plain_prompt,
+        render_repl_evaluation, render_uninspected_evaluation, styled_prompt_with_colors,
+        wrap_inspected_expression, LoadEvaluation, DEFAULT_PROMPT_SYMBOL,
     };
     use crate::engine::{
         hermes::{hermes_engine_test_lock, HermesEngine},
         Engine,
     };
 
-    #[test]
-    fn top_level_await_detection_ignores_identifiers_and_literals() {
-        // Real top-level await must be detected.
-        assert!(needs_top_level_await("await fetch('http://x')"));
-        assert!(needs_top_level_await("const x = await f();"));
-        assert!(needs_top_level_await("for (const y of z) { await y; }"));
+    fn uninspected(source: &str) -> String {
+        let prepared = ibex_runtime::module_loader::script_frontend::prepare_hybrid_script(
+            source,
+            std::path::Path::new("ibex-repl.ts"),
+            "ibex:repl:test",
+            "",
+        )
+        .expect("prepare REPL fixture");
+        render_uninspected_evaluation(&prepared, true)
+    }
 
-        // Substrings of `await` inside identifiers must NOT trigger the async
-        // IIFE wrap — that was the bug that moved `let`/`const` bindings out of
-        // scope so the next line threw ReferenceError. (ENG-22957)
-        assert!(!needs_top_level_await("const awaited = 1"));
-        assert!(!needs_top_level_await("let awaitTime = 5;"));
-        assert!(!needs_top_level_await("const kawaii = 1;"));
+    #[tokio::test(flavor = "current_thread")]
+    async fn minimal_frontend_repl_and_load_run_on_real_hermes() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().expect("Hermes should initialize");
 
-        // `await` appearing only inside a string literal is not top-level await.
-        assert!(!needs_top_level_await("console.log('await')"));
-        assert!(!needs_top_level_await("const s = \"please await\";"));
+        for (label, source) in [
+            ("repl-non-tla", "(21 as number) * 2"),
+            ("repl-tla", "await Promise.resolve(42 as number)"),
+        ] {
+            let prepared = ibex_runtime::module_loader::script_frontend::prepare_hybrid_script(
+                source,
+                std::path::Path::new("ibex-repl.ts"),
+                "ibex:repl",
+                "",
+            )
+            .unwrap_or_else(|error| panic!("prepare {label}: {error:#}"));
+            let (code, suppress) = render_repl_evaluation(&prepared);
+            assert!(!suppress, "{label}");
+            let rendered = engine
+                .eval_immediate(&code)
+                .await
+                .unwrap_or_else(|error| panic!("execute {label}: {error:#}"))
+                .unwrap_or_else(|| panic!("{label} produced no display value"));
+            assert!(rendered.contains("42"), "{label}: {rendered:?}");
+        }
 
-        // `await` inside a regex literal must NOT be read as top-level await:
-        // wrapping `var re = /await/g` in an async IIFE dropped the `re` binding
-        // from the global scope, so the next line threw ReferenceError. (ENG-23031)
-        assert!(!needs_top_level_await("var re = /await/g"));
-        assert!(!needs_top_level_await("var re = /(await)/"));
-        assert!(!needs_top_level_await("x.replace(/await/g, '')"));
-
-        // Guards for empty / async-function / plain statements still hold.
-        assert!(!needs_top_level_await(""));
-        assert!(!needs_top_level_await("async function f() { await g(); }"));
-        assert!(!needs_top_level_await("1 + 1"));
+        let directory = tempfile::tempdir().expect("load fixture directory");
+        for (label, source) in [
+            ("load-non-tla", "(21 as number) * 2"),
+            ("load-tla", "await Promise.resolve(42 as number)"),
+        ] {
+            let path = directory.path().join(format!("{label}.ts"));
+            std::fs::write(&path, source).expect("write load fixture");
+            let prepared = match super::prepare_load_source(path.to_str().unwrap())
+                .unwrap_or_else(|error| panic!("prepare {label}: {error:#}"))
+            {
+                LoadEvaluation::Script(prepared) => prepared,
+                LoadEvaluation::Json(_) => panic!("{label} unexpectedly parsed as JSON"),
+            };
+            assert_eq!(
+                engine
+                    .eval_immediate(&render_uninspected_evaluation(&prepared, true))
+                    .await
+                    .unwrap_or_else(|error| panic!("execute {label}: {error:#}"))
+                    .as_deref(),
+                Some("42"),
+                "{label}"
+            );
+        }
     }
 
     #[test]
@@ -1354,8 +1245,8 @@ mod tests {
 
         for timed in [
             "41 + 1".to_string(),
-            wrap_top_level_await("await Promise.resolve(42)"),
-            wrap_top_level_await("const answer = await Promise.resolve(42)"),
+            uninspected("await Promise.resolve(42)"),
+            uninspected("const answer = await Promise.resolve(42)"),
         ] {
             assert!(
                 !timed.contains("globalThis.$_"),
@@ -1435,7 +1326,7 @@ mod tests {
             .expect("non-await timed expression should evaluate");
         assert_eq!(last_value(&engine).await, "timed");
         engine
-            .eval_immediate(&wrap_top_level_await("await Promise.resolve(46)"))
+            .eval_immediate(&uninspected("await Promise.resolve(46)"))
             .await
             .expect("awaited timed expression should evaluate");
         assert_eq!(last_value(&engine).await, "timed");

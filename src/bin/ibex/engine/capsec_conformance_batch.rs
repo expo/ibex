@@ -2582,11 +2582,14 @@ async fn execute_module_runner_host_abi_public_recipe(
     let entry = project_root.join("entry.mjs");
     std::fs::write(
         &entry,
-        "import { value as imported } from './dep.mjs';\n\
+        "import { settled } from './asynchronous-entry.mjs';\n\
+         import cjs from './commonjs-entry.cjs';\n\
+         import { value as imported } from './dep.mjs';\n\
          export { other as forwarded } from './dep.mjs';\n\
          export * from './star.mjs';\n\
-         export const local = imported;\n\
-         export function loadDynamic() { return import('./dynamic.mjs'); }\n",
+         export const local = imported + cjs.total + (settled ? 0 : 100);\n\
+         export function loadDynamic() { return import('./dynamic.mjs'); }\n\
+         export function loadComputed(name) { return import(name, { with: { 'ibex:site': 'esm-route' } }); }\n",
     )
     .expect("write module-runner public entry");
     std::fs::write(
@@ -2610,7 +2613,8 @@ async fn execute_module_runner_host_abi_public_recipe(
         "const peer = require('./commonjs-peer.cjs');\n\
          const esm = require('./commonjs-esm.mjs');\n\
          exports.total = peer.value + esm.value;\n\
-         import('./dynamic.mjs');\n",
+         const route = './dynamic.mjs';\n\
+         exports.loadComputed = () => import(route, { with: { 'ibex:site': 'cjs-route' } });\n",
     )
     .expect("write module-runner public CommonJS entry");
     std::fs::write(
@@ -2623,6 +2627,11 @@ async fn execute_module_runner_host_abi_public_recipe(
         "export const value = 3;\n",
     )
     .expect("write module-runner public CommonJS ESM dependency");
+    std::fs::write(
+        project_root.join("package.json"),
+        r#"{"ibex":{"computedCandidates":{"sites":[{"requester":"commonjs-entry.cjs","label":"cjs-route","specifiers":["./dynamic.mjs"]},{"requester":"entry.mjs","label":"esm-route","specifiers":["./dynamic.mjs"]}]}}}"#,
+    )
+    .expect("write module-runner computed-candidate declarations");
     let asynchronous_entry = project_root.join("asynchronous-entry.mjs");
     std::fs::write(
         &asynchronous_entry,
@@ -2644,28 +2653,20 @@ async fn execute_module_runner_host_abi_public_recipe(
     let _reset = HostResetGuard;
     let producer_digest = capsec_semantics::model::Digest::new(engine_binary_digest.to_owned())
         .expect("loaded engine digest is a canonical digest");
-    let build_graph = |entry: &std::path::Path, label: &str| {
-        match build_authenticated_source_graph_v1(entry, producer_digest.clone(), label)
+    let build_graph = |entry: &std::path::Path| {
+        match build_authenticated_source_graph_v1(entry, producer_digest.clone())
             .expect("build authenticated module-runner public graph")
         {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
                 panic!(
                     "module-runner public graph unexpectedly required legacy: {}",
-                    requirement.reason
+                    requirement
                 )
             }
         }
     };
-    let graph = build_graph(&entry, "capsec-module-runner-public-esm");
-    let commonjs_graph = build_graph(
-        &commonjs_entry,
-        "capsec-module-runner-public-commonjs",
-    );
-    let asynchronous_graph = build_graph(
-        &asynchronous_entry,
-        "capsec-module-runner-public-asynchronous",
-    );
+    let graph = build_graph(&entry);
     let deployment_digest = ibex_runtime::module_loader::artifact::digest_bytes(
         "ibex/capsec-module-runner-public-prepared/1",
         b"authenticated prepared graph",
@@ -2727,14 +2728,6 @@ async fn execute_module_runner_host_abi_public_recipe(
         .run_authenticated_module_graph(&graph)
         .await
         .expect("execute authenticated module-runner public ESM graph");
-    engine
-        .run_authenticated_module_graph(&commonjs_graph)
-        .await
-        .expect("execute authenticated module-runner public CommonJS graph");
-    engine
-        .run_authenticated_module_graph(&asynchronous_graph)
-        .await
-        .expect("execute authenticated module-runner public asynchronous graph");
     engine
         .run_authenticated_module_graph(&prepared_graph)
         .await

@@ -236,9 +236,9 @@ impl DigestContract {
             (
                 "policy",
                 self.domains.policy.as_str(),
-                "ibex:capsec:policy:1",
+                "ibex:capsec:policy:2",
                 &self.projections.policy,
-                "ibex/capsec-policy/1",
+                "ibex/capsec-policy/2",
                 "available",
                 "not-applicable",
                 &["canonical-policy-object"][..],

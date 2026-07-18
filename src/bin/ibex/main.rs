@@ -12,6 +12,7 @@ mod host;
 mod repl;
 mod runtime;
 mod runtime_tests;
+mod sfe;
 mod subprocess;
 
 // Re-export module_loader from the shared runtime crate
@@ -20,6 +21,8 @@ pub use ibex_runtime::module_loader;
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands, DebugCommands};
+use std::io::{IsTerminal, Read};
+use std::path::Path;
 
 /// Project commands owned by the Exact project CLI, not the Ibex runtime.
 /// @ref LLP 0010#runtime-command-surface — `ibex` is runtime-only here.
@@ -392,6 +395,21 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Commands::Build { file, outdir }) => {
             build_bytecode(&cli, file, outdir.as_deref()).await
         }
+        Some(Commands::Compile {
+            entry,
+            output,
+            carrier,
+            compile_policy,
+            deny_unsupported,
+        }) => sfe::compile(
+            entry,
+            output,
+            *carrier,
+            cli.policy.as_deref(),
+            compile_policy.as_deref(),
+            *deny_unsupported,
+        ),
+        Some(Commands::InspectExecutable { file }) => sfe::inspect(file),
         Some(Commands::Version) => {
             print_version(&cli);
             Ok(())
@@ -470,12 +488,52 @@ async fn run(cli: Cli) -> Result<()> {
                     )
                     .await
                 }
-            } else {
-                // No command and no file - start REPL
+            } else if std::io::stdin().is_terminal() {
+                // No command/file and a terminal input starts the interactive
+                // session. A pipe is a distinct Module-goal entry below.
                 start_repl(&cli).await
+            } else {
+                run_program_stdin(&cli).await
             }
         }
     }
+}
+
+/// Execute piped stdin as the LLP 0024 Module-goal entry `ibex:stdin`.
+/// Extensionless input uses TypeScript/non-JSX parsing, but the strict wrapper
+/// keeps Module top-level `this` and declarations distinct from Script input.
+/// @ref LLP 0024#3-source-goal — program stdin is the non-file Module surface.
+async fn run_program_stdin(cli: &Cli) -> Result<()> {
+    let mut source = String::new();
+    std::io::stdin()
+        .read_to_string(&mut source)
+        .context("Failed to read program stdin as UTF-8")?;
+    let prepared = ibex_runtime::module_loader::script_frontend::prepare_module_entry(
+        &source,
+        Path::new("ibex-stdin.ts"),
+        "ibex:stdin",
+        "",
+    )?;
+
+    let runtime = runtime::Runtime::from_cli(cli)?;
+    suppress_runtime_banner(&runtime).await?;
+    runtime.load_runtime().await?;
+    let source = render_program_stdin_source(&prepared);
+    runtime.eval(&source).await?;
+    if let Some(code) = read_process_exit_code(&runtime).await {
+        std::process::exit(code);
+    }
+    Ok(())
+}
+
+fn render_program_stdin_source(
+    prepared: &ibex_runtime::module_loader::script_frontend::PreparedEvaluation,
+) -> String {
+    let body = prepared.joined_source();
+    format!(
+        "globalThis.__exactImportMeta = {{ main: true, url: 'ibex:stdin' }};\n\
+         (async function() {{ 'use strict';\n{body}\n}}).call(void 0);"
+    )
 }
 
 async fn run_capsec_audit(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
@@ -1248,17 +1306,7 @@ async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
         let _ = runtime.eval(&argv0_code).await;
     }
 
-    let mut eval_source = if !cfg!(windows)
-        && !print_result
-        && runtime::contains_top_level_await(code)
-    {
-        format!(
-            "Promise.resolve((async () => {{\n{}\n}})()).catch(err => {{ setTimeout(() => {{ throw err; }}, 0); }});",
-            code
-        )
-    } else {
-        code.to_string()
-    };
+    let mut eval_source = prepare_one_shot_eval_source(code, print_result)?;
 
     if print_result {
         eval_source = format!(
@@ -1342,6 +1390,35 @@ async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn prepare_one_shot_eval_source(code: &str, print_result: bool) -> Result<String> {
+    // Extensionless one-shot input is TypeScript/non-JSX but retains sloppy
+    // Script semantics after Oxc strips types and lowers import/TLA syntax.
+    // @ref LLP 0024#4-grammar-selection
+    let prepared = ibex_runtime::module_loader::script_frontend::prepare_hybrid_script(
+        code,
+        Path::new("ibex-evaluation.ts"),
+        "ibex:evaluation",
+        "",
+    )?;
+    if !prepared.needs_async_wrapper() {
+        return Ok(prepared.body);
+    }
+
+    let completion = if print_result {
+        prepared
+            .expression
+            .as_deref()
+            .map(|expression| format!("return ({expression});"))
+    } else {
+        None
+    };
+    let body = completion.unwrap_or(prepared.body);
+    Ok(format!(
+        "(async () => {{\n{}\n{}\n}})()",
+        prepared.preamble, body
+    ))
 }
 
 /// Start the interactive REPL
@@ -1534,7 +1611,99 @@ mod tests {
         watch_shutdown_timeout_from_env, RunFileOptions, DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS,
         EXACT_PROJECT_COMMANDS, RESERVED_RUNTIME_COMMANDS,
     };
+    use crate::engine::{
+        hermes::{hermes_engine_test_lock, HermesEngine},
+        Engine,
+    };
     use clap::Parser;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn minimal_frontend_eval_print_and_stdin_run_on_real_hermes() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().expect("Hermes should initialize");
+
+        for (label, source) in [
+            (
+                "eval-non-tla",
+                "const value: number = 42; globalThis.__frontendEval = value;",
+            ),
+            (
+                "eval-tla",
+                "globalThis.__frontendEval = await Promise.resolve(42);",
+            ),
+        ] {
+            engine
+                .eval_immediate("delete globalThis.__frontendEval")
+                .await
+                .expect("reset eval fixture");
+            let lowered = super::prepare_one_shot_eval_source(source, false)
+                .unwrap_or_else(|error| panic!("prepare {label}: {error:#}"));
+            engine
+                .eval_immediate(&lowered)
+                .await
+                .unwrap_or_else(|error| panic!("execute {label}: {error:#}"));
+            assert_eq!(
+                engine
+                    .eval_immediate("String(globalThis.__frontendEval)")
+                    .await
+                    .expect("read eval fixture")
+                    .as_deref(),
+                Some("42"),
+                "{label}"
+            );
+        }
+
+        for (label, source) in [
+            ("print-non-tla", "(21 as number) * 2"),
+            ("print-tla", "await Promise.resolve(42 as number)"),
+        ] {
+            let lowered = super::prepare_one_shot_eval_source(source, true)
+                .unwrap_or_else(|error| panic!("prepare {label}: {error:#}"));
+            assert_eq!(
+                engine
+                    .eval_immediate(&lowered)
+                    .await
+                    .unwrap_or_else(|error| panic!("execute {label}: {error:#}"))
+                    .as_deref(),
+                Some("42"),
+                "{label}"
+            );
+        }
+
+        for (label, source) in [
+            (
+                "stdin-non-tla",
+                "globalThis.__frontendStdin = [this === undefined, import.meta.main, import.meta.url];",
+            ),
+            (
+                "stdin-tla",
+                "const value: number = await Promise.resolve(42); globalThis.__frontendStdin = [this === undefined, value];",
+            ),
+        ] {
+            let prepared =
+                ibex_runtime::module_loader::script_frontend::prepare_module_entry(
+                    source,
+                    std::path::Path::new("ibex-stdin.ts"),
+                    "ibex:stdin",
+                    "",
+                )
+                .unwrap_or_else(|error| panic!("prepare {label}: {error:#}"));
+            engine
+                .eval_immediate(&super::render_program_stdin_source(&prepared))
+                .await
+                .unwrap_or_else(|error| panic!("execute {label}: {error:#}"));
+            let observed = engine
+                .eval_immediate("JSON.stringify(globalThis.__frontendStdin)")
+                .await
+                .expect("read stdin fixture")
+                .expect("stdin fixture result");
+            if label == "stdin-non-tla" {
+                assert_eq!(observed, "[true,true,\"ibex:stdin\"]");
+            } else {
+                assert_eq!(observed, "[true,42]");
+            }
+        }
+    }
 
     #[test]
     fn run_subcommand_inspector_configuration_reaches_armed_validation() {

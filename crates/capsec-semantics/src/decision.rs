@@ -12,7 +12,10 @@
 use std::{
     collections::BTreeMap,
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use serde::{Deserialize, Serialize};
@@ -163,6 +166,8 @@ impl<T: Clone> DerefMut for ImmutableAuthority<T> {
 pub struct DecisionAuthorityState {
     pub generations: GenerationSet,
     pub process_ceiling: ImmutableAuthority<AuthorityCeiling>,
+    pub root_ceiling: ImmutableAuthority<AuthorityCeiling>,
+    pub bootstrap_floor: ImmutableAuthority<Vec<BoundAuthority>>,
     pub protected_objects: ImmutableAuthority<Vec<ProtectedObjectGuard>>,
     pub protected_resources: ImmutableAuthority<Vec<BoundAuthority>>,
     pub principal_policies: ImmutableAuthority<BTreeMap<Principal, PrincipalPolicy>>,
@@ -176,6 +181,7 @@ pub struct VerifiedDecisionContext {
     identity: SemanticIdentity,
     definitions: DefinitionSet,
     authority: DecisionAuthorityState,
+    bootstrap_phase_token: Arc<AtomicBool>,
 }
 
 impl VerifiedDecisionContext {
@@ -203,6 +209,7 @@ impl VerifiedDecisionContext {
             identity: inputs.loaded_identity,
             definitions,
             authority,
+            bootstrap_phase_token: Arc::new(AtomicBool::new(true)),
         })
     }
 
@@ -218,12 +225,30 @@ impl VerifiedDecisionContext {
         &self.authority
     }
 
+    /// Irreversibly destroy the evaluator's bootstrap-phase authority token.
+    /// The bit is not part of `DecisionContext`, so application input cannot
+    /// forge it; clones share the one monotonic token.
+    /// @ref LLP 0029#4-compiled-mode-authority — bootstrap authority ends before application evaluation
+    pub fn seal_bootstrap_phase(&self) -> bool {
+        self.bootstrap_phase_token.swap(false, Ordering::AcqRel)
+    }
+
+    pub fn bootstrap_phase_active(&self) -> bool {
+        self.bootstrap_phase_token.load(Ordering::Acquire)
+    }
+
     /// Publish a newly validated live authority state while preserving the
     /// authenticated semantic identity and definition set.
     pub fn with_authority(&self, authority: DecisionAuthorityState) -> Result<Self> {
         if !authority
             .process_ceiling
             .same_publication_identity(&self.authority.process_ceiling)
+            || !authority
+                .root_ceiling
+                .same_publication_identity(&self.authority.root_ceiling)
+            || !authority
+                .bootstrap_floor
+                .same_publication_identity(&self.authority.bootstrap_floor)
             || !authority
                 .protected_objects
                 .same_publication_identity(&self.authority.protected_objects)
@@ -241,6 +266,7 @@ impl VerifiedDecisionContext {
             identity: self.identity.clone(),
             definitions: self.definitions.clone(),
             authority,
+            bootstrap_phase_token: self.bootstrap_phase_token.clone(),
         })
     }
 
@@ -370,11 +396,13 @@ pub enum DecisionReason {
     TargetCellIncomplete,
     ProtectedResource,
     ProcessCeiling,
+    RootAuthorityCeiling,
     PrincipalDenial,
     Revoked,
     Quarantine,
     InvalidOccurrenceFacts,
     DefinitionOrEdgePredicate,
+    BootstrapFloor,
     StaticFloor,
     BearerHandle,
     DynamicSession,
@@ -683,7 +711,42 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
         }
     }
 
-    // 6. Principal denials.
+    // 6. Root-only ceiling. This constrains AmbientRoot without applying the
+    // entry declaration to unrelated package principals.
+    // @ref LLP 0029#4-compiled-mode-authority — root policy must not be
+    // widened by package needs or reused as the whole-process envelope.
+    for (effect_index, occurrence) in occurrences.iter().enumerate() {
+        for principal in occurrence
+            .constrained_principals
+            .iter()
+            .filter(|principal| principal.is_root())
+        {
+            let principal_occurrence = occurrence_for_principal(
+                &occurrences,
+                &projected_occurrences,
+                effect_index,
+                principal,
+            );
+            if !ceiling_allows(
+                &context.authority.root_ceiling,
+                principal_occurrence,
+                principal,
+                &context.identity.armed_snapshot_digest,
+                classifier,
+            )? {
+                return Ok(hard_decision(
+                    DecisionOutcome::Deny,
+                    DecisionStratumId::RootAuthorityCeiling,
+                    effect_index,
+                    Some(principal.clone()),
+                    DecisionReason::RootAuthorityCeiling,
+                    None,
+                ));
+            }
+        }
+    }
+
+    // 7. Principal denials.
     for (effect_index, occurrence) in occurrences.iter().enumerate() {
         for principal in &occurrence.constrained_principals {
             let principal_occurrence = occurrence_for_principal(
@@ -836,7 +899,38 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
         })
         .collect::<Vec<_>>();
 
-    // 10. Static floor.
+    // 10. Bootstrap authority is available only while the evaluator-owned,
+    // monotonic phase token remains live. Wire input cannot present this token.
+    if context.bootstrap_phase_active() {
+        for pending_row in pending
+            .iter_mut()
+            .filter(|row| row.authorization.is_none() && row.principal.is_root())
+        {
+            let occurrence = occurrence_for_principal(
+                &occurrences,
+                &projected_occurrences,
+                pending_row.effect_index,
+                &pending_row.principal,
+            );
+            if let Some(authority) = first_matching_authority(
+                &context.authority.bootstrap_floor,
+                occurrence,
+                &pending_row.principal,
+                &context.identity.armed_snapshot_digest,
+                AuthorityPolarity::Positive,
+                classifier,
+            )? {
+                pending_row.authorization = Some(positive_evidence(
+                    pending_row,
+                    DecisionStratumId::BootstrapFloor,
+                    DecisionReason::BootstrapFloor,
+                    authority.source_id.as_str(),
+                ));
+            }
+        }
+    }
+
+    // 11. Static floor.
     fill_from_policy_authorities(
         &mut pending,
         &occurrences,
@@ -848,7 +942,7 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
         DecisionReason::StaticFloor,
     )?;
 
-    // 11. Bearer handles and operation leases.
+    // 12. Bearer handles and operation leases.
     for pending_row in pending.iter_mut().filter(|row| row.authorization.is_none()) {
         let occurrence = occurrence_for_principal(
             &occurrences,
@@ -887,7 +981,7 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
         }
     }
 
-    // 12. Dynamic session authority, already verified within its static ceiling.
+    // 13. Dynamic session authority, already verified within its static ceiling.
     for pending_row in pending.iter_mut().filter(|row| row.authorization.is_none()) {
         let occurrence = occurrence_for_principal(
             &occurrences,
@@ -921,7 +1015,7 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
         }
     }
 
-    // 13. Generated implicit package-self authority.
+    // 14. Generated implicit package-self authority.
     fill_from_policy_authorities(
         &mut pending,
         &occurrences,
@@ -933,11 +1027,32 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
         DecisionReason::ImplicitPackageSelf,
     )?;
 
-    // 14. Ambient authenticated root (still after every denial).
+    // 15. Ambient authenticated root (still after every denial). Effects in
+    // the bootstrap floor are deliberately excluded: the evaluator-owned
+    // token is their only ambient credential, so a callback retained beyond
+    // sealing cannot borrow ordinary root fallback for the same effect.
     for pending_row in pending
         .iter_mut()
         .filter(|row| row.authorization.is_none() && row.principal.is_root())
     {
+        let occurrence = occurrence_for_principal(
+            &occurrences,
+            &projected_occurrences,
+            pending_row.effect_index,
+            &pending_row.principal,
+        );
+        if first_matching_authority(
+            &context.authority.bootstrap_floor,
+            occurrence,
+            &pending_row.principal,
+            &context.identity.armed_snapshot_digest,
+            AuthorityPolarity::Positive,
+            classifier,
+        )?
+        .is_some()
+        {
+            continue;
+        }
         pending_row.authorization = Some(DecisionEvidence {
             effect_index: pending_row.effect_index,
             principal: Some(pending_row.principal.clone()),
@@ -947,7 +1062,7 @@ fn evaluate_decision_set_inner<C: PeerClassifier>(
         });
     }
 
-    // 15. Missing authority mode. Audit can relax only this final case.
+    // 16. Missing authority mode. Audit can relax only this final case.
     for pending_row in pending.iter_mut().filter(|row| row.authorization.is_none()) {
         match workflow {
             Workflow::ProductionEnforce => {
@@ -1138,6 +1253,20 @@ fn validate_immutable_authority_state(
         definitions,
         true,
         "process ceiling",
+    )?;
+    validate_ceiling(
+        &state.root_ceiling,
+        identity,
+        definitions,
+        true,
+        "root authority ceiling",
+    )?;
+    validate_authority_rows(
+        &state.bootstrap_floor,
+        identity,
+        definitions,
+        true,
+        "bootstrap floor",
     )?;
     if state
         .protected_objects
@@ -1609,6 +1738,8 @@ mod tests {
                 handle: SafeUint::ZERO,
             },
             process_ceiling: AuthorityCeiling::Unbounded.into(),
+            root_ceiling: AuthorityCeiling::Unbounded.into(),
+            bootstrap_floor: vec![].into(),
             protected_objects: vec![].into(),
             protected_resources: vec![].into(),
             principal_policies: BTreeMap::new().into(),
@@ -1696,6 +1827,14 @@ mod tests {
         serde_json::from_value(json!({ "kind": "root", "identity": name })).unwrap()
     }
 
+    fn root_occurrence(mut occurrence: EffectOccurrence) -> EffectOccurrence {
+        let principal = root("project-root");
+        occurrence.actor = principal.clone();
+        occurrence.effect_owner = principal.clone();
+        occurrence.constrained_principals = vec![principal];
+        occurrence
+    }
+
     fn package_tree_authority(action: &str, owner: Principal, source_id: &str) -> BoundAuthority {
         BoundAuthority {
             source_id: NonEmptyString::new(source_id).unwrap(),
@@ -1748,6 +1887,122 @@ mod tests {
             decision.evidence[0].reason,
             DecisionReason::TargetCellClosed
         );
+    }
+
+    #[test]
+    fn bounded_root_ceiling_constrains_ambient_root() {
+        let occurrence = root_occurrence(env_occurrence());
+        let mut state = empty_authority();
+        state.root_ceiling = AuthorityCeiling::Bounded(Vec::new()).into();
+        let context = arm(state).unwrap();
+        let decision = evaluate_decision_set(
+            &context,
+            &set_from(&occurrence),
+            &[gate()],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Deny);
+        assert_eq!(
+            decision.decisive_stratum,
+            Some(DecisionStratumId::RootAuthorityCeiling)
+        );
+        assert_eq!(
+            decision.evidence[0].reason,
+            DecisionReason::RootAuthorityCeiling
+        );
+    }
+
+    #[test]
+    fn root_ceiling_does_not_constrain_package_floor() {
+        let occurrence = env_occurrence();
+        let principal = occurrence.effect_owner.clone();
+        let mut state = empty_authority();
+        state.root_ceiling = AuthorityCeiling::Bounded(Vec::new()).into();
+        state.principal_policies.insert(
+            principal,
+            PrincipalPolicy {
+                static_floor: vec![authority(&occurrence, "package-floor")],
+                ..PrincipalPolicy::default()
+            },
+        );
+        let context = arm(state).unwrap();
+        let decision = evaluate_decision_set(
+            &context,
+            &set_from(&occurrence),
+            &[gate()],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Allow);
+        assert!(decision
+            .evidence
+            .iter()
+            .any(|row| row.stratum == DecisionStratumId::StaticFloor));
+    }
+
+    #[test]
+    fn root_ceiling_allows_only_declared_root_effects() {
+        let occurrence = root_occurrence(env_occurrence());
+        let mut state = empty_authority();
+        state.root_ceiling =
+            AuthorityCeiling::Bounded(vec![authority(&occurrence, "root-ceiling-env")]).into();
+        let context = arm(state).unwrap();
+        let decision = evaluate_decision_set(
+            &context,
+            &set_from(&occurrence),
+            &[gate()],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Allow);
+        assert!(decision
+            .evidence
+            .iter()
+            .any(|row| row.stratum == DecisionStratumId::AmbientRoot));
+    }
+
+    #[test]
+    fn bootstrap_floor_is_destroyed_once_for_all_retained_contexts() {
+        let occurrence = root_occurrence(env_occurrence());
+        let mut state = empty_authority();
+        state.root_ceiling =
+            AuthorityCeiling::Bounded(vec![authority(&occurrence, "root-ceiling-env")]).into();
+        state.bootstrap_floor = vec![authority(&occurrence, "bootstrap-env")].into();
+        let context = arm(state).unwrap();
+        let retained = context.clone();
+
+        let active = evaluate_decision_set(
+            &context,
+            &set_from(&occurrence),
+            &[gate()],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(active.outcome, DecisionOutcome::Allow);
+        assert_eq!(active.evidence[0].reason, DecisionReason::BootstrapFloor);
+        assert_eq!(
+            active.evidence[0].source_id.as_deref(),
+            Some("bootstrap-env")
+        );
+
+        assert!(context.seal_bootstrap_phase());
+        assert!(!retained.bootstrap_phase_active());
+        assert!(!retained.seal_bootstrap_phase());
+        let sealed = evaluate_decision_set(
+            &retained,
+            &set_from(&occurrence),
+            &[gate()],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(sealed.outcome, DecisionOutcome::Deny);
+        assert_eq!(sealed.evidence[0].reason, DecisionReason::MissingAuthority);
     }
 
     #[test]
@@ -2404,8 +2659,8 @@ mod tests {
         );
         assert_eq!(
             immutable_authority_test_counts(),
-            (4, 0),
-            "publication must compare four immutable identities and must not revalidate policy rows",
+            (6, 0),
+            "publication must compare six immutable identities and must not revalidate policy rows",
         );
 
         reset_immutable_authority_test_counts();
@@ -2421,7 +2676,7 @@ mod tests {
         ));
         assert_eq!(
             immutable_authority_test_counts(),
-            (4, 0),
+            (6, 0),
             "copy-on-write tamper must refuse by identity without scanning immutable rows",
         );
     }
@@ -2455,7 +2710,7 @@ mod tests {
             context.with_authority(publication),
             Err(Error::ArmRefused(message)) if message.contains("stale generations")
         ));
-        assert_eq!(immutable_authority_test_counts(), (4, 0));
+        assert_eq!(immutable_authority_test_counts(), (6, 0));
     }
 
     #[test]

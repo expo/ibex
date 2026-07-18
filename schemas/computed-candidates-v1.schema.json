@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/computed-candidates-v1.schema.json",
+  "title": "Ibex computed dynamic-import candidate table v1",
+  "type": "object",
+  "required": [
+    "schema",
+    "requester",
+    "requesterSourceIntegrity",
+    "transformFingerprintDigest",
+    "site",
+    "generation",
+    "label",
+    "originalSourceSpan",
+    "candidates"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/computed-candidates/1" },
+    "requester": { "$ref": "#/$defs/sourceId" },
+    "requesterSourceIntegrity": { "$ref": "#/$defs/digest" },
+    "transformFingerprintDigest": { "$ref": "#/$defs/digest" },
+    "site": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "generation": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "label": { "type": "string", "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$" },
+    "originalSourceSpan": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "end": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+      },
+      "additionalProperties": false
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/candidate" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "sourceId": { "type": "string", "pattern": "^ibex-source-id-v1:[A-Za-z0-9_-]+$" },
+    "candidate": {
+      "type": "object",
+      "required": ["specifier", "attributes", "target", "targetSourceIntegrity"],
+      "properties": {
+        "specifier": { "type": "string", "minLength": 1 },
+        "attributes": {
+          "type": "object",
+          "properties": { "type": { "const": "json" } },
+          "additionalProperties": false
+        },
+        "target": { "$ref": "#/$defs/sourceId" },
+        "targetSourceIntegrity": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
+**Revised:** 2026-07-17 (LLP 0029 adds static macOS Hermes bundle linkage and carrier v2's tagged loaded/static engine binding with inspected HBC metadata); 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
 **Revised:** 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
@@ -126,14 +126,14 @@ have already happened by the time the error surfaces, so a fallback re-run
 would perform them all twice (ENG-23484).
 
 LLP 0026 module graphs apply the same boundary to multi-module prepared
-carriers. `ibex/module-carrier/1` admission checks the carrier bytes, producer,
+carriers. `ibex/module-carrier/2` admission checks the carrier bytes, producer,
 deployment graph, defining principal, per-entry semantic digests, loaded engine
-binary digest, and HBC version before native evaluation. The native carrier ABI
+binary or static compatibility identity, and inspected HBC version before native evaluation. The native carrier ABI
 returns a distinct refusal when Hermes rejects the bytecode sanity check before
 execution. Only that refusal may select the already-admitted source carrier;
 an exception from a selected factory is program execution and is never a
 fallback signal. The carrier schema and implementation are
-`schemas/module-carrier-v1.schema.json` and `src/module_loader/carrier.rs`
+`schemas/module-carrier-v2.schema.json` and `src/module_loader/carrier.rs`
 (`commit:c6d2aefe`).
 
 When that run-time compiler is asked for a source map it passes

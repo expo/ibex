@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (the origin/main integration restamps the reviewed
+Hermes evaluator identity after adding static-library packaging to the source
+build authority; evaluator reachability and lockdown taming are unchanged)
 **Revised:** 2026-07-18 (ENG-24933 binds direct path truncation to retained-object typed authorization and physically proves five Apple scenarios)
 **Revised:** 2026-07-18 (ENG-24933 removes the stale descriptor durability-read branch under LLP 0023's write-authorized durability contract, physically executes the asynchronous durability-write branch on Apple, and keeps the aggregate metadata-write branch residual pending an exact open/closed split)
 **Revised:** 2026-07-18 (ENG-24933 physically executes open-family retained descriptor truncation on an exact Apple-owned file while keeping closed metadata mutation, absent Windows surfaces, and prerequisite-conflicting denial residual)
@@ -27,6 +30,12 @@
 **Revised:** 2026-07-17 (ENG-24933 binds all 106 source and alias facets of the terminal `async_hooks`, inspector, VM, WASI, and worker-thread builtins to loaded-engine denial of every public alias under an authenticated overbroad snapshot)
 **Revised:** 2026-07-17 (ENG-24933 completes a source-, tree-, engine-, target-, and catalog-bound physical Apple Release report with 24/24 prerequisite commands passing; the report remains fail-closed with 1 conformant cell, 7,107 incomplete cells, and no advertisement)
 **Revised:** 2026-07-17 (ENG-24933 implements Windows mapped-DLL object identity and a pinned patched no-debugger Release artifact pipeline while retaining the target's unsupported status pending runtime evidence)
+**Revised:** 2026-07-18 (LLP 0030 separates policyless foreground source audit
+from historical armed `diagnostic-audit` artifacts: foreground audit uses a
+non-authorizing graph/decision context, the production verified-target gate,
+and its own evidence digests; no new durable audit snapshot may arm)
+**Revised:** 2026-07-17 (arming ABI v2 adds the evaluator-owned one-shot bootstrap authority floor/seal, an immutable root-only authority ceiling, and authenticated embedded protected ranges while retaining host-path protected objects)
+**Revised:** 2026-07-17 (LLP 0014 canonical policy v2 rotates the policy digest domain while retaining the same checked semantic-set projection)
 **Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
 **Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
 **Revised:** 2026-07-17 (ENG-24933 credits nine bounded authority-control refusals and the post-capture absence of the loader-private manifest resolver)
@@ -266,7 +275,11 @@ deputy intersection are required structural posture rather than independently
 disableable policy preferences.
 
 Audit is the separately named, ephemeral `ibex capsec audit` foreground
-workflow. Permissive behavior exists only inside isolated tests. The
+workflow governed by LLP 0030. It uses
+`ForegroundAuditGraphSnapshotV1`/`ForegroundAuditDecisionContextV1`, not an
+`ArmedSnapshot`; the historical armed-schema `diagnostic-audit` value is
+decode-only until the next schema major removes it and no new instance may
+arm. Permissive behavior exists only inside isolated tests. The
 `contract-fixture` armed workflow is schema-only, must use the synthetic
 `capsec-contract-fixture` target, and is never executable. None of these is a
 mode of ordinary `ibex run`. Embedders must select an explicit supported profile
@@ -412,22 +425,27 @@ For one normalized effect and one constrained principal, precedence is:
 3. definition lifecycle and exact target-cell closure;
 4. built-in protected-resource guards;
 5. process-wide ceiling;
-6. principal-specific denial;
-7. revocation and negative generation;
-8. quarantine denial;
-9. definition/edge positive predicates;
-10. static floor;
-11. an explicit unforgeable bearer handle;
-12. a typed dynamic session grant within the static ceiling;
-13. generated implicit package-self access;
-14. ambient root for the root dimension only; and
-15. the effective mode's missing-authority result.
+6. root-only authority ceiling for an authenticated root principal;
+7. principal-specific denial;
+8. revocation and negative generation;
+9. quarantine denial;
+10. definition/edge positive predicates;
+11. static floor;
+12. an explicit unforgeable bearer handle;
+13. a typed dynamic session grant within the static ceiling;
+14. generated implicit package-self access;
+15. ambient root for the root dimension only; and
+16. the effective mode's missing-authority result.
 
 Every deny stratum precedes every positive authority source. The direct cutover
 has no runtime legacy-oracle or compatibility-mask stratum; the 57-bit table is
 build-time reconciliation evidence only. An unbounded process ceiling
 continues; a bounded ceiling requires containment, and an empty bounded ceiling
 denies everything.
+The root ceiling is independently bounded or unbounded, applies only to an
+authenticated root principal, and constrains `AmbientRoot` without narrowing a
+package floor. It is immutable publication identity and therefore cannot be
+widened through a live-generation update.
 Every filesystem occurrence is projected separately through each constrained
 principal's authenticated root binding before any principal-indexed authority
 stratum runs. That rule applies to protected resources, process ceilings,
@@ -470,6 +488,15 @@ separate future binding. A pre-existing filesystem alias outside every
 authenticated package binding is not covered by this lexical guarantee and
 requires a future commit-time identity/integrity guard. Network posture binds
 direct-only routing and always denies metadata and unspecified peers.
+
+Compiled arming may satisfy a protected role with an authenticated embedded
+range instead of a host pathname. An embedded protected artifact binds one
+mapped executable object, a nonempty safe-integer byte range, the exact section
+role, and the admitted content digest. Host and embedded artifacts together
+must fill every protected role exactly once; embedded ranges on one executable
+cannot overlap. Several ranges in one mapped executable collapse to one
+filesystem write guard for that executable object, while their role/range/
+digest identities remain distinct immutable arming facts.
 
 ### Handles, dynamic authority, and generations
 
@@ -536,7 +563,7 @@ Digest text is lowercase `sha256-` followed by unpadded base64url. Domains are:
   implementation references, and fixtures. Report-promoted target-cell bytes
   are bound separately so publishing a report cannot change the registry or
   implementation digest that the same report attests;
-- `ibex:capsec:policy:1` — canonical review policy with its own digest omitted;
+- `ibex:capsec:policy:2` — canonical review policy with its own digest omitted;
 - `ibex:capsec:armed:1` — policy/registry identities plus resolved host objects,
   engine target, routes, graph, ceilings, generations, run nonce, and channel
   epoch; and
@@ -565,9 +592,12 @@ until WP10. Canonical policy and armed examples carry
 recomputed self-digests and exact cross-digests. One checked golden vector
 freezes each of the five domains, and the domain-to-payload mapping is fixed.
 
-Audit, handle, dynamic-permission, and denial evidence carry all four loaded
-vocabulary, registry, policy, and armed-snapshot digests from the immutable
-engine decision context rather than expected wrapper values.
+Production handle, dynamic-permission, and denial evidence carry all four
+loaded vocabulary, registry, policy, and armed-snapshot digests from the
+immutable engine decision context rather than expected wrapper values.
+Foreground-audit evidence instead carries vocabulary, registry, the compiled
+diagnostic-baseline digest, and the foreground graph digest; it never fills a
+policy or armed-snapshot slot with a lookalike value.
 
 ### Default and target claim
 
@@ -580,10 +610,13 @@ attribution, native compartments, and immutable arming are structural.
 WP1 advertises no targets and records one candidate exact target,
 `aarch64-apple-darwin` with structural `hermes-frame-attribution`,
 `native-compartments`, and `native-lockdown` features. These are security
-properties, not Cargo feature names. An executable production or diagnostic-audit
-snapshot may arm only when its exact target triple and canonical feature set
+properties, not Cargo feature names. An executable production snapshot may arm
+only when its exact target triple and canonical feature set
 are advertised and every coverage edge has a matching `enforced`, `closed`, or
 `absent` cell; a missing or `unsupported` cell refuses before project code.
+Foreground source audit does not arm, but uses this same verified target and
+feature-set authority before capture; the OS/architecture allowlist alone is
+not an advertisement.
 Public-address classification remains closed until pinned IANA IPv4 and IPv6
 special-purpose snapshots enter the registry. IPv4-mapped IPv6 is classified
 through its embedded IPv4 address, unmatched addresses fall back to `reserved`,
@@ -975,6 +1008,24 @@ every authority against current definitions, and refuses independently
 recomputed stale vocabulary or registry policies before projection. Bounded
 process ceilings containing package logical roots expand into one bound row per
 authenticated package principal rather than losing their owner identity.
+
+Implementation update (2026-07-17): the semantic decision set now carries a
+distinct root-authority-ceiling stratum before principal denials. Canonical
+policy v2 root-ceiling rows populate it only for the authenticated root;
+fixtures prove an empty bounded root ceiling denies `AmbientRoot`, a matching
+row permits it, and package floors are unaffected. `ArmedSnapshot` also admits
+strict embedded protected-artifact facts, enforces the host/embedded role union
+and per-object range non-overlap, and cross-binds role, object, range, and
+digest in `ExpectedArmingIdentity`. The arming ABI is
+`ibex-capsec-arming-2-root-ceiling-embedded-ranges-bootstrap-seal`.
+`ArmedSnapshot` also binds a strict immutable root-only bootstrap authority
+floor. Its positive stratum requires an evaluator-owned one-way token and
+bootstrap matches cannot fall through to `AmbientRoot`; retained context clones
+therefore deny the same effect after sealing. Hermes requires the active Host
+to consume the token exactly once after armed-posture verification and before
+application attribution. Compiled boot construction still needs to populate
+the concrete bootstrap floor and add application-level retained-callback
+fixtures; current runtime builders intentionally emit an empty floor.
 
 ### WP5 — Convert filesystem effects and checked-object execution
 

@@ -31,11 +31,15 @@ stale=()
 # registry freshness and its downstream contract digests are required.
 bun run check:capsec-registry
 bun run check:capsec-contract
+bun run check:capsec-runtime-projection
+bun run check:compiled-environment-profile
+bun run check:oxc-retirement
+bun run check:module-transform-config
 if ! bun run generate:capability-bits --check >/dev/null 2>&1; then
   stale+=("packages/ibex-runtime-js/src/security/capability-bits.generated.ts")
 fi
 if ! bun run generate:identity --check >/dev/null 2>&1; then
-  stale+=("packages/ibex-runtime-js/src/identity.generated.ts" "src/identity_generated.rs")
+  stale+=("packages/ibex-runtime-js/src/identity.generated.ts" "src/identity_generated.rs" "vendored-generated/runtime-identity-projection.canonical.json")
 fi
 if ! bun run generate:modules --check >/dev/null 2>&1; then
   # `generate:modules` carries `--rust-out-dir vendored-generated`, so this

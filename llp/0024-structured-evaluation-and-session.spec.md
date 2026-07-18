@@ -5,6 +5,13 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-17 (LLP 0028 migration seam: pinned Oxc 0.140.0 as the
+post-retirement parser authority; proved the hybrid Script-plus-static-import-plus-TLA
+adapter by Module syntax parsing followed by Script semantic validation; defined
+the runner handoff, non-module requester boundary, post-Tier-2 source-map
+composition, and computed-import exclusion; archived the predeclared SWC/Oxc
+ordinary-goal differential; added the named Oxc-producer-to-loaded-Hermes gate
+on every advertised native tuple)
 **Revised:** 2026-07-15 (ENG-25066 made the separate authenticated file-module runner the default without changing structured script/session evaluation); 2026-07-15 (ENG-25065 defined runner-backed session cache identity per execution generation while preserving legacy retry behavior); 2026-07-15 (ENG-25063 reconciled dependency-level TLA through the
 separate authenticated LLP 0026 runner while preserving the legacy session
 loader's entry-only refusal)
@@ -441,19 +448,27 @@ Module and patched afterwards. Parsing as a Module imposes strict mode at parse
 time and rejects sloppy-only forms before any later pass could restore them, so
 "parse as a module, then lower" is non-conforming however the output looks.
 
-**This goal does not exist in the pinned parser today, and the gap is named
-rather than assumed away.** The parser offers Script and Module goals; its
-program entry promotes to Module on seeing an `import`, and the Module goal
-rejects sloppy-only *parse-level* forms — legacy octal literals, `delete
-identifier`, duplicate parameters — that this goal must accept. A conforming
-implementation therefore needs one of: a parser mode admitting the two
-extensions under Script early errors, a maintained fork, or an independent Script
-early-error validator run over the input *in addition to* the parse. Which of
-these is taken is open question 5; what is **not** admissible is quietly using the
-Module goal and declaring the difference cosmetic. The source-goal fixture family
-(§4) therefore includes the sloppy-only *parse* forms, not merely the sloppy-only
-*runtime* effects, so a Module-goal implementation fails the corpus rather than
-passing it.
+**Oxc 0.140.0 has no direct goal with this shape, so Ibex supplies one explicit
+pin-bound adapter.** Oxc first performs a Module-goal *syntax parse*, which admits
+`ImportDeclaration` and top-level `AwaitExpression` while retaining ASTs for the
+sloppy-only forms this specification requires. Before semantic validation, Ibex
+relabels that AST as Script. Oxc then applies Script early-error and directive
+semantics; Ibex admits exactly one pinned diagnostic for each actual top-level
+`ImportDeclaration` (`Cannot use import statement outside a module`) and rejects
+every other diagnostic. A matching count is mandatory, so a message-shaped
+diagnostic cannot manufacture an import. Exports remain rejected, top-level
+`await` identifiers remain reserved, nested non-async functions retain `await` as
+an identifier, sloppy legacy octal / `delete identifier` / duplicate parameters
+remain accepted, and a `use strict` directive rejects those same forms. The
+executable feasibility fixture is
+`module_loader::script_frontend::tests::hybrid_projection_preserves_script_early_errors`.
+
+This adapter is not permission to execute a Module as a Script. The runtime AST
+continues through the script frontend's import/TLA lowering, and the resulting
+declarations and completion record obey this document's Script contract. The
+source-goal fixture family (§4) retains all sloppy-only parse and runtime forms so
+any future Oxc pin that moves an error from semantic validation into an
+unrecoverable Module parse fails closed.
 
 **`await` is a reserved word at the top level of a script input.** Admitting
 top-level `AwaitExpression` into a sloppy Script — where `await` is otherwise a
@@ -493,10 +508,11 @@ unsupported error** naming the module and the construct. The rule is enforced on
 the **source role**, which is why the role is a field of the source request
 rather than a property inferred from the text.
 
-That error must be *one* error. Today it is not: the SWC stage passes top-level
-`await` through untouched, the Oxc candidate bails with an ad-hoc message, and
-the loader's downlevel trigger does not detect plain top-level `await` at all —
-three behaviors for one condition. Conformance requires:
+That error must be *one* error. The bounded legacy path still has three
+behaviors: SWC passes top-level `await` through untouched, the old Oxc candidate
+bails with an ad-hoc message, and the loader's downlevel trigger does not detect
+plain top-level `await` at all. The post-retirement frontend replaces all three;
+conformance requires:
 
 - detection on the **resolved module kind and role**, not on a text scan, so a
   CommonJS file that merely uses `await` as an identifier is never misclassified;
@@ -674,17 +690,70 @@ display result.
 
 Type-only constructs are erased: they neither evaluate nor persist anything at
 runtime. There is no type checking at any of these surfaces. The TypeScript
-dialect is **pinned to a named parser and version** — the in-process lowering
-stage's `swc_ecma_parser`, at the version recorded in `Cargo.lock`, with the pin
-asserted by a build-time check — because dialect drift (`satisfies`, `using`,
-decorators) silently changes the completeness judgments of §5. A second transform
-engine may exist as a candidate (Oxc, per LLP 0007/0009) only while it is
-**parse-equivalent to the pinned parser over the conformance corpus below**; a
-divergence is a corpus failure, not a configuration choice.
+dialect is **pinned to `oxc_parser` 0.140.0** through the exact Cargo dependency
+and canonical `config/module-transform.json` projection. The generated
+locked-set digest binds the parser pin into transform identity, and generated
+drift validation proves that `Cargo.lock`, the authored pin, and runtime
+constants agree. Dialect drift (`satisfies`, `using`, decorators) silently
+changes the completeness judgments of §5, so a pin rotation is atomic with
+identity, corpus, and differential evidence under LLP 0028. The retirement
+differential compares the former pinned `swc_ecma_parser` with this Oxc pin for
+every ordinary goal and dialect both implement; the hybrid goal is governed by
+the adapter-specific oracle above because SWC never implemented it.
 
-**Transform authority.** This seam extends the **in-process TypeScript/ESM
-lowering stage** (`src/module_loader/transpile.rs`) — the stage that strips types,
-compiles JSX, and lowers `import`/`export` into the synchronous `require()` chain.
+**Transform authority.** The post-retirement seam is the Oxc script frontend,
+not `src/module_loader/transpile.rs` and not the synchronous compatibility
+`require()` chain. The frontend consumes the hybrid AST, strips types, compiles
+JSX, lowers static imports and TLA without changing Script semantics, and hands
+authenticated module work to the LLP 0026 runner. `transpile.rs` remains only a
+bounded 0.1 compatibility implementation until LLP 0028's window closes.
+
+### 3.1 Post-retirement Oxc handoff
+
+- **Parser entry:** `oxc_parser` at the exact canonical pin above. The hybrid
+  adapter is the only non-file entry path; program stdin and imported files use
+  ordinary Module goal. A pin change rotates transform identity and reruns the
+  adapter oracle plus the archived ordinary-goal differential.
+- **Runner handoff:** static imports become authenticated LLP 0026 graph edges;
+  literal dynamic imports retain call-time behavior. Scripts have a
+  `SourceLabel` and retained file/session identity but deliberately have no
+  module `SourceId`, so they cannot own a computed-candidate sidecar row.
+- **Computed import:** a reached computed `import(expr)` on a script surface
+  evaluates its arguments in language order and returns the stable
+  candidate-less rejection. A dead site does not fail generation or admission.
+  Literal dynamic import is unaffected. The error taxonomy and exact source-site
+  reporting are owned by LLP 0028's invocation-error workstream.
+- **Maps after Tier 2 retirement:** the Oxc frontend emits a v3 map keyed by
+  `SourceLabel`; import/TLA/session lowering composes into it. LLP 0019 Tier 3 is
+  a native execution transform and contributes an explicit compatibility-map
+  segment when selected. Retired Tier 2 and legacy bootstrap string rewrites
+  contribute nothing because they are absent, rather than being silently
+  mapless stages.
+- **Requester identity:** module dependencies retain authenticated `SourceId`.
+  Prompt, `-e`/`-p`, and `.load` retain the session input's label/credential and
+  `.load` retained-file identity for diagnostics and relative resolution; none
+  is promoted into a module principal merely to reuse candidate machinery.
+
+The one-shot ordinary-goal cutover report is archived as
+[`0024-parser-differential-3fe06fe5…json`](evidence/0024-parser-differential-3fe06fe530d01655be8abf390ff65c05d66dd34b2ecdc0d63017e9cce88dd29a.json).
+Its independently checked-in projection covers acceptance/diagnostic outcome,
+AST recovery availability, directive count, top-level category order, and span
+validity. Across 24 corpus cases and 512 parses of 256 deterministic
+`node_modules` files, SWC and Oxc agree on acceptance for all 536 cases. Five
+predeclared projection differences remain: Oxc supplies a recovery AST where SWC
+supplies none for three intentionally invalid corpus inputs and two `.mjs` files
+deliberately tested under Script goal. Both classify every one as diagnostic;
+Ibex rejects any diagnostic, so the recovery-AST difference cannot cross the
+frontend admission boundary and is accepted as cutover evidence rather than
+hidden by weakening the projection after the run.
+
+Evaluator acceptance is a separate named gate:
+`oxc_javascript_goal_output_is_accepted_by_loaded_hermes` produces a JavaScript
+module with the canonical Oxc adapter, admits the exact artifact, compiles it in
+the loaded Hermes library, and asserts its namespace. The non-Windows native
+baseline job runs it on the advertised macOS arm64 and Linux x64 tuples. This
+proves evaluator acceptance only; it does not substitute for the TypeScript
+differential or the full structured-session fixtures.
 
 It does **not** extend LLP 0019's tiers, and this document does not claim that it
 does. LLP 0019 governs the *Hermes-compat `for...of` and async-generator rewrite*,
@@ -702,15 +771,15 @@ divergence pinned by an explicit entry.
 | --- | --- |
 | Source-goal preservation | a sloppy script with an import stays sloppy; **sloppy-only *parse* forms survive** — legacy octal, `delete identifier`, duplicate parameters — which is what catches a Module-goal implementation; directive prologues; top-level `this`; undeclared assignment; `export` rejected; `await` reserved at top level; the `with` and `using` narrowings |
 | Completion values | statement lists, blocks, `if`, loops, `try`/`finally`, abrupt completion, a declaration after an expression — before and after import and TLA lowering (§6) |
-| Source maps | positions survive TypeScript stripping, import lowering, TLA lowering, **and the LLP 0019 Hermes-compat rewrite that runs after them** (§2) |
+| Source maps | positions survive TypeScript stripping, import lowering, TLA lowering, session lowering, and any selected native Tier 3 compatibility transform (§2) |
 | Dependency TLA | one stable named error from every engine; **static-graph** preflight only; **every** `import()` — literal or computed — checked at call time, so an unevaluated `if (false) import("./tla.js")` never fails (§3) |
 | Session lowering | the §7 environment operations: the cross-kind matrix, same-input collisions, the phases, and rollback |
-| Parse equivalence | any candidate engine agrees with the pinned parser across every goal and dialect |
+| Parse equivalence | the archived SWC/Oxc cutover differential agrees over ordinary goals/dialects; the hybrid adapter passes its separate oracle |
 
 **Source maps compose across the whole pipeline, not just this stage.** Positions
 must survive *every* rewrite between the submitted text and the bytes Hermes
 compiles — TypeScript stripping, import lowering, TLA wrapping, the session lowering
-of §7, and the LLP 0019 Hermes-compat rewrite that runs afterwards. Each stage emits
+of §7, and any selected native Tier 3 compatibility transform. Each stage emits
 a map and the maps are **composed**; a stage that drops its map breaks §2 for every
 stage before it. Because the sources are in memory, the maps live in an **in-memory
 registry keyed by source label** — the current machinery, which looks for an
@@ -736,7 +805,7 @@ composable map**, or **prove a stated stability property**:
 | --- | --- |
 | TypeScript stripping, JSX, import lowering, TLA wrapping | **emit a map**; maps compose |
 | §7 session lowering | **emits a map** |
-| LLP 0019 tier 2 (for-of scanner) | **line-stable only.** It replaces the header and closing lines one-for-one, so *line* numbers survive — but it relocates the iterated expression and emits generated text on those lines, so **columns on rewritten lines do not survive**. An earlier draft claimed "line- **and column**-stable"; the scanner's own comment claims only line alignment. Either those lines carry a per-line map, or AC2's column guarantee is explicitly narrowed to exclude them |
+| LLP 0019 tier 2 (for-of scanner) | **retire before frontend cutover.** Its legacy line stability does not satisfy the column contract, so it cannot remain in the post-retirement transform graph |
 | every other stage the generator finds | retire, map, or prove stability — no exceptions |
 
 A stage that does none of the three, and silently moves code while §2's promise stands, is
@@ -1894,7 +1963,7 @@ implementation tickets.
 | --- | --- | --- | --- |
 | **`OBL-COMPARTMENT-BASELINE`** | Deviation (d)'s real fix: a package compartment must resolve bare globals against a **baseline captured at arming** (endowments + frozen intrinsics), *not* forward to the live realm global — closing the session-`var` / sloppy-assignment / adopted-and-assigned disclosure channel that is **live today** (`var apiKey` at the prompt is read by every package). The `[[SessionCreatedVars]]` withhold-list patch is only a partial mitigation. **This is the document's most security-consequential owed item — filed as ENG-24463.** | **LLP 0013** | §7.7(d) fixtures for all three spellings (fail today) |
 | `OBL-EXEC-MODEL` | The §7 tables, matrix, restricted-global predicate, rollback, and fixtures are **generated from a checked-in, digest-bound executable reference model** — the tables in §7 are an *interim projection* of it, not the normative source. Four rounds of hand-written tables were falsified by review (a rule that would have deleted `globalThis.Object`; an impossible rollback; a `var`/`function` conflation; a predicate whose edit silently never landed) — the model is why they cannot be *asserted* correct, only *measured*. | this document + tooling | gates 1/2/2b/3 (§7.7) run against it in CI |
-| `OBL-PARSER-GOAL` | The **Script-plus-`import`-plus-TLA** source goal (§3) does not exist in the pinned parser and must be **prototyped on every advertised target**, proving sloppy-only parse forms, directive semantics, imports, TLA, and TypeScript before acceptance (open question 5). | this document | §4 source-goal fixture family |
+| `OBL-PARSER-GOAL` | The §3 Oxc adapter satisfies parser feasibility and its executable oracle proves sloppy/strict forms, imports, TLA, and TypeScript. Remaining work is the lowering/completion/map implementation plus real-Hermes execution on every advertised tuple; parser success alone does not discharge the runtime gate. | this document | §4 source-goal fixture family + per-target receipts |
 | `OBL-ABI-AMEND` | The §6 result ABI is a **semver-major** change to LLP 0002's narrow consumer contract (LLP 0000 moves with it); the byte-level schema is LLP 0002's amendment, verified from an independent C consumer. | **LLP 0002** (+ LLP 0000) | AC 18 |
 | `OBL-PRIVATE-SEAMS` | Registry rows classifying the §7.1 lowering hooks and the §8 display seam as **private, non-JavaScript-reachable** (no-unclassified-surface invariant). | **LLP 0021** registry | §8 AC 16; §7.1 hook-unforgeability fixture |
 | `OBL-0019-TRIGGER` | If the session lowering changes what LLP 0019's Hermes-compat tiers emit, LLP 0019 is amended in the same change. | **LLP 0019** | §4 corpus |
@@ -2220,8 +2289,8 @@ say which is testing nothing.
 - The result ABI is a **semver-major** change to LLP 0002's narrow consumer contract
   (and LLP 0000, which moves with it); embedders must migrate. The *input* half was
   already length-bearing; it is the result half that was not.
-- The in-process lowering stage gains source maps that **compose through every later
-  rewrite**, script-goal preservation, Reference-fidelity session lowering,
+- The Oxc script frontend gains source maps that **compose through every later
+  retained rewrite**, script-goal preservation, Reference-fidelity session lowering,
   completion-value fidelity, origin-tagged hygiene, a dependency manifest, and one
   dependency-TLA error — and a conformance corpus of its own, distinct from LLP 0019's.
 - The deviation oracle is **engine-relative**: session conformance and engine
@@ -2253,13 +2322,14 @@ say which is testing nothing.
    live cells, SCC scheduling, sticky failure, and defined CJS interop.
    Entry-only TLA remains the durable answer only for this document's legacy
    synchronous session loader until that consumer migrates.
-5. **Which parser mechanism implements the Script-plus-`import`-plus-TLA goal** (§3) —
-   a parser mode, a maintained fork, or a Script early-error validator run alongside a
-   Module parse? The third is *not* sufficient on its own: a Module parse still rejects
-   legacy octal and `delete identifier` before any validator sees them, and a Script
-   parse still rejects `import`. This must be **prototyped before the source-goal
-   fixtures are written**, because it decides whether the sloppy-only parse forms are
-   achievable or must become documented narrowings.
+5. **Resolved for parser feasibility by the §3 adapter:** pinned Oxc retains the
+   sloppy-only AST during Module syntax parsing; relabeling it before semantic
+   validation applies Script early errors while the exact import diagnostics are
+   admitted. The executable fixtures prove imports, TLA, legacy octal, `delete
+   identifier`, duplicate parameters, directive strictness, top-level reservation,
+   and nested-function `await`. Full runtime acceptance still depends on lowering,
+   completion semantics, source maps, and the per-surface real-Hermes matrix; this
+   parser result does not claim those later gates.
 6. Should a startup-only strict profile exist for consumers that want module-like
    semantics in script inputs, given §3 fixes sloppy as the default? (Shared with
    LLP 0022 OQ 3.)

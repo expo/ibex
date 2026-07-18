@@ -209,10 +209,12 @@ pub enum DecisionStratumId {
     LifecycleAndTargetClosure,
     ProtectedResourceGuards,
     ProcessCeiling,
+    RootAuthorityCeiling,
     PrincipalDenial,
     RevocationNegativeGeneration,
     QuarantineDeny,
     DefinitionAndEdgePositivePredicates,
+    BootstrapFloor,
     StaticFloor,
     BearerHandle,
     DynamicSession,
@@ -221,16 +223,18 @@ pub enum DecisionStratumId {
     MissingAuthorityMode,
 }
 
-pub const DECISION_PRECEDENCE: [DecisionStratumId; 15] = [
+pub const DECISION_PRECEDENCE: [DecisionStratumId; 17] = [
     DecisionStratumId::ArmValidity,
     DecisionStratumId::Attribution,
     DecisionStratumId::LifecycleAndTargetClosure,
     DecisionStratumId::ProtectedResourceGuards,
     DecisionStratumId::ProcessCeiling,
+    DecisionStratumId::RootAuthorityCeiling,
     DecisionStratumId::PrincipalDenial,
     DecisionStratumId::RevocationNegativeGeneration,
     DecisionStratumId::QuarantineDeny,
     DecisionStratumId::DefinitionAndEdgePositivePredicates,
+    DecisionStratumId::BootstrapFloor,
     DecisionStratumId::StaticFloor,
     DecisionStratumId::BearerHandle,
     DecisionStratumId::DynamicSession,
@@ -495,12 +499,17 @@ fn validate_policy_rules(
         "/deputyIntersection",
         &json!("all-actions-structural"),
     )?;
+    require_json(
+        &rules.execution,
+        "/rootAuthorityCeiling",
+        &json!("bounded-applies-only-to-authenticated-root-before-ambient-root"),
+    )?;
 
     if rules.decision_precedence.as_slice() != DECISION_PRECEDENCE {
         return invalid("decisionPrecedence differs from capsec/semantics/1");
     }
     if rules.decision_strata.len() != DECISION_PRECEDENCE.len() {
-        return invalid("decisionStrata must contain exactly 15 rows");
+        return invalid("decisionStrata must contain exactly 17 rows");
     }
     for (index, rule) in rules.decision_strata.iter().enumerate() {
         let expected = expected_stratum(index);
@@ -513,9 +522,7 @@ fn validate_policy_rules(
                 "decisionStrata[{index}] differs from frozen precedence"
             ));
         }
-        for (case, (expected_when, expected_outcome)) in
-            rule.cases.iter().zip(expected.1.into_iter())
-        {
+        for (case, (expected_when, expected_outcome)) in rule.cases.iter().zip(expected.1) {
             if case.when != expected_when || case.outcome != expected_outcome {
                 return invalid(format!(
                     "decisionStrata[{index}] case differs from frozen semantics"
@@ -690,31 +697,47 @@ fn expected_stratum(
         ),
         5 => (
             Principal,
-            vec![("principal-denial-contains-effect", Deny)],
+            vec![(
+                "principal-is-authenticated-root-and-bounded-root-ceiling-does-not-contain-effect",
+                Deny,
+            )],
             Continue,
         ),
         6 => (
             Principal,
+            vec![("principal-denial-contains-effect", Deny)],
+            Continue,
+        ),
+        7 => (
+            Principal,
             vec![("source-revoked-or-generation-stale", Deny)],
             Continue,
         ),
-        7 => (Principal, vec![("principal-is-quarantine", Deny)], Continue),
-        8 => (
+        8 => (Principal, vec![("principal-is-quarantine", Deny)], Continue),
+        9 => (
             Effect,
             vec![("normalization-or-positive-predicate-fails", Deny)],
             Continue,
         ),
-        9 => (
+        10 => (
+            Principal,
+            vec![(
+                "bootstrap-phase-token-is-live-and-bootstrap-floor-contains-root-effect",
+                AllowPrincipal,
+            )],
+            Continue,
+        ),
+        11 => (
             Principal,
             vec![("static-floor-contains-effect", AllowPrincipal)],
             Continue,
         ),
-        10 => (
+        12 => (
             Principal,
             vec![("valid-possessed-handle-contains-effect", AllowPrincipal)],
             Continue,
         ),
-        11 => (
+        13 => (
             Principal,
             vec![(
                 "valid-session-grant-within-static-ceiling-contains-effect",
@@ -722,7 +745,7 @@ fn expected_stratum(
             )],
             Continue,
         ),
-        12 => (
+        14 => (
             Principal,
             vec![(
                 "generated-package-self-rule-contains-effect",
@@ -730,12 +753,12 @@ fn expected_stratum(
             )],
             Continue,
         ),
-        13 => (
+        15 => (
             Principal,
             vec![("principal-is-authenticated-root", AllowPrincipal)],
             Continue,
         ),
-        14 => (
+        16 => (
             Principal,
             vec![
                 (

@@ -340,12 +340,14 @@ impl<'a> VerifiedModuleArtifactV1<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+// Source transform reuse is target/configuration keyed. Evaluator and HBC
+// toolchain identity are checked only by prepared-carrier admission.
+// @ref LLP 0028#1-toolchain-and-pin-rotation--atomic-with-identity-rotation
 pub struct ArtifactCacheKeyV1 {
     schema: String,
     source_id: CanonicalSourceId,
     source_integrity: Digest,
     transform_fingerprint_digest: Digest,
-    engine_binary_digest: Digest,
     producer_binary_digest: Digest,
     runtime_configuration_digest: Digest,
 }
@@ -353,7 +355,6 @@ pub struct ArtifactCacheKeyV1 {
 impl ArtifactCacheKeyV1 {
     pub fn for_verified(
         verified: VerifiedModuleArtifactV1<'_>,
-        engine_binary_digest: Digest,
         runtime_configuration_digest: Digest,
     ) -> Result<Self> {
         let artifact = verified.artifact();
@@ -372,7 +373,6 @@ impl ArtifactCacheKeyV1 {
             source_id: artifact.semantics.source_id.clone(),
             source_integrity: artifact.semantics.source_integrity.clone(),
             transform_fingerprint_digest: artifact.semantics.transform_fingerprint.digest()?,
-            engine_binary_digest,
             producer_binary_digest,
             runtime_configuration_digest,
         })
@@ -940,7 +940,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_key_covers_engine_producer_and_runtime_configuration() {
+    fn source_artifact_cache_key_excludes_evaluator_identity() {
         let artifact = artifact();
         let verified = artifact
             .verify_for_admission(&ArtifactAdmissionV1::TrustedInProcess {
@@ -951,12 +951,13 @@ mod tests {
                 transform_fingerprint_digest: fingerprint().digest().unwrap(),
             })
             .unwrap();
-        let base =
-            ArtifactCacheKeyV1::for_verified(verified, digest("engine"), digest("config")).unwrap();
-        let stale_engine =
-            ArtifactCacheKeyV1::for_verified(verified, digest("other-engine"), digest("config"))
-                .unwrap();
-        assert_ne!(base.digest().unwrap(), stale_engine.digest().unwrap());
+        let base = ArtifactCacheKeyV1::for_verified(verified, digest("config")).unwrap();
+        let same_target_reuse =
+            ArtifactCacheKeyV1::for_verified(verified, digest("config")).unwrap();
+        let runtime_change =
+            ArtifactCacheKeyV1::for_verified(verified, digest("other-config")).unwrap();
+        assert_eq!(base.digest().unwrap(), same_target_reuse.digest().unwrap());
+        assert_ne!(base.digest().unwrap(), runtime_change.digest().unwrap());
     }
 
     #[test]

@@ -17,7 +17,8 @@
     "missingPolicy": "canonical-empty-enforce",
     "incompleteTarget": "refuse-before-code",
     "deputyIntersection": "all-actions-structural",
-    "processAuthorityCeiling": "unbounded-allows-bounded-requires-containment-empty-bounded-denies-all"
+    "processAuthorityCeiling": "unbounded-allows-bounded-requires-containment-empty-bounded-denies-all",
+    "rootAuthorityCeiling": "bounded-applies-only-to-authenticated-root-before-ambient-root"
   },
   "digestContract": {
     "serialization": "RFC8785-JCS-over-I-JSON",
@@ -155,7 +156,7 @@
     "domains": {
       "vocabulary": "ibex:capsec:vocab:1",
       "registry": "ibex:capsec:registry:1",
-      "policy": "ibex:capsec:policy:1",
+      "policy": "ibex:capsec:policy:2",
       "armedSnapshot": "ibex:capsec:armed:1",
       "conformance": "ibex:capsec:conformance:1"
     },
@@ -205,7 +206,7 @@
       },
       "policy": {
         "status": "available",
-        "inputSchema": "ibex/capsec-policy/1",
+        "inputSchema": "ibex/capsec-policy/2",
         "memberOrder": "not-applicable",
         "members": ["canonical-policy-object"],
         "omitFields": ["policyDigest"]
@@ -232,10 +233,12 @@
     "lifecycle-and-target-closure",
     "protected-resource-guards",
     "process-ceiling",
+    "root-authority-ceiling",
     "principal-denial",
     "revocation-negative-generation",
     "quarantine-deny",
     "definition-and-edge-positive-predicates",
+    "bootstrap-floor",
     "static-floor",
     "bearer-handle",
     "dynamic-session",
@@ -298,6 +301,17 @@
       "defaultOutcome": "continue"
     },
     {
+      "id": "root-authority-ceiling",
+      "scope": "principal",
+      "cases": [
+        {
+          "when": "principal-is-authenticated-root-and-bounded-root-ceiling-does-not-contain-effect",
+          "outcome": "deny"
+        }
+      ],
+      "defaultOutcome": "continue"
+    },
+    {
       "id": "principal-denial",
       "scope": "principal",
       "cases": [
@@ -326,6 +340,17 @@
         {
           "when": "normalization-or-positive-predicate-fails",
           "outcome": "deny"
+        }
+      ],
+      "defaultOutcome": "continue"
+    },
+    {
+      "id": "bootstrap-floor",
+      "scope": "principal",
+      "cases": [
+        {
+          "when": "bootstrap-phase-token-is-live-and-bootstrap-floor-contains-root-effect",
+          "outcome": "allow-principal"
         }
       ],
       "defaultOutcome": "continue"

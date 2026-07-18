@@ -2860,14 +2860,13 @@ async fn execute_closed_module_runner_namespace(
     let graph = match build_authenticated_source_graph_v1(
         &entry,
         producer_digest,
-        "capsec-closed-module-runner-namespace",
     )
     .expect("build authenticated closed module-runner graph")
     {
         SourceModuleGraphBuildV1::Native(graph) => graph,
         SourceModuleGraphBuildV1::LegacyRequired(requirement) => panic!(
             "closed module-runner graph unexpectedly required legacy: {}",
-            requirement.reason
+            requirement
         ),
     };
     let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))

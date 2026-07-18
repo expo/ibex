@@ -24,6 +24,54 @@ use {std::sync::OnceLock, tokio::sync::Notify};
 
 const REQUIRED_RUNTIME_MARKERS: &[&[u8]] = &[b"globalThis.__exactRuntime", b"ExactBundle"];
 
+#[cfg(feature = "module-runner")]
+fn rewrite_native_module_graph_error(
+    graph: &crate::module_loader::runner_pipeline::SourceModuleGraphV1,
+    error: anyhow::Error,
+) -> anyhow::Error {
+    let prepared_entries = graph.prepared_entries().ok().flatten();
+    let labels = graph
+        .records()
+        .filter_map(|(source_id, path, _)| {
+            Some((
+                source_id.encode().ok()?,
+                path.to_string_lossy().into_owned(),
+            ))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut message = format!("{error:#}");
+    for (source_id, path, verified) in graph.records() {
+        let map = &verified.artifact().semantics.source_map;
+        let sources = map
+            .source_ids
+            .iter()
+            .filter_map(|source_id| source_id.0.encode().ok())
+            .map(|encoded| labels.get(&encoded).cloned().unwrap_or(encoded))
+            .collect::<Vec<_>>();
+        let generated_line_offset = match prepared_entries.as_ref() {
+            None => 0,
+            Some(entries) => {
+                let Some(offset) = entries
+                    .get(source_id)
+                    .and_then(|entry| entry.javascript_factory_generated_line_offset())
+                else {
+                    continue;
+                };
+                offset
+            }
+        };
+        let Some(source_map) = super::sourcemap::SourceMap::from_parts_with_generated_line_offset(
+            sources,
+            &map.mappings,
+            generated_line_offset,
+        ) else {
+            continue;
+        };
+        message = super::sourcemap::rewrite_error(&message, &source_map, &path.to_string_lossy());
+    }
+    anyhow!(message)
+}
+
 // The native bootstrap installs this one-shot trusted hook before any bundled
 // runtime code executes. Rust invokes it only after the embedded/disk runtime
 // path is complete, then removes the hook so application code cannot recapture
@@ -1369,6 +1417,18 @@ impl HermesEngine {
                             if executed == 0 {
                                 let next = unsafe { ex_hermes_next_timer(raw.as_ptr().cast()) };
                                 if next < 0 {
+                                    // `ex_hermes_poll` drains the complete
+                                    // Hermes microtask queue, but its integer
+                                    // result counts host tasks/timers rather
+                                    // than promise reactions. Re-poll the
+                                    // structured graph once before declaring
+                                    // deadlock: `await Promise.resolve()` can
+                                    // settle entirely through that uncounted
+                                    // drain.
+                                    // @ref LLP 0026#compatibility-contract-and-conformance-corpus
+                                    if linked.poll()? == AsyncGraphPoll::Evaluated {
+                                        return Ok(None);
+                                    }
                                     anyhow::bail!(
                                     "top-level-await module graph suspended without a runnable task"
                                 );
@@ -1389,7 +1449,7 @@ impl HermesEngine {
                 let _ = runtime.with_runtime(|raw| unsafe {
                     ex_hermes_module_unpin_generation(raw, nonce, generation)
                 });
-                return Err(error);
+                return Err(rewrite_native_module_graph_error(graph, error));
             }
         };
         // File execution owns the same post-evaluation event-loop drive as
@@ -4164,6 +4224,7 @@ cp \"$input\" \"$out\"\n";
                     }
                 })
                 .collect(),
+            embedded_protected_artifacts: Vec::new(),
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();

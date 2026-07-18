@@ -41,6 +41,13 @@ import {
   packageRelativeModulePath,
   packageRootForModuleId,
 } from './policy-package-snapshot.mjs';
+import { canonicalJson, computeDomainDigest } from './capsec-contract.mjs';
+import {
+  computeAuthenticatedGraphIdentityV1,
+  decodeCanonicalSourceId,
+  encodeCanonicalSourceId,
+  validateAuthenticatedGraphSnapshotV1,
+} from './authenticated-graph-snapshot.mjs';
 
 const args = process.argv.slice(2);
 const opts = { mode: 'enforce' };
@@ -49,6 +56,10 @@ for (let i = 0; i < args.length; i++) {
   if (arg === '--entry') opts.entry = args[++i];
   else if (arg === '--out') opts.out = args[++i];
   else if (arg === '--mode') opts.mode = args[++i];
+  else if (arg === '--target-profile') opts.targetProfile = args[++i];
+  else if (arg === '--target-triple') opts.targetTriple = args[++i];
+  else if (arg === '--mount-profile') opts.mountProfile = args[++i];
+  else if (arg === '--authenticated-graph-snapshot') opts.authenticatedGraphSnapshot = args[++i];
   else if (arg === '--check') opts.check = true;
   else {
     console.error(`unknown argument: ${arg}`);
@@ -58,7 +69,7 @@ for (let i = 0; i < args.length; i++) {
 
 if (!opts.entry) {
   console.error(
-    'Usage: generate-policy.mjs --entry <file> [--out <file>] [--mode enforce|audit] [--check]',
+    'Usage: generate-policy.mjs --entry <file> [--out <file>] [--target-profile <profile>] [--target-triple <triple>] [--mount-profile <profile>] [--mode enforce|audit] [--check]',
   );
   process.exit(2);
 }
@@ -78,7 +89,75 @@ async function discoverProjectRoot(entryFile) {
   }
 }
 const root = await discoverProjectRoot(entry);
-const out = path.resolve(process.cwd(), opts.out || path.join(root, 'ibex-policy.json'));
+const entryRelative = path.relative(root, entry).split(path.sep).join('/');
+if (!entryRelative || entryRelative.startsWith('../') || path.isAbsolute(entryRelative)) {
+  console.error('policy entry must be inside the discovered project root');
+  process.exit(2);
+}
+const targetProfile = opts.targetTriple
+  ? { kind: 'compiled', profile: opts.targetProfile || 'sfe-v1', targetTriple: opts.targetTriple }
+  : { kind: 'source', profile: opts.targetProfile || 'portable-v1' };
+const mountProfile = opts.mountProfile ||
+  (targetProfile.kind === 'compiled' ? 'compiled-app-work-v1' : 'project-v1');
+const artifactKey = [
+  entryRelative.replace(/[^a-zA-Z0-9._-]+/g, '_'),
+  targetProfile.profile,
+  targetProfile.targetTriple,
+  mountProfile,
+].filter(Boolean).join('.');
+const out = path.resolve(
+  process.cwd(),
+  opts.out || path.join(root, `ibex-policy.${artifactKey}.json`),
+);
+const rootManifestPath = path.join(root, 'package.json');
+const rootManifest = existsSync(rootManifestPath)
+  ? JSON.parse(await fs.readFile(rootManifestPath, 'utf8'))
+  : {};
+const rootIbex = rootManifest?.ibex && typeof rootManifest.ibex === 'object'
+  ? rootManifest.ibex
+  : {};
+const authoredCandidateSites = rootIbex.computedCandidates?.sites || [];
+if (!Array.isArray(authoredCandidateSites)) {
+  throw new TypeError('package.json ibex.computedCandidates.sites must be an array');
+}
+const candidateDeclarations = authoredCandidateSites.map((site, index) => {
+  if (!site || typeof site !== 'object') {
+    throw new TypeError(`computed candidate site ${index} must be an object`);
+  }
+  const requester = site.requester || entryRelative;
+  if (path.isAbsolute(requester) || requester.split('/').includes('..')) {
+    throw new TypeError(`computed candidate requester ${requester} is not project-relative`);
+  }
+  return {
+    requester,
+    label: site.label,
+    specifiers: Array.isArray(site.specifiers) ? site.specifiers : [],
+    packageClosures: Array.isArray(site.packageClosures) ? site.packageClosures : [],
+  };
+});
+const entryIdentity = {
+  root: 'project',
+  components: entryRelative.split('/').map((value) => ({ encoding: 'utf8', value })),
+  sourceIntegrity: packageIntegrity(await fs.readFile(entry)),
+};
+
+let authenticatedGraphSnapshot = null;
+if (opts.authenticatedGraphSnapshot) {
+  const snapshotText = await fs.readFile(
+    path.resolve(process.cwd(), opts.authenticatedGraphSnapshot),
+    'utf8',
+  );
+  authenticatedGraphSnapshot = JSON.parse(snapshotText);
+  validateAuthenticatedGraphSnapshotV1(authenticatedGraphSnapshot);
+  if (canonicalJson(authenticatedGraphSnapshot) !== snapshotText) {
+    throw new TypeError('authenticated graph snapshot is not canonical JCS');
+  }
+}
+if (targetProfile.kind === 'compiled' && !authenticatedGraphSnapshot) {
+  throw new TypeError(
+    'compiled policy generation requires the native authenticated graph snapshot supplied by ibex policy',
+  );
+}
 
 let rolldown;
 try {
@@ -108,6 +187,8 @@ const typedRequests = new Map(); // identity -> package requests/delegations (ne
 // package can race analysis A with executable tree B and inherit A's grants.
 // @ref LLP 0021#decision-staging-and-principal-semantics
 const analyzedPackages = new Map(); // package root -> { manifestBytes, manifest, sources }
+const rootSources = new Map(); // project-relative module -> source integrity
+const packageClosureOptIns = new Map(); // locator -> provenance row
 
 // Resolve an import edge's target to its version-qualified identity by walking
 // the importer's node_modules chain, exactly as the bundler's resolver does.
@@ -216,6 +297,13 @@ const graphPlugin = {
   },
   async transform(code, id) {
     const pkg = packageOfModuleId(id);
+    if (!pkg) {
+      const sourcePath = String(id).split('\0', 1)[0];
+      const relative = path.relative(root, sourcePath).split(path.sep).join('/');
+      if (relative && !relative.startsWith('../') && !path.isAbsolute(relative)) {
+        rootSources.set(relative, packageIntegrity(Buffer.from(code, 'utf8')));
+      }
+    }
     const extracted = extractImportSpecifiersDetailed(code);
     if (!extracted.parseable && pkg) {
       generationErrors.push({
@@ -308,8 +396,66 @@ const config = createRolldownConfig({
 config.plugins = [graphPlugin, collector, ...config.plugins];
 
 const bundle = await rolldown(config);
-await bundle.generate({ format: 'cjs', exports: 'auto', codeSplitting: false });
+await bundle.generate({ format: 'esm', codeSplitting: false });
 if (typeof bundle.close === 'function') await bundle.close();
+
+// Candidate-only modules are ordinary graph nodes even when no literal edge
+// reaches them. Analyze their frozen spellings through Rolldown's own import
+// resolver, using the authored requester as referrer; the producer remains the
+// sole parser and site-numbering authority.
+// @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
+for (const [index, declaration] of candidateDeclarations.entries()) {
+  const virtualId = `\0ibex-computed-candidates:${index}`;
+  const requester = path.resolve(root, declaration.requester);
+  const spellings = [
+    ...declaration.specifiers,
+    ...declaration.packageClosures.map((locator) => bareNameOf(locator)),
+  ];
+  const importStatement = (specifier) => {
+    if (!authenticatedGraphSnapshot) return `import ${JSON.stringify(specifier)};`;
+    const matches = authenticatedGraphSnapshot.edges.filter((edge) => {
+      if (edge.resolutionKind !== 'dynamic-import' || edge.specifier !== specifier) return false;
+      const requester = decodeCanonicalSourceId(edge.requester);
+      return requester.kind === 'file' && requester.principal.kind === 'root' &&
+        requester.path.every((component) => component.encoding === 'utf8') &&
+        requester.path.map((component) => component.value).join('/') === declaration.requester;
+    });
+    if (matches.length !== 1) {
+      throw new TypeError(
+        `authenticated graph has ${matches.length} dynamic candidate edges for ` +
+          `${declaration.requester}#${declaration.label}:${specifier}`,
+      );
+    }
+    return matches[0].attributes.type === 'json'
+      ? `import ${JSON.stringify(specifier)} with { type: 'json' };`
+      : `import ${JSON.stringify(specifier)};`;
+  };
+  const candidatePlugin = {
+    name: `computed-candidate-analysis-${index}`,
+    resolveId(specifier, importer) {
+      if (specifier === virtualId) return virtualId;
+      if (importer === virtualId) {
+        return this.resolve(specifier, requester, { skipSelf: true });
+      }
+      return null;
+    },
+    load(id) {
+      if (id !== virtualId) return null;
+      return spellings.map(importStatement).join('\n');
+    },
+  };
+  const candidateConfig = createRolldownConfig({
+    input: virtualId,
+    treeshake: false,
+    keepRelativeCjsExternal: false,
+    define: runtimeImportMetaDefine,
+    compartments: false,
+  });
+  candidateConfig.plugins = [candidatePlugin, graphPlugin, collector, ...candidateConfig.plugins];
+  const candidateBundle = await rolldown(candidateConfig);
+  await candidateBundle.generate({ format: 'esm', codeSplitting: false });
+  if (typeof candidateBundle.close === 'function') await candidateBundle.close();
+}
 
 if (generationErrors.length) {
   for (const err of generationErrors) {
@@ -388,6 +534,15 @@ for (const [pkg, dirs] of packageDirs) {
     packageMetadata.set(identity, metadata);
     const ibex = manifest?.ibex;
     if (!ibex || typeof ibex !== 'object') continue;
+    if (ibex.computedCandidateClosure === true) {
+      packageClosureOptIns.set(identity, {
+        package: identity,
+        provenance: [{
+          kind: 'direct',
+          source: `${identity}/package.json#ibex.computedCandidateClosure`,
+        }],
+      });
+    }
     typedRequests.set(identity, {
       authorities: Array.isArray(ibex.authorities) ? ibex.authorities : [],
       delegates: ibex.delegates && typeof ibex.delegates === 'object' ? ibex.delegates : {},
@@ -545,7 +700,162 @@ const principals = [...packageIdentities].sort(compareCanonicalBytes).map((ident
   };
 });
 
-const artifact = buildCanonicalPolicy(principals);
+// Canonical policy v2 binds the reviewed authority to one graph, entry, and
+// deployment profile. Candidate declarations are root-authored; package-wide
+// closure rows are usable only when that exact package locator opted in.
+// @ref LLP 0014#the-generated-artifact
+const materializedCandidateSites = candidateDeclarations.map((site) => ({
+  requester: site.requester,
+  label: site.label,
+  candidates: [
+    ...site.specifiers,
+    ...site.packageClosures.map((locator) => bareNameOf(locator)),
+  ],
+}));
+const computedCandidates = {
+  schema: 'ibex/computed-candidate-manifest/1',
+  declarations: candidateDeclarations,
+  packageClosureOptIns: [...packageClosureOptIns.values()],
+  materializedSites: materializedCandidateSites,
+};
+
+const rootCeilingAuthorities = rootIbex.rootAuthorityCeiling || [];
+if (!Array.isArray(rootCeilingAuthorities)) {
+  throw new TypeError('package.json ibex.rootAuthorityCeiling must be an array');
+}
+const rootCeiling = rootCeilingAuthorities.map((authority, index) => {
+  assertTypedAuthority(authority, `package.json ibex.rootAuthorityCeiling[${index}]`);
+  return {
+    authority,
+    provenance: [{ kind: 'direct', source: 'package.json#ibex.rootAuthorityCeiling' }],
+  };
+});
+
+rootSources.set(entryRelative, entryIdentity.sourceIntegrity);
+let graphIdentity;
+if (authenticatedGraphSnapshot) {
+  const expectedFileNodes = new Map();
+  const rootPrincipal = { kind: 'root', identity: 'project-root' };
+  for (const [modulePath, sourceIntegrity] of rootSources) {
+    const sourceId = encodeCanonicalSourceId({
+      kind: 'file',
+      principal: rootPrincipal,
+      path: modulePath.split('/').map((value) => ({ encoding: 'utf8', value })),
+    });
+    expectedFileNodes.set(sourceId, sourceIntegrity);
+  }
+  for (const analysis of analyzedPackages.values()) {
+    const identity = typeof analysis.manifest.version === 'string'
+      ? `${analysis.manifest.name}@${analysis.manifest.version}`
+      : analysis.manifest.name;
+    const principal = packageMetadata.get(identity);
+    if (!principal) {
+      throw new TypeError(`authenticated graph package ${identity} has no policy principal`);
+    }
+    for (const [modulePath, sourceIntegrity] of analysis.sources) {
+      const sourceId = encodeCanonicalSourceId({
+        kind: 'file',
+        principal,
+        path: modulePath.split('/').map((value) => ({ encoding: 'utf8', value })),
+      });
+      expectedFileNodes.set(sourceId, sourceIntegrity);
+    }
+  }
+  const observedFileNodes = new Map();
+  for (const node of authenticatedGraphSnapshot.nodes) {
+    if (decodeCanonicalSourceId(node.sourceId).kind === 'file') {
+      observedFileNodes.set(node.sourceId, node.sourceIntegrity);
+    }
+  }
+  const orderedNodeEntries = (rows) => [...rows].sort(([left], [right]) =>
+    Buffer.from(left).compare(Buffer.from(right)));
+  if (
+    canonicalJson(orderedNodeEntries(observedFileNodes)) !==
+    canonicalJson(orderedNodeEntries(expectedFileNodes))
+  ) {
+    throw new TypeError(
+      'native authenticated graph file identities differ from the policy analysis bytes',
+    );
+  }
+  const expectedPackages = [...packageMetadata.values()].sort(compareCanonicalBytes);
+  if (canonicalJson(authenticatedGraphSnapshot.packages) !== canonicalJson(expectedPackages)) {
+    throw new TypeError(
+      'native authenticated graph package inventory differs from policy analysis',
+    );
+  }
+  const entrySource = decodeCanonicalSourceId(authenticatedGraphSnapshot.entry.sourceId);
+  if (
+    entrySource.kind !== 'file' ||
+    canonicalJson(entrySource.principal) !== canonicalJson(rootPrincipal) ||
+    canonicalJson(entrySource.path) !== canonicalJson(entryIdentity.components) ||
+    observedFileNodes.get(authenticatedGraphSnapshot.entry.sourceId) !==
+      entryIdentity.sourceIntegrity
+  ) {
+    throw new TypeError(
+      'native authenticated graph entry differs from the policy entry identity',
+    );
+  }
+  const expectedCandidateSets = materializedCandidateSites.map((site) => ({
+    requester: encodeCanonicalSourceId({
+      kind: 'file',
+      principal: rootPrincipal,
+      path: site.requester.split('/').map((value) => ({ encoding: 'utf8', value })),
+    }),
+    label: site.label,
+    candidates: [...new Set(site.candidates)].sort(compareCanonicalBytes),
+  })).sort(compareCanonicalBytes);
+  const observedCandidateSets = authenticatedGraphSnapshot.candidateSets.map((site) => ({
+    requester: site.requester,
+    label: site.label,
+    candidates: site.candidates,
+  })).sort(compareCanonicalBytes);
+  if (canonicalJson(observedCandidateSets) !== canonicalJson(expectedCandidateSets)) {
+    throw new TypeError(
+      'native computed-candidate tables differ from the reviewed manifest materialization',
+    );
+  }
+  graphIdentity = computeAuthenticatedGraphIdentityV1(authenticatedGraphSnapshot);
+} else {
+  const graphNodes = [
+    ...[...rootSources].map(([modulePath, sourceIntegrity]) => ({
+      principal: '<root>',
+      modulePath,
+      sourceIntegrity,
+    })),
+    ...[...analyzedPackages.values()].flatMap((analysis) => {
+      const identity = typeof analysis.manifest.version === 'string'
+        ? `${analysis.manifest.name}@${analysis.manifest.version}`
+        : analysis.manifest.name;
+      return [...analysis.sources].map(([modulePath, sourceIntegrity]) => ({
+        principal: identity,
+        modulePath,
+        sourceIntegrity,
+      }));
+    }),
+  ].sort(compareCanonicalBytes);
+  const graphSnapshot = {
+    graphSnapshotSchema: 'ibex/authenticated-graph-snapshot/1',
+    entryIdentity,
+    nodes: graphNodes,
+    packages: [...packageMetadata.values()].sort(compareCanonicalBytes),
+    edges: sortedEdges.map(([from, to]) => ({ from, to })),
+    candidateSets: materializedCandidateSites.sort(compareCanonicalBytes),
+  };
+  graphIdentity = computeDomainDigest(
+    'ibex/authenticated-graph-snapshot/1',
+    graphSnapshot,
+    [],
+  );
+}
+
+const artifact = buildCanonicalPolicy(principals, {
+  graphIdentity,
+  entryIdentity,
+  targetProfile,
+  mountProfile,
+  rootCeiling,
+  computedCandidates,
+});
 const rendered = `${JSON.stringify(artifact, null, 2)}\n`;
 
 for (const ignored of ignoredPackageGrants) {

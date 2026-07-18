@@ -827,6 +827,7 @@ fn prepare_embedder_artifact_fixture() -> EmbedderArtifactFixture {
                 content_digest: registry_content,
             },
         ],
+        embedded_protected_artifacts: Vec::new(),
     };
     EmbedderArtifactFixture {
         _directory: directory,

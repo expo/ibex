@@ -13,22 +13,38 @@ on:
       - "Cargo.lock"
       - "Cargo.toml"
       - "build.rs"
+      - "rust-toolchain.toml"
+      - "config/module-transform.json"
+      - "issues/20260717-oxc-dual-produce-report.md"
       - "llp/0001-target-platforms-and-ci-matrix.rfc.md"
       - "llp/0002-host-embedding-abi.spec.md"
       - "llp/0003-hermes-engine-bridge.explainer.md"
+      - "llp/0019-hermes-compat-transform-authority.decision.md"
       - "llp/0026-esm-module-runner.rfc.md"
       - "llp/0027-module-artifact-and-interop.spec.md"
       - "packages/ibex-devtools/src/scripts/benchmark-module-loader-baseline.mjs"
       - "packages/ibex-devtools/src/scripts/check-module-runner-performance.mjs"
       - "packages/ibex-devtools/src/scripts/check-module-runner-performance.test.mjs"
       - "packages/ibex-devtools/src/scripts/collect-module-loader-baseline.mjs"
+      - "packages/ibex-devtools/src/scripts/hermes-compat-corpus.mjs"
       - "packages/ibex-devtools/src/scripts/module-runner-shadow.test.mjs"
+      - "packages/ibex-devtools/src/scripts/run-native-tier3-conformance.mjs"
+      - "packages/ibex-devtools/src/scripts/legacy-required-telemetry.mjs"
+      - "packages/ibex-devtools/src/scripts/legacy-required-telemetry.test.mjs"
+      - "packages/ibex-devtools/src/scripts/run-module-semantics-native.mjs"
+      - "packages/ibex-devtools/src/scripts/oxc-dual-produce-report.mjs"
+      - "packages/ibex-devtools/src/scripts/oxc-dual-produce-report.test.mjs"
       - "packages/ibex-devtools/src/scripts/transforms.mjs"
+      - "config/llp0019-hermes-target-matrix.json"
+      - "config/llp0019-native-tier3-corpus.json"
       - "include/exact_runtime.h"
       - "src/engine/hermes_module_runner.cc"
       - "src/engine/hermes_runtime_internal.h"
       - "src/module_loader/**"
+      - "scripts/run-oxc-dual-produce-report.sh"
       - "tests/module_runner_spike.rs"
+      - "tests/module_semantics_native.rs"
+      - "tests/native_tier3_conformance.rs"
       - "tests/fixtures/module-runner-spike/**"
       - "tests/fixtures/module-semantics/**"
 
@@ -63,9 +79,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        run: |
-          rustup toolchain install 1.93.1 --profile minimal
-          rustup default 1.93.1
+        shell: bash
+        run: scripts/install-rust-toolchain.sh
 
       - name: Configure MSVC developer environment
         if: runner.os == 'Windows'
@@ -117,6 +132,9 @@ jobs:
         shell: bash
         run: |
           scripts/run-tests.sh --scope lib --features module-runner \
+            engine::module_runner::tests::oxc_javascript_goal_output_is_accepted_by_loaded_hermes \
+            -- --exact --test-threads=1
+          scripts/run-tests.sh --scope lib --features module-runner \
             engine::module_runner::tests -- --test-threads=1
           scripts/run-tests.sh --scope lib \
             --features module-runner,capsec-conformance-observer \
@@ -127,6 +145,34 @@ jobs:
           scripts/run-tests.sh --scope lib --features module-runner \
             host::tests::authenticated_source_graph_round_trips_through_prepared_cache \
             -- --test-threads=1
+
+      - name: Run native Tier-3 source and prepared receipt corpus
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          IBEX_LEGACY_REQUIRED_TELEMETRY_OUTPUT: ${{ runner.temp }}/legacy-required-telemetry-${{ matrix.platform }}-${{ matrix.arch }}.json
+        run: |
+          node --test packages/ibex-devtools/src/scripts/legacy-required-telemetry.test.mjs
+          cargo test --test native_tier3_conformance \
+            --features module-runner,capsec-conformance-observer \
+            -- --nocapture --test-threads=1
+
+      - name: Upload controlled LegacyRequired telemetry
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-required-telemetry-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/legacy-required-telemetry-${{ matrix.platform }}-${{ matrix.arch }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Run native behavioral transform source and prepared corpus
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cargo test --test module_semantics_native \
+            --features module-runner,capsec-conformance-observer \
+            -- --nocapture --test-threads=1
 
       - name: Verify Windows remains an explicit unadvertised native target
         if: runner.os == 'Windows'
@@ -141,6 +187,49 @@ jobs:
       - name: Run canonical and Test262 producer corpus on Hermes
         if: runner.os == 'macOS'
         run: scripts/run-tests.sh --test module_runner_spike --features module-runner-spike
+
+  oxc-dual-produce:
+    name: Oxc 0.121/0.140 dual-produce evidence
+    runs-on: macos-14
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository with pre-rotation history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install current and pre-rotation Rust toolchains
+        shell: bash
+        run: |
+          scripts/install-rust-toolchain.sh
+          rustup toolchain install 1.93.1 --profile minimal
+
+      - name: Install Node compatibility target
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.1
+
+      - name: Install matching patched Hermes toolchain
+        run: ./scripts/download-hermes.sh
+
+      - name: Test the precommitted projection and map decoder
+        run: node --test packages/ibex-devtools/src/scripts/oxc-dual-produce-report.test.mjs
+
+      # The old producer is rebuilt in a detached worktree with its own
+      # lockfile. Each complete bundle is then run independently on the same
+      # real Hermes binary; production never loads both producers or bundles.
+      # @ref LLP 0028#1-toolchain-and-pin-rotation--atomic-with-identity-rotation
+      - name: Produce and compare old/new artifacts
+        run: scripts/run-oxc-dual-produce-report.sh "$RUNNER_TEMP/oxc-dual-produce-evidence"
+
+      - name: Upload content-addressed comparison report
+        uses: actions/upload-artifact@v4
+        with:
+          name: oxc-dual-produce-${{ github.sha }}
+          path: ${{ runner.temp }}/oxc-dual-produce-evidence/*.json
+          if-no-files-found: error
+          retention-days: 30
 
   collect:
     name: ${{ matrix.report }}
@@ -168,9 +257,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        run: |
-          rustup toolchain install 1.93.1 --profile minimal
-          rustup default 1.93.1
+        shell: bash
+        run: scripts/install-rust-toolchain.sh
 
       - name: Configure MSVC developer environment
         if: runner.os == 'Windows'

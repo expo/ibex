@@ -263,3 +263,144 @@ console.log(${JSON.stringify(marker)} + value);
     },
   },
 ]);
+
+// LLP 0028 Phase 0 extends the same fixture owner with the transform-specific
+// rows that gate the Oxc pin. These are separate from the frozen legacy-loader
+// baseline above because each row is executed through both native source and
+// prepared profiles, with an execution receipt proving which artifact ran.
+// @ref LLP 0028#5-conformance-gates-telemetry-and-rollout
+export const moduleTransformCorpus = Object.freeze([
+  {
+    id: 'typescript-enum',
+    category: 'typescript-runtime',
+    entry: { node: 'entry.mjs', ibex: 'entry.ts' },
+    files: {
+      'entry.mjs': `const Color = { Red: 1, Blue: 2 }; console.log(${JSON.stringify(marker)} + Color.Blue);\n`,
+      'entry.ts': `enum Color { Red = 1, Blue = 2 } print(${JSON.stringify(marker)} + Color.Blue);\n`,
+    },
+    oracle: [`${marker}2`],
+  },
+  {
+    id: 'typescript-namespace',
+    category: 'typescript-runtime',
+    entry: { node: 'entry.mjs', ibex: 'entry.ts' },
+    files: {
+      'entry.mjs': `const Box = { answer: 42 }; console.log(${JSON.stringify(marker)} + Box.answer);\n`,
+      'entry.ts': `namespace Box { export const answer = 42; } print(${JSON.stringify(marker)} + Box.answer);\n`,
+    },
+    oracle: [`${marker}42`],
+  },
+  {
+    id: 'typescript-import-equals',
+    category: 'typescript-runtime',
+    entry: { node: 'entry.cjs', ibex: 'entry.cts' },
+    files: {
+      'entry.cjs': `const dep = require('./dep.cjs'); console.log(${JSON.stringify(marker)} + dep.answer);\n`,
+      'entry.cts': `import dep = require('./dep.cjs'); print(${JSON.stringify(marker)} + dep.answer);\n`,
+      'dep.cjs': `exports.answer = 42;\n`,
+    },
+    oracle: [`${marker}42`],
+  },
+  {
+    id: 'jsx-classic-runtime',
+    category: 'jsx-configuration',
+    entry: { node: 'entry.mjs', ibex: 'entry.tsx' },
+    files: {
+      'entry.mjs': `const value = { type: 'section', props: { title: 'ok' }, child: 42 }; console.log(${JSON.stringify(marker)} + JSON.stringify(value));\n`,
+      'entry.tsx': `
+type Props = { title: string };
+const React = { createElement(type: string, props: Props, child: number) { return { type, props, child }; } };
+const value = <section title="ok">{42}</section>;
+print(${JSON.stringify(marker)} + JSON.stringify(value));
+`,
+    },
+    oracle: [`${marker}{"type":"section","props":{"title":"ok"},"child":42}`],
+  },
+  {
+    id: 'type-only-edges-erased',
+    category: 'type-only-edges',
+    entry: { node: 'entry.mjs', ibex: 'entry.ts' },
+    files: {
+      'entry.mjs': `console.log(${JSON.stringify(marker)} + 'erased');\n`,
+      'entry.ts': `import type { Missing } from './types.ts'; export type { Missing }; print(${JSON.stringify(marker)} + 'erased');\n`,
+      'types.ts': `export interface Missing { value: string }\n`,
+    },
+    oracle: [`${marker}erased`],
+  },
+  {
+    id: 'native-esm-commonjs-interop',
+    category: 'esm-commonjs-interop',
+    entry: { node: 'entry.mjs', ibex: 'entry.mjs' },
+    files: {
+      'entry.mjs': `import value, { answer } from './dep.cjs'; const emit = typeof print === 'function' ? print : console.log; emit(${JSON.stringify(marker)} + JSON.stringify({ value: value.answer, answer }));\n`,
+      'dep.cjs': `exports.answer = 42;\n`,
+    },
+    oracle: [`${marker}{"value":42,"answer":42}`],
+  },
+  {
+    id: 'native-top-level-await',
+    category: 'top-level-await',
+    entry: { node: 'entry.mjs', ibex: 'entry.mjs' },
+    files: {
+      'entry.mjs': `await Promise.resolve(); const emit = typeof print === 'function' ? print : console.log; emit(${JSON.stringify(marker)} + 'settled');\n`,
+    },
+    oracle: [`${marker}settled`],
+  },
+  {
+    id: 'dynamic-import-and-import-meta',
+    category: 'dynamic-import',
+    entry: { node: 'entry.mjs', ibex: 'entry.mjs' },
+    files: {
+      'entry.mjs': `const dep = await import('./dep.mjs'); const emit = typeof print === 'function' ? print : console.log; emit(${JSON.stringify(marker)} + JSON.stringify({ value: dep.value, url: import.meta.url.endsWith('/entry.mjs') }));\n`,
+      'dep.mjs': `export const value = 7;\n`,
+    },
+    oracle: [`${marker}{"value":7,"url":true}`],
+  },
+  {
+    id: 'oxc-diagnostic-original-source',
+    category: 'diagnostics',
+    entry: { node: 'entry.mjs', ibex: 'entry.ts' },
+    files: {
+      'entry.mjs': `console.log(${JSON.stringify(marker)} + 'oracle');\n`,
+      'entry.ts': `const broken: number = ;\n`,
+    },
+    oracle: [`${marker}oracle`],
+    native: { outcome: 'error', stderrIncludes: 'Oxc parse failed for' },
+  },
+  {
+    id: 'composed-source-map-original-line',
+    category: 'source-maps',
+    entry: { node: 'entry.mjs', ibex: 'entry.ts' },
+    files: {
+      'entry.mjs': `try { await import('./thrower.mjs'); } catch (error) { const match = /thrower\\.mjs:(\\d+)/.exec(String(error && error.stack)); console.log(${JSON.stringify(marker)} + 'line=' + (match ? match[1] : 'none')); }\n`,
+      'thrower.mjs': `// line 1\n// line 2\n// line 3\n// line 4\nthrow new Error('source-map-line');\n`,
+      'entry.ts': `await import('./thrower.ts');\n`,
+      'thrower.ts': `// line 1\n// line 2\n// line 3\n// line 4\nthrow new Error('source-map-line');\n`,
+    },
+    oracle: [`${marker}line=5`],
+    native: { outcome: 'error', stderrIncludes: 'thrower.ts:5' },
+  },
+  {
+    id: 'shim-delta-sloppy-commonjs',
+    category: 'shim-runner-delta',
+    entry: { node: 'entry.cjs', ibex: 'entry.cjs' },
+    files: {
+      'entry.cjs': `sloppyValue = 42; const emit = typeof print === 'function' ? print : console.log; emit(${JSON.stringify(marker)} + sloppyValue);\n`,
+    },
+    oracle: [`${marker}42`],
+    native: {
+      outcome: 'error',
+      stderrIncludes: 'native CommonJS record evaluation refused',
+      note: 'The native CapSec global refuses sloppy implicit-global creation that Node CommonJS permits; this is the pinned shim-to-runner behavior delta.',
+    },
+  },
+  {
+    id: 'cjs-passthrough',
+    category: 'shim-runner-delta',
+    entry: { node: 'entry.cjs', ibex: 'entry.cjs' },
+    files: {
+      'entry.cjs': `module.exports.answer = 42; const emit = typeof print === 'function' ? print : console.log; emit(${JSON.stringify(marker)} + module.exports.answer);\n`,
+    },
+    oracle: [`${marker}42`],
+  },
+]);

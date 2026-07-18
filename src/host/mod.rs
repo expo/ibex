@@ -352,6 +352,38 @@ impl Host {
         Self::new_armed_with_target_cells(config, armed_snapshot, cells)
     }
 
+    /// Construct the armed host used by the real-binary native module-runner
+    /// conformance harness. This deliberately skips only report-derived target
+    /// promotion: the exact loaded engine, protected artifacts, and root
+    /// bindings still pass the production authenticators before any source is
+    /// evaluated.
+    ///
+    /// The constructor is absent from release binaries and from builds that do
+    /// not explicitly enable the CapSec conformance-observer feature.
+    /// @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer — native
+    /// source/prepared receipts need the real CLI binary before a product
+    /// target is eligible for CapSec advertisement.
+    #[cfg(all(debug_assertions, feature = "capsec-conformance-observer"))]
+    #[doc(hidden)]
+    pub fn new_armed_for_native_module_runner_conformance(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        validate_loaded_engine_identity(&armed_snapshot)?;
+        validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        validate_snapshot_root_bindings(&armed_snapshot)?;
+        let cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Complete,
+                )
+            })
+            .collect();
+        Self::new_armed_with_target_cells(config, armed_snapshot, cells)
+    }
+
     fn target_cell(&self, edge: &str) -> capsec_semantics::decision::TargetCellDisposition {
         self.target_cells
             .get(edge)
@@ -398,6 +430,14 @@ impl Host {
         &self,
     ) -> Option<&Arc<RwLock<capsec_semantics::decision::VerifiedDecisionContext>>> {
         self.decision_context.as_ref()
+    }
+
+    /// Irreversibly end evaluator-owned bootstrap authority for this armed
+    /// Host. Every retained decision-context clone observes the same token.
+    /// @ref LLP 0029#4-compiled-mode-authority — application evaluation begins only after bootstrap authority is destroyed
+    pub fn seal_bootstrap_phase(&self) -> Option<bool> {
+        let context = self.decision_context.as_deref()?.read().ok()?;
+        Some(context.seal_bootstrap_phase())
     }
 
     pub fn typed_principal_for_module(
@@ -2532,6 +2572,42 @@ impl Host {
                         meta.package_integrity = Some(integrity.as_str().to_owned());
                         meta.package_root = Some(host_path_from_binding(&binding)?);
                     }
+                    capsec_semantics::model::Principal::Root { .. } => {
+                        if meta.package_name.is_some() {
+                            anyhow::bail!(
+                                "unbound package metadata cannot be stamped as trusted root for {}",
+                                path.display()
+                            );
+                        }
+                        if let Some(resolved_package_root) = meta
+                            .package_root
+                            .as_deref()
+                            .map(std::fs::canonicalize)
+                            .transpose()
+                            .with_context(|| {
+                                format!(
+                                    "failed to authenticate root package manifest for {}",
+                                    path.display()
+                                )
+                            })?
+                        {
+                            let authenticated_root = host_path_from_binding(&binding)?;
+                            if !resolved_package_root.starts_with(&authenticated_root) {
+                                anyhow::bail!(
+                                    "root package manifest escapes its authenticated binding for {}",
+                                    path.display()
+                                );
+                            }
+                        }
+                        // A root-owned package.json controls language/resolution semantics and
+                        // carries reviewed app declarations, but it cannot turn first-party code
+                        // into a self-asserted package principal. Keep only the binding-derived
+                        // root identity after resolution.
+                        // @ref LLP 0014#the-generated-artifact
+                        meta.package_root = None;
+                        meta.package_version = None;
+                        meta.package_integrity = None;
+                    }
                     _ => {
                         if meta.package_name.is_some() || meta.package_root.is_some() {
                             anyhow::bail!(
@@ -4095,6 +4171,7 @@ mod tests {
                     }
                 })
                 .collect(),
+            embedded_protected_artifacts: Vec::new(),
         };
         ArmedSnapshot::load(&bytes, &expected).unwrap()
     }
@@ -4489,8 +4566,13 @@ mod tests {
         let dependency = fixture.path().join("dependency.cjs");
         let data = fixture.path().join("data.json");
         std::fs::write(
+            fixture.path().join("package.json"),
+            r#"{"ibex":{"computedCandidates":{"sites":[{"requester":"entry.mjs","label":"prepared-routes","specifiers":["./candidate-a.mjs","./candidate-b.mjs"]}]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
             &entry,
-            "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100);\n",
+            "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100); export function loadCandidate(name) { return import(name, { with: { 'ibex:site': 'prepared-routes' } }); }\n",
         )
         .unwrap();
         std::fs::write(
@@ -4499,31 +4581,38 @@ mod tests {
         )
         .unwrap();
         std::fs::write(&data, "{\"bump\":2}\n").unwrap();
+        std::fs::write(
+            fixture.path().join("candidate-a.mjs"),
+            "export const candidate = 'a';\n",
+        )
+        .unwrap();
+        std::fs::write(
+            fixture.path().join("candidate-b.mjs"),
+            "export const candidate = 'b';\n",
+        )
+        .unwrap();
         crate::host::abi::install_host(example_armed_host_with(|value| {
             value["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
         }));
         let producer = digest_bytes("prepared-source-graph-test", b"producer").unwrap();
-        let graph =
-            match build_authenticated_source_graph_v1(&entry, producer.clone(), "hermes-test")
-                .unwrap()
-            {
-                SourceModuleGraphBuildV1::Native(graph) => graph,
-                SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                    panic!(
-                        "fixture unexpectedly required legacy loader: {}",
-                        requirement.reason
-                    )
-                }
-            };
-        assert_eq!(graph.records().count(), 4);
+        let graph = match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "fixture unexpectedly required legacy loader: {}",
+                    requirement
+                )
+            }
+        };
+        assert_eq!(graph.records().count(), 6);
         let deployment = digest_bytes("prepared-source-graph-test", b"deployment").unwrap();
         let artifact_dir = fixture.path().join("bundle-artifact");
         std::fs::create_dir(&artifact_dir).unwrap();
         let cache =
             publish_prepared_source_graph_v1(&graph, &artifact_dir, deployment.clone()).unwrap();
         let loaded = load_prepared_source_graph_v1(&cache, &producer, &deployment).unwrap();
-        assert_eq!(loaded.records().count(), 4);
-        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 4);
+        assert_eq!(loaded.records().count(), 6);
+        assert_eq!(loaded.prepared_entries().unwrap().unwrap().len(), 6);
         let plan = loaded.plan().unwrap();
         let (configs, contexts) = loaded.native_execution_inputs(1).unwrap();
         let entries = loaded.prepared_entries().unwrap().unwrap();
@@ -4628,19 +4717,10 @@ mod tests {
 
         crate::host::abi::install_host(example_armed_host());
         let producer = digest_bytes("module-runner-performance", b"producer").unwrap();
-        let initial = match build_authenticated_source_graph_v1(
-            &entry,
-            producer.clone(),
-            "hermes-performance",
-        )
-        .unwrap()
-        {
+        let initial = match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                panic!(
-                    "performance graph required legacy loader: {}",
-                    requirement.reason
-                )
+                panic!("performance graph required legacy loader: {}", requirement)
             }
         };
         assert_eq!(initial.records().count(), DEPENDENCY_MODULES + 1);
@@ -4654,21 +4734,13 @@ mod tests {
             let mut collected = Vec::with_capacity(samples);
             for sample in 0..samples {
                 let started = Instant::now();
-                let graph = match build_authenticated_source_graph_v1(
-                    &entry,
-                    producer.clone(),
-                    "hermes-performance",
-                )
-                .unwrap()
-                {
-                    SourceModuleGraphBuildV1::Native(graph) => graph,
-                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                        panic!(
-                            "source sample required legacy loader: {}",
-                            requirement.reason
-                        )
-                    }
-                };
+                let graph =
+                    match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
+                        SourceModuleGraphBuildV1::Native(graph) => graph,
+                        SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                            panic!("source sample required legacy loader: {}", requirement)
+                        }
+                    };
                 let generation = generation_offset + sample + 1;
                 let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
                 collected.push((

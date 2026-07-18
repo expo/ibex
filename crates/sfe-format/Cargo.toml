@@ -1,0 +1,17 @@
+[package]
+name = "ibex-sfe-format"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+capsec-semantics = { path = "../capsec-semantics" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+
+[dev-dependencies]
+proptest = "1"

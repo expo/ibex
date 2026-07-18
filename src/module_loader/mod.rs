@@ -6,9 +6,13 @@
 
 pub mod artifact;
 pub mod carrier;
+pub mod catalog_compiler;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod commonjs;
 pub mod commonjs_lexer;
+pub mod compatibility;
+pub mod computed_candidates;
+pub mod embedded_graph;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod generation;
 #[cfg(any(test, feature = "module-runner"))]
@@ -17,8 +21,10 @@ pub mod identity;
 pub mod producer_spike;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod runner_pipeline;
+pub mod script_frontend;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod security;
+pub(crate) mod transform_config_generated;
 pub mod transpile;
 
 use anyhow::{anyhow, Context, Result};
@@ -457,7 +463,11 @@ impl ModuleLoader {
         Ok(module)
     }
 
-    pub(crate) fn load_runner_source(&self, mut module: ResolvedModule) -> Result<ResolvedModule> {
+    /// Capture unmodified source bytes for a graph producer. This deliberately
+    /// bypasses the compatibility loader's file-at-a-time lowering; callers
+    /// must feed the returned bytes through the authenticated artifact producer.
+    /// @ref LLP 0026#1-source-admission-and-resolution
+    pub fn load_runner_source(&self, mut module: ResolvedModule) -> Result<ResolvedModule> {
         if module.source.is_some() {
             return Ok(module);
         }

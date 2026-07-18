@@ -1,0 +1,51 @@
+{
+  "transformConfigurationSchema": "ibex/module-transform-configuration/1",
+  "producer": "ibex-oxc-module-producer",
+  "oxc": {
+    "directPackages": {
+      "oxc_allocator": "0.140.0",
+      "oxc_ast": "0.140.0",
+      "oxc_ast_visit": "0.140.0",
+      "oxc_codegen": "0.140.0",
+      "oxc_parser": "0.140.0",
+      "oxc_resolver": "11.24.2",
+      "oxc_semantic": "0.140.0",
+      "oxc_sourcemap": "8.1.1",
+      "oxc_span": "0.140.0",
+      "oxc_transformer": "0.140.0"
+    }
+  },
+  "ecmascriptTarget": "es2022",
+  "hermesTarget": "hermes-syntax-abi-es2022-factory-v1",
+  "handwrittenPassVersion": "ibex-module-artifact-producer-3",
+  "moduleRunnerAbi": "ibex-module-runner-3-guarded-computed-require",
+  "hermesCompatVersion": "llp0019-hermes-compat-3-target-matrix",
+  "commonJsDetector": {
+    "name": "cjs-module-lexer",
+    "version": "2.1.0"
+  },
+  "options": {
+    "oxc": {
+      "module": "preserve",
+      "typescript": "strip",
+      "jsx": {
+        "enabled": true,
+        "runtime": "classic"
+      },
+      "decorators": false
+    },
+    "codegen": {
+      "sourceMap": "v3-source-id",
+      "minify": false
+    },
+    "factories": {
+      "module": "declare-execute",
+      "commonJs": "commonjs-wrapper",
+      "json": "json-default-export"
+    },
+    "json": {
+      "strict": true,
+      "duplicateKeys": "reject"
+    }
+  }
+}

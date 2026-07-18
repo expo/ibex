@@ -1527,6 +1527,18 @@ pub unsafe extern "C" fn ex_host_matches_armed_snapshot_digest(digest: *const c_
     )
 }
 
+/// Irreversibly consume the active armed Host's evaluator-owned bootstrap
+/// authority token. Returns 1 only for the single live-to-sealed transition;
+/// absent, unarmed, poisoned, and already-sealed contexts return 0.
+/// @ref LLP 0029#4-compiled-mode-authority — seal before application evaluation
+#[no_mangle]
+pub extern "C" fn ex_host_seal_bootstrap_phase() -> i32 {
+    with_host(
+        |host| i32::from(host.seal_bootstrap_phase() == Some(true)),
+        0,
+    )
+}
+
 /// Evaluate a complete typed decision set against the installed immutable
 /// context. Returns a heap-owned JSON decision/evidence envelope; malformed
 /// input, missing arming, and semantic errors return an `error` envelope and
@@ -4761,6 +4773,9 @@ pub extern "C" fn ex_host_env_get(key: *const c_char, out_buf: *mut c_char, len:
         return -1;
     }
     let key = unsafe { CStr::from_ptr(key) }.to_string_lossy().to_string();
+    if let Some(value) = super::process::compiled_environment_value(&key) {
+        return copy_environment_bytes(value.as_deref(), out_buf, len);
+    }
     // `var_os` returns None only when the variable is absent, so unset stays
     // distinguishable from empty; a non-UTF-8 value is rendered lossily (like the
     // key) rather than reported as absent.
@@ -4769,7 +4784,13 @@ pub extern "C" fn ex_host_env_get(key: *const c_char, out_buf: *mut c_char, len:
         None => return -1,
     };
     let value = value.to_string_lossy();
-    let bytes = value.as_bytes();
+    copy_environment_bytes(Some(value.as_bytes()), out_buf, len)
+}
+
+fn copy_environment_bytes(value: Option<&[u8]>, out_buf: *mut c_char, len: u32) -> i64 {
+    let Some(bytes) = value else {
+        return -1;
+    };
     let full_len = bytes.len();
 
     if !out_buf.is_null() && len > 0 {
@@ -4781,6 +4802,28 @@ pub extern "C" fn ex_host_env_get(key: *const c_char, out_buf: *mut c_char, len:
     }
 
     full_len as i64
+}
+
+/// Return the number of canonical keys in the compiled broker base, or `-1`
+/// when this is an ordinary source runtime. Values remain available only via
+/// `ex_host_env_get`, whose native caller performs the exact-name authority
+/// decision before disclosure.
+#[no_mangle]
+pub extern "C" fn ex_host_env_compiled_key_count() -> i64 {
+    super::process::compiled_environment_key_count()
+        .and_then(|count| i64::try_from(count).ok())
+        .unwrap_or(-1)
+}
+
+/// Copy one canonical compiled broker-base key using the same full-length
+/// protocol as `ex_host_env_get`.
+#[no_mangle]
+pub extern "C" fn ex_host_env_compiled_key_at(index: usize, out_buf: *mut c_char, len: u32) -> i64 {
+    copy_environment_bytes(
+        super::process::compiled_environment_key(index).map(str::as_bytes),
+        out_buf,
+        len,
+    )
 }
 
 #[no_mangle]

@@ -1,0 +1,149 @@
+{
+  "parserDifferentialCorpusSchema": "ibex/llp0024-parser-differential-corpus/1",
+  "fixtures": [
+    {
+      "id": "js-script-basic",
+      "goal": "script",
+      "dialect": "js",
+      "source": "var value = 1; value += 2;"
+    },
+    {
+      "id": "js-script-directive",
+      "goal": "script",
+      "dialect": "js",
+      "source": "'use strict'; function run(value) { return value; }"
+    },
+    {
+      "id": "js-script-legacy-octal",
+      "goal": "script",
+      "dialect": "js",
+      "source": "var value = 010;"
+    },
+    {
+      "id": "js-script-delete-identifier",
+      "goal": "script",
+      "dialect": "js",
+      "source": "delete unqualified;"
+    },
+    {
+      "id": "js-script-duplicate-parameters",
+      "goal": "script",
+      "dialect": "js",
+      "source": "function duplicate(value, value) { return value; }"
+    },
+    {
+      "id": "js-script-await-identifier",
+      "goal": "script",
+      "dialect": "js",
+      "source": "function nested() { var await = 1; return await; }"
+    },
+    {
+      "id": "js-script-with",
+      "goal": "script",
+      "dialect": "js",
+      "source": "with ({ value: 1 }) { value; }"
+    },
+    {
+      "id": "js-script-export-refusal",
+      "goal": "script",
+      "dialect": "js",
+      "source": "export const value = 1;"
+    },
+    {
+      "id": "js-module-import-export",
+      "goal": "module",
+      "dialect": "js",
+      "source": "import value from './value.js'; export const answer = value;"
+    },
+    {
+      "id": "js-module-top-level-await",
+      "goal": "module",
+      "dialect": "js",
+      "source": "const answer = await Promise.resolve(42); export { answer };"
+    },
+    {
+      "id": "js-module-dynamic-import",
+      "goal": "module",
+      "dialect": "js",
+      "source": "export async function load(name) { return import(name); }"
+    },
+    {
+      "id": "js-module-strict-octal-refusal",
+      "goal": "module",
+      "dialect": "js",
+      "source": "export const value = 010;"
+    },
+    {
+      "id": "jsx-script-element",
+      "goal": "script",
+      "dialect": "jsx",
+      "source": "const view = <main data-value={42}>hello</main>; view;"
+    },
+    {
+      "id": "jsx-module-component",
+      "goal": "module",
+      "dialect": "jsx",
+      "source": "export function View() { return <section><span /></section>; }"
+    },
+    {
+      "id": "ts-script-annotations",
+      "goal": "script",
+      "dialect": "ts",
+      "source": "interface Value { answer: number } const value: Value = { answer: 42 };"
+    },
+    {
+      "id": "ts-script-satisfies",
+      "goal": "script",
+      "dialect": "ts",
+      "source": "const value = { answer: 42 } satisfies { answer: number };"
+    },
+    {
+      "id": "ts-script-enum",
+      "goal": "script",
+      "dialect": "ts",
+      "source": "enum Mode { Fast, Safe } const selected: Mode = Mode.Safe;"
+    },
+    {
+      "id": "ts-module-import-type",
+      "goal": "module",
+      "dialect": "ts",
+      "source": "import type { Value } from './types.js'; export const answer: Value = 42 as Value;"
+    },
+    {
+      "id": "ts-module-top-level-await",
+      "goal": "module",
+      "dialect": "ts",
+      "source": "const answer: number = await Promise.resolve(42); export { answer };"
+    },
+    {
+      "id": "ts-module-using",
+      "goal": "module",
+      "dialect": "ts",
+      "source": "using resource = acquire(); export const answer: number = 42;"
+    },
+    {
+      "id": "tsx-script-component",
+      "goal": "script",
+      "dialect": "tsx",
+      "source": "type Props = { answer: number }; const View = (props: Props) => <b>{props.answer}</b>;"
+    },
+    {
+      "id": "tsx-module-component",
+      "goal": "module",
+      "dialect": "tsx",
+      "source": "export const View = ({ answer }: { answer: number }) => <b>{answer}</b>;"
+    },
+    {
+      "id": "js-script-invalid-syntax",
+      "goal": "script",
+      "dialect": "js",
+      "source": "function broken( {"
+    },
+    {
+      "id": "ts-module-invalid-syntax",
+      "goal": "module",
+      "dialect": "ts",
+      "source": "export interface Broken { value: }"
+    }
+  ]
+}

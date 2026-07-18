@@ -186,7 +186,7 @@ try_download_darwin() (
 try_download_linux() (
     identity="$1"
     tag="hermes-$identity"
-    asset="hermes-linux-$HOST_ARCH-$identity.tar.gz"
+    asset="hermes-linux-$HOST_ARCH-$identity-static-v1.tar.gz"
     tmp="$(mktemp -d)" || return 1
     trap 'rm -rf "$tmp"' EXIT
 
@@ -199,13 +199,16 @@ try_download_linux() (
 
     [[ -f "$tmp/unpack/include/jsi/jsi.h" ]] || { echo "[download] bundle missing include/jsi/jsi.h (empty headers?)" >&2; return 1; }
     [[ -x "$tmp/unpack/bin/hermesc" ]] || { echo "[download] bundle missing bin/hermesc" >&2; return 1; }
-    lib_file="$(find "$tmp/unpack/lib" -maxdepth 1 -name 'libhermesvm.*' -print -quit 2>/dev/null)"
-    [[ -n "$lib_file" ]] || { echo "[download] bundle missing lib/libhermesvm.*" >&2; return 1; }
-    if [[ "$lib_file" == *.so ]]; then
-        verify_frame_attribution_export "$lib_file" "-D" || return 1
-    else
-        verify_frame_attribution_export "$lib_file" "" || return 1
-    fi
+    shared_lib="$tmp/unpack/lib/libhermesvm.so"
+    static_lib="$tmp/unpack/lib/libhermesvm_a.a"
+    jsi_lib="$tmp/unpack/lib/libjsi.a"
+    boost_context_lib="$tmp/unpack/lib/libboost_context.a"
+    [[ -f "$shared_lib" ]] || { echo "[download] bundle missing lib/libhermesvm.so" >&2; return 1; }
+    [[ -f "$static_lib" ]] || { echo "[download] bundle missing lib/libhermesvm_a.a" >&2; return 1; }
+    [[ -f "$jsi_lib" ]] || { echo "[download] bundle missing lib/libjsi.a" >&2; return 1; }
+    [[ -f "$boost_context_lib" ]] || { echo "[download] bundle missing lib/libboost_context.a" >&2; return 1; }
+    verify_frame_attribution_export "$shared_lib" "-D" || return 1
+    verify_frame_attribution_export "$static_lib" "" || return 1
     "$tmp/unpack/bin/hermesc" --help >/dev/null 2>&1 || { echo "[download] bundled hermesc does not run on this host" >&2; return 1; }
 
     # Mirror build-hermes-linux.sh's install-into-repo step.
@@ -215,14 +218,14 @@ try_download_linux() (
     rm -rf "$headers_dir" || return 1
     mkdir -p "$headers_dir" "$lib_dir" "$tools_dir" || return 1
     cp -R "$tmp/unpack/include/"* "$headers_dir/" || return 1
-    cp -f "$lib_file" "$lib_dir/" || return 1
+    cp -f "$shared_lib" "$static_lib" "$jsi_lib" "$boost_context_lib" "$lib_dir/" || return 1
     cp -f "$tmp/unpack/bin/hermesc" "$tools_dir/hermesc-linux-$HOST_ARCH" || return 1
     chmod +x "$tools_dir/hermesc-linux-$HOST_ARCH" || return 1
 
     echo ""
     echo "Installed prebuilt Linux Hermes artifacts:"
     echo "  headers: $headers_dir"
-    echo "  lib:     $lib_dir/$(basename "$lib_file")"
+    echo "  libs:    $lib_dir/libhermesvm.so + libhermesvm_a.a + libjsi.a + libboost_context.a"
     echo "  hermesc: $tools_dir/hermesc-linux-$HOST_ARCH"
 )
 

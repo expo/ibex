@@ -17,22 +17,72 @@ use super::artifact::{
     ProducerIdentityV1, VerifiedModuleArtifactV1,
 };
 
-pub const PREPARED_CARRIER_SCHEMA_V1: &str = "ibex/module-carrier/1";
+pub const PREPARED_CARRIER_SCHEMA_V2: &str = "ibex/module-carrier/2";
 pub const PREPARED_CARRIER_BYTES_DOMAIN_V1: &str = "ibex/module-carrier-bytes/1";
+const HERMES_BYTECODE_MAGIC: u64 = 0x1F1903C103BC1FC6;
+const HERMES_BYTECODE_HEADER_LEN: usize = 128;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
-pub enum PreparedCarrierEncodingV1 {
+pub enum PreparedCarrierEngineBindingV2 {
+    LoadedFile {
+        #[serde(rename = "binaryDigest")]
+        binary_digest: Digest,
+    },
+    StaticCompatibility {
+        #[serde(rename = "compatibilityIdentity")]
+        compatibility_identity: Digest,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HermesBytecodeMetadataV1 {
+    pub bytecode_version: u32,
+    pub file_length: u32,
+}
+
+impl HermesBytecodeMetadataV1 {
+    /// Inspect the authenticated HBC header instead of accepting producer
+    /// assertions about the emitted bytecode.
+    /// @ref LLP 0029#1-command-surface-and-producer-pipeline — HBC metadata is derived from emitted bytes and bound to the target engine
+    pub fn inspect(bytes: &[u8]) -> Result<Self> {
+        if bytes.len() < HERMES_BYTECODE_HEADER_LEN {
+            bail!("Hermes carrier bytecode is shorter than its v1 header");
+        }
+        let magic = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+        if magic != HERMES_BYTECODE_MAGIC {
+            bail!("Hermes carrier bytecode has the wrong execution magic");
+        }
+        let bytecode_version = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
+        if bytecode_version == 0 {
+            bail!("Hermes carrier bytecode version must be nonzero");
+        }
+        let file_length = u32::from_le_bytes(bytes[32..36].try_into().unwrap());
+        if usize::try_from(file_length).ok() != Some(bytes.len()) {
+            bail!("Hermes carrier bytecode header length disagrees with its bytes");
+        }
+        Ok(Self {
+            bytecode_version,
+            file_length,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum PreparedCarrierEncodingV2 {
     JavascriptFactoryTable,
     HermesBytecode {
-        engine_binary_digest: Digest,
+        #[serde(rename = "engineBinding")]
+        engine_binding: PreparedCarrierEngineBindingV2,
+        #[serde(rename = "bytecodeVersion")]
         bytecode_version: u32,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PreparedCarrierEntryV1 {
+pub struct PreparedCarrierEntryV2 {
     pub entry_id: NonEmptyString,
     pub semantics: ModuleSemanticsV1,
     pub semantic_digest: Digest,
@@ -40,42 +90,42 @@ pub struct PreparedCarrierEntryV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PreparedModuleCarrierV1 {
+pub struct PreparedModuleCarrierV2 {
     pub schema: String,
-    pub encoding: PreparedCarrierEncodingV1,
+    pub encoding: PreparedCarrierEncodingV2,
     pub carrier_digest: Digest,
     pub defining_principal: Principal,
     pub producer_id: NonEmptyString,
     pub producer_binary_digest: Digest,
     pub deployment_graph_digest: Digest,
-    pub entries: Vec<PreparedCarrierEntryV1>,
+    pub entries: Vec<PreparedCarrierEntryV2>,
 }
 
 #[derive(Debug, Clone)]
-pub struct PreparedCarrierAdmissionV1 {
+pub struct PreparedCarrierAdmissionV2 {
     pub expected_principal: Principal,
     pub expected_producer_id: NonEmptyString,
     pub producer_binary_digest: Digest,
     pub deployment_graph_digest: Digest,
     pub authorized_semantic_digests: BTreeSet<Digest>,
-    pub expected_engine_binary_digest: Option<Digest>,
+    pub expected_engine_binding: Option<PreparedCarrierEngineBindingV2>,
     pub expected_bytecode_version: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
-pub struct AdmittedPreparedCarrierV1 {
-    manifest: PreparedModuleCarrierV1,
+pub struct AdmittedPreparedCarrierV2 {
+    manifest: PreparedModuleCarrierV2,
     bytes: Vec<u8>,
 }
 
 #[derive(Clone, Copy)]
-pub struct VerifiedPreparedCarrierEntryV1<'a> {
-    manifest: &'a PreparedModuleCarrierV1,
-    entry: &'a PreparedCarrierEntryV1,
+pub struct VerifiedPreparedCarrierEntryV2<'a> {
+    manifest: &'a PreparedModuleCarrierV2,
+    entry: &'a PreparedCarrierEntryV2,
     bytes: &'a [u8],
 }
 
-impl PreparedModuleCarrierV1 {
+impl PreparedModuleCarrierV2 {
     /// Build a deterministic per-principal source carrier from admitted inline
     /// artifacts. The table only creates factory functions; module bodies stay
     /// behind their record `execute` phase.
@@ -122,7 +172,7 @@ impl PreparedModuleCarrierV1 {
             source.push_str(",{value:(");
             source.push_str(factory_source);
             source.push_str("),enumerable:true});");
-            entries.push(PreparedCarrierEntryV1 {
+            entries.push(PreparedCarrierEntryV2 {
                 entry_id: entry_id.clone(),
                 semantics: artifact.semantics.clone(),
                 semantic_digest: artifact.semantic_digest.clone(),
@@ -131,8 +181,8 @@ impl PreparedModuleCarrierV1 {
         source.push_str("return Object.freeze(table);})()");
         let bytes = source.into_bytes();
         let manifest = Self {
-            schema: PREPARED_CARRIER_SCHEMA_V1.into(),
-            encoding: PreparedCarrierEncodingV1::JavascriptFactoryTable,
+            schema: PREPARED_CARRIER_SCHEMA_V2.into(),
+            encoding: PreparedCarrierEncodingV2::JavascriptFactoryTable,
             carrier_digest: digest_bytes(PREPARED_CARRIER_BYTES_DOMAIN_V1, &bytes)?,
             defining_principal,
             producer_id,
@@ -149,16 +199,13 @@ impl PreparedModuleCarrierV1 {
     pub fn bind_hermes_bytecode(
         &self,
         bytes: &[u8],
-        engine_binary_digest: Digest,
-        bytecode_version: u32,
+        engine_binding: PreparedCarrierEngineBindingV2,
     ) -> Result<Self> {
-        if bytecode_version == 0 {
-            bail!("Hermes carrier bytecode version must be nonzero");
-        }
+        let metadata = HermesBytecodeMetadataV1::inspect(bytes)?;
         let mut manifest = self.clone();
-        manifest.encoding = PreparedCarrierEncodingV1::HermesBytecode {
-            engine_binary_digest,
-            bytecode_version,
+        manifest.encoding = PreparedCarrierEncodingV2::HermesBytecode {
+            engine_binding,
+            bytecode_version: metadata.bytecode_version,
         };
         manifest.carrier_digest = digest_bytes(PREPARED_CARRIER_BYTES_DOMAIN_V1, bytes)?;
         manifest.validate(bytes)?;
@@ -185,7 +232,7 @@ impl PreparedModuleCarrierV1 {
         )
     }
 
-    fn entry(&self, entry_id: &str) -> Result<&PreparedCarrierEntryV1> {
+    fn entry(&self, entry_id: &str) -> Result<&PreparedCarrierEntryV2> {
         self.entries
             .binary_search_by(|entry| entry.entry_id.as_str().cmp(entry_id))
             .ok()
@@ -194,7 +241,7 @@ impl PreparedModuleCarrierV1 {
     }
 
     fn validate(&self, bytes: &[u8]) -> Result<()> {
-        if self.schema != PREPARED_CARRIER_SCHEMA_V1 {
+        if self.schema != PREPARED_CARRIER_SCHEMA_V2 {
             bail!("unsupported prepared carrier schema {:?}", self.schema);
         }
         if self.entries.is_empty() {
@@ -226,11 +273,11 @@ impl PreparedModuleCarrierV1 {
     }
 }
 
-impl AdmittedPreparedCarrierV1 {
+impl AdmittedPreparedCarrierV2 {
     pub fn decode_and_admit(
         manifest_bytes: &[u8],
         carrier_bytes: &[u8],
-        admission: &PreparedCarrierAdmissionV1,
+        admission: &PreparedCarrierAdmissionV2,
     ) -> Result<Self> {
         let text = std::str::from_utf8(manifest_bytes)
             .context("prepared carrier manifest is not UTF-8")?;
@@ -241,7 +288,7 @@ impl AdmittedPreparedCarrierV1 {
         if canonical != manifest_bytes {
             bail!("prepared carrier manifest bytes are not canonical JCS");
         }
-        let manifest: PreparedModuleCarrierV1 =
+        let manifest: PreparedModuleCarrierV2 =
             serde_json::from_value(value).context("prepared carrier manifest shape is invalid")?;
         manifest.validate(carrier_bytes)?;
         if manifest.defining_principal != admission.expected_principal {
@@ -261,19 +308,21 @@ impl AdmittedPreparedCarrierV1 {
             bail!("prepared carrier contains a module absent from the deployment graph");
         }
         match &manifest.encoding {
-            PreparedCarrierEncodingV1::JavascriptFactoryTable => {
-                if admission.expected_engine_binary_digest.is_some()
+            PreparedCarrierEncodingV2::JavascriptFactoryTable => {
+                if admission.expected_engine_binding.is_some()
                     || admission.expected_bytecode_version.is_some()
                 {
                     bail!("source carrier admission must not claim a bytecode engine");
                 }
             }
-            PreparedCarrierEncodingV1::HermesBytecode {
-                engine_binary_digest,
+            PreparedCarrierEncodingV2::HermesBytecode {
+                engine_binding,
                 bytecode_version,
             } => {
-                if admission.expected_engine_binary_digest.as_ref() != Some(engine_binary_digest)
+                let inspected = HermesBytecodeMetadataV1::inspect(carrier_bytes)?;
+                if admission.expected_engine_binding.as_ref() != Some(engine_binding)
                     || admission.expected_bytecode_version != Some(*bytecode_version)
+                    || inspected.bytecode_version != *bytecode_version
                 {
                     bail!("prepared Hermes carrier targets a different engine");
                 }
@@ -285,12 +334,16 @@ impl AdmittedPreparedCarrierV1 {
         })
     }
 
-    pub fn manifest(&self) -> &PreparedModuleCarrierV1 {
+    pub fn manifest(&self) -> &PreparedModuleCarrierV2 {
         &self.manifest
     }
 
-    pub fn entry(&self, entry_id: &str) -> Result<VerifiedPreparedCarrierEntryV1<'_>> {
-        Ok(VerifiedPreparedCarrierEntryV1 {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn entry(&self, entry_id: &str) -> Result<VerifiedPreparedCarrierEntryV2<'_>> {
+        Ok(VerifiedPreparedCarrierEntryV2 {
             manifest: &self.manifest,
             entry: self.manifest.entry(entry_id)?,
             bytes: &self.bytes,
@@ -298,17 +351,52 @@ impl AdmittedPreparedCarrierV1 {
     }
 }
 
-impl VerifiedPreparedCarrierEntryV1<'_> {
-    pub fn manifest(&self) -> &PreparedModuleCarrierV1 {
+impl VerifiedPreparedCarrierEntryV2<'_> {
+    pub fn manifest(&self) -> &PreparedModuleCarrierV2 {
         self.manifest
     }
 
-    pub fn entry(&self) -> &PreparedCarrierEntryV1 {
+    pub fn entry(&self) -> &PreparedCarrierEntryV2 {
         self.entry
     }
 
     pub fn bytes(&self) -> &[u8] {
         self.bytes
+    }
+
+    /// Return the number of generated lines that precede this entry's factory
+    /// in an authenticated JavaScript factory-table carrier.
+    ///
+    /// Artifact source maps are deliberately carrier-independent, so their
+    /// generated positions begin at the factory's first line. A prepared
+    /// factory table concatenates those factories and must add this offset
+    /// when interpreting a carrier stack position. Ambiguous marker matches
+    /// fail closed instead of guessing at an unauthenticated location.
+    /// @ref LLP 0027#artifact-envelope — source maps are semantic, carrier-independent artifact fields
+    pub fn javascript_factory_generated_line_offset(&self) -> Option<u32> {
+        if self.manifest.encoding != PreparedCarrierEncodingV2::JavascriptFactoryTable {
+            return None;
+        }
+        let marker = format!(
+            "Object.defineProperty(table,{},{{value:(",
+            serde_json::to_string(self.entry.entry_id.as_str()).ok()?
+        );
+        let mut matches = self
+            .bytes
+            .windows(marker.len())
+            .enumerate()
+            .filter_map(|(offset, window)| (window == marker.as_bytes()).then_some(offset));
+        let marker_offset = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        u32::try_from(
+            self.bytes[..marker_offset + marker.len()]
+                .iter()
+                .filter(|byte| **byte == b'\n')
+                .count(),
+        )
+        .ok()
     }
 }
 
@@ -333,9 +421,31 @@ mod tests {
         }
     }
 
+    fn hbc(version: u32) -> Vec<u8> {
+        let mut bytes = vec![0; HERMES_BYTECODE_HEADER_LEN];
+        let file_length = bytes.len() as u32;
+        bytes[0..8].copy_from_slice(&HERMES_BYTECODE_MAGIC.to_le_bytes());
+        bytes[8..12].copy_from_slice(&version.to_le_bytes());
+        bytes[32..36].copy_from_slice(&file_length.to_le_bytes());
+        bytes
+    }
+
+    fn loaded_engine(label: &str) -> PreparedCarrierEngineBindingV2 {
+        PreparedCarrierEngineBindingV2::LoadedFile {
+            binary_digest: digest(label),
+        }
+    }
+
     fn artifact(owner: Principal, name: &str) -> ModuleArtifactV1 {
+        artifact_with_factory(
+            owner,
+            name,
+            "function(){return {declare:function(){},execute:function(){}}}",
+        )
+    }
+
+    fn artifact_with_factory(owner: Principal, name: &str, factory: &str) -> ModuleArtifactV1 {
         let source_id = SourceId::file(owner, vec![PathComponent::utf8(name).unwrap()]).unwrap();
-        let factory = "function(){return {declare:function(){},execute:function(){}}}";
         let fingerprint = TransformFingerprintV1 {
             producer: NonEmptyString::new("carrier-test").unwrap(),
             parser_version: NonEmptyString::new("1").unwrap(),
@@ -396,9 +506,9 @@ mod tests {
 
     fn admission(
         owner: Principal,
-        manifest: &PreparedModuleCarrierV1,
-    ) -> PreparedCarrierAdmissionV1 {
-        PreparedCarrierAdmissionV1 {
+        manifest: &PreparedModuleCarrierV2,
+    ) -> PreparedCarrierAdmissionV2 {
+        PreparedCarrierAdmissionV2 {
             expected_principal: owner,
             expected_producer_id: NonEmptyString::new("prepared-producer").unwrap(),
             producer_binary_digest: digest("prepared-producer"),
@@ -408,7 +518,7 @@ mod tests {
                 .iter()
                 .map(|entry| entry.semantic_digest.clone())
                 .collect(),
-            expected_engine_binary_digest: None,
+            expected_engine_binding: None,
             expected_bytecode_version: None,
         }
     }
@@ -416,9 +526,13 @@ mod tests {
     #[test]
     fn source_and_hbc_carriers_preserve_semantics_and_original_identity() {
         let owner = principal("project");
-        let first = artifact(owner.clone(), "a.mjs");
+        let first = artifact_with_factory(
+            owner.clone(),
+            "a.mjs",
+            "function(){\nreturn {declare:function(){},execute:function(){}}\n}",
+        );
         let second = artifact(owner.clone(), "b.mjs");
-        let (manifest, bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
+        let (manifest, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
             owner.clone(),
             NonEmptyString::new("prepared-producer").unwrap(),
             digest("prepared-producer"),
@@ -429,7 +543,7 @@ mod tests {
             ],
         )
         .unwrap();
-        let admitted = AdmittedPreparedCarrierV1::decode_and_admit(
+        let admitted = AdmittedPreparedCarrierV2::decode_and_admit(
             &manifest.encode_canonical().unwrap(),
             &bytes,
             &admission(owner.clone(), &manifest),
@@ -441,27 +555,49 @@ mod tests {
             admitted.entry("a").unwrap().entry().semantics.source_id,
             first.semantics.source_id
         );
+        assert_eq!(
+            admitted
+                .entry("a")
+                .unwrap()
+                .javascript_factory_generated_line_offset(),
+            Some(0)
+        );
+        assert_eq!(
+            admitted
+                .entry("b")
+                .unwrap()
+                .javascript_factory_generated_line_offset(),
+            Some(2)
+        );
 
-        let engine = digest("engine");
+        let bytes = hbc(96);
+        let engine = loaded_engine("engine");
         let hbc = manifest
-            .bind_hermes_bytecode(b"hbc", engine.clone(), 96)
+            .bind_hermes_bytecode(&bytes, engine.clone())
             .unwrap();
         let mut hbc_admission = admission(owner, &hbc);
-        hbc_admission.expected_engine_binary_digest = Some(engine);
+        hbc_admission.expected_engine_binding = Some(engine);
         hbc_admission.expected_bytecode_version = Some(96);
-        AdmittedPreparedCarrierV1::decode_and_admit(
+        let admitted_hbc = AdmittedPreparedCarrierV2::decode_and_admit(
             &hbc.encode_canonical().unwrap(),
-            b"hbc",
+            &bytes,
             &hbc_admission,
         )
         .unwrap();
+        assert_eq!(
+            admitted_hbc
+                .entry("b")
+                .unwrap()
+                .javascript_factory_generated_line_offset(),
+            None
+        );
     }
 
     #[test]
     fn tamper_cross_principal_and_stale_engine_fail_closed() {
         let owner = principal("project");
         let foreign = artifact(principal("foreign"), "foreign.mjs");
-        assert!(PreparedModuleCarrierV1::from_inline_artifacts(
+        assert!(PreparedModuleCarrierV2::from_inline_artifacts(
             owner.clone(),
             NonEmptyString::new("prepared-producer").unwrap(),
             digest("prepared-producer"),
@@ -471,7 +607,7 @@ mod tests {
         .is_err());
 
         let local = artifact(owner.clone(), "local.mjs");
-        let (manifest, mut bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
+        let (manifest, mut bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
             owner.clone(),
             NonEmptyString::new("prepared-producer").unwrap(),
             digest("prepared-producer"),
@@ -480,36 +616,41 @@ mod tests {
         )
         .unwrap();
         bytes.push(0);
-        assert!(AdmittedPreparedCarrierV1::decode_and_admit(
+        assert!(AdmittedPreparedCarrierV2::decode_and_admit(
             &manifest.encode_canonical().unwrap(),
             &bytes,
             &admission(owner.clone(), &manifest),
         )
         .is_err());
 
+        let bytes = hbc(96);
         let hbc = manifest
-            .bind_hermes_bytecode(b"hbc", digest("engine-a"), 96)
+            .bind_hermes_bytecode(&bytes, loaded_engine("engine-a"))
             .unwrap();
         let mut stale = admission(owner, &hbc);
-        stale.expected_engine_binary_digest = Some(digest("engine-b"));
+        stale.expected_engine_binding = Some(loaded_engine("engine-b"));
         stale.expected_bytecode_version = Some(96);
-        assert!(AdmittedPreparedCarrierV1::decode_and_admit(
+        assert!(AdmittedPreparedCarrierV2::decode_and_admit(
             &hbc.encode_canonical().unwrap(),
-            b"hbc",
+            &bytes,
             &stale,
         )
         .is_err());
+
+        let mut malformed = bytes;
+        malformed[32..36].copy_from_slice(&129u32.to_le_bytes());
+        assert!(HermesBytecodeMetadataV1::inspect(&malformed).is_err());
     }
 
     #[test]
     fn checked_in_schema_names_the_exact_carrier_envelope() {
         let schema: serde_json::Value = serde_json::from_slice(include_bytes!(
-            "../../schemas/module-carrier-v1.schema.json"
+            "../../schemas/module-carrier-v2.schema.json"
         ))
         .unwrap();
         assert_eq!(
             schema["properties"]["schema"]["const"],
-            PREPARED_CARRIER_SCHEMA_V1
+            PREPARED_CARRIER_SCHEMA_V2
         );
         assert_eq!(schema["additionalProperties"], false);
     }

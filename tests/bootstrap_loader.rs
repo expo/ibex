@@ -43,11 +43,10 @@ fn write_text(path: &Path, contents: &str) {
     std::fs::write(path, contents).expect("write test file");
 }
 
-/// Run `ibex capsec audit <entry>` in `dir` with EXACT_COMPAT_TEST=1 so the
-/// entry goes through the in-process loader (no pre-bundling) and return
-/// stdout. Production execution is deliberately closed until this target has
-/// a verified advertisement, so compatibility fixtures use the explicit
-/// foreground diagnostic.
+/// Run `ibex capsec audit <entry>` in `dir` with independent fixture-fidelity
+/// and compatibility-loader selectors. Production execution is deliberately
+/// closed until this target has a verified advertisement, so compatibility
+/// fixtures use the explicit foreground diagnostic.
 fn run_compat(dir: &Path, entry: &str) -> (String, String, bool) {
     let output = Command::new(IBEX)
         .arg("capsec")
@@ -56,6 +55,7 @@ fn run_compat(dir: &Path, entry: &str) -> (String, String, bool) {
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
         .env("EXACT_COMPAT_TEST", "1")
+        .env("IBEX_COMPAT_LOADER_TEST", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -205,6 +205,7 @@ fn bundled_entry_remap_fires_outside_macos_caches_dir() {
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
         .env("EXACT_COMPAT_TEST", "1")
+        .env("IBEX_COMPAT_LOADER_TEST", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -6,6 +6,11 @@
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
 **Revised:** 2026-07-17 (ENG-24933 adds Windows x64 as an explicit unadvertised CapSec candidate and runs the complete exact-target report against the pinned patched no-debugger DLL; Windows remains compatibility-only while that report is incomplete)
+**Revised:** 2026-07-18 (LLP 0031 narrows Ibex 0.2 native source/module
+execution to evidence-gated macOS arm64 and Linux x64; this RFC's broader
+matrix remains the product ambition and build-visibility plan, not a 0.2
+execution advertisement)
+**Revised:** 2026-07-17 (ENG-24933 adds a pinned patched no-debugger Windows Hermes source build/release bundle pipeline and independent loaded-DLL volume/file identity; Windows remains compatibility-only pending remote artifact and conformance evidence)
 **Revised:** 2026-07-15 (ENG-25066 advertises the native module runner on exact macOS arm64 and Linux x64 targets while retaining Windows as an explicit compatibility-only row until a matching patched Hermes artifact exists); 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
 
@@ -21,6 +26,12 @@ This RFC records the target set, the build axes that matter beyond OS name
 (architecture and crypto profile), and the CI matrix needed to make platform
 support observable. Where a row is not wired in code yet, this document marks it
 as proposed/known-red rather than claiming it builds.
+
+For Ibex 0.2, LLP 0031 governs executable source/module support: only
+`aarch64-apple-darwin` and `x86_64-unknown-linux-gnu` may be promoted after
+their exact native-runner and CapSec evidence gates pass. Other rows in this
+RFC remain visible build or future-product targets and do not inherit runtime
+TypeScript, source audit, or compatibility-evaluator support.
 
 ## 1. Target platforms
 

@@ -1,11 +1,87 @@
 {
-  "policySchema": "ibex/capsec-policy/1",
+  "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-65wku9oQwB_208URhoQabfyb4yF_RE7Hs5xs55X31ZY",
-  "policyDigest": "sha256-TdO1LbOpw9bkWbqNHk4sC0eTiMalm3bPnUFEZyegEfE",
+  "vocabDigest": "sha256-LNCHXMy4CDwaczGtUSpbnof3JBSK1ac_2myXnr8hG68",
+  "policyDigest": "sha256-_jAZCg7guu2okdV88C5YG0XRrfC4QuUp2_zYIinad8E",
   "purpose": "production",
   "mode": "enforce",
+  "graphIdentity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "entryIdentity": {
+    "root": "project",
+    "components": [
+      {
+        "encoding": "utf8",
+        "value": "src"
+      },
+      {
+        "encoding": "utf8",
+        "value": "app.mjs"
+      }
+    ],
+    "sourceIntegrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "targetProfile": {
+    "kind": "source",
+    "profile": "portable-v1"
+  },
+  "mountProfile": "project-v1",
+  "rootCeiling": [
+    {
+      "authority": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": []
+          }
+        }
+      },
+      "provenance": [
+        {
+          "kind": "direct",
+          "source": "package.json#ibex.rootAuthorityCeiling"
+        }
+      ]
+    }
+  ],
+  "computedCandidates": {
+    "schema": "ibex/computed-candidate-manifest/1",
+    "declarations": [
+      {
+        "requester": "src/app.mjs",
+        "label": "plugins",
+        "specifiers": [
+          "image-lib/plugin"
+        ],
+        "packageClosures": [
+          "image-lib@2.4.1"
+        ]
+      }
+    ],
+    "packageClosureOptIns": [
+      {
+        "package": "image-lib@2.4.1",
+        "provenance": [
+          {
+            "kind": "direct",
+            "source": "image-lib@2.4.1/package.json#ibex.computedCandidateClosure"
+          }
+        ]
+      }
+    ],
+    "materializedSites": [
+      {
+        "requester": "src/app.mjs",
+        "label": "plugins",
+        "candidates": [
+          "image-lib",
+          "image-lib/plugin"
+        ]
+      }
+    ]
+  },
   "principals": [
     {
       "principal": {
@@ -130,5 +206,5 @@
       ]
     }
   ],
-  "registryDigest": "sha256-wKIkkVsrzQ1UADkEwu__NXdgl5V3ICUbakVuXegA0lc"
+  "registryDigest": "sha256-7AmEA3dhf2HO_dgfio47DFUBiyNaor9SE6lGL6d38cg"
 }

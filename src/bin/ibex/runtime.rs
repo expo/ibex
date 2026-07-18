@@ -48,12 +48,132 @@ fn current_native_module_runner_target_is_advertised() -> bool {
     native_module_runner_target_is_advertised(std::env::consts::OS, std::env::consts::ARCH)
 }
 
+/// Test-only selector for preserving the bounded compatibility loader instead
+/// of preparing an entry through the ordinary producer/bundler path. Fixture
+/// fidelity remains independently selected by `EXACT_COMPAT_TEST` inside the
+/// compat harness and runtime shims.
+/// @ref LLP 0028#4-reachability-inventory-and-retirement-matrix
+fn compat_loader_fixture_mode() -> bool {
+    std::env::var_os("IBEX_COMPAT_LOADER_TEST").is_some()
+}
+
 #[cfg(feature = "module-runner")]
 fn module_producer_binary_digest() -> Result<capsec_semantics::model::Digest> {
     let executable = std::env::current_exe().context("locate module producer executable")?;
     let bytes = std::fs::read(&executable)
         .with_context(|| format!("read module producer executable {}", executable.display()))?;
     ibex_runtime::module_loader::artifact::digest_bytes("ibex/module-producer-binary/1", &bytes)
+}
+
+#[cfg(feature = "module-runner")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeRunnerTestProfile {
+    Source,
+    Prepared,
+}
+
+#[cfg(feature = "module-runner")]
+impl NativeRunnerTestProfile {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Prepared => "prepared",
+        }
+    }
+}
+
+#[cfg(feature = "module-runner")]
+fn native_runner_test_profile() -> Result<Option<NativeRunnerTestProfile>> {
+    let Some(value) = std::env::var_os("IBEX_TEST_NATIVE_RUNNER_PROFILE") else {
+        return Ok(None);
+    };
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = value;
+        anyhow::bail!("IBEX_TEST_NATIVE_RUNNER_PROFILE is unavailable in release builds");
+    }
+    #[cfg(debug_assertions)]
+    match value.to_str() {
+        Some("source") => Ok(Some(NativeRunnerTestProfile::Source)),
+        Some("prepared") => Ok(Some(NativeRunnerTestProfile::Prepared)),
+        _ => anyhow::bail!("IBEX_TEST_NATIVE_RUNNER_PROFILE must be source or prepared"),
+    }
+}
+
+#[cfg(feature = "module-runner")]
+fn native_runner_test_deployment_digest(
+    graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+) -> Result<capsec_semantics::model::Digest> {
+    let records = graph
+        .records()
+        .map(|(source_id, _, verified)| {
+            let artifact = verified.artifact();
+            Ok(serde_json::json!({
+                "sourceId": source_id.encode()?,
+                "semanticDigest": artifact.semantic_digest,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let value = serde_json::json!({
+        "schema": "ibex/native-runner-test-deployment/1",
+        "entrySourceId": graph.entry().encode()?,
+        "records": records,
+    });
+    let digest = capsec_semantics::digest::compute_domain_digest(
+        "ibex:native-runner-test-deployment:1",
+        &value,
+        &[],
+    )?;
+    capsec_semantics::model::Digest::new(digest).map_err(anyhow::Error::msg)
+}
+
+#[cfg(feature = "module-runner")]
+fn emit_native_runner_execution_receipt(
+    graph: &ibex_runtime::module_loader::runner_pipeline::SourceModuleGraphV1,
+    profile: NativeRunnerTestProfile,
+) -> Result<()> {
+    use ibex_runtime::module_loader::artifact::{ModulePayloadV1, ProducerIdentityV1};
+
+    let records = graph
+        .records()
+        .map(|(source_id, _, verified)| {
+            let artifact = verified.artifact();
+            let producer_binary_digest = match &artifact.producer {
+                ProducerIdentityV1::InProcess {
+                    producer_binary_digest,
+                    ..
+                }
+                | ProducerIdentityV1::Prepared {
+                    producer_binary_digest,
+                    ..
+                } => producer_binary_digest,
+            };
+            Ok(serde_json::json!({
+                "sourceId": source_id.encode()?,
+                "semanticDigest": artifact.semantic_digest,
+                "transformFingerprintDigest": artifact.semantics.transform_fingerprint.digest()?,
+                "carrierKind": match artifact.payload {
+                    ModulePayloadV1::Inline { .. } => "inline-source",
+                    ModulePayloadV1::Carrier { .. } => "prepared-carrier",
+                },
+                "producerBinaryDigest": producer_binary_digest,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let hermes = crate::engine::hermes::HermesEngine::loaded_engine_identity()?;
+    let receipt = serde_json::json!({
+        "schema": "ibex/native-module-execution-receipt/1",
+        "profile": profile.as_str(),
+        "entrySourceId": graph.entry().encode()?,
+        "loadedHermesDigest": hermes.binary_digest,
+        "records": records,
+    });
+    let bytes = capsec_semantics::canonical::to_jcs_bytes(&receipt)?;
+    eprintln!(
+        "IBEX_NATIVE_MODULE_EXECUTION_RECEIPT {}",
+        std::str::from_utf8(&bytes).expect("canonical JSON is UTF-8")
+    );
+    Ok(())
 }
 
 const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
@@ -1433,21 +1553,32 @@ impl Runtime {
             });
 
         #[cfg(feature = "module-runner")]
-        let (native_graph, prepared_source_path) = 'native_graph: {
+        let (native_graph, prepared_source_path, native_test_profile) = 'native_graph: {
             use ibex_runtime::module_loader::runner_pipeline::{
                 build_authenticated_source_graph_v1, load_prepared_source_graph_v1,
                 prepared_graph_cache_dir, publish_prepared_source_graph_v1,
                 SourceModuleGraphBuildV1,
             };
 
+            let test_profile = native_runner_test_profile()?;
             if !script_entry {
-                (None, absolute_path.clone())
+                if test_profile.is_some() {
+                    anyhow::bail!(
+                        "native runner test profiles require a JavaScript or TypeScript entry"
+                    );
+                }
+                (None, absolute_path.clone(), None)
             } else if self._host.armed_snapshot().is_none() {
                 // Audit/diagnostic runtimes deliberately have no immutable
                 // armed snapshot. They retain the compatibility evaluator;
                 // production runner admission never manufactures authority
                 // from that weaker host.
-                (None, absolute_path.clone())
+                if test_profile.is_some() {
+                    anyhow::bail!(
+                        "native runner test profiles require an armed production runtime"
+                    );
+                }
+                (None, absolute_path.clone(), None)
             } else if !current_native_module_runner_target_is_advertised() {
                 if !legacy_module_loader_window_is_open() {
                     anyhow::bail!(
@@ -1462,7 +1593,12 @@ impl Runtime {
                     std::env::consts::ARCH,
                     LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR,
                 );
-                (None, absolute_path.clone())
+                if test_profile.is_some() {
+                    anyhow::bail!(
+                        "native runner test profiles require an advertised native target"
+                    );
+                }
+                (None, absolute_path.clone(), None)
             } else {
                 let producer_digest = module_producer_binary_digest()?;
                 // A warm prepared graph may be discovered through the
@@ -1471,61 +1607,64 @@ impl Runtime {
                 // first; preparation is allowed only after that boundary.
                 // @ref LLP 0026#authenticate-before-discovery-and-execute-under-derived-identity
                 let cache_root = runtime_cache_dir()?;
-                let mut existing_prepared_source = None;
-                let mut candidate_formats = vec![self.bundle_format];
-                if self.bundle_format == BundleFormat::Cjs {
-                    candidate_formats.push(BundleFormat::Esm);
-                }
-                for format in candidate_formats {
-                    let cache_key = bundle_cache_key(&absolute_path, format)?;
-                    let artifact_root = bundle_artifact_root(&cache_root, &cache_key);
-                    if let Some(output) =
-                        find_fresh_bundle(&artifact_root, &absolute_path, format).await
-                    {
-                        existing_prepared_source = Some(output);
-                        break;
+                if test_profile.is_none() {
+                    let mut existing_prepared_source = None;
+                    let mut candidate_formats = vec![self.bundle_format];
+                    if self.bundle_format == BundleFormat::Cjs {
+                        candidate_formats.push(BundleFormat::Esm);
                     }
-                }
+                    for format in candidate_formats {
+                        let cache_key = bundle_cache_key(&absolute_path, format)?;
+                        let artifact_root = bundle_artifact_root(&cache_root, &cache_key);
+                        if let Some(output) =
+                            find_fresh_bundle(&artifact_root, &absolute_path, format).await
+                        {
+                            existing_prepared_source = Some(output);
+                            break;
+                        }
+                    }
 
-                if let Some(prepared_source) = existing_prepared_source.as_ref() {
-                    if let Ok(manifest) = read_bundle_manifest(prepared_source).await {
-                        if valid_sha256(&manifest.graph_digest) {
-                            let deployment_digest =
-                                ibex_runtime::module_loader::artifact::digest_bytes(
-                                    "ibex/rolldown-deployment-graph/1",
-                                    manifest.graph_digest.as_bytes(),
-                                )?;
-                            if let Some(artifact_dir) = prepared_source.parent() {
-                                let cache_dir =
-                                    prepared_graph_cache_dir(artifact_dir, &deployment_digest);
-                                if cache_dir.join("index.json").is_file() {
-                                    match load_prepared_source_graph_v1(
-                                        &cache_dir,
-                                        &producer_digest,
-                                        &deployment_digest,
-                                    ) {
-                                        Ok(graph) => {
-                                            break 'native_graph (
-                                                Some(graph),
-                                                prepared_source.clone(),
-                                            );
-                                        }
-                                        Err(error) => {
-                                            agent_logs::record_bundler_log(
-                                                "warn",
-                                                format!(
-                                                    "Prepared module graph was stale or invalid and will be rebuilt: {error:#}"
-                                                ),
-                                                None,
-                                            );
-                                            std::fs::remove_dir_all(&cache_dir).with_context(
-                                                || {
+                    if let Some(prepared_source) = existing_prepared_source.as_ref() {
+                        if let Ok(manifest) = read_bundle_manifest(prepared_source).await {
+                            if valid_sha256(&manifest.graph_digest) {
+                                let deployment_digest =
+                                    ibex_runtime::module_loader::artifact::digest_bytes(
+                                        "ibex/rolldown-deployment-graph/1",
+                                        manifest.graph_digest.as_bytes(),
+                                    )?;
+                                if let Some(artifact_dir) = prepared_source.parent() {
+                                    let cache_dir =
+                                        prepared_graph_cache_dir(artifact_dir, &deployment_digest);
+                                    if cache_dir.join("index.json").is_file() {
+                                        match load_prepared_source_graph_v1(
+                                            &cache_dir,
+                                            &producer_digest,
+                                            &deployment_digest,
+                                        ) {
+                                            Ok(graph) => {
+                                                break 'native_graph (
+                                                    Some(graph),
+                                                    prepared_source.clone(),
+                                                    None,
+                                                );
+                                            }
+                                            Err(error) => {
+                                                agent_logs::record_bundler_log(
+                                                    "warn",
                                                     format!(
-                                                        "remove invalid prepared module cache {}",
-                                                        cache_dir.display()
-                                                    )
-                                                },
-                                            )?;
+                                                        "Prepared module graph was stale or invalid and will be rebuilt: {error:#}"
+                                                    ),
+                                                    None,
+                                                );
+                                                std::fs::remove_dir_all(&cache_dir).with_context(
+                                                    || {
+                                                        format!(
+                                                            "remove invalid prepared module cache {}",
+                                                            cache_dir.display()
+                                                        )
+                                                    },
+                                                )?;
+                                            }
                                         }
                                     }
                                 }
@@ -1534,16 +1673,35 @@ impl Runtime {
                     }
                 }
 
-                match build_authenticated_source_graph_v1(
-                    &absolute_path,
-                    producer_digest.clone(),
-                    &engine::hermes::bytecode_cache_identity(),
-                )? {
+                match build_authenticated_source_graph_v1(&absolute_path, producer_digest.clone())?
+                {
+                    SourceModuleGraphBuildV1::Native(graph)
+                        if test_profile == Some(NativeRunnerTestProfile::Source) =>
+                    {
+                        (Some(graph), absolute_path.clone(), test_profile)
+                    }
+                    SourceModuleGraphBuildV1::Native(graph)
+                        if test_profile == Some(NativeRunnerTestProfile::Prepared) =>
+                    {
+                        let deployment_digest = native_runner_test_deployment_digest(&graph)?;
+                        let artifact_dir = cache_root.join("native-runner-test");
+                        let cache_dir = publish_prepared_source_graph_v1(
+                            &graph,
+                            &artifact_dir,
+                            deployment_digest.clone(),
+                        )?;
+                        let prepared = load_prepared_source_graph_v1(
+                            &cache_dir,
+                            &producer_digest,
+                            &deployment_digest,
+                        )?;
+                        (Some(prepared), absolute_path.clone(), test_profile)
+                    }
                     SourceModuleGraphBuildV1::Native(graph) => {
                         let prepared_source =
                             prepare_entry_for_bytecode_build(&path_str, self.bundle_format).await?;
                         if prepared_source == absolute_path {
-                            (Some(graph), prepared_source)
+                            (Some(graph), prepared_source, None)
                         } else {
                             let manifest = read_bundle_manifest(&prepared_source).await?;
                             let deployment_digest =
@@ -1564,22 +1722,34 @@ impl Runtime {
                                 &producer_digest,
                                 &deployment_digest,
                             )?;
-                            (Some(prepared), prepared_source)
+                            (Some(prepared), prepared_source, None)
                         }
                     }
                     SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                        let telemetry = requirement.telemetry_event(env!("CARGO_PKG_VERSION"))?;
+                        eprintln!(
+                            "{}{}",
+                            ibex_runtime::module_loader::compatibility::LEGACY_REQUIRED_TELEMETRY_PREFIX,
+                            serde_json::to_string(&telemetry)?
+                        );
+                        if test_profile.is_some() {
+                            anyhow::bail!(
+                                "native module-runner conformance quarantine: {}",
+                                requirement
+                            );
+                        }
                         if !legacy_module_loader_window_is_open() {
                             anyhow::bail!(
                                 "native module runner does not support this graph and the bounded legacy loader window is closed: {}",
-                                requirement.reason
+                                requirement
                             );
                         }
                         eprintln!(
                             "warning: native module runner compatibility fallback (expires after {}): {}",
                             LEGACY_MODULE_LOADER_LAST_SUPPORTED_MINOR,
-                            requirement.reason
+                            requirement
                         );
-                        (None, absolute_path.clone())
+                        (None, absolute_path.clone(), test_profile)
                     }
                 }
             }
@@ -1721,7 +1891,13 @@ impl Runtime {
         #[cfg(feature = "module-runner")]
         if let Some(graph) = native_graph.as_ref() {
             self.engine.eval_immediate(&argv_code).await?;
-            return self.engine.run_authenticated_module_graph(graph).await;
+            let result = self.engine.run_authenticated_module_graph(graph).await;
+            if result.is_ok() {
+                if let Some(profile) = native_test_profile {
+                    emit_native_runner_execution_receipt(graph, profile)?;
+                }
+            }
+            return result;
         }
 
         if cfg!(windows) {
@@ -1812,34 +1988,52 @@ impl Runtime {
                     ]);
 
                     if let Some(js_path) = fallback_paths.iter().find(|p| p.exists()) {
-                        let js_str = js_path.to_string_lossy().to_string();
-                        let js_json = serde_json::to_string(&js_str).with_context(|| {
-                            format!("Failed to serialize fallback path {}", js_str)
-                        })?;
-                        // Determine format from the actual file extension, not
-                        // self.bundle_format, since TLA may have switched CJS→ESM.
-                        let is_esm = js_path.extension().and_then(|e| e.to_str()) == Some("mjs");
-                        return if is_esm {
-                            self.run_entry_with_tla_shim(js_path, true).await
+                        // Advertised, authenticated source entries return
+                        // through the native graph above before an HBC path is
+                        // selected. A stale legacy HBC fallback is therefore
+                        // either an already-prepared bundle or must be prepared
+                        // once through the bounded Rolldown window; it never
+                        // invokes the file-at-a-time SWC transform.
+                        // @ref LLP 0028#4-reachability-inventory-and-retirement-matrix
+                        let file_name = js_path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or_default();
+                        let prepared = if file_name.contains(".bundle.") {
+                            js_path.clone()
                         } else {
-                            let fallback_code = format!("require({});", js_json);
-                            self.engine.eval(&fallback_code).await
+                            let format = if js_path
+                                .extension()
+                                .and_then(|extension| extension.to_str())
+                                .is_some_and(|extension| extension.eq_ignore_ascii_case("mjs"))
+                            {
+                                BundleFormat::Esm
+                            } else {
+                                BundleFormat::Cjs
+                            };
+                            prepare_entry_for_bytecode_build(
+                                js_path.to_string_lossy().as_ref(),
+                                format,
+                            )
+                            .await?
                         };
+                        return self.run_legacy_entry_shim(&prepared, true).await;
                     }
                     anyhow::bail!("Bytecode loading failed and no JS source fallback found");
                 }
             }
         }
 
-        // An entry that skipped the bundler (standalone runs) may still carry
+        // A compatibility entry that skipped the bundler may still carry
         // top-level await, which the loader's CJS `require()` chain cannot
-        // evaluate — both branches below must route it through the async
-        // entry shim, which transpiles in-process and wraps.
+        // evaluate. Advertised authenticated entries have already returned
+        // through the native graph; only residual prepared/fixture inputs can
+        // reach the wrapper below.
         let entry_untranspiled_tla = entry_path == absolute_path && {
             let raw = tokio::fs::read_to_string(&entry_path)
                 .await
                 .unwrap_or_default();
-            contains_top_level_await(&raw)
+            ibex_runtime::module_loader::script_frontend::has_top_level_await(&raw, &entry_path)
         };
 
         if !self.engine.supports_feature(EngineFeature::TopLevelAwait) {
@@ -1856,19 +2050,19 @@ impl Runtime {
                 return self.engine.eval(&code).await;
             }
 
-            return self.run_entry_with_tla_shim(&entry_path, true).await;
+            return self.run_legacy_entry_shim(&entry_path, true).await;
         }
 
         match self.bundle_format {
             BundleFormat::Cjs => {
                 self.engine.eval_immediate(&argv_code).await?;
 
-                // An entry that skipped the bundler (standalone runs) may
-                // still carry top-level await, which the loader's CJS
-                // `require()` chain cannot evaluate — route it through the
-                // async entry shim, which transpiles in-process and wraps.
+                // A residual compatibility input may still carry top-level
+                // await, which the loader's CJS `require()` chain cannot
+                // evaluate. The legacy shim only wraps the already-prepared
+                // bytes; it does not select or run a transform engine.
                 if entry_untranspiled_tla {
-                    return self.run_entry_with_tla_shim(&entry_path, true).await;
+                    return self.run_legacy_entry_shim(&entry_path, true).await;
                 }
 
                 let entry_json = serde_json::to_string(&entry_str.to_string())
@@ -1889,7 +2083,12 @@ impl Runtime {
         }
     }
 
-    async fn run_entry_with_tla_shim(
+    /// Residual evaluator for the bounded compatibility loader. Advertised
+    /// authenticated entries have already returned through the native graph;
+    /// this shim receives Rolldown-prepared output (or raw compatibility
+    /// fixtures) and owns only the async/argv wrapper. It has no parser or
+    /// file-at-a-time transform engine.
+    async fn run_legacy_entry_shim(
         &self,
         entry_path: &Path,
         is_main_file: bool,
@@ -1897,48 +2096,9 @@ impl Runtime {
         let source = tokio::fs::read_to_string(entry_path)
             .await
             .with_context(|| format!("Failed to read JS source {}", entry_path.display()))?;
-        // When the entry reaches this path untranspiled (standalone runs skip
-        // the bundler), lower TS/ESM in-process before wrapping.
-        let needs_lowering = entry_path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| {
-                matches!(
-                    ext.to_ascii_lowercase().as_str(),
-                    // review R3/R4: .mts/.cts crashed on raw types and .mjs/.js
-                    // ESM entries got an undefined import.meta — all source
-                    // extensions lower in-process before wrapping.
-                    "ts" | "tsx" | "jsx" | "mts" | "cts" | "mjs" | "js"
-                )
-            });
-        let source = if needs_lowering {
-            ibex_runtime::module_loader::transpile::transpile_to_cjs(&source, entry_path)?
-        } else {
-            source
-        };
         let source = std::borrow::Cow::Owned(source);
         let source = normalize_hashbang_for_eval(&source);
-
-        // Check if the source needs the async IIFE wrapper.
-        // We check for `await` as a keyword anywhere in the source (not just at
-        // brace depth 0) because `await` inside top-level for/if/while blocks is
-        // still TLA even though it's at brace depth > 0. The async IIFE wrapper
-        // is harmless for code that doesn't use TLA, so false positives are fine.
-        //
-        // The run-the-file-raw fast path is only sound when NO lowering
-        // happened: the shim check ran on the LOWERED source, and a lowered
-        // entry's on-disk file may be raw ESM/TS that Hermes cannot parse in
-        // script mode (a static-import .mjs with no TLA hit exactly this —
-        // clean lowering, "no shim needed", then SyntaxError on the raw
-        // imports). Once lowering happened, evaluate the lowered source; the
-        // wrapper also supplies the module/exports/__filename/__dirname
-        // bindings the swc CJS output references. (ENG-23484)
-        if !needs_lowering && !source_needs_tla_shim(source.as_ref()) {
-            let entry_str = entry_path.to_string_lossy().to_string();
-            return self.engine.run_file(&entry_str).await;
-        }
-
-        let wrapped = wrap_entry_source_for_eval(source, is_main_file, needs_lowering);
+        let wrapped = wrap_entry_source_for_eval(source, is_main_file, false);
         self.engine.eval(&wrapped).await
     }
 
@@ -2106,6 +2266,10 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     use capsec_semantics::model::Digest;
 
     validate_production_inputs(cli)?;
+    #[cfg(feature = "module-runner")]
+    let native_runner_conformance = native_runner_test_profile()?.is_some();
+    #[cfg(not(feature = "module-runner"))]
+    let native_runner_conformance = false;
     for line in check_capsec_readiness(
         crate::host::SecurityMode::Enforce,
         CapsecStage::Run,
@@ -2160,12 +2324,73 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             "/capsec/registry/policy-rules.json"
         )),
     )?;
+    let policy_entry_path = match entry {
+        Some(entry) => {
+            let path = Path::new(entry);
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                std::env::current_dir()?.join(path)
+            }
+        }
+        None => project_root.join("package.json"),
+    };
+    let policy_entry_path = std::fs::canonicalize(&policy_entry_path).with_context(|| {
+        format!(
+            "failed to authenticate policy entry {}",
+            policy_entry_path.display()
+        )
+    })?;
+    let policy_entry_relative =
+        policy_entry_path
+            .strip_prefix(&project_root)
+            .with_context(|| {
+                format!(
+                    "policy entry {} is outside project root {}",
+                    policy_entry_path.display(),
+                    project_root.display()
+                )
+            })?;
+    let policy_entry_name = policy_entry_relative
+        .to_str()
+        .context("canonical policy graph identity requires a Unicode project-relative entry")?
+        .replace(std::path::MAIN_SEPARATOR, "/");
+    let policy_entry_source = std::fs::read(&policy_entry_path).with_context(|| {
+        format!(
+            "failed to authenticate policy entry {}",
+            policy_entry_path.display()
+        )
+    })?;
+    let policy_entry_integrity =
+        ibex_runtime::module_loader::artifact::source_integrity(&policy_entry_source)?;
+    let policy_entry_identity = serde_json::json!({
+        "root": "project",
+        "components": runtime_path_components_json(policy_entry_relative)?,
+        "sourceIntegrity": policy_entry_integrity,
+    });
+    let policy_graph_snapshot = serde_json::json!({
+        "graphSnapshotSchema": "ibex/authenticated-graph-snapshot/1",
+        "entryIdentity": policy_entry_identity,
+        "nodes": [{
+            "principal": "<root>",
+            "modulePath": policy_entry_name,
+            "sourceIntegrity": policy_entry_integrity,
+        }],
+        "packages": [],
+        "edges": [],
+        "candidateSets": [],
+    });
+    let policy_graph_identity = compute_domain_digest(
+        "ibex/authenticated-graph-snapshot/1",
+        &policy_graph_snapshot,
+        &[],
+    )?;
     let policy_path = cli
         .policy
         .clone()
         .unwrap_or_else(|| project_root.join("ibex-policy.json"));
     let mut policy = serde_json::json!({
-        "policySchema": "ibex/capsec-policy/1",
+        "policySchema": "ibex/capsec-policy/2",
         "capsVocab": "ibex/capsec/1",
         "semanticCore": "capsec/semantics/1",
         "vocabDigest": expected_policy_identity.vocab_digest.clone(),
@@ -2173,6 +2398,17 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         "policyDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "purpose": "production",
         "mode": "enforce",
+        "graphIdentity": policy_graph_identity,
+        "entryIdentity": policy_entry_identity,
+        "targetProfile": {"kind": "source", "profile": "portable-v1"},
+        "mountProfile": "project-v1",
+        "rootCeiling": [],
+        "computedCandidates": {
+            "schema": "ibex/computed-candidate-manifest/1",
+            "declarations": [],
+            "packageClosureOptIns": [],
+            "materializedSites": [],
+        },
         "principals": [],
     });
     let policy_loaded = policy_path.exists();
@@ -2186,8 +2422,65 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     } else if cli.policy.is_some() {
         anyhow::bail!("canonical policy {} not found", policy_path.display());
     }
+    if native_runner_conformance {
+        if policy_loaded {
+            anyhow::bail!(
+                "native module-runner conformance fixtures cannot supply a project policy"
+            );
+        }
+        // The real-binary source/prepared harness needs only enough root
+        // authority for authenticated module metadata beneath its disposable
+        // project. This is authored into both the reviewed policy ceiling and
+        // the armed root floor; it never grants ambient or home-directory IO.
+        // @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer
+        policy["rootCeiling"] = serde_json::json!([
+            {
+                "authority": {
+                    "cap": "fs:list",
+                    "resource": {
+                        "kind": "path-tree",
+                        "path": {"root": "project", "components": []}
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            },
+            {
+                "authority": {
+                    "cap": "fs:read",
+                    "resource": {
+                        "kind": "path-tree",
+                        "path": {"root": "project", "components": []}
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            },
+            {
+                "authority": {
+                    "cap": "stdio:write",
+                    "resource": {
+                        "kind": "stdio",
+                        "stream": "stdout",
+                        "source": {
+                            "kind": "broker",
+                            "identity": "ibex:console:stdout"
+                        }
+                    }
+                },
+                "provenance": [{
+                    "kind": "direct",
+                    "source": "IBEX_TEST_NATIVE_RUNNER_PROFILE"
+                }]
+            }
+        ]);
+    }
     for (field, expected) in [
-        ("policySchema", "ibex/capsec-policy/1"),
+        ("policySchema", "ibex/capsec-policy/2"),
         ("capsVocab", "ibex/capsec/1"),
         ("semanticCore", "capsec/semantics/1"),
         ("purpose", "production"),
@@ -2224,9 +2517,19 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         .filter_map(|row| row["principal"]["locator"].as_str().map(str::to_owned))
         .collect::<Vec<_>>();
     root_package_imports.sort();
+    let native_runner_root_floor = if native_runner_conformance {
+        policy["rootCeiling"]
+            .as_array()
+            .context("native runner root ceiling must be an array")?
+            .iter()
+            .map(|row| row["authority"].clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let mut snapshot_principals = vec![serde_json::json!({
         "principal": {"kind": "root", "identity": "project-root"},
-        "floor": [],
+        "floor": native_runner_root_floor,
         "denials": [],
         "escalationCeiling": [],
         "imports": {
@@ -2368,6 +2671,16 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     value["workflow"] = serde_json::json!("production");
     value["effectiveMode"] = serde_json::json!("enforce");
     value["policyDigest"] = serde_json::json!(policy_digest);
+    value["rootAuthorityCeiling"] = serde_json::json!({
+        "kind": "bounded",
+        "authorities": policy["rootCeiling"]
+            .as_array()
+            .context("canonical root ceiling must be an array")?
+            .iter()
+            .map(|row| row["authority"].clone())
+            .collect::<Vec<_>>(),
+    });
+    value["bootstrapAuthorityFloor"] = serde_json::json!([]);
     value["engine"] = serde_json::json!({
         "target": exact_runtime_target(),
         "binaryDigest": engine_digest,
@@ -2513,13 +2826,14 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
                 content_digest: registry_object.content_digest,
             },
         ],
+        embedded_protected_artifacts: Vec::new(),
     };
     let snapshot = Arc::new(ArmedSnapshot::load(
         &serde_json::to_vec(&value)?,
         &expected,
     )?);
     let digest = snapshot.digest().as_str().to_owned();
-    let host = Host::new_armed(
+    let host = construct_default_armed_host(
         HostConfig {
             mode: crate::host::SecurityMode::Enforce,
             ..Default::default()
@@ -2527,6 +2841,25 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         snapshot,
     )?;
     Ok((host, Some(digest)))
+}
+
+fn construct_default_armed_host(
+    config: HostConfig,
+    snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+) -> Result<Host> {
+    #[cfg(feature = "module-runner")]
+    if native_runner_test_profile()?.is_some() {
+        #[cfg(all(debug_assertions, feature = "capsec-conformance-observer"))]
+        {
+            return Host::new_armed_for_native_module_runner_conformance(config, snapshot)
+                .context("failed to construct native module-runner conformance host");
+        }
+        #[cfg(not(all(debug_assertions, feature = "capsec-conformance-observer")))]
+        anyhow::bail!(
+            "IBEX_TEST_NATIVE_RUNNER_PROFILE requires a debug build with the capsec-conformance-observer feature"
+        );
+    }
+    Host::new_armed(config, snapshot).context("failed to construct armed capability host")
 }
 
 fn exact_runtime_target() -> String {
@@ -3288,8 +3621,7 @@ async fn prepare_entry_with_format_and_bytecode(
         return Ok(path);
     }
 
-    let is_compat_js_fixture =
-        std::env::var_os("EXACT_COMPAT_TEST").is_some() && matches!(ext, "js" | "cjs" | "mjs");
+    let is_compat_js_fixture = compat_loader_fixture_mode() && matches!(ext, "js" | "cjs" | "mjs");
     if is_compat_js_fixture {
         // Compatibility fixtures depend on the raw loader behavior and can
         // break when the entry file is pre-bundled before execution.
@@ -3328,7 +3660,7 @@ async fn prepare_entry_with_format_and_bytecode(
     // run_file_with_args will wrap the ESM output in an async IIFE for Hermes.
     let effective_format = if bundle_format == BundleFormat::Cjs {
         let source = tokio::fs::read_to_string(&path).await.unwrap_or_default();
-        if contains_top_level_await(&source) {
+        if ibex_runtime::module_loader::script_frontend::has_top_level_await(&source, &path) {
             BundleFormat::Esm
         } else {
             bundle_format
@@ -3402,12 +3734,21 @@ async fn prepare_entry_with_format_and_bytecode(
                         err
                     );
                 }
-                path
+                path.clone()
             } else {
                 return Err(err);
             }
         }
     };
+
+    // A raw `.cjs` entry needs the compatibility loader's CommonJS wrapper;
+    // compiling those bytes directly to HBC and executing them as a script
+    // loses `module`, `exports`, `require`, and CommonJS top-level `this`.
+    // Prepared bundle output is self-contained and remains bytecode-eligible.
+    // @ref LLP 0028#4-reachability-inventory-and-retirement-matrix
+    if prepared == path && ext.eq_ignore_ascii_case("cjs") {
+        return Ok(prepared);
+    }
 
     // Try to compile to bytecode for faster startup on subsequent runs.
     // Skip if we've already detected that hermesc produces incompatible bytecode,
@@ -4080,11 +4421,10 @@ fn normalize_windows_tool_path(path: PathBuf) -> PathBuf {
 }
 
 fn source_needs_tla_shim(source: &str) -> bool {
-    // String/comment-aware: `await` inside a string literal (or a comment)
-    // must not trigger the wrapper. The dynamic-import check stays a
-    // substring match: the wrapper rewrite is required whenever a real
-    // `import(` exists, and a false positive only costs a harmless wrap.
-    contains_await_keyword(source) || source.contains("import(")
+    // Oxc owns syntax detection: `await` inside a string, comment, regex, or
+    // nested function must not trigger the wrapper. The dynamic-import check
+    // remains a bounded legacy rewrite until the LLP 0024 runner handoff lands.
+    contains_top_level_await(source) || source.contains("import(")
 }
 
 fn wrap_source_for_tla_eval(source: Cow<'_, str>, is_main_file: bool) -> String {
@@ -4110,8 +4450,8 @@ fn wrap_source_for_tla_eval_with(
 /// Unconditionally wrap an entry source in the async-IIFE eval shim. Callers
 /// that may pass source needing no shim at all should go through
 /// `wrap_source_for_tla_eval_with`, which passes such source through
-/// untouched. `run_entry_with_tla_shim` calls this directly for every lowered
-/// entry — even one with no TLA — because bare eval of swc's CJS output lacks
+/// untouched. The residual legacy entry shim calls this directly for prepared
+/// output — even one with no TLA — because bare eval of CJS output lacks
 /// the `module`/`exports`/`__filename`/`__dirname` bindings the wrapper's IIFE
 /// parameters supply, and the async wrap is harmless for non-TLA code.
 /// (ENG-23484)
@@ -4155,214 +4495,16 @@ fn wrap_entry_source_for_eval(
     )
 }
 
-/// String-, comment-, and regex-aware scan for an `await` keyword anywhere in
-/// the source. Any depth counts: `await` inside top-level `for`/`if` blocks is
-/// still TLA, and wrapping non-TLA async code is harmless, so no brace tracking
-/// is needed — only literals, comments, and regex literals are excluded.
-///
-/// Identifiers are consumed as whole words so `await` is matched only on a word
-/// boundary (`awaited`/`awaitTime`/`kawaii` are not TLA). A `/` is disambiguated
-/// between a regex literal and a division operator by tracking whether the
-/// previous significant token was value-producing: without this, `await` inside
-/// a regex literal (`var re = /await/g`) was read as a real keyword, so the REPL
-/// wrapped the line in an async IIFE and the `var`/function binding no longer
-/// leaked to the global object — a silent regression of the bug ENG-22957
-/// aimed to close. (ENG-23031)
-///
-/// Shared with the REPL so `.time`/prompt input use the same detection instead
-/// of a raw `contains("await")`. (ENG-22957)
-pub(crate) fn contains_await_keyword(source: &str) -> bool {
-    scan_for_await_keyword(source, false)
-}
-
-/// Like `contains_await_keyword`, but only reports `await` at brace depth 0
-/// (true top-level): `await` inside functions, methods, or class bodies is not
-/// top-level await. Used to pick the bundle format and to route untranspiled
-/// entries / `-e` code through the TLA shim.
-///
-/// Built on the same string-, comment-, and regex-aware scanner as
-/// `contains_await_keyword`: the previous standalone implementation was not
-/// regex-aware, so a depth-0 regex literal containing `await` (e.g.
-/// `const RE = /(await)/;`) flipped the bundle format CJS→ESM and re-routed
-/// execution of a perfectly valid app (ENG-23484; scanner-level fix mirrors
-/// ENG-23031's for `contains_await_keyword`).
+/// Parse the virtual CLI/REPL source with the shared Oxc syntax frontend and
+/// report only actual top-level `await` expressions. The path-aware file
+/// callers use the same frontend directly so TypeScript and JSX dialects are
+/// selected from their real extension.
+/// @ref LLP 0028#3-the-llp-0024-gates-revise-the-seam-then-build-on-oxc
 pub(crate) fn contains_top_level_await(source: &str) -> bool {
-    scan_for_await_keyword(source, true)
-}
-
-/// The shared scanner behind `contains_await_keyword` (any depth) and
-/// `contains_top_level_await` (`top_level_only`, brace depth 0 with an
-/// `await:` label exclusion). See `contains_await_keyword` for the tokenizer
-/// rationale.
-fn scan_for_await_keyword(source: &str, top_level_only: bool) -> bool {
-    let bytes = source.as_bytes();
-    let mut i = 0usize;
-    // Whether a `/` here begins a regex literal (value position) rather than a
-    // division operator. True at input start and after operators/punctuators
-    // that expect an expression; false after a value token (identifier, `)`,
-    // `]`, number, string, regex).
-    let mut regex_allowed = true;
-    // Brace depth for `top_level_only`: braces inside strings, comments, and
-    // regex literals are consumed by their opaque spans and never counted.
-    let mut brace_depth: i32 = 0;
-
-    while i < bytes.len() {
-        let b = bytes[i];
-
-        // Whitespace never produces a value, so it must not disturb
-        // `regex_allowed` (`a /b/` is division, not a regex after the space).
-        if matches!(b, b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c') {
-            i += 1;
-            continue;
-        }
-
-        // Comments: skip without changing the previous significant token.
-        if b == b'/' && bytes.get(i + 1) == Some(&b'/') {
-            i += 2;
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if b == b'/' && bytes.get(i + 1) == Some(&b'*') {
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
-            }
-            i = (i + 2).min(bytes.len());
-            continue;
-        }
-
-        // String / template literal: opaque span. Template interpolation is not
-        // inspected (matching the prior scanner); a literal is a value, so a
-        // following `/` is division.
-        if b == b'\'' || b == b'"' || b == b'`' {
-            let quote = b;
-            i += 1;
-            while i < bytes.len() {
-                let c = bytes[i];
-                if c == b'\\' {
-                    i += 2;
-                    continue;
-                }
-                i += 1;
-                if c == quote {
-                    break;
-                }
-            }
-            regex_allowed = false;
-            continue;
-        }
-
-        // Regex literal in value position: skip `/…/flags`, honoring escapes and
-        // `[…]` character classes (which may contain an unescaped `/`).
-        if b == b'/' && regex_allowed {
-            i += 1;
-            let mut in_class = false;
-            while i < bytes.len() {
-                let c = bytes[i];
-                if c == b'\\' {
-                    i += 2;
-                    continue;
-                }
-                if c == b'\n' {
-                    break; // unterminated literal; stop scanning it
-                }
-                i += 1;
-                match c {
-                    b'[' => in_class = true,
-                    b']' => in_class = false,
-                    b'/' if !in_class => break,
-                    _ => {}
-                }
-            }
-            while i < bytes.len() && is_ident_byte(bytes[i]) {
-                i += 1; // regex flags
-            }
-            regex_allowed = false;
-            continue;
-        }
-
-        // Identifier / keyword.
-        if b == b'_' || b == b'$' || b.is_ascii_alphabetic() {
-            let start = i;
-            while i < bytes.len() && is_ident_byte(bytes[i]) {
-                i += 1;
-            }
-            if &source[start..i] == "await"
-                // Top-level mode: only depth 0 counts, and `await:` is a
-                // label (in sloppy scripts `await` is not reserved), not TLA.
-                && (!top_level_only || (brace_depth == 0 && bytes.get(i) != Some(&b':')))
-            {
-                return true;
-            }
-            // After a value identifier `/` is division; after a keyword that
-            // expects an expression it starts a regex.
-            regex_allowed = keyword_precedes_expression(&source[start..i]);
-            continue;
-        }
-
-        // Braces: track depth for `top_level_only`. Both act like the generic
-        // punctuation below for regex disambiguation (a `/` after `{` or `}`
-        // starts a regex, matching the prior scanner behavior).
-        if b == b'{' {
-            brace_depth += 1;
-            regex_allowed = true;
-            i += 1;
-            continue;
-        }
-        if b == b'}' {
-            brace_depth -= 1;
-            regex_allowed = true;
-            i += 1;
-            continue;
-        }
-
-        // Numeric literal: a value, so a following `/` is division. Consuming a
-        // little loosely (digits, `.`, exponent/hex letters) is fine — we only
-        // need `regex_allowed` to end up false.
-        if b.is_ascii_digit() {
-            i += 1;
-            while i < bytes.len() && (is_ident_byte(bytes[i]) || bytes[i] == b'.') {
-                i += 1;
-            }
-            regex_allowed = false;
-            continue;
-        }
-
-        // Any other punctuation/operator. A `/` after a closing `)`/`]` is
-        // division; after everything else (`= , ( { [ ! ? : ; + - * % < > & | ^`)
-        // it starts a regex.
-        regex_allowed = !matches!(b, b')' | b']');
-        i += 1;
-    }
-    false
-}
-
-/// Keywords after which a `/` begins a regex literal rather than division,
-/// because they syntactically expect an expression to follow. (ENG-23031)
-fn keyword_precedes_expression(word: &str) -> bool {
-    matches!(
-        word,
-        "return"
-            | "typeof"
-            | "instanceof"
-            | "in"
-            | "of"
-            | "new"
-            | "delete"
-            | "void"
-            | "do"
-            | "else"
-            | "yield"
-            | "await"
-            | "case"
-            | "throw"
+    ibex_runtime::module_loader::script_frontend::has_top_level_await(
+        source,
+        Path::new("ibex-evaluation.js"),
     )
-}
-
-fn is_ident_byte(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
 fn digest_field(hasher: &mut Sha256, label: &str, bytes: &[u8]) {
@@ -5409,34 +5551,110 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
 
     let mut cmd = tokio::process::Command::new(&runner);
     cmd.arg(&script);
-    match command {
-        PolicyCommands::Generate { entry, out, mode } => {
-            cmd.arg("--entry").arg(entry);
-            if let Some(out) = out {
-                cmd.arg("--out").arg(out);
-            }
-            if let Some(mode) = mode {
-                cmd.arg("--mode").arg(mode);
-            }
+    let (entry, out, mode, target_profile, target_triple, mount_profile, check) = match command {
+        PolicyCommands::Generate {
+            entry,
+            out,
+            mode,
+            target_profile,
+            target_triple,
+            mount_profile,
+        } => (
+            entry,
+            out,
+            mode,
+            target_profile,
+            target_triple,
+            mount_profile,
+            false,
+        ),
+        PolicyCommands::Check {
+            entry,
+            out,
+            mode,
+            target_profile,
+            target_triple,
+            mount_profile,
+        } => (
+            entry,
+            out,
+            mode,
+            target_profile,
+            target_triple,
+            mount_profile,
+            true,
+        ),
+    };
+    cmd.arg("--entry").arg(entry);
+    if check {
+        cmd.arg("--check");
+    }
+    if let Some(out) = out {
+        cmd.arg("--out").arg(out);
+    }
+    // Forward the mode so check reconstructs the exact committed form.
+    if let Some(mode) = mode {
+        cmd.arg("--mode").arg(mode);
+    }
+    if let Some(profile) = target_profile {
+        cmd.arg("--target-profile").arg(profile);
+    }
+    if let Some(triple) = target_triple {
+        cmd.arg("--target-triple").arg(triple);
+    }
+    if let Some(profile) = mount_profile {
+        cmd.arg("--mount-profile").arg(profile);
+    }
+
+    // Compiled policy identity comes from the same native resolver/artifact
+    // pipeline later consumed by `ibex compile`; the JS authoring pass only
+    // supplies reviewed authority rows and verifies its analyzed bytes against
+    // this immutable snapshot.
+    // @ref LLP 0029#1-command-surface-and-producer-pipeline
+    #[allow(unused_mut)]
+    let mut graph_snapshot_file: Option<tempfile::NamedTempFile> = None;
+    if target_triple.is_some() {
+        #[cfg(feature = "module-runner")]
+        {
+            let producer = crate::module_loader::artifact::digest_bytes(
+                "ibex:policy-graph-capture:1",
+                b"authenticated-graph-snapshot-v1",
+            )?;
+            let captured = crate::module_loader::runner_pipeline::capture_embedded_source_graph_v1(
+                entry, producer,
+            )?;
+            let mut candidate_sets = captured
+                .prepared
+                .candidate_tables
+                .iter()
+                .map(|table| table.graph_projection())
+                .collect::<Result<Vec<_>>>()?;
+            candidate_sets.sort_by_key(|row| {
+                capsec_semantics::canonical::to_jcs_bytes(
+                    &serde_json::to_value(row).expect("candidate projection serializes"),
+                )
+                .expect("candidate projection canonicalizes")
+            });
+            let snapshot = captured
+                .prepared
+                .graph
+                .authenticated_snapshot(candidate_sets)?;
+            let bytes = snapshot.canonical_bytes()?;
+            let file = tempfile::NamedTempFile::new()
+                .context("cannot stage authenticated graph snapshot for policy authoring")?;
+            std::fs::write(file.path(), bytes)?;
+            cmd.arg("--authenticated-graph-snapshot").arg(file.path());
+            graph_snapshot_file = Some(file);
         }
-        PolicyCommands::Check { entry, out, mode } => {
-            cmd.arg("--entry").arg(entry).arg("--check");
-            if let Some(out) = out {
-                cmd.arg("--out").arg(out);
-            }
-            // Forward the mode so the regenerated artifact stamps the same
-            // `mode` the committed one carries — else an audit-mode policy
-            // false-drifts against an enforce-default regeneration. (ENG-22642)
-            if let Some(mode) = mode {
-                cmd.arg("--mode").arg(mode);
-            }
-        }
+        #[cfg(not(feature = "module-runner"))]
+        anyhow::bail!("compiled policy generation requires the module-runner build feature");
     }
     // Inherit stdio: the generator's report is the user-facing output.
     let status = cmd
         .status()
         .await
         .context("failed to spawn the policy generator")?;
+    drop(graph_snapshot_file);
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));
     }
@@ -5694,6 +5912,19 @@ mod tests {
                 .map(|key| (key, std::env::var_os(key)))
                 .collect(),
             )
+        }
+
+        fn clear_closed_startup_environment() -> Self {
+            let guard = Self(
+                ibex_runtime::capsec_registry_generated::CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES
+                    .iter()
+                    .map(|name| (*name, std::env::var_os(name)))
+                    .collect(),
+            );
+            for (name, _) in &guard.0 {
+                std::env::remove_var(name);
+            }
+            guard
         }
     }
 
@@ -6001,6 +6232,7 @@ mod tests {
                     content_digest: registry_artifact.content_digest,
                 },
             ],
+            embedded_protected_artifacts: Vec::new(),
         };
         let snapshot_path = directory.join("armed.json");
         let identity_path = directory.join("identity.json");
@@ -6013,8 +6245,12 @@ mod tests {
         (snapshot_path, identity_path, digest)
     }
 
-    #[test]
-    fn armed_startup_requires_paired_artifacts() {
+    #[tokio::test]
+    async fn armed_startup_requires_paired_artifacts() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::clear_closed_startup_environment();
         let cli = Cli::parse_from(["ibex", "--capsec-armed-snapshot", "snapshot.json", "app.ts"]);
         let error = build_host(&cli)
             .err()
@@ -7295,37 +7531,6 @@ mod tests {
     }
 
     #[test]
-    fn await_detection_ignores_strings_and_comments() {
-        assert!(contains_await_keyword("const x = await f();"));
-        assert!(contains_await_keyword("for (const y of z) { await y; }"));
-        assert!(!contains_await_keyword("console.log(\"await\")"));
-        assert!(!contains_await_keyword("// await in a comment"));
-        assert!(!contains_await_keyword("/* await */ let a = 1;"));
-        assert!(!contains_await_keyword("let awaited = `await ${'await'}`;"));
-        assert!(!contains_await_keyword("let kawaii = 1;"));
-    }
-
-    #[test]
-    fn await_detection_skips_regex_literals() {
-        // `await` inside a regex literal is not a keyword — the scanner must not
-        // report TLA (which would move a `var`/function binding into an async
-        // IIFE and drop it from the global scope). (ENG-23031)
-        assert!(!contains_await_keyword("var re = /await/g"));
-        assert!(!contains_await_keyword("var re = /(await)/"));
-        assert!(!contains_await_keyword("const re = /a\\/await/;"));
-        assert!(!contains_await_keyword("var re = /[/await]/"));
-        assert!(!contains_await_keyword("x.replace(/await/g, '')"));
-        assert!(!contains_await_keyword("return /await/.test(s)"));
-
-        // A `/` after a value is division, so a real `await` following it is
-        // still detected (the regex heuristic must not swallow later code).
-        assert!(contains_await_keyword("var q = a / b; await c"));
-        assert!(contains_await_keyword("var q = /re/.source; await c"));
-        // `typeof x` is a value, so `/ await y` is a division then a real await.
-        assert!(contains_await_keyword("typeof x / await y"));
-    }
-
-    #[test]
     fn tla_wrap_binds_filename_for_import_meta_lowering() {
         let wrapped = wrap_source_for_tla_eval(
             std::borrow::Cow::Borrowed("console.log((\"file://\" + __filename));\nawait 1;"),
@@ -7460,7 +7665,7 @@ mod tests {
         // `await` inside a depth-0 regex literal is not TLA — the false
         // positive flipped the bundle format CJS→ESM and hard-failed valid
         // apps that merely declared a regex mentioning `await`. (ENG-23484;
-        // mirrors the ENG-23031 fix for contains_await_keyword.)
+        // Oxc now owns both regex recognition and TLA context.)
         assert!(!contains_top_level_await("const RE = /(await)/;"));
         assert!(!contains_top_level_await("var re = /await/g"));
         assert!(!contains_top_level_await("const re = /a\\/await/;"));
@@ -7474,10 +7679,11 @@ mod tests {
 
     #[test]
     fn top_level_await_detection_keeps_depth_and_context_rules() {
-        // Depth: only brace depth 0 is top-level.
+        // A top-level control-flow block remains part of the top-level module
+        // execution context; the retired brace-depth scanner got this wrong.
         assert!(contains_top_level_await("await x;"));
         assert!(contains_top_level_await("const v = await f();"));
-        assert!(!contains_top_level_await("if (x) { await y; }"));
+        assert!(contains_top_level_await("if (x) { await y; }"));
         assert!(!contains_top_level_await(
             "class C { async m() { await x; } }"
         ));

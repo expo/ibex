@@ -5,7 +5,7 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
+**Revised:** 2026-07-17 (LLP 0029 compiled mount profile adds typed `app`/`work` roots, metadata-only `/app`, optional authenticated `/work`, the `ibex:cwd:unset` sentinel, and stable compiled path errors in §1.3); 2026-07-17 (LLP 0029 carrier v2 changes only physical engine binding and preserves original-module SourceId provenance); 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
 (round-8 dual-model review, **terminal** — both NOT READY,
 reconciled as a **ledger-and-stop**, the honest end of the loop. Fable and Codex
 converged on substance ("everything architectural, safety-relevant, and ledger-relevant
@@ -154,9 +154,10 @@ ownership — worker locality of retained identities)
 
 ## Summary
 
-Armed Ibex gives JavaScript a **virtual absolute path namespace** rooted at
-`/`, with `/project` as its only initial mount, backed by the authenticated
-project-root binding. JavaScript never sees a host path. Relative paths resolve
+Source-mode armed Ibex gives JavaScript a **virtual absolute path namespace** rooted at
+`/`, with `/project` as the `project-v1` profile's only initial mount, backed by the authenticated
+project-root binding. Compiled executables use the distinct `compiled-app-work-v1`
+profile in §1.3. JavaScript never sees a host path. Relative paths resolve
 from a virtual **resolution base** that is per-runtime session state owned by the
 root principal, held natively as a retained platform identity rather than as a
 mutable JavaScript value.
@@ -241,7 +242,7 @@ paths, they must adopt this contract rather than invent a second one.
 
 ### 1. The mount table, the project root, and package bindings
 
-The armed namespace has one initial mount:
+The source-execution `project-v1` namespace has one initial mount:
 
 | Virtual path | Armed binding | Purpose |
 | --- | --- | --- |
@@ -262,7 +263,7 @@ to code that project will later execute), and under the spelling `/home` it woul
 additionally shadow the most common Linux host-path prefix, turning a habitual
 host spelling into an in-mount `ENOENT` instead of a clear namespace error.
 
-Any future mount — `/tmp`, `/state`, or another — requires an update to this
+Any future source-profile mount — `/tmp`, `/state`, or another — requires an update to this
 document specifying its isolation, lifecycle, write policy, and relationship to
 internal caches. Adding a mount is a security decision, not a configuration
 detail.
@@ -479,6 +480,49 @@ the mount table.
 Note that an in-project content-addressed store means two *different* packages
 can contain byte-identical files that the store hard-links to **one inode**.
 §2.3's module identity is built to survive that.
+
+#### 1.3 Compiled mount profile: `/app`, optional `/work`, and unset cwd
+
+`compiled-app-work-v1` is a distinct mount profile, not a reinterpretation of
+`project-v1`. Its typed logical-root vocabulary adds `app` and `work`; a canonical
+compiled policy may use only `app`, `work`, or an explicit host-bound `absolute`
+root. A `project`, `package`, `home`, or `tmp` logical root in any positive,
+denial, or ceiling authority is a packaging refusal. In particular, a reviewed
+project-root grant is never silently translated to the launch directory.
+
+The compiled namespace table is:
+
+| Virtual path | Binding | Attributes | Purpose |
+| --- | --- | --- | --- |
+| `/app` | authenticated embedded graph/source labels | immutable, metadata-only, no host object, no symlinks | module identity, diagnostics, `import.meta.url`, `__filename`/`__dirname`, and source maps |
+| `/work` | authenticated launch-directory object, when admitted | optional, ordinary LLP 0023 containment and symlink rules | application filesystem effects and the only compiled relative-resolution base |
+
+`/app` is present as namespace metadata but is **not a filesystem mount** in v1.
+The envelope has no asset inventory, so every filesystem operation whose normalized
+path falls at or below `/app` fails before host access with
+`ERR_IBEX_COMPILED_APP_NOT_FILESYSTEM`. This is distinct from `ENOENT`: the runtime
+knows that the path names the embedded diagnostic namespace, not an absent host
+file. Adding embedded assets requires a format and policy revision; an implementation
+must not make source-relative asset reads work accidentally by consulting the build
+tree.
+
+`/work` exists only when boot receives an authenticated work-directory binding under
+the embedded policy. Whether the first release authors that authority implicitly or
+requires an explicit row is LLP 0029 decision-register item 1; this contract takes
+the resulting boolean/binding as input and does not decide the default. When mounted,
+the initial authenticated cwd view and relative-resolution base are both `/work`.
+When absent, both are unset: `process.cwd()` returns the reserved non-path sentinel
+`ibex:cwd:unset`, and a relative filesystem path or `chdir` fails before path
+formation with `ERR_IBEX_COMPILED_CWD_UNSET`. An absolute `/work/...` path receives
+the same error when the mount is absent. No fallback to the OS cwd, `/`, `/app`, or
+the packager's source tree is permitted.
+
+Normalization remains §3's root-wide lexical normalization. It does not clamp `..`
+at the mount boundary: from mounted `/work`, `../etc` normalizes to `/etc` and then
+fails `ERR_IBEX_OUTSIDE_MOUNT`. `/` remains the synthetic namespace root. Its fixed
+compiled listing is `app`, followed by `work` only when that optional mount exists.
+The source profile's project discovery and package bindings do not run in compiled
+mode; embedded modules carry `/app` labels from the authenticated graph instead.
 
 ### 2. Identity versus spelling
 
@@ -1814,7 +1858,9 @@ lower-numbered row; the order below is what a fixture asserts:
 | 1 | **closed operation** (`symlink`, `link`, `rename`, `unlink`, `rmdir`, `cp`/`copyFile`, `watch`, recursive `mkdir`) | `EPERM` | §4.1 — the operation is refused before any path work, so it precedes even namespace classification |
 | 2 | malformed / unsupported adapter input | `ERR_INVALID_ARG_VALUE` | non-UTF-8, empty path, lone surrogate (§3) |
 | 3 | encoded separator in a file URL | `ERR_INVALID_FILE_URL_PATH` | `%2F` (§3) |
+| 3a | compiled cwd / `/work` mount is unset | `ERR_IBEX_COMPILED_CWD_UNSET` | §1.3 — a relative path has no base; no host cwd is consulted |
 | 4 | virtual path outside every mount | `ERR_IBEX_OUTSIDE_MOUNT` | distinct from `ENOENT`; message enumerates the mount table. **No host lookup has happened yet.** |
+| 4a | compiled `/app` used as a filesystem path | `ERR_IBEX_COMPILED_APP_NOT_FILESYSTEM` | §1.3 — the embedded namespace has no v1 asset inventory or host backing |
 | 5 | synthetic node (operation needs a retained object on `/`) | `ERR_IBEX_SYNTHETIC_NODE` | §5.2 — a genuinely novel condition gets a novel code, per this document's own rule; it presents `EINVAL` as its `errno` for Node compatibility |
 | 6 | policy denial | `EACCES` | carries a safe decision identifier |
 | 7 | resource absent | `ENOENT` | ordinary Node absence — **only after the authorization that would have denied it** |
@@ -2072,7 +2118,7 @@ not survive reading past the quoted line.
 | `OBL-OCCURRENCE-PROJECTION` | Project the resource into **each constrained principal's own binding**; carry an exact `{principal → projected resource}` map whose key set equals the constrained set; key the cache on **principal-resource pairs**; and make the **requested-stage** projection lexical (no I/O), which requires each binding to carry an authenticated virtual prefix (§2.2). Without it, a package's own grant structurally authorizes an occurrence on **another** package's file. **AC 20a is gated on this row.** | **LLP 0021** | no | `commit:3060574776a3` |
 | `OBL-OBJECT-STATE` | Admit an `Unknown` object state at the requested stage, so a NamespacePath is expressible and existence is not speculated (§2.1) — model, schema, ABI, digest and cache vectors together | **LLP 0021** | no | `commit:3060574776a3` |
 | `OBL-SOURCE-ID` | The `SourceId` algebra of §2.3 — its per-kind constructor (**including the root/project arm**), canonical wire encoding, equality, collision domain, the **query/fragment strip** decision, and its separation from the pinned `SourceLabel` | **LLP 0021** + this document | **yes** — canonical `SourceId` is carried through the native/JS record boundary and keys armed runtime records | `commit:13d5c4663003` |
-| `OBL-SOURCE-PROVENANCE` | A **digest-bound provenance manifest** carrying a `SourceId` per **original** module through bundling, caching, and bytecode, produced from authenticated graph/binding data, plus the runtime original-module registry that makes a later raw load return the already-instantiated bundled module (§2.3). *Owner corrected:* this is artifact provenance, not the Hermes compat transform, so it is **not** LLP 0019's subject. | **LLP 0021** + bundler | **yes** — `ibex/module-carrier/1` carries and admits each original module's complete semantics/`SourceId` through source and HBC carriers; `ibex/prepared-module-graph/1` publishes authenticated bindings in the existing Rolldown cache and the native linker keys records by those original SourceIds | `commit:c6d2aefe`, ENG-25064 |
+| `OBL-SOURCE-PROVENANCE` | A **digest-bound provenance manifest** carrying a `SourceId` per **original** module through bundling, caching, and bytecode, produced from authenticated graph/binding data, plus the runtime original-module registry that makes a later raw load return the already-instantiated bundled module (§2.3). *Owner corrected:* this is artifact provenance, not the Hermes compat transform, so it is **not** LLP 0019's subject. | **LLP 0021** + bundler | **yes** — `ibex/module-carrier/2` carries and admits each original module's complete semantics/`SourceId` through source and HBC carriers; `ibex/prepared-module-graph/2` publishes authenticated bindings and computed-candidate sidecar references in the existing Rolldown cache and the native linker keys records by those original SourceIds | `commit:c6d2aefe`, ENG-25064; LLP 0028 candidate-table revision; LLP 0029 carrier-v2 revision |
 | `OBL-OBJECT-GENERATION` | Name the platform primitive supplying the retained object's **verification generation** (`st_gen` in `sys/stat.h`, or `ATTR_CMN_GEN_COUNT` via `getattrlist` — the real macOS identifiers, not the `ATTR_CMNGEN` a prior draft misnamed), and the fallback where none is reliable (§2.3) | **LLP 0021** | no | `commit:3060574776a3` |
 | `OBL-OBJECT-BOUND-MUTATION` | The object-bound protocols and concurrency threat model required to **reopen** symlink/hard-link creation, rename, removal (incl. recursive), `cp`/`copyFile`, `watch`, and recursive `mkdir` — all closed in v1 (§4.1). POSIX offers no object-bound `renameat`/`linkat` operand; a reopening must name the primitive (e.g. `linkat(..., AT_EMPTY_PATH)`) and the platforms that provide it. LLP 0021 lists `copy` in its *closed* set (`0021:688-690`) — kept closed here, so no divergence — but a reopening must move it there in the same change. | **LLP 0021** | no | `sha256:daa9a6823b00` (0021) |
 | `OBL-MKDIR-ROLLBACK` | §4.1 makes non-recursive `mkdir` a bare atomic `mkdirat` with **no** name-bound rollback (the rollback is a verify-then-`unlinkat` TOCTOU). LLP 0021 still specifies mkdir to "commit the opened directory identity, **rolling the new directory back if commit fails**" (`0021:678-687`), and the shipped code implements that (`hermes_runtime_fs.cc:732,740`). LLP 0021 must **retire the mkdir rollback** in the same change — the untracked contradiction the round-7 review surfaced, filed here parallel to the `copy` note above. | **LLP 0021** | no | `sha256:daa9a6823b00` (0021) |
@@ -2335,6 +2381,16 @@ vendored-generated builtins run the same fixtures. All armed execution modes
     `/project/secrets` — i.e. canonicalizing the occurrence alone, which would break
     the grant, is asserted not to happen. The canonicalizer's version is bound into
     the snapshot digest, and changing it changes the armed identity.
+28. **Compiled mount profile (§1.3):** compiled policy authoring and strict Rust
+    ingestion reject every project/package/home/tmp-rooted authority and every
+    target/mount-profile mismatch. `/app/x` fails with
+    `ERR_IBEX_COMPILED_APP_NOT_FILESYSTEM` without a host lookup. With no `/work`
+    binding, `process.cwd()` yields exactly `ibex:cwd:unset`, relative paths and
+    `chdir` fail with `ERR_IBEX_COMPILED_CWD_UNSET`, and absolute `/work/x` fails
+    identically. With an authenticated `/work` binding, cwd is `/work`, relative
+    normalization resolves there, and `../etc` escapes to the namespace root then
+    fails outside-mount. Relocating or deleting the source checkout does not change
+    any result.
 
 ## Consequences
 
@@ -2389,6 +2445,9 @@ vendored-generated builtins run the same fixtures. All armed execution modes
   three deliberate v1 narrowings in favor of the disclosure and containment rules.
 - Physical (`open()`-style) `..` semantics are not reproduced; lexical collapse is
   the documented behavior.
+- Compiled mode has no `/project` binding and never treats `/app` as an asset
+  filesystem. Optional `/work` is the sole host-backed compiled mount; absent it,
+  cwd is explicitly unset rather than fabricated from process state.
 
 ## Open questions
 

@@ -30,6 +30,27 @@ function principal(floor = []) {
   };
 }
 
+function policyBinding(overrides = {}) {
+  return {
+    graphIdentity: packageIntegrity('authenticated graph'),
+    entryIdentity: {
+      root: 'project',
+      components: [{ encoding: 'utf8', value: 'src' }, { encoding: 'utf8', value: 'app.mjs' }],
+      sourceIntegrity: packageIntegrity('entry source'),
+    },
+    targetProfile: { kind: 'compiled', profile: 'sfe-v1', targetTriple: 'aarch64-apple-darwin' },
+    mountProfile: 'compiled-app-work-v1',
+    rootCeiling: [],
+    computedCandidates: {
+      schema: 'ibex/computed-candidate-manifest/1',
+      declarations: [],
+      packageClosureOptIns: [],
+      materializedSites: [],
+    },
+    ...overrides,
+  };
+}
+
 test('buildCanonicalPolicy emits deterministic typed rows and a self-digest', () => {
   const row = {
     authority,
@@ -42,6 +63,87 @@ test('buildCanonicalPolicy emits deterministic typed rows and a self-digest', ()
   expect(first.principals[0].floor).toHaveLength(1);
   expect(first.policyDigest).toMatch(/^sha256-/);
 }, 30_000);
+
+test('policy v2 binds graph, entry, deployment profile, root ceiling, and candidate closure', () => {
+  const candidateManifest = {
+    schema: 'ibex/computed-candidate-manifest/1',
+    declarations: [{
+      requester: 'src/app.mjs',
+      label: 'plugins',
+      specifiers: ['./local-plugin.mjs'],
+      packageClosures: ['image-lib@1.0.0'],
+    }],
+    packageClosureOptIns: [{
+      package: 'image-lib@1.0.0',
+      provenance: [{
+        kind: 'direct',
+        source: 'image-lib@1.0.0/package.json#ibex.computedCandidateClosure',
+      }],
+    }],
+    materializedSites: [{
+      requester: 'src/app.mjs',
+      label: 'plugins',
+      candidates: ['image-lib', './local-plugin.mjs'],
+    }],
+  };
+  const binding = policyBinding({
+    rootCeiling: [{
+      authority: {
+        ...authority,
+        resource: {
+          ...authority.resource,
+          path: { ...authority.resource.path, root: 'work' },
+        },
+      },
+      provenance: [{ kind: 'direct', source: 'package.json#ibex.rootAuthorityCeiling' }],
+    }],
+    computedCandidates: candidateManifest,
+  });
+  const policy = buildCanonicalPolicy([principal()], binding);
+  expect(policy.policySchema).toBe('ibex/capsec-policy/2');
+  expect(policy.graphIdentity).toBe(binding.graphIdentity);
+  expect(policy.entryIdentity).toEqual(binding.entryIdentity);
+  expect(policy.targetProfile).toEqual(binding.targetProfile);
+  expect(policy.mountProfile).toBe('compiled-app-work-v1');
+  expect(policy.rootCeiling).toHaveLength(1);
+  expect(policy.computedCandidates.materializedSites[0].candidates)
+    .toEqual(['./local-plugin.mjs', 'image-lib']);
+
+  const widened = structuredClone(binding);
+  widened.computedCandidates.materializedSites[0].candidates.push('./optional-plugin.mjs');
+  const drift = classifyPolicyDrift(policy, buildCanonicalPolicy([principal()], widened));
+  expect(drift.classification).toBe('expansion');
+  expect(drift.expansions).toEqual([
+    'src/app.mjs#plugins: computed candidate ./optional-plugin.mjs',
+  ]);
+});
+
+test('compiled policy rejects project-root authority and target/mount skew', () => {
+  const row = {
+    authority,
+    provenance: [{ kind: 'import-site', source: 'src/app.mjs:1' }],
+  };
+  expect(() => buildCanonicalPolicy([principal([row])], policyBinding()))
+    .toThrow(/unavailable logical root project/);
+  expect(() => buildCanonicalPolicy([], policyBinding({ mountProfile: 'project-v1' })))
+    .toThrow(/requires mount profile compiled-app-work-v1/);
+});
+
+test('policy v2 refuses a package-closure declaration without exact package opt-in', () => {
+  expect(() => buildCanonicalPolicy([], policyBinding({
+    computedCandidates: {
+      schema: 'ibex/computed-candidate-manifest/1',
+      declarations: [{
+        requester: 'src/app.mjs',
+        label: 'plugins',
+        specifiers: [],
+        packageClosures: ['image-lib@1.0.0'],
+      }],
+      packageClosureOptIns: [],
+      materializedSites: [{ requester: 'src/app.mjs', label: 'plugins', candidates: ['image-lib'] }],
+    },
+  }))).toThrow(/has no package opt-in/);
+});
 
 test('buildCanonicalPolicy rejects action/resource mismatches', () => {
   const bad = { ...authority, cap: 'network:fetch' };

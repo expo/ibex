@@ -99121,6 +99121,105 @@
       ]
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy",
+      "observedKey": "cli:argument-parser:ibex%20compile:compile_policy:os-path",
+      "branchId": "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20compile:compile_policy:os-path"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:compile_policy:os-path"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:compile_policy:os-path"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20compile:compile_policy:os-path"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:compile_policy:os-path"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy.main.cannot-widen-authority",
+        "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy.main.non-capability",
+        "surface.cli.argument.parser.ibex.20compile.compile.policy.os.path.0zmsspy.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka",
+      "observedKey": "cli:argument-parser:ibex%20compile:entry:os-path",
+      "branchId": "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20compile:entry:os-path"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:entry:os-path"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:entry:os-path"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20compile:entry:os-path"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:entry:os-path"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka.main.cannot-widen-authority",
+        "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka.main.non-capability",
+        "surface.cli.argument.parser.ibex.20compile.entry.os.path.18bncka.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3",
+      "observedKey": "cli:argument-parser:ibex%20compile:output:os-path",
+      "branchId": "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20compile:output:os-path"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:output:os-path"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:output:os-path"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20compile:output:os-path"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex compile:output:os-path"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3.main.cannot-widen-authority",
+        "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3.main.non-capability",
+        "surface.cli.argument.parser.ibex.20compile.output.os.path.0h1zfo3.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.20eval.code.utf8.string.04w813p",
       "observedKey": "cli:argument-parser:ibex%20eval:code:utf8-string",
       "branchId": "surface.cli.argument.parser.ibex.20eval.code.utf8.string.04w813p.main",
@@ -99149,6 +99248,39 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.argument.parser.ibex.20eval.code.utf8.string.04w813p.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4",
+      "observedKey": "cli:argument-parser:ibex%20inspect-executable:file:os-path",
+      "branchId": "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20inspect-executable:file:os-path"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex inspect-executable:file:os-path"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex inspect-executable:file:os-path"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20inspect-executable:file:os-path"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex inspect-executable:file:os-path"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4.main.cannot-widen-authority",
+        "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4.main.non-capability",
+        "surface.cli.argument.parser.ibex.20inspect.executable.file.os.path.0iusmb4.main.post-lockdown-invariant"
       ]
     },
     {
@@ -99214,6 +99346,37 @@
       ]
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u",
+      "observedKey": "cli:argument-parser:ibex%20policy%20check:mount_profile:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20policy%20check:mount_profile:utf8-string"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:mount_profile:utf8-string"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:mount_profile:utf8-string"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20policy%20check:mount_profile:utf8-string"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:mount_profile:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20policy.20check.mount.profile.utf8.string.1kkjz0u.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.out.os.path.0gn6aus",
       "observedKey": "cli:argument-parser:ibex%20policy%20check:out:os-path",
       "branchId": "surface.cli.argument.parser.ibex.20policy.20check.out.os.path.0gn6aus.main",
@@ -99242,6 +99405,68 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.argument.parser.ibex.20policy.20check.out.os.path.0gn6aus.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju",
+      "observedKey": "cli:argument-parser:ibex%20policy%20check:target_profile:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20policy%20check:target_profile:utf8-string"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:target_profile:utf8-string"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:target_profile:utf8-string"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20policy%20check:target_profile:utf8-string"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:target_profile:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20policy.20check.target.profile.utf8.string.0lqoaju.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej",
+      "observedKey": "cli:argument-parser:ibex%20policy%20check:target_triple:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20policy%20check:target_triple:utf8-string"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:target_triple:utf8-string"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:target_triple:utf8-string"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20policy%20check:target_triple:utf8-string"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy check:target_triple:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20policy.20check.target.triple.utf8.string.1xzxyej.main.non-capability"
       ]
     },
     {
@@ -99307,6 +99532,37 @@
       ]
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx",
+      "observedKey": "cli:argument-parser:ibex%20policy%20generate:mount_profile:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20policy%20generate:mount_profile:utf8-string"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:mount_profile:utf8-string"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:mount_profile:utf8-string"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20policy%20generate:mount_profile:utf8-string"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:mount_profile:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.mount.profile.utf8.string.04t6xpx.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.out.os.path.1tp9rkz",
       "observedKey": "cli:argument-parser:ibex%20policy%20generate:out:os-path",
       "branchId": "surface.cli.argument.parser.ibex.20policy.20generate.out.os.path.1tp9rkz.main",
@@ -99335,6 +99591,68 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.argument.parser.ibex.20policy.20generate.out.os.path.1tp9rkz.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn",
+      "observedKey": "cli:argument-parser:ibex%20policy%20generate:target_profile:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20policy%20generate:target_profile:utf8-string"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:target_profile:utf8-string"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:target_profile:utf8-string"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20policy%20generate:target_profile:utf8-string"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:target_profile:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.target.profile.utf8.string.0jwx7bn.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao",
+      "observedKey": "cli:argument-parser:ibex%20policy%20generate:target_triple:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao.main",
+      "enforcementBranchId": "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:argument-parser:ibex%20policy%20generate:target_triple:utf8-string"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:target_triple:utf8-string"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:target_triple:utf8-string"
+        ],
+        "terminalObservedKey": "cli:argument-parser:ibex%20policy%20generate:target_triple:utf8-string"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex policy generate:target_triple:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20policy.20generate.target.triple.utf8.string.123n9ao.main.non-capability"
       ]
     },
     {
@@ -100144,6 +100462,39 @@
       ]
     },
     {
+      "edgeId": "surface.cli.command.ibex.20compile.0fxtfv8",
+      "observedKey": "cli:command:ibex%20compile",
+      "branchId": "surface.cli.command.ibex.20compile.0fxtfv8.main",
+      "enforcementBranchId": "surface.cli.command.ibex.20compile.0fxtfv8.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:command:ibex%20compile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile"
+        ],
+        "terminalObservedKey": "cli:command:ibex%20compile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.command.ibex.20compile.0fxtfv8.main.cannot-widen-authority",
+        "surface.cli.command.ibex.20compile.0fxtfv8.main.non-capability",
+        "surface.cli.command.ibex.20compile.0fxtfv8.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.cli.command.ibex.20completions.0y14t12",
       "observedKey": "cli:command:ibex%20completions",
       "branchId": "surface.cli.command.ibex.20completions.0y14t12.main",
@@ -100265,6 +100616,39 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.cli.command.ibex.20eval.1b2f8xx.main.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.command.ibex.20inspect.executable.0hlqzqc",
+      "observedKey": "cli:command:ibex%20inspect-executable",
+      "branchId": "surface.cli.command.ibex.20inspect.executable.0hlqzqc.main",
+      "enforcementBranchId": "surface.cli.command.ibex.20inspect.executable.0hlqzqc.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:command:ibex%20inspect-executable"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable"
+        ],
+        "terminalObservedKey": "cli:command:ibex%20inspect-executable"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.command.ibex.20inspect.executable.0hlqzqc.main.cannot-widen-authority",
+        "surface.cli.command.ibex.20inspect.executable.0hlqzqc.main.non-capability",
+        "surface.cli.command.ibex.20inspect.executable.0hlqzqc.main.post-lockdown-invariant"
       ]
     },
     {
@@ -100519,6 +100903,39 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.compat.1cae0kr.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.compile.186d216",
+      "observedKey": "cli:compile",
+      "branchId": "surface.cli.compile.186d216.main",
+      "enforcementBranchId": "surface.cli.compile.186d216.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:compile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#visibleCommands"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#visibleCommands"
+        ],
+        "terminalObservedKey": "cli:compile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#visibleCommands"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.compile.186d216.main.cannot-widen-authority",
+        "surface.cli.compile.186d216.main.non-capability",
+        "surface.cli.compile.186d216.main.post-lockdown-invariant"
       ]
     },
     {
@@ -100798,6 +101215,39 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.init.15im7kn.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.inspect.executable.08svsoi",
+      "observedKey": "cli:inspect-executable",
+      "branchId": "surface.cli.inspect.executable.08svsoi.main",
+      "enforcementBranchId": "surface.cli.inspect.executable.08svsoi.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:inspect-executable"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#visibleCommands"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#visibleCommands"
+        ],
+        "terminalObservedKey": "cli:inspect-executable"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#visibleCommands"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.inspect.executable.08svsoi.main.cannot-widen-authority",
+        "surface.cli.inspect.executable.08svsoi.main.non-capability",
+        "surface.cli.inspect.executable.08svsoi.main.post-lockdown-invariant"
       ]
     },
     {
@@ -103715,6 +104165,699 @@
       ]
     },
     {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.0s51s14",
+      "observedKey": "cli:option:ibex%20compile:carrier",
+      "branchId": "surface.cli.option.ibex.20compile.carrier.0s51s14.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.carrier.0s51s14.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:carrier"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:carrier"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.carrier.0s51s14.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.carrier.0s51s14.main.non-capability",
+        "surface.cli.option.ibex.20compile.carrier.0s51s14.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m",
+      "observedKey": "cli:option:ibex%20compile:carrier:action:Set",
+      "branchId": "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:carrier:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:carrier:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m.main.non-capability",
+        "surface.cli.option.ibex.20compile.carrier.action.set.09jla3m.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j",
+      "observedKey": "cli:option:ibex%20compile:carrier:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:carrier:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:carrier:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j.main.non-capability",
+        "surface.cli.option.ibex.20compile.carrier.arity.1.1.00xj53j.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a",
+      "observedKey": "cli:option:ibex%20compile:carrier:default:hbc",
+      "branchId": "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:carrier:default:hbc"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:carrier:default:hbc"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a.main.non-capability",
+        "surface.cli.option.ibex.20compile.carrier.default.hbc.1leyl5a.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi",
+      "observedKey": "cli:option:ibex%20compile:carrier:enum:factory-table",
+      "branchId": "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:carrier:enum:factory-table"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:carrier:enum:factory-table"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi.main.non-capability",
+        "surface.cli.option.ibex.20compile.carrier.enum.factory.table.0qvn5vi.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui",
+      "observedKey": "cli:option:ibex%20compile:carrier:enum:hbc",
+      "branchId": "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:carrier:enum:hbc"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:carrier:enum:hbc"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui.main.non-capability",
+        "surface.cli.option.ibex.20compile.carrier.enum.hbc.0z7fwui.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf",
+      "observedKey": "cli:option:ibex%20compile:carrier:value-name:CARRIER",
+      "branchId": "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:carrier:value-name:CARRIER"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:carrier:value-name:CARRIER"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf.main.non-capability",
+        "surface.cli.option.ibex.20compile.carrier.value.name.carrier.102gtaf.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.12a3d7o",
+      "observedKey": "cli:option:ibex%20compile:compile_policy",
+      "branchId": "surface.cli.option.ibex.20compile.compile.policy.12a3d7o.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.compile.policy.12a3d7o.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:compile_policy"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:compile_policy"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.compile.policy.12a3d7o.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.compile.policy.12a3d7o.main.non-capability",
+        "surface.cli.option.ibex.20compile.compile.policy.12a3d7o.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa",
+      "observedKey": "cli:option:ibex%20compile:compile_policy:action:Set",
+      "branchId": "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:compile_policy:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:compile_policy:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa.main.non-capability",
+        "surface.cli.option.ibex.20compile.compile.policy.action.set.17cztxa.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz",
+      "observedKey": "cli:option:ibex%20compile:compile_policy:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:compile_policy:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:compile_policy:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz.main.non-capability",
+        "surface.cli.option.ibex.20compile.compile.policy.arity.1.1.072xhgz.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb",
+      "observedKey": "cli:option:ibex%20compile:compile_policy:value-name:FILE",
+      "branchId": "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:compile_policy:value-name:FILE"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:compile_policy:value-name:FILE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb.main.non-capability",
+        "surface.cli.option.ibex.20compile.compile.policy.value.name.file.02rf7fb.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu",
+      "observedKey": "cli:option:ibex%20compile:deny_unsupported",
+      "branchId": "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:deny_unsupported"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:deny_unsupported"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu.main.non-capability",
+        "surface.cli.option.ibex.20compile.deny.unsupported.057lkpu.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio",
+      "observedKey": "cli:option:ibex%20compile:deny_unsupported:action:SetTrue",
+      "branchId": "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:deny_unsupported:action:SetTrue"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:deny_unsupported:action:SetTrue"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio.main.non-capability",
+        "surface.cli.option.ibex.20compile.deny.unsupported.action.settrue.13z0hio.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1",
+      "observedKey": "cli:option:ibex%20compile:deny_unsupported:arity:0:0",
+      "branchId": "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:deny_unsupported:arity:0:0"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:deny_unsupported:arity:0:0"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1.main.non-capability",
+        "surface.cli.option.ibex.20compile.deny.unsupported.arity.0.0.1l2ghb1.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00",
+      "observedKey": "cli:option:ibex%20compile:deny_unsupported:default:false",
+      "branchId": "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:deny_unsupported:default:false"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:deny_unsupported:default:false"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00.main.non-capability",
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.false.0na6u00.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2",
+      "observedKey": "cli:option:ibex%20compile:deny_unsupported:default-missing:true",
+      "branchId": "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:deny_unsupported:default-missing:true"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:deny_unsupported:default-missing:true"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2.main.non-capability",
+        "surface.cli.option.ibex.20compile.deny.unsupported.default.missing.true.0nm57m2.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld",
+      "observedKey": "cli:option:ibex%20compile:deny_unsupported:value-name:DENY_UNSUPPORTED",
+      "branchId": "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:deny_unsupported:value-name:DENY_UNSUPPORTED"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:deny_unsupported:value-name:DENY_UNSUPPORTED"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld.main.non-capability",
+        "surface.cli.option.ibex.20compile.deny.unsupported.value.name.deny.unsupported.147ygld.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.0raigyp",
+      "observedKey": "cli:option:ibex%20compile:output",
+      "branchId": "surface.cli.option.ibex.20compile.output.0raigyp.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.output.0raigyp.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:output"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:output"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.output.0raigyp.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.output.0raigyp.main.non-capability",
+        "surface.cli.option.ibex.20compile.output.0raigyp.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1",
+      "observedKey": "cli:option:ibex%20compile:output:action:Set",
+      "branchId": "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:output:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:output:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1.main.non-capability",
+        "surface.cli.option.ibex.20compile.output.action.set.1rxm7y1.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm",
+      "observedKey": "cli:option:ibex%20compile:output:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:output:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:output:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm.main.non-capability",
+        "surface.cli.option.ibex.20compile.output.arity.1.1.1av3phm.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x",
+      "observedKey": "cli:option:ibex%20compile:output:value-name:OUTPUT",
+      "branchId": "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20compile:output:value-name:OUTPUT"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20compile:output:value-name:OUTPUT"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x.main.cannot-widen-authority",
+        "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x.main.non-capability",
+        "surface.cli.option.ibex.20compile.output.value.name.output.0xvh65x.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.cli.option.ibex.20policy.20check.entry.1l9i2xe",
       "observedKey": "cli:option:ibex%20policy%20check:entry",
       "branchId": "surface.cli.option.ibex.20policy.20check.entry.1l9i2xe.main",
@@ -103963,6 +105106,130 @@
       ]
     },
     {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1",
+      "observedKey": "cli:option:ibex%20policy%20check:mount_profile",
+      "branchId": "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:mount_profile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:mount_profile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.0idiiy1.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5",
+      "observedKey": "cli:option:ibex%20policy%20check:mount_profile:action:Set",
+      "branchId": "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:mount_profile:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:mount_profile:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.action.set.1alk3r5.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2",
+      "observedKey": "cli:option:ibex%20policy%20check:mount_profile:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:mount_profile:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:mount_profile:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.arity.1.1.0bitcg2.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7",
+      "observedKey": "cli:option:ibex%20policy%20check:mount_profile:value-name:MOUNT_PROFILE",
+      "branchId": "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:mount_profile:value-name:MOUNT_PROFILE"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:mount_profile:value-name:MOUNT_PROFILE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.mount.profile.value.name.mount.profile.092m0t7.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.option.ibex.20policy.20check.out.0lfulwu",
       "observedKey": "cli:option:ibex%20policy%20check:out",
       "branchId": "surface.cli.option.ibex.20policy.20check.out.0lfulwu.main",
@@ -104084,6 +105351,254 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.option.ibex.20policy.20check.out.value.name.out.0rmxrmd.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp",
+      "observedKey": "cli:option:ibex%20policy%20check:target_profile",
+      "branchId": "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:target_profile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:target_profile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.0bhllsp.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl",
+      "observedKey": "cli:option:ibex%20policy%20check:target_profile:action:Set",
+      "branchId": "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:target_profile:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:target_profile:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.action.set.16je8vl.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2",
+      "observedKey": "cli:option:ibex%20policy%20check:target_profile:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:target_profile:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:target_profile:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.arity.1.1.1aj7vg2.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n",
+      "observedKey": "cli:option:ibex%20policy%20check:target_profile:value-name:TARGET_PROFILE",
+      "branchId": "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:target_profile:value-name:TARGET_PROFILE"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:target_profile:value-name:TARGET_PROFILE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.target.profile.value.name.target.profile.1s76w6n.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0",
+      "observedKey": "cli:option:ibex%20policy%20check:target_triple",
+      "branchId": "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:target_triple"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:target_triple"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.0w82sd0.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa",
+      "observedKey": "cli:option:ibex%20policy%20check:target_triple:action:Set",
+      "branchId": "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:target_triple:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:target_triple:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.action.set.0dtgapa.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj",
+      "observedKey": "cli:option:ibex%20policy%20check:target_triple:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:target_triple:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:target_triple:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.arity.1.1.1u75lwj.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p",
+      "observedKey": "cli:option:ibex%20policy%20check:target_triple:value-name:TARGET_TRIPLE",
+      "branchId": "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20check:target_triple:value-name:TARGET_TRIPLE"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20check:target_triple:value-name:TARGET_TRIPLE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20check.target.triple.value.name.target.triple.03rs30p.main.non-capability"
       ]
     },
     {
@@ -104335,6 +105850,130 @@
       ]
     },
     {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa",
+      "observedKey": "cli:option:ibex%20policy%20generate:mount_profile",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:mount_profile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:mount_profile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.0itlwwa.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0",
+      "observedKey": "cli:option:ibex%20policy%20generate:mount_profile:action:Set",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:mount_profile:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:mount_profile:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.action.set.0kz11c0.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl",
+      "observedKey": "cli:option:ibex%20policy%20generate:mount_profile:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:mount_profile:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:mount_profile:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.arity.1.1.1qz47vl.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u",
+      "observedKey": "cli:option:ibex%20policy%20generate:mount_profile:value-name:MOUNT_PROFILE",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:mount_profile:value-name:MOUNT_PROFILE"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:mount_profile:value-name:MOUNT_PROFILE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.mount.profile.value.name.mount.profile.0uqzs0u.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.option.ibex.20policy.20generate.out.03h1fz9",
       "observedKey": "cli:option:ibex%20policy%20generate:out",
       "branchId": "surface.cli.option.ibex.20policy.20generate.out.03h1fz9.main",
@@ -104456,6 +106095,254 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.option.ibex.20policy.20generate.out.value.name.out.0a4t3s0.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg",
+      "observedKey": "cli:option:ibex%20policy%20generate:target_profile",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:target_profile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:target_profile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.1amtflg.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q",
+      "observedKey": "cli:option:ibex%20policy%20generate:target_profile:action:Set",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:target_profile:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:target_profile:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.action.set.0xmms5q.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib",
+      "observedKey": "cli:option:ibex%20policy%20generate:target_profile:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:target_profile:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:target_profile:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.arity.1.1.1ifrfib.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2",
+      "observedKey": "cli:option:ibex%20policy%20generate:target_profile:value-name:TARGET_PROFILE",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:target_profile:value-name:TARGET_PROFILE"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:target_profile:value-name:TARGET_PROFILE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.target.profile.value.name.target.profile.0oxazk2.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853",
+      "observedKey": "cli:option:ibex%20policy%20generate:target_triple",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:target_triple"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:target_triple"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.0ldi853.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n",
+      "observedKey": "cli:option:ibex%20policy%20generate:target_triple:action:Set",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:target_triple:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:target_triple:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.action.set.1tm9a7n.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o",
+      "observedKey": "cli:option:ibex%20policy%20generate:target_triple:arity:1:1",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:target_triple:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:target_triple:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.arity.1.1.13ff78o.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c",
+      "observedKey": "cli:option:ibex%20policy%20generate:target_triple:value-name:TARGET_TRIPLE",
+      "branchId": "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c.main",
+      "enforcementBranchId": "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option:ibex%20policy%20generate:target_triple:value-name:TARGET_TRIPLE"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option:ibex%20policy%20generate:target_triple:value-name:TARGET_TRIPLE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.20policy.20generate.target.triple.value.name.target.triple.10vmd7c.main.non-capability"
       ]
     },
     {
@@ -111255,6 +113142,171 @@
       ]
     },
     {
+      "edgeId": "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg",
+      "observedKey": "cli:option-name:ibex%20compile:carrier:--carrier",
+      "branchId": "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20compile:carrier:--carrier"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20compile:carrier:--carrier"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:carrier"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg.main.cannot-widen-authority",
+        "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg.main.non-capability",
+        "surface.cli.option.name.ibex.20compile.carrier.carrier.0k21zzg.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue",
+      "observedKey": "cli:option-name:ibex%20compile:compile_policy:--policy",
+      "branchId": "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20compile:compile_policy:--policy"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20compile:compile_policy:--policy"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:compile_policy"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue.main.cannot-widen-authority",
+        "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue.main.non-capability",
+        "surface.cli.option.name.ibex.20compile.compile.policy.policy.1f16tue.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege",
+      "observedKey": "cli:option-name:ibex%20compile:deny_unsupported:--deny-unsupported",
+      "branchId": "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20compile:deny_unsupported:--deny-unsupported"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20compile:deny_unsupported:--deny-unsupported"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:deny_unsupported"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege.main.cannot-widen-authority",
+        "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege.main.non-capability",
+        "surface.cli.option.name.ibex.20compile.deny.unsupported.deny.unsupported.1pwfege.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.output.o.0hdy00l",
+      "observedKey": "cli:option-name:ibex%20compile:output:-o",
+      "branchId": "surface.cli.option.name.ibex.20compile.output.o.0hdy00l.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20compile.output.o.0hdy00l.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20compile:output:-o"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20compile:output:-o"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20compile.output.o.0hdy00l.main.cannot-widen-authority",
+        "surface.cli.option.name.ibex.20compile.output.o.0hdy00l.main.non-capability",
+        "surface.cli.option.name.ibex.20compile.output.o.0hdy00l.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2",
+      "observedKey": "cli:option-name:ibex%20compile:output:--output",
+      "branchId": "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20compile:output:--output"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20compile:output:--output"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:option:output"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2.main.cannot-widen-authority",
+        "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2.main.non-capability",
+        "surface.cli.option.name.ibex.20compile.output.output.0rrr4o2.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.cli.option.name.ibex.20policy.20check.entry.entry.0p6nlj6",
       "observedKey": "cli:option-name:ibex%20policy%20check:entry:--entry",
       "branchId": "surface.cli.option.name.ibex.20policy.20check.entry.entry.0p6nlj6.main",
@@ -111317,6 +113369,37 @@
       ]
     },
     {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w",
+      "observedKey": "cli:option-name:ibex%20policy%20check:mount_profile:--mount-profile",
+      "branchId": "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20policy%20check:mount_profile:--mount-profile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20policy%20check:mount_profile:--mount-profile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20policy.20check.mount.profile.mount.profile.1g2br4w.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.option.name.ibex.20policy.20check.out.out.1uamipe",
       "observedKey": "cli:option-name:ibex%20policy%20check:out:--out",
       "branchId": "surface.cli.option.name.ibex.20policy.20check.out.out.1uamipe.main",
@@ -111345,6 +113428,68 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.option.name.ibex.20policy.20check.out.out.1uamipe.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6",
+      "observedKey": "cli:option-name:ibex%20policy%20check:target_profile:--target-profile",
+      "branchId": "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20policy%20check:target_profile:--target-profile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20policy%20check:target_profile:--target-profile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20policy.20check.target.profile.target.profile.019khs6.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw",
+      "observedKey": "cli:option-name:ibex%20policy%20check:target_triple:--target-triple",
+      "branchId": "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20policy%20check:target_triple:--target-triple"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20policy%20check:target_triple:--target-triple"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy check:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20policy.20check.target.triple.target.triple.1huevsw.main.non-capability"
       ]
     },
     {
@@ -111410,6 +113555,37 @@
       ]
     },
     {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj",
+      "observedKey": "cli:option-name:ibex%20policy%20generate:mount_profile:--mount-profile",
+      "branchId": "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20policy%20generate:mount_profile:--mount-profile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20policy%20generate:mount_profile:--mount-profile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:mount_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20policy.20generate.mount.profile.mount.profile.13hzpfj.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.option.name.ibex.20policy.20generate.out.out.0qxlk7x",
       "observedKey": "cli:option-name:ibex%20policy%20generate:out:--out",
       "branchId": "surface.cli.option.name.ibex.20policy.20generate.out.out.0qxlk7x.main",
@@ -111438,6 +113614,68 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.option.name.ibex.20policy.20generate.out.out.0qxlk7x.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1",
+      "observedKey": "cli:option-name:ibex%20policy%20generate:target_profile:--target-profile",
+      "branchId": "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20policy%20generate:target_profile:--target-profile"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20policy%20generate:target_profile:--target-profile"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_profile"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20policy.20generate.target.profile.target.profile.1hhiwh1.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7",
+      "observedKey": "cli:option-name:ibex%20policy%20generate:target_triple:--target-triple",
+      "branchId": "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7.main",
+      "enforcementBranchId": "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:option-name:ibex%20policy%20generate:target_triple:--target-triple"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+        ],
+        "terminalObservedKey": "cli:option-name:ibex%20policy%20generate:target_triple:--target-triple"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex policy generate:option:target_triple"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.20policy.20generate.target.triple.target.triple.0g8ukz7.main.non-capability"
       ]
     },
     {
@@ -113156,6 +115394,138 @@
       ]
     },
     {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.0e4lhdt",
+      "observedKey": "cli:positional:ibex%20compile:entry",
+      "branchId": "surface.cli.positional.ibex.20compile.entry.0e4lhdt.main",
+      "enforcementBranchId": "surface.cli.positional.ibex.20compile.entry.0e4lhdt.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:positional:ibex%20compile:entry"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+        ],
+        "terminalObservedKey": "cli:positional:ibex%20compile:entry"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20compile.entry.0e4lhdt.main.cannot-widen-authority",
+        "surface.cli.positional.ibex.20compile.entry.0e4lhdt.main.non-capability",
+        "surface.cli.positional.ibex.20compile.entry.0e4lhdt.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h",
+      "observedKey": "cli:positional:ibex%20compile:entry:action:Set",
+      "branchId": "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h.main",
+      "enforcementBranchId": "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:positional:ibex%20compile:entry:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+        ],
+        "terminalObservedKey": "cli:positional:ibex%20compile:entry:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h.main.cannot-widen-authority",
+        "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h.main.non-capability",
+        "surface.cli.positional.ibex.20compile.entry.action.set.16vnr6h.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy",
+      "observedKey": "cli:positional:ibex%20compile:entry:arity:1:1",
+      "branchId": "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy.main",
+      "enforcementBranchId": "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:positional:ibex%20compile:entry:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+        ],
+        "terminalObservedKey": "cli:positional:ibex%20compile:entry:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy.main.cannot-widen-authority",
+        "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy.main.non-capability",
+        "surface.cli.positional.ibex.20compile.entry.arity.1.1.1n32oiy.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870",
+      "observedKey": "cli:positional:ibex%20compile:entry:value-name:ENTRY",
+      "branchId": "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870.main",
+      "enforcementBranchId": "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:positional:ibex%20compile:entry:value-name:ENTRY"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+        ],
+        "terminalObservedKey": "cli:positional:ibex%20compile:entry:value-name:ENTRY"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex compile:positional:entry"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870.main.cannot-widen-authority",
+        "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870.main.non-capability",
+        "surface.cli.positional.ibex.20compile.entry.value.name.entry.16pv870.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.cli.positional.ibex.20completions.shell.1svbaqx",
       "observedKey": "cli:positional:ibex%20completions:shell",
       "branchId": "surface.cli.positional.ibex.20completions.shell.1svbaqx.main",
@@ -113556,6 +115926,138 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.cli.positional.ibex.20eval.code.value.name.code.0j3wy53.main.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.1up2nub",
+      "observedKey": "cli:positional:ibex%20inspect-executable:file",
+      "branchId": "surface.cli.positional.ibex.20inspect.executable.file.1up2nub.main",
+      "enforcementBranchId": "surface.cli.positional.ibex.20inspect.executable.file.1up2nub.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:positional:ibex%20inspect-executable:file"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+        ],
+        "terminalObservedKey": "cli:positional:ibex%20inspect-executable:file"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20inspect.executable.file.1up2nub.main.cannot-widen-authority",
+        "surface.cli.positional.ibex.20inspect.executable.file.1up2nub.main.non-capability",
+        "surface.cli.positional.ibex.20inspect.executable.file.1up2nub.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj",
+      "observedKey": "cli:positional:ibex%20inspect-executable:file:action:Set",
+      "branchId": "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj.main",
+      "enforcementBranchId": "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:positional:ibex%20inspect-executable:file:action:Set"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+        ],
+        "terminalObservedKey": "cli:positional:ibex%20inspect-executable:file:action:Set"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj.main.cannot-widen-authority",
+        "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj.main.non-capability",
+        "surface.cli.positional.ibex.20inspect.executable.file.action.set.0j3ufvj.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw",
+      "observedKey": "cli:positional:ibex%20inspect-executable:file:arity:1:1",
+      "branchId": "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw.main",
+      "enforcementBranchId": "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:positional:ibex%20inspect-executable:file:arity:1:1"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+        ],
+        "terminalObservedKey": "cli:positional:ibex%20inspect-executable:file:arity:1:1"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw.main.cannot-widen-authority",
+        "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw.main.non-capability",
+        "surface.cli.positional.ibex.20inspect.executable.file.arity.1.1.1w2t5fw.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s",
+      "observedKey": "cli:positional:ibex%20inspect-executable:file:value-name:FILE",
+      "branchId": "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s.main",
+      "enforcementBranchId": "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "cli:positional:ibex%20inspect-executable:file:value-name:FILE"
+        ],
+        "proofSourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+        ],
+        "sourceRefs": [
+          "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+        ],
+        "terminalObservedKey": "cli:positional:ibex%20inspect-executable:file:value-name:FILE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex inspect-executable:positional:file"
+      ],
+      "implementationOwner": "WP3",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s.main.cannot-widen-authority",
+        "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s.main.non-capability",
+        "surface.cli.positional.ibex.20inspect.executable.file.value.name.file.18usz2s.main.post-lockdown-invariant"
       ]
     },
     {
@@ -114502,6 +117004,40 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.commonjs.record.evaluate.03cjmbn.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc",
+      "observedKey": "host-abi:ex_hermes_commonjs_record_link_computed_dynamic_import",
+      "branchId": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_commonjs_record_link_computed_dynamic_import"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_computed_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_computed_dynamic_import"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_commonjs_record_link_computed_dynamic_import"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_commonjs_record_link_computed_dynamic_import"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc.default.non-capability",
+        "surface.host.abi.ex.hermes.commonjs.record.link.computed.dynamic.import.1b3mrxc.default.post-lockdown-invariant"
       ]
     },
     {
@@ -116045,6 +118581,38 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f",
+      "observedKey": "host-abi:ex_hermes_module_preflight_bytecode",
+      "branchId": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_preflight_bytecode"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_preflight_bytecode"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_preflight_bytecode"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_preflight_bytecode"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_preflight_bytecode"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.preflight.bytecode.1r3a78f.default.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7",
       "observedKey": "host-abi:ex_hermes_module_record_declare_export",
       "branchId": "surface.host.abi.ex.hermes.module.record.declare.export.0enevj7.default",
@@ -116108,6 +118676,40 @@
       "implementationOwner": "WP8",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.module.record.instantiate.043epyu.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe",
+      "observedKey": "host-abi:ex_hermes_module_record_link_computed_dynamic_import",
+      "branchId": "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_module_record_link_computed_dynamic_import"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_computed_dynamic_import"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_computed_dynamic_import"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_module_record_link_computed_dynamic_import"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_module_runner.cc#ex_hermes_module_record_link_computed_dynamic_import"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe.default.non-capability",
+        "surface.host.abi.ex.hermes.module.record.link.computed.dynamic.import.0b6fvhe.default.post-lockdown-invariant"
       ]
     },
     {
@@ -117815,6 +120417,78 @@
         "surface.host.abi.ex.host.enter.context.15xwr1j.default.cannot-widen-authority",
         "surface.host.abi.ex.host.enter.context.15xwr1j.default.non-capability",
         "surface.host.abi.ex.host.enter.context.15xwr1j.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
+      "observedKey": "host-abi:ex_host_env_compiled_key_at",
+      "branchId": "surface.host.abi.ex.host.env.compiled.key.at.1821b5o.default",
+      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "host-abi:ex_host_env_compiled_key_at"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_env_compiled_key_at"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_compiled_key_at"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_env_compiled_key_at"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_compiled_key_at"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.allow",
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.deny",
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.malformed",
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.missing-attribution",
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.at.0jwshdq.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
+      "observedKey": "host-abi:ex_host_env_compiled_key_count",
+      "branchId": "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw.default",
+      "enforcementBranchId": "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "host-abi:ex_host_env_compiled_key_count"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_env_compiled_key_count"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_env_compiled_key_count"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_env_compiled_key_count"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_env_compiled_key_count"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.allow",
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.deny",
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.malformed",
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.missing-attribution",
+        "enforcement.src.host.abi.rs.ex.host.env.compiled.key.count.1gk37we.wrong-principal"
       ]
     },
     {
@@ -120871,6 +123545,40 @@
         "surface.host.abi.ex.host.restore.context.1q77zqb.default.cannot-widen-authority",
         "surface.host.abi.ex.host.restore.context.1q77zqb.default.non-capability",
         "surface.host.abi.ex.host.restore.context.1q77zqb.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf",
+      "observedKey": "host-abi:ex_host_seal_bootstrap_phase",
+      "branchId": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_seal_bootstrap_phase"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_seal_bootstrap_phase"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_seal_bootstrap_phase"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_seal_bootstrap_phase"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_seal_bootstrap_phase"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf.default.non-capability",
+        "surface.host.abi.ex.host.seal.bootstrap.phase.17osacf.default.post-lockdown-invariant"
       ]
     },
     {
@@ -124955,6 +127663,7 @@
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+          "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -125420,6 +128129,7 @@
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+          "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -125892,6 +128602,7 @@
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+        "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -126446,6 +129157,7 @@
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+          "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -126985,6 +129697,7 @@
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+          "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -127531,6 +130244,7 @@
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+        "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -128254,6 +130968,7 @@
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+          "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -128962,6 +131677,7 @@
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+          "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -129677,6 +132393,7 @@
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+        "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -130213,6 +132930,7 @@
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+          "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -130682,6 +133400,7 @@
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+          "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
           "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -131158,6 +133877,7 @@
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:parse:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:unwrap_or_else:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_check_syntax_error:count-1",
+        "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_enum_eval:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_scoping:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:method:with_source_text:count-1",
         "src/module_loader/transpile.rs#transpile_with_oxc:external:qualified:Allocator::default:count-1",
@@ -167346,7 +170066,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167367,7 +170087,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167396,7 +170116,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -184851,7 +187571,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -184878,7 +187598,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -184913,7 +187633,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/bootstrap/compat-polyfills.js#eval",
         "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -196088,7 +198808,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196109,7 +198829,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196138,7 +198858,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196298,7 +199018,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196319,7 +199039,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196348,7 +199068,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-c0d7552b5afd6a4938c3074536f3d4779626db28fd64a62db28d8bce5ae541ee",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -250943,18 +253663,20 @@
       "edgeId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "observedKey": "startup:env:<dynamic>:cpp:_NSGetEnviron",
       "branchId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz",
+      "enforcementBranchId": "enforcement.ompiled.stub.src.environment.preinit.c.nsgetenviron.dynamic.read.1obf55r",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:_NSGetEnviron"
         ],
         "proofSourceRefs": [
+          "crates/compiled-stub/src/environment_preinit.c#_NSGetEnviron:dynamic:read",
           "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
           "src/engine/hermes_runtime_process.cc#_NSGetEnviron:dynamic:read",
           "src/engine/hermes_runtime_process_setup.cc#_NSGetEnviron:dynamic:read"
         ],
         "sourceRefs": [
+          "crates/compiled-stub/src/environment_preinit.c#_NSGetEnviron:dynamic:read",
           "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
           "src/engine/hermes_runtime_process.cc#_NSGetEnviron:dynamic:read",
           "src/engine/hermes_runtime_process_setup.cc#_NSGetEnviron:dynamic:read"
@@ -250967,17 +253689,18 @@
         "kind": "all"
       },
       "sourceRefs": [
+        "crates/compiled-stub/src/environment_preinit.c#_NSGetEnviron:dynamic:read",
         "src/engine/hermes_runtime.cc#_NSGetEnviron:dynamic:read",
         "src/engine/hermes_runtime_process.cc#_NSGetEnviron:dynamic:read",
         "src/engine/hermes_runtime_process_setup.cc#_NSGetEnviron:dynamic:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.allow",
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.deny",
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.nsgetenviron.dynamic.read.1odl7nz.wrong-principal"
+        "enforcement.ompiled.stub.src.environment.preinit.c.nsgetenviron.dynamic.read.1obf55r.allow",
+        "enforcement.ompiled.stub.src.environment.preinit.c.nsgetenviron.dynamic.read.1obf55r.deny",
+        "enforcement.ompiled.stub.src.environment.preinit.c.nsgetenviron.dynamic.read.1obf55r.malformed",
+        "enforcement.ompiled.stub.src.environment.preinit.c.nsgetenviron.dynamic.read.1obf55r.missing-attribution",
+        "enforcement.ompiled.stub.src.environment.preinit.c.nsgetenviron.dynamic.read.1obf55r.wrong-principal"
       ]
     },
     {
@@ -254832,6 +257555,37 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.compat.loader.test.1gjpny3",
+      "observedKey": "startup:env:IBEX_COMPAT_LOADER_TEST",
+      "branchId": "surface.startup.env.ibex.compat.loader.test.1gjpny3.main",
+      "enforcementBranchId": "surface.startup.env.ibex.compat.loader.test.1gjpny3.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_COMPAT_LOADER_TEST"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/runtime.rs#env::var_os:IBEX_COMPAT_LOADER_TEST:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/runtime.rs#env::var_os:IBEX_COMPAT_LOADER_TEST:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_COMPAT_LOADER_TEST"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#env::var_os:IBEX_COMPAT_LOADER_TEST:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.compat.loader.test.1gjpny3.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "observedKey": "startup:env:IBEX_DNS_SERVER",
       "branchId": "surface.startup.env.ibex.dns.server.0ggdo6d.main",
@@ -255579,6 +258333,37 @@
       "implementationOwner": "WP9",
       "fixtureObligations": [
         "surface.startup.env.ibex.test.http.wait.idle.delay.ms.1osy2jt.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.test.native.runner.profile.171bg89",
+      "observedKey": "startup:env:IBEX_TEST_NATIVE_RUNNER_PROFILE",
+      "branchId": "surface.startup.env.ibex.test.native.runner.profile.171bg89.main",
+      "enforcementBranchId": "surface.startup.env.ibex.test.native.runner.profile.171bg89.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_TEST_NATIVE_RUNNER_PROFILE"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/runtime.rs#env::var_os:IBEX_TEST_NATIVE_RUNNER_PROFILE:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/runtime.rs#env::var_os:IBEX_TEST_NATIVE_RUNNER_PROFILE:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_TEST_NATIVE_RUNNER_PROFILE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/runtime.rs#env::var_os:IBEX_TEST_NATIVE_RUNNER_PROFILE:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.test.native.runner.profile.171bg89.main.non-capability"
       ]
     },
     {
@@ -260484,6 +263269,8 @@
         "surface.builtin.sys.1oe78qz",
         "surface.builtin.util.1isnyze",
         "surface.builtin.util.types.0v4anl8",
+        "surface.host.abi.ex.host.env.compiled.key.at.1821b5o",
+        "surface.host.abi.ex.host.env.compiled.key.count.1b4azqw",
         "surface.host.abi.ex.host.env.get.11ro4cp",
         "surface.loader.entry.dynamic.import.0bk2zgb",
         "surface.loader.entry.exact.require.0bp9r8f",
@@ -260675,7 +263462,7 @@
         "surface.startup.env.userprofile.1sxunkp",
         "surface.startup.env.wpt.server.url.1y5rfd8"
       ],
-      "rationale": "Covered by 210 observed effect edges."
+      "rationale": "Covered by 212 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -264626,44 +267413,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-mc9SfI3Ei6Wb7zkwgYBYyav6s2mXSiM6SJhE3pAsa64"
+      "rawContentDigest": "sha256-58h-BgKzV_gaF3A-wCCn8Z_8C_YQotv650zF5H9fmXM"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-oEEkPSbOZk1vQ4FcnZ_oLxYiA9ONLTWPl7JU50uTwjY"
+      "rawContentDigest": "sha256-fsXbd3npWxPRZFL7ma5NxQikJV0XZiZizccWa8pQc2U"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-9T_1Vk4b_j0P7x61Ak1V3751o_NWQ24Cp0nqPFJr-Gg"
+      "rawContentDigest": "sha256-MRasg05apAN-DY5BsdOF8x0wlVCwQQwd-rhBmfcngpc"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-Abk7oTyA8X4x6tJQHdBhLRPCck3liZ9bW3QIVfzyvdY"
+      "rawContentDigest": "sha256-JiPCPF-56of75X3X2lt0cPX0TISuEuVGTRP4T4v3gFk"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-qOnDd6rChQtFiADJ8NqoKahTwjmchW8xUlsVnZ-oSIc"
+      "rawContentDigest": "sha256-3XqkJEQ8vCCx_lNtX9tlbpbpugkgzBG2vqRQNCw7fIo"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-5Ov6wFzgfvOuxijrCvG_fecowo6u1dBcUVby0A3Zk9k"
+      "rawContentDigest": "sha256-pRFH4lXR518S0PCNZYXydlVguxHbkhW2ERo3nRH7U08"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-G8HTolD7rpewZz1t7-ryfSSsDN38oOCj48HTCV6C_1o"
+      "rawContentDigest": "sha256-S3ObArobOZ-HdSeaBDciELSA0HGY6hC3kn75jA0iRq4"
     }
   ],
   "counts": {
-    "observedReferences": 12768,
-    "logicalSurfaces": 7108,
-    "enforcementBranches": 7307,
-    "coverageEdges": 7108,
-    "targetCells": 14216
+    "observedReferences": 12859,
+    "logicalSurfaces": 7194,
+    "enforcementBranches": 7393,
+    "coverageEdges": 7194,
+    "targetCells": 14388
   }
 }

@@ -44,6 +44,7 @@ case "$HOST_ARCH_RAW" in
 esac
 HERMESC_DEST="$PROJECT_ROOT/tools/hermes/hermesc-macos-$HOST_ARCH"
 MACOS_FRAMEWORK_DEST="$FRAMEWORKS_DIR/hermesvm.framework"
+MACOS_STATIC_DIR="$FRAMEWORKS_DIR/macos-static"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -163,7 +164,7 @@ echo "Hermes Debugger: $HERMES_DEBUGGER"
 echo ""
 
 # Check if already built
-if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
+if [ -d "$VERSION_CACHE/hermesvm.xcframework" ] && [ -d "$VERSION_CACHE/macos-static" ]; then
     echo "[✓] Hermes $VERSION_KEY already built"
     echo ""
 
@@ -176,6 +177,11 @@ if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
         rm -rf "$MACOS_FRAMEWORK_DEST"
         cp -R "$VERSION_CACHE/hermesvm.framework" "$MACOS_FRAMEWORK_DEST"
         verify_debugger_symbols "$MACOS_FRAMEWORK_DEST"
+    fi
+    if [ -d "$VERSION_CACHE/macos-static" ]; then
+        rm -rf "$MACOS_STATIC_DIR"
+        cp -R "$VERSION_CACHE/macos-static" "$MACOS_STATIC_DIR"
+        echo "[✓] static macOS Hermes bundle installed"
     fi
 
     # Copy headers
@@ -199,6 +205,10 @@ if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
 
     echo "[✓] Installed to $FRAMEWORKS_DIR"
     exit 0
+fi
+if [ -d "$VERSION_CACHE/hermesvm.xcframework" ]; then
+    echo "[!] Cached Hermes bundle predates the static-stub archive set; rebuilding it"
+    rm -rf "$VERSION_CACHE"
 fi
 
 # Check dependencies
@@ -368,6 +378,7 @@ cmake -S . -B build_macosx \
 # Build bytecode include first (required dependency)
 cmake --build ./build_macosx --target ExtensionsBytecodeInclude -j 1
 cmake --build ./build_macosx --target hermesvm -j "${NUM_CORES}"
+cmake --build ./build_macosx --target hermesvmlean_a -j "${NUM_CORES}"
 
 mkdir -p destroot/Library/Frameworks/macosx
 cp -R ./build_macosx/lib/hermesvm.framework destroot/Library/Frameworks/macosx/
@@ -397,6 +408,11 @@ echo ""
 echo "Caching build results..."
 cp -R "$HERMES_SRC/destroot/Library/Frameworks/universal/hermesvm.xcframework" "$VERSION_CACHE/"
 cp -R "$HERMES_SRC/build_macosx/lib/hermesvm.framework" "$VERSION_CACHE/"
+mkdir -p "$VERSION_CACHE/macos-static"
+cp "$HERMES_SRC/build_macosx/lib/libhermesvm_a.a" "$VERSION_CACHE/macos-static/"
+cp "$HERMES_SRC/build_macosx/lib/libhermesvmlean_a.a" "$VERSION_CACHE/macos-static/"
+cp "$HERMES_SRC/build_macosx/jsi/libjsi.a" "$VERSION_CACHE/macos-static/"
+cp "$HERMES_SRC/build_macosx/external/boost/boost_1_86_0/libs/context/libboost_context.a" "$VERSION_CACHE/macos-static/"
 cp -R "$HERMES_SRC/destroot/include" "$VERSION_CACHE/"
 mkdir -p "$VERSION_CACHE/bin"
 cp "$HERMES_SRC/destroot/bin/hermesc" "$VERSION_CACHE/bin/" 2>/dev/null || true
@@ -412,6 +428,8 @@ cp -R "$VERSION_CACHE/hermesvm.xcframework" "$FRAMEWORKS_DIR/hermes.xcframework"
 rm -rf "$MACOS_FRAMEWORK_DEST"
 cp -R "$VERSION_CACHE/hermesvm.framework" "$MACOS_FRAMEWORK_DEST"
 verify_debugger_symbols "$MACOS_FRAMEWORK_DEST"
+rm -rf "$MACOS_STATIC_DIR"
+cp -R "$VERSION_CACHE/macos-static" "$MACOS_STATIC_DIR"
 
 rm -rf "$FRAMEWORKS_DIR/hermes-headers"
 mkdir -p "$FRAMEWORKS_DIR/hermes-headers"
@@ -427,6 +445,7 @@ echo ""
 echo "Installed:"
 echo "  Framework: $FRAMEWORKS_DIR/hermes.xcframework"
 echo "  macOS FW:  $MACOS_FRAMEWORK_DEST"
+echo "  macOS lib: $MACOS_STATIC_DIR"
 echo "  Headers:   $FRAMEWORKS_DIR/hermes-headers/"
 echo "  CLI:       $HERMESC_DEST"
 echo ""

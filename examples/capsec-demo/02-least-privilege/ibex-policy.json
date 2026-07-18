@@ -1,12 +1,35 @@
 {
-  "policySchema": "ibex/capsec-policy/1",
+  "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-65wku9oQwB_208URhoQabfyb4yF_RE7Hs5xs55X31ZY",
-  "registryDigest": "sha256-wKIkkVsrzQ1UADkEwu__NXdgl5V3ICUbakVuXegA0lc",
-  "policyDigest": "sha256-99HorqOqAkJKfTV20JSjg1TXkoqdKqU6iNTNCiMaVis",
+  "vocabDigest": "sha256-c2PF2NBi74Kq-NPCUE06ernXxTvWxEuYwPCKWyNDJ4U",
+  "registryDigest": "sha256-CNfbmG9VS7uLYFWlK1qkPyDPxWPc9VSvf6gDCdT9XqA",
+  "policyDigest": "sha256-dj_KBzzjHpphjAK_m73Su9iUDguBGZ77nU_aAh46KU4",
   "purpose": "production",
   "mode": "enforce",
+  "graphIdentity": "sha256-2zWkBCx3zBMN20JQv1xpGFlj1MmUTtm9yukKOebokqo",
+  "entryIdentity": {
+    "root": "project",
+    "components": [
+      {
+        "encoding": "utf8",
+        "value": "app.mjs"
+      }
+    ],
+    "sourceIntegrity": "sha256-a7RY6EUNvZTAPeaiULZlt3-7vYmaOOzMW5stZw9-VsI"
+  },
+  "targetProfile": {
+    "kind": "source",
+    "profile": "portable-v1"
+  },
+  "mountProfile": "project-v1",
+  "rootCeiling": [],
+  "computedCandidates": {
+    "schema": "ibex/computed-candidate-manifest/1",
+    "declarations": [],
+    "packageClosureOptIns": [],
+    "materializedSites": []
+  },
   "principals": [
     {
       "principal": {
@@ -28,7 +51,7 @@
           "provenance": [
             {
               "kind": "import-site",
-              "source": "examples/capsec-demo/02-least-privilege/app.mjs:3"
+              "source": "app.mjs:3"
             }
           ]
         }

@@ -334,6 +334,7 @@ extern "C" int32_t ex_host_authorize_typed_fs_stack(
     int32_t needs_write,
     const char* presented_handle_id);
 extern "C" int32_t ex_host_matches_armed_snapshot_digest(const char* digest);
+extern "C" int32_t ex_host_seal_bootstrap_phase(void);
 extern "C" int32_t ex_host_authorize_exact_endowment(
     uint64_t host_context_id,
     uint32_t context_kind,
@@ -388,6 +389,9 @@ extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint
 // Returns the value's full byte length (>= len signals truncation), or -1 when
 // the variable is unset. See getEnvValue below (ENG-22955).
 extern "C" int64_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
+extern "C" int64_t ex_host_env_compiled_key_count();
+extern "C" int64_t ex_host_env_compiled_key_at(
+    size_t index, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 extern "C" char* ex_host_module_resolve(uint64_t requester_module_id,
                                          uint32_t resolution_kind,
@@ -1410,6 +1414,23 @@ std::optional<std::string> getEnvValue(const std::string& key) {
   return result;
 }
 
+std::optional<std::string> getCompiledEnvKey(size_t index) {
+  char buffer[256];
+  int64_t needed =
+      ex_host_env_compiled_key_at(index, buffer, sizeof(buffer));
+  if (needed < 0) return std::nullopt;
+  size_t fullLen = static_cast<size_t>(needed);
+  if (fullLen < sizeof(buffer)) {
+    return std::string(buffer, buffer + fullLen);
+  }
+  std::string result(fullLen, '\0');
+  int64_t written = ex_host_env_compiled_key_at(
+      index, result.data(), static_cast<uint32_t>(fullLen + 1));
+  if (written < 0) return std::nullopt;
+  result.resize(std::min(static_cast<size_t>(written), fullLen));
+  return result;
+}
+
 void runNextTickQueue(ExactHermesRuntime* runtime);
 
 // Native StringBuffer for O(1) amortized string append (avoids O(n^2) JS string concatenation)
@@ -2013,6 +2034,23 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                const facebook::jsi::Value*,
                size_t) -> facebook::jsi::Value {
         facebook::jsi::Object env(runtime);
+        int64_t compiledCount = ex_host_env_compiled_key_count();
+        if (compiledCount >= 0) {
+          for (int64_t index = 0; index < compiledCount; ++index) {
+            auto key = getCompiledEnvKey(static_cast<size_t>(index));
+            if (!key.has_value() ||
+                !typedEnvironmentReadAllowed(*key)) {
+              continue;
+            }
+            auto value = getEnvValue(*key);
+            if (!value.has_value()) continue;
+            env.setProperty(
+                runtime,
+                facebook::jsi::PropNameID::forUtf8(runtime, *key),
+                facebook::jsi::String::createFromUtf8(runtime, *value));
+          }
+          return env;
+        }
         // @ref LLP 0021#typed-resources-and-initial-vocabulary — enumeration
         // cannot be represented by wildcard environment authority, so armed
         // runtimes close it without consulting the legacy string oracle.
@@ -3965,6 +4003,17 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     // Verify the armed posture after that final seal, while retaining full
     // partial-runtime cleanup for every refusal.
     // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
+
+  if (armed && ex_host_seal_bootstrap_phase() != 1) {
+    // Bootstrap authority is an evaluator-owned, one-shot phase credential.
+    // Application code cannot begin unless the exact active Host context
+    // proves that this constructor destroyed it.
+    // @ref LLP 0029#4-compiled-mode-authority
+    ex_host_console_log(
+        1, "Armed startup refused: bootstrap authority did not seal exactly once");
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }

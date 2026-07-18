@@ -151,6 +151,7 @@ private:
 // lines (1xx interim responses); the LAST one belongs to the final response.
 // HTTP/2+ status lines carry no reason phrase — return "" for those, which is
 // the fetch-spec default statusText.
+#if defined(EXACT_HAS_CURL) || defined(EXACT_ALLOW_CURL_CLI_FALLBACK)
 std::string parse_status_reason(const std::string& raw_headers) {
     std::string reason;
     size_t pos = 0;
@@ -186,6 +187,7 @@ std::string parse_status_reason(const std::string& raw_headers) {
     }
     return reason;
 }
+#endif
 
 #ifdef EXACT_HAS_CURL
 std::once_flag g_curl_global_init_once;
@@ -405,7 +407,7 @@ static void native_fetch_perform_async(
         result.response_body.size(),
         context
     );
-#else
+#elif defined(EXACT_ALLOW_CURL_CLI_FALLBACK)
     if (!response_callback) {
         remove_fetch_request(request_id);
         return;
@@ -580,6 +582,26 @@ static void native_fetch_perform_async(
         response_body.size(),
         context
     );
+#elif defined(EXACT_DISABLE_LINUX_NETWORK)
+    (void)method;
+    (void)url;
+    (void)headers;
+    (void)decompress;
+    (void)body;
+    remove_fetch_request(request_id);
+    if (response_callback && !request_cancelled(request_state)) {
+        response_callback(
+            request_id,
+            0,
+            "network is unavailable in the compiled Linux release profile",
+            nullptr,
+            nullptr,
+            0,
+            context
+        );
+    }
+#else
+#error "Linux fetch requires EXACT_HAS_CURL, EXACT_ALLOW_CURL_CLI_FALLBACK, or EXACT_DISABLE_LINUX_NETWORK"
 #endif
 }
 

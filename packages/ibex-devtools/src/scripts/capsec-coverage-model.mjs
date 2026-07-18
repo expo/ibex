@@ -2872,7 +2872,7 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.20f17703ce0845737f582f9f52de47a3d452285ecf4a009958c7b7398e08187b";
+  "hermes-evaluators.d0ce1168e0069c71b5298f89293f4a92f08ddce8fcef0d2d755f33be907ca9f5";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -5058,6 +5058,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_commonjs_record_create_esm_adapter",
     "ex_hermes_commonjs_record_declare_export",
     "ex_hermes_commonjs_record_evaluate",
+    "ex_hermes_commonjs_record_link_computed_dynamic_import",
     "ex_hermes_commonjs_record_link_dynamic_import",
     "ex_hermes_commonjs_record_link_require",
     "ex_hermes_commonjs_record_link_require_esm",
@@ -5096,8 +5097,10 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_module_create_record",
     "ex_hermes_module_load_carrier_factory",
     "ex_hermes_module_pin_generation",
+    "ex_hermes_module_preflight_bytecode",
     "ex_hermes_module_record_declare_export",
     "ex_hermes_module_record_instantiate",
+    "ex_hermes_module_record_link_computed_dynamic_import",
     "ex_hermes_module_record_link_dependency",
     "ex_hermes_module_record_link_dynamic_import",
     "ex_hermes_module_record_link_export",
@@ -5148,6 +5151,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_console_flush",
     "ex_host_console_log",
     "ex_host_enter_context",
+    "ex_host_env_compiled_key_at",
+    "ex_host_env_compiled_key_count",
     "ex_host_env_get",
     "ex_host_evaluate_typed_decision",
     "ex_host_free_buffer",
@@ -5233,6 +5238,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_release_context",
     "ex_host_resolve_manifest_builtin_internal",
     "ex_host_restore_context",
+    "ex_host_seal_bootstrap_phase",
     "ex_host_sqlite_all",
     "ex_host_sqlite_close",
     "ex_host_sqlite_exec",
@@ -5368,13 +5374,23 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "argument-parser:ibex%20compat:section:utf8-string",
     "argument-parser:ibex%20compat:test:utf8-string",
     "argument-parser:ibex%20compat:timeout:unsigned-integer-u64",
+    "argument-parser:ibex%20compile:compile_policy:os-path",
+    "argument-parser:ibex%20compile:entry:os-path",
+    "argument-parser:ibex%20compile:output:os-path",
     "argument-parser:ibex%20eval:code:utf8-string",
+    "argument-parser:ibex%20inspect-executable:file:os-path",
     "argument-parser:ibex%20policy%20check:entry:os-path",
     "argument-parser:ibex%20policy%20check:mode:utf8-string",
+    "argument-parser:ibex%20policy%20check:mount_profile:utf8-string",
     "argument-parser:ibex%20policy%20check:out:os-path",
+    "argument-parser:ibex%20policy%20check:target_profile:utf8-string",
+    "argument-parser:ibex%20policy%20check:target_triple:utf8-string",
     "argument-parser:ibex%20policy%20generate:entry:os-path",
     "argument-parser:ibex%20policy%20generate:mode:utf8-string",
+    "argument-parser:ibex%20policy%20generate:mount_profile:utf8-string",
     "argument-parser:ibex%20policy%20generate:out:os-path",
+    "argument-parser:ibex%20policy%20generate:target_profile:utf8-string",
+    "argument-parser:ibex%20policy%20generate:target_triple:utf8-string",
     "argument-parser:ibex%20run:args:utf8-string",
     "argument-parser:ibex%20run:file:utf8-string",
     "argument-parser:ibex%20run:inspect_host:utf8-string",
@@ -5401,10 +5417,12 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "command:ibex%20capsec",
     "command:ibex%20capsec%20audit",
     "command:ibex%20compat",
+    "command:ibex%20compile",
     "command:ibex%20completions",
     "command:ibex%20debug",
     "command:ibex%20debug%20modules",
     "command:ibex%20eval",
+    "command:ibex%20inspect-executable",
     "command:ibex%20policy",
     "command:ibex%20policy%20check",
     "command:ibex%20policy%20generate",
@@ -5413,6 +5431,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "command:ibex%20self-test",
     "command:ibex%20version",
     "compat",
+    "compile",
     "completions",
     "create",
     "debug",
@@ -5422,6 +5441,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "export",
     "facet",
     "init",
+    "inspect-executable",
     "install",
     "lint",
     "mcp",
@@ -5445,12 +5465,23 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option-name:ibex%20compat:test:-t",
     "option-name:ibex%20compat:timeout:--timeout",
     "option-name:ibex%20compat:update_expectations:--update-expectations",
+    "option-name:ibex%20compile:carrier:--carrier",
+    "option-name:ibex%20compile:compile_policy:--policy",
+    "option-name:ibex%20compile:deny_unsupported:--deny-unsupported",
+    "option-name:ibex%20compile:output:--output",
+    "option-name:ibex%20compile:output:-o",
     "option-name:ibex%20policy%20check:entry:--entry",
     "option-name:ibex%20policy%20check:mode:--mode",
+    "option-name:ibex%20policy%20check:mount_profile:--mount-profile",
     "option-name:ibex%20policy%20check:out:--out",
+    "option-name:ibex%20policy%20check:target_profile:--target-profile",
+    "option-name:ibex%20policy%20check:target_triple:--target-triple",
     "option-name:ibex%20policy%20generate:entry:--entry",
     "option-name:ibex%20policy%20generate:mode:--mode",
+    "option-name:ibex%20policy%20generate:mount_profile:--mount-profile",
     "option-name:ibex%20policy%20generate:out:--out",
+    "option-name:ibex%20policy%20generate:target_profile:--target-profile",
+    "option-name:ibex%20policy%20generate:target_triple:--target-triple",
     "option-name:ibex%20run:inspect:--inspect",
     "option-name:ibex%20run:inspect_host:--inspect-host",
     "option-name:ibex%20run:inspect_open:--inspect-open",
@@ -5583,6 +5614,27 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option:ibex%20compat:update_expectations:default-missing:true",
     "option:ibex%20compat:update_expectations:default:false",
     "option:ibex%20compat:update_expectations:value-name:UPDATE_EXPECTATIONS",
+    "option:ibex%20compile:carrier",
+    "option:ibex%20compile:carrier:action:Set",
+    "option:ibex%20compile:carrier:arity:1:1",
+    "option:ibex%20compile:carrier:default:hbc",
+    "option:ibex%20compile:carrier:enum:factory-table",
+    "option:ibex%20compile:carrier:enum:hbc",
+    "option:ibex%20compile:carrier:value-name:CARRIER",
+    "option:ibex%20compile:compile_policy",
+    "option:ibex%20compile:compile_policy:action:Set",
+    "option:ibex%20compile:compile_policy:arity:1:1",
+    "option:ibex%20compile:compile_policy:value-name:FILE",
+    "option:ibex%20compile:deny_unsupported",
+    "option:ibex%20compile:deny_unsupported:action:SetTrue",
+    "option:ibex%20compile:deny_unsupported:arity:0:0",
+    "option:ibex%20compile:deny_unsupported:default-missing:true",
+    "option:ibex%20compile:deny_unsupported:default:false",
+    "option:ibex%20compile:deny_unsupported:value-name:DENY_UNSUPPORTED",
+    "option:ibex%20compile:output",
+    "option:ibex%20compile:output:action:Set",
+    "option:ibex%20compile:output:arity:1:1",
+    "option:ibex%20compile:output:value-name:OUTPUT",
     "option:ibex%20policy%20check:entry",
     "option:ibex%20policy%20check:entry:action:Set",
     "option:ibex%20policy%20check:entry:arity:1:1",
@@ -5591,10 +5643,22 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option:ibex%20policy%20check:mode:action:Set",
     "option:ibex%20policy%20check:mode:arity:1:1",
     "option:ibex%20policy%20check:mode:value-name:MODE",
+    "option:ibex%20policy%20check:mount_profile",
+    "option:ibex%20policy%20check:mount_profile:action:Set",
+    "option:ibex%20policy%20check:mount_profile:arity:1:1",
+    "option:ibex%20policy%20check:mount_profile:value-name:MOUNT_PROFILE",
     "option:ibex%20policy%20check:out",
     "option:ibex%20policy%20check:out:action:Set",
     "option:ibex%20policy%20check:out:arity:1:1",
     "option:ibex%20policy%20check:out:value-name:OUT",
+    "option:ibex%20policy%20check:target_profile",
+    "option:ibex%20policy%20check:target_profile:action:Set",
+    "option:ibex%20policy%20check:target_profile:arity:1:1",
+    "option:ibex%20policy%20check:target_profile:value-name:TARGET_PROFILE",
+    "option:ibex%20policy%20check:target_triple",
+    "option:ibex%20policy%20check:target_triple:action:Set",
+    "option:ibex%20policy%20check:target_triple:arity:1:1",
+    "option:ibex%20policy%20check:target_triple:value-name:TARGET_TRIPLE",
     "option:ibex%20policy%20generate:entry",
     "option:ibex%20policy%20generate:entry:action:Set",
     "option:ibex%20policy%20generate:entry:arity:1:1",
@@ -5603,10 +5667,22 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option:ibex%20policy%20generate:mode:action:Set",
     "option:ibex%20policy%20generate:mode:arity:1:1",
     "option:ibex%20policy%20generate:mode:value-name:MODE",
+    "option:ibex%20policy%20generate:mount_profile",
+    "option:ibex%20policy%20generate:mount_profile:action:Set",
+    "option:ibex%20policy%20generate:mount_profile:arity:1:1",
+    "option:ibex%20policy%20generate:mount_profile:value-name:MOUNT_PROFILE",
     "option:ibex%20policy%20generate:out",
     "option:ibex%20policy%20generate:out:action:Set",
     "option:ibex%20policy%20generate:out:arity:1:1",
     "option:ibex%20policy%20generate:out:value-name:OUT",
+    "option:ibex%20policy%20generate:target_profile",
+    "option:ibex%20policy%20generate:target_profile:action:Set",
+    "option:ibex%20policy%20generate:target_profile:arity:1:1",
+    "option:ibex%20policy%20generate:target_profile:value-name:TARGET_PROFILE",
+    "option:ibex%20policy%20generate:target_triple",
+    "option:ibex%20policy%20generate:target_triple:action:Set",
+    "option:ibex%20policy%20generate:target_triple:arity:1:1",
+    "option:ibex%20policy%20generate:target_triple:value-name:TARGET_TRIPLE",
     "option:ibex%20run:inspect",
     "option:ibex%20run:inspect:action:SetTrue",
     "option:ibex%20run:inspect:arity:0:0",
@@ -5819,6 +5895,10 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "positional:ibex%20capsec%20audit:file:action:Set",
     "positional:ibex%20capsec%20audit:file:arity:1:1",
     "positional:ibex%20capsec%20audit:file:value-name:FILE",
+    "positional:ibex%20compile:entry",
+    "positional:ibex%20compile:entry:action:Set",
+    "positional:ibex%20compile:entry:arity:1:1",
+    "positional:ibex%20compile:entry:value-name:ENTRY",
     "positional:ibex%20completions:shell",
     "positional:ibex%20completions:shell:action:Set",
     "positional:ibex%20completions:shell:arity:1:1",
@@ -5832,6 +5912,10 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "positional:ibex%20eval:code:action:Set",
     "positional:ibex%20eval:code:arity:1:1",
     "positional:ibex%20eval:code:value-name:CODE",
+    "positional:ibex%20inspect-executable:file",
+    "positional:ibex%20inspect-executable:file:action:Set",
+    "positional:ibex%20inspect-executable:file:arity:1:1",
+    "positional:ibex%20inspect-executable:file:value-name:FILE",
     "positional:ibex%20run:args",
     "positional:ibex%20run:args:action:Append",
     "positional:ibex%20run:args:arity:0:unbounded",
@@ -6482,6 +6566,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_CAPSEC_RECIPE_CATALOG",
     "env:IBEX_CDP_LOG",
     "env:IBEX_COMPARTMENTS",
+    "env:IBEX_COMPAT_LOADER_TEST",
     "env:IBEX_DNS_SERVER",
     "env:IBEX_HERMESC_TIMEOUT_MS",
     "env:IBEX_HERMES_TOOL_DIR",
@@ -6504,6 +6589,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
     "env:IBEX_TEST_HBC_COMPILE_BARRIER",
     "env:IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
+    "env:IBEX_TEST_NATIVE_RUNNER_PROFILE",
     "env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
     "env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
     "env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
@@ -9632,6 +9718,24 @@ function loaderClassification(surface) {
 function cliClassification(surface) {
   const name = surface.name.toLowerCase();
 
+  // Artifact inspection authenticates bytes as data and never activates the
+  // runtime inspector. Keep this branch ahead of the broad historical
+  // `inspect` spelling heuristic.
+  // @ref LLP 0029#1-command-surface-and-producer-pipeline — inspect-executable has a dedicated non-inspector CLI classification
+  if (
+    name === "inspect-executable" ||
+    name.includes("ibex%20inspect-executable") ||
+    name.includes("ibex inspect-executable")
+  ) {
+    return nonCapabilitySpec("authority-control-plane", "WP3");
+  }
+  if (
+    name === "compile" ||
+    name.includes("ibex%20compile") ||
+    name.includes("ibex compile")
+  ) {
+    return nonCapabilitySpec("authority-control-plane", "WP3");
+  }
   if (name.includes("debug%20modules")) {
     return closedSpec(
       "runtime:inspect",
@@ -9728,12 +9832,14 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "IBEX_CAPSEC_FIXTURE_EVIDENCE_OUTPUT",
   "IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
   "IBEX_CAPSEC_RECIPE_CATALOG",
+  "IBEX_COMPAT_LOADER_TEST",
   "IBEX_TEST_ARMED_CREATE_PAUSE_MS",
   "IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
   "IBEX_TEST_FS_WORKER_MAX_QUEUE",
   "IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
   "IBEX_TEST_HBC_COMPILE_BARRIER",
   "IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
+  "IBEX_TEST_NATIVE_RUNNER_PROFILE",
   "IBEX_TEST_TRANSPILE_INPUT_BARRIER",
 ]);
 
@@ -11909,7 +12015,13 @@ function hostAbiClassification(name) {
     // nor performs a second write on the caller's behalf.
     return nonCapabilitySpec("callback-attribution-carrier", "WP7");
   }
-  if (name === "exhostenvget") {
+  if (
+    new Set([
+      "exhostenvcompiledkeyat",
+      "exhostenvcompiledkeycount",
+      "exhostenvget",
+    ]).has(name)
+  ) {
     return effectSpec(["env:read"], "environment", "WP7");
   }
   if (/^exhostfree(?:buffer|string)$/u.test(name)) {
@@ -12149,7 +12261,12 @@ function classifyConcreteSurface(surface) {
     return loaderClassification(surface);
   }
   if (surface.kind === "cli") {
-    if (!REVIEWED_CLI_NAMES.has(surface.name)) return null;
+    const reviewedSfeRoute =
+      surface.name === "compile" ||
+      surface.name === "inspect-executable" ||
+      surface.name.includes("ibex%20compile") ||
+      surface.name.includes("ibex%20inspect-executable");
+    if (!REVIEWED_CLI_NAMES.has(surface.name) && !reviewedSfeRoute) return null;
     return cliClassification(surface);
   }
   if (surface.kind === "startup") {
@@ -12186,6 +12303,7 @@ function classifyConcreteSurface(surface) {
       new Set([
         "ex_hermes_commonjs_create_record",
         "ex_hermes_commonjs_record_declare_export",
+        "ex_hermes_commonjs_record_link_computed_dynamic_import",
         "ex_hermes_commonjs_record_link_dynamic_import",
         "ex_hermes_commonjs_record_link_require",
         "ex_hermes_commonjs_record_link_require_esm",
@@ -12194,6 +12312,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_module_create_record",
         "ex_hermes_module_record_declare_export",
         "ex_hermes_module_record_link_dependency",
+        "ex_hermes_module_record_link_computed_dynamic_import",
         "ex_hermes_module_record_link_dynamic_import",
         "ex_hermes_module_record_link_export",
         "ex_hermes_module_record_link_import",
@@ -12217,6 +12336,7 @@ function classifyConcreteSurface(surface) {
         "ex_hermes_commonjs_record_evaluate",
         "ex_hermes_module_compile_factory",
         "ex_hermes_module_load_carrier_factory",
+        "ex_hermes_module_preflight_bytecode",
         "ex_hermes_module_record_instantiate",
         "ex_hermes_module_record_poll_evaluation",
         "ex_hermes_module_record_run_declare",
@@ -12264,6 +12384,9 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("authority-release", "WP6");
     }
     if (surface.name === "ex_host_resolve_manifest_builtin_internal") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (surface.name === "ex_host_seal_bootstrap_phase") {
       return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     const android = androidHostAbiClassification(surface.name);

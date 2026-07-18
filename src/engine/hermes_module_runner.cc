@@ -80,6 +80,28 @@ class CarrierAlignedBytecodeBuffer : public facebook::jsi::Buffer {
   uint8_t* data_{nullptr};
 };
 
+bool carrierBytecodeSanityCheck(
+    const uint8_t* bytes, size_t length, std::string& reason) {
+  CarrierAlignedBytecodeBuffer buffer(bytes, length);
+  const auto* alignedData = buffer.data();
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
+  return facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+      alignedData, length, &reason);
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
+  auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+      facebook::hermes::makeHermesRootAPI());
+  if (root == nullptr) {
+    reason = "Hermes root API unavailable";
+    return false;
+  }
+  return root->hermesBytecodeSanityCheck(alignedData, length, &reason);
+#else
+  (void)alignedData;
+  reason = "linked Hermes exposes no bytecode sanity-check API";
+  return false;
+#endif
+}
+
 facebook::jsi::Object compartmentFor(
     facebook::jsi::Runtime& rt, const std::string& identity) {
   auto registryValue = rt.global().getProperty(rt, "__compartments");
@@ -355,9 +377,16 @@ facebook::jsi::Value evaluateCommonJsRecord(
             const facebook::jsi::Value&,
             const facebook::jsi::Value* args,
             size_t count) -> facebook::jsi::Value {
-          if (count != 1 || !args[0].isString()) {
-            return rejectedPromise(
-                rt, "CommonJS dynamic import expects one string specifier");
+          // Producer-owned metadata keeps guarded failures at invocation while
+          // naming the authenticated requester and original authored span.
+          // @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
+          const bool siteBearing = count >= 5 && args[0].isNumber() &&
+              args[1].isNumber() && args[2].isNumber() && args[3].isNumber();
+          const bool legacyComputed =
+              !siteBearing && count >= 2 && args[0].isNumber();
+          const size_t specifierIndex = siteBearing ? 4 : (legacyComputed ? 1 : 0);
+          if (count < specifierIndex + 1 || count > specifierIndex + 2) {
+            return rejectedPromise(rt, "CommonJS dynamic import arguments are invalid");
           }
           if (!runtimeIsAlive(target) ||
               target.runtime->runtime_thread != std::this_thread::get_id()) {
@@ -368,19 +397,71 @@ facebook::jsi::Value evaluateCommonJsRecord(
               current->second.graph_generation != graphGeneration) {
             return rejectedPromise(rt, "stale CommonJS dynamic import owner");
           }
-          const std::string specifier = args[0].asString(rt).utf8(rt);
-          auto binding = current->second.dynamic_import_bindings.find(specifier);
-          if (binding == current->second.dynamic_import_bindings.end()) {
-            return rejectedPromise(
-                rt, "CommonJS dynamic import target is not authorized and linked");
-          }
           try {
+            const std::string specifier =
+                args[specifierIndex].toString(rt).utf8(rt);
+            bool computed = legacyComputed;
+            uint32_t site = 0;
+            std::string siteDiagnostic;
+            if (siteBearing) {
+              const double rawKind = args[0].asNumber();
+              const double rawStart = args[1].asNumber();
+              const double rawEnd = args[2].asNumber();
+              const double rawOptionsGuard = args[3].asNumber();
+              if (rawKind < -1 || rawKind > UINT32_MAX ||
+                  rawKind != static_cast<int64_t>(rawKind) || rawStart < 0 ||
+                  rawStart > UINT32_MAX ||
+                  rawStart != static_cast<uint32_t>(rawStart) || rawEnd < rawStart ||
+                  rawEnd > UINT32_MAX ||
+                  rawEnd != static_cast<uint32_t>(rawEnd) ||
+                  (rawOptionsGuard != 0 && rawOptionsGuard != 1)) {
+                return rejectedPromise(rt, "dynamic import site metadata is invalid");
+              }
+              computed = rawKind >= 0;
+              if (computed) site = static_cast<uint32_t>(rawKind);
+              siteDiagnostic = current->second.source_id +
+                  " at original-source bytes " +
+                  std::to_string(static_cast<uint32_t>(rawStart)) + ".." +
+                  std::to_string(static_cast<uint32_t>(rawEnd));
+              if (rawOptionsGuard != 0) {
+                return rejectedPromise(
+                    rt, "unsupported dynamic import options in " + siteDiagnostic);
+              }
+            }
+            uint64_t targetRecordId = 0;
+            if (computed) {
+              if (!siteBearing) {
+                const double rawSite = args[0].asNumber();
+                if (rawSite < 0 || rawSite > UINT32_MAX ||
+                    rawSite != static_cast<uint32_t>(rawSite)) {
+                  return rejectedPromise(rt, "computed dynamic import site is invalid");
+                }
+                site = static_cast<uint32_t>(rawSite);
+              }
+              auto binding = current->second.computed_dynamic_import_bindings.find(
+                  std::make_pair(site, specifier));
+              if (binding == current->second.computed_dynamic_import_bindings.end()) {
+                return rejectedPromise(
+                    rt,
+                    "computed dynamic import candidate is not authorized for this site" +
+                        (siteDiagnostic.empty() ? std::string() :
+                                                  " in " + siteDiagnostic));
+              }
+              targetRecordId = binding->second;
+            } else {
+              auto binding = current->second.dynamic_import_bindings.find(specifier);
+              if (binding == current->second.dynamic_import_bindings.end()) {
+                return rejectedPromise(
+                    rt, "CommonJS dynamic import target is not authorized and linked");
+              }
+              targetRecordId = binding->second;
+            }
             auto promise = dynamicEvaluationPromise(
                 rt,
                 target.runtime,
                 graphGeneration,
                 recordId,
-                binding->second);
+                targetRecordId);
             return facebook::jsi::Value(rt, promise);
           } catch (const facebook::jsi::JSError& error) {
             return rejectedPromise(rt, error.getMessage());
@@ -390,6 +471,51 @@ facebook::jsi::Value evaluateCommonJsRecord(
             return rejectedPromise(
                 rt, "unknown CommonJS dynamic import failure");
           }
+        });
+    auto computedRequire = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "commonJsComputedRequire"),
+        2,
+        [target, graphGeneration, recordId](
+            facebook::jsi::Runtime& rt,
+            const facebook::jsi::Value&,
+            const facebook::jsi::Value* args,
+            size_t count) -> facebook::jsi::Value {
+          // The producer supplies original-source coordinates as hidden
+          // arguments. Authored arguments have already evaluated before this
+          // callback throws, preserving reached-site CommonJS ordering without
+          // granting a runtime resolver.
+          // @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
+          if (!runtimeIsAlive(target) ||
+              target.runtime->runtime_thread != std::this_thread::get_id()) {
+            throw facebook::jsi::JSError(
+                rt, "stale computed CommonJS require callback");
+          }
+          auto current = target.runtime->commonjs_records.find(recordId);
+          if (current == target.runtime->commonjs_records.end() ||
+              current->second.graph_generation != graphGeneration) {
+            throw facebook::jsi::JSError(
+                rt, "stale computed CommonJS require owner");
+          }
+          if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
+            throw facebook::jsi::JSError(
+                rt, "computed CommonJS require site metadata is invalid");
+          }
+          const double rawStart = args[0].asNumber();
+          const double rawEnd = args[1].asNumber();
+          if (rawStart < 0 || rawStart > UINT32_MAX ||
+              rawStart != static_cast<uint32_t>(rawStart) || rawEnd < rawStart ||
+              rawEnd > UINT32_MAX || rawEnd != static_cast<uint32_t>(rawEnd)) {
+            throw facebook::jsi::JSError(
+                rt, "computed CommonJS require site metadata is invalid");
+          }
+          throw facebook::jsi::JSError(
+              rt,
+              "IBEX_LEGACY_COMPUTED_REQUIRE: computed CommonJS require is "
+              "unsupported in " + current->second.source_id +
+                  " at original-source bytes " +
+                  std::to_string(static_cast<uint32_t>(rawStart)) + ".." +
+                  std::to_string(static_cast<uint32_t>(rawEnd)));
         });
     requireFunction.setProperty(rt, "import", dynamicImport);
     auto graphContext = runtime->graph_contexts.find(record.context_handle_id);
@@ -409,7 +535,8 @@ facebook::jsi::Value evaluateCommonJsRecord(
         *record.exports_value,
         facebook::jsi::String::createFromUtf8(rt, record.filename),
         facebook::jsi::String::createFromUtf8(rt, record.dirname),
-        dynamicImport);
+        dynamicImport,
+        computedRequire);
     (void)result;
     auto finalExports = record.module_object->getProperty(rt, "exports");
     record.exports_value =
@@ -512,6 +639,12 @@ void rememberRecordError(
   }
 }
 
+std::string moduleRecordErrorDetail(const facebook::jsi::JSError& error) {
+  const std::string message = error.getMessage();
+  const std::string stack = error.getStack();
+  return stack.empty() ? message : message + "\n" + stack;
+}
+
 int32_t reportRecordError(
     NativeModuleRecordEntry& record, char** outError) {
   writeError(
@@ -583,6 +716,13 @@ bool beginRecordExecute(
               if (count != 0) {
                 try {
                   message = args[0].toString(rt).utf8(rt);
+                  if (args[0].isObject()) {
+                    auto stack = args[0].asObject(rt).getProperty(rt, "stack");
+                    if (stack.isString()) {
+                      const std::string stackText = stack.asString(rt).utf8(rt);
+                      if (!stackText.empty()) message += "\n" + stackText;
+                    }
+                  }
                 } catch (...) {
                   // This handler must fulfill even when stringification fails;
                   // otherwise it creates a second unhandled rejection.
@@ -833,7 +973,7 @@ facebook::jsi::Object dynamicEvaluationPromise(
               asynchronous =
                   beginRecordExecute(rt, target.runtime, recordId, *record);
             } catch (const facebook::jsi::JSError& error) {
-              rememberRecordError(*record, error.getMessage());
+              rememberRecordError(*record, moduleRecordErrorDetail(error));
               throw;
             } catch (const std::exception& error) {
               rememberRecordError(*record, error.what());
@@ -1174,37 +1314,14 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
       if (carrier_encoding == 1) {
         buffer = std::make_shared<CarrierAlignedBytecodeBuffer>(
             carrier_bytes, carrier_bytes_len);
-        const auto* alignedData = buffer->data();
-#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
         std::string reason;
-        if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
-                alignedData, carrier_bytes_len, &reason)) {
+        if (!carrierBytecodeSanityCheck(carrier_bytes, carrier_bytes_len, reason)) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
           ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
 #endif
           writeError(out_error, "Bytecode sanity check failed: " + reason);
           return 2;
         }
-#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
-        std::string reason;
-        auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
-            facebook::hermes::makeHermesRootAPI());
-        if (root == nullptr ||
-            !root->hermesBytecodeSanityCheck(
-                alignedData, carrier_bytes_len, &reason)) {
-#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
-          ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
-#endif
-          writeError(
-              out_error,
-              "Bytecode sanity check failed: " +
-                  (root == nullptr ? std::string("Hermes root API unavailable")
-                                   : reason));
-          return 2;
-        }
-#else
-        (void)alignedData;
-#endif
       } else {
         buffer = std::make_shared<CarrierMemoryBuffer>(
             carrier_bytes, carrier_bytes_len);
@@ -1280,6 +1397,28 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     writeError(out_error, "unknown prepared carrier load failure");
   }
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+}
+
+// Bulk envelope admission invokes this for every HBC carrier before any table
+// is evaluated. Header inspection remains in Rust; this check uses the exact
+// linked Hermes decoder and therefore catches engine-specific structural
+// rejection eagerly. @ref LLP 0029#1-command-surface-and-producer-pipeline
+extern "C" int32_t ex_hermes_module_preflight_bytecode(
+    const uint8_t* bytes,
+    size_t length,
+    char** out_error) {
+  observeModuleRunnerAbi(__func__);
+  if (out_error) *out_error = nullptr;
+  if (bytes == nullptr || length == 0) {
+    writeError(out_error, "prepared bytecode preflight received invalid input");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  std::string reason;
+  if (!carrierBytecodeSanityCheck(bytes, length, reason)) {
+    writeError(out_error, "Bytecode sanity check failed: " + reason);
+    return 2;
+  }
+  return 0;
 }
 
 extern "C" int32_t ex_hermes_commonjs_create_record(
@@ -1450,6 +1589,35 @@ extern "C" int32_t ex_hermes_commonjs_record_link_dynamic_import(
       reinterpret_cast<const char*>(specifier), specifier_len);
   if (!entry->dynamic_import_bindings
            .emplace(spelling, target_record.opaque[2])
+           .second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
+extern "C" int32_t ex_hermes_commonjs_record_link_computed_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    uint32_t site,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = commonJsRecordFor(runtime, record);
+  auto* target = recordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeCommonJsRecordState::New || specifier == nullptr ||
+      specifier_len == 0 ||
+      entry->graph_generation != target->graph_generation) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string spelling(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (!entry->computed_dynamic_import_bindings
+           .emplace(std::make_pair(site, spelling), target_record.opaque[2])
            .second) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
@@ -1910,6 +2078,35 @@ extern "C" int32_t ex_hermes_module_record_link_dynamic_import(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+extern "C" int32_t ex_hermes_module_record_link_computed_dynamic_import(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    ExactModuleRunnerHandle record,
+    uint32_t site,
+    const uint8_t* specifier,
+    size_t specifier_len,
+    ExactModuleRunnerHandle target_record) {
+  observeModuleRunnerAbi(__func__);
+  ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
+  if (!drive) return drive.status();
+  auto* entry = recordFor(runtime, record);
+  auto* target = recordFor(runtime, target_record);
+  if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  if (entry->state != NativeModuleRecordState::New ||
+      entry->graph_generation != target->graph_generation ||
+      specifier == nullptr || specifier_len == 0) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string spelling(
+      reinterpret_cast<const char*>(specifier), specifier_len);
+  if (!entry->computed_dynamic_import_bindings
+           .emplace(std::make_pair(site, spelling), target_record.opaque[2])
+           .second) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  return EXACT_RUNTIME_DRIVE_OK;
+}
+
 extern "C" int32_t ex_hermes_module_record_instantiate(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -2063,32 +2260,88 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
             size_t count) -> facebook::jsi::Value {
           // import() never throws synchronously: malformed, denied, stale,
           // and cyclic requests all become fresh rejected public promises.
-          if (count != 1 || !args[0].isString()) {
-            return rejectedPromise(
-                rt, "dynamic import expects one string specifier");
+          // @ref LLP 0028#2-disposition-of-the-legacy-window-interop-shapes
+          const bool siteBearing = count >= 5 && args[0].isNumber() &&
+              args[1].isNumber() && args[2].isNumber() && args[3].isNumber();
+          const bool legacyComputed =
+              !siteBearing && count >= 2 && args[0].isNumber();
+          const size_t specifierIndex = siteBearing ? 4 : (legacyComputed ? 1 : 0);
+          if (count < specifierIndex + 1 || count > specifierIndex + 2) {
+            return rejectedPromise(rt, "dynamic import arguments are invalid");
           }
           auto* current = callbackRecordFor(target, graphGeneration, recordId);
           if (current == nullptr) {
             return rejectedPromise(rt, "stale dynamic import requester");
           }
-          const std::string specifier = args[0].asString(rt).utf8(rt);
-          auto binding = current->dynamic_import_bindings.find(specifier);
-          if (binding == current->dynamic_import_bindings.end()) {
-            return rejectedPromise(
-                rt, "dynamic import target is not authorized and linked");
-          }
-          if (binding->second == recordId &&
-              current->state != NativeModuleRecordState::Evaluated) {
-            return rejectedPromise(
-                rt, "ERR_ASYNC_MODULE_CYCLE: dynamic import re-entered its evaluating record");
-          }
           try {
+            const std::string specifier =
+                args[specifierIndex].toString(rt).utf8(rt);
+            bool computed = legacyComputed;
+            uint32_t site = 0;
+            std::string siteDiagnostic;
+            if (siteBearing) {
+              const double rawKind = args[0].asNumber();
+              const double rawStart = args[1].asNumber();
+              const double rawEnd = args[2].asNumber();
+              const double rawOptionsGuard = args[3].asNumber();
+              if (rawKind < -1 || rawKind > UINT32_MAX ||
+                  rawKind != static_cast<int64_t>(rawKind) || rawStart < 0 ||
+                  rawStart > UINT32_MAX ||
+                  rawStart != static_cast<uint32_t>(rawStart) || rawEnd < rawStart ||
+                  rawEnd > UINT32_MAX ||
+                  rawEnd != static_cast<uint32_t>(rawEnd) ||
+                  (rawOptionsGuard != 0 && rawOptionsGuard != 1)) {
+                return rejectedPromise(rt, "dynamic import site metadata is invalid");
+              }
+              computed = rawKind >= 0;
+              if (computed) site = static_cast<uint32_t>(rawKind);
+              siteDiagnostic = current->source_id + " at original-source bytes " +
+                  std::to_string(static_cast<uint32_t>(rawStart)) + ".." +
+                  std::to_string(static_cast<uint32_t>(rawEnd));
+              if (rawOptionsGuard != 0) {
+                return rejectedPromise(
+                    rt, "unsupported dynamic import options in " + siteDiagnostic);
+              }
+            }
+            uint64_t targetRecordId = 0;
+            if (computed) {
+              if (!siteBearing) {
+                const double rawSite = args[0].asNumber();
+                if (rawSite < 0 || rawSite > UINT32_MAX ||
+                    rawSite != static_cast<uint32_t>(rawSite)) {
+                  return rejectedPromise(rt, "computed dynamic import site is invalid");
+                }
+                site = static_cast<uint32_t>(rawSite);
+              }
+              auto binding = current->computed_dynamic_import_bindings.find(
+                  std::make_pair(site, specifier));
+              if (binding == current->computed_dynamic_import_bindings.end()) {
+                return rejectedPromise(
+                    rt,
+                    "computed dynamic import candidate is not authorized for this site" +
+                        (siteDiagnostic.empty() ? std::string() :
+                                                  " in " + siteDiagnostic));
+              }
+              targetRecordId = binding->second;
+            } else {
+              auto binding = current->dynamic_import_bindings.find(specifier);
+              if (binding == current->dynamic_import_bindings.end()) {
+                return rejectedPromise(
+                    rt, "dynamic import target is not authorized and linked");
+              }
+              targetRecordId = binding->second;
+            }
+            if (targetRecordId == recordId &&
+                current->state != NativeModuleRecordState::Evaluated) {
+              return rejectedPromise(
+                  rt, "ERR_ASYNC_MODULE_CYCLE: dynamic import re-entered its evaluating record");
+            }
             auto promise = dynamicEvaluationPromise(
                 rt,
                 target.runtime,
                 graphGeneration,
                 recordId,
-                binding->second);
+                targetRecordId);
             return facebook::jsi::Value(rt, promise);
           } catch (const facebook::jsi::JSError& error) {
             return rejectedPromise(rt, error.getMessage());
@@ -2129,7 +2382,7 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
     entry->state = NativeModuleRecordState::Instantiated;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    rememberRecordError(*entry, error.getMessage());
+    rememberRecordError(*entry, moduleRecordErrorDetail(error));
   } catch (const std::exception& error) {
     rememberRecordError(*entry, error.what());
   } catch (...) {
@@ -2161,7 +2414,7 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
     entry->state = NativeModuleRecordState::Declared;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    rememberRecordError(*entry, error.getMessage());
+    rememberRecordError(*entry, moduleRecordErrorDetail(error));
   } catch (const std::exception& error) {
     rememberRecordError(*entry, error.what());
   } catch (...) {
@@ -2197,7 +2450,7 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
         : 0;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    rememberRecordError(*entry, error.getMessage());
+    rememberRecordError(*entry, moduleRecordErrorDetail(error));
   } catch (const std::exception& error) {
     rememberRecordError(*entry, error.what());
   } catch (...) {

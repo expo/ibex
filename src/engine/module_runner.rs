@@ -18,7 +18,7 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, Result};
 
 use crate::module_loader::artifact::{ModulePayloadV1, SourceGoalV1, VerifiedModuleArtifactV1};
-use crate::module_loader::carrier::{PreparedCarrierEncodingV1, VerifiedPreparedCarrierEntryV1};
+use crate::module_loader::carrier::{PreparedCarrierEncodingV2, VerifiedPreparedCarrierEntryV2};
 #[cfg(any(test, feature = "module-runner"))]
 use crate::module_loader::graph::{AsyncEvaluationPlan, SynchronousGraphPlan};
 use crate::module_loader::identity::SourceId;
@@ -34,6 +34,11 @@ struct NativeModuleHandle {
 }
 
 unsafe extern "C" {
+    fn ex_hermes_module_preflight_bytecode(
+        bytes: *const u8,
+        bytes_len: usize,
+        out_error: *mut *mut c_char,
+    ) -> i32;
     fn ex_hermes_module_compile_factory(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -156,6 +161,15 @@ unsafe extern "C" {
         specifier_len: usize,
         target_record: NativeModuleHandle,
     ) -> i32;
+    fn ex_hermes_commonjs_record_link_computed_dynamic_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        site: u32,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
     fn ex_hermes_commonjs_record_evaluate(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -224,6 +238,16 @@ unsafe extern "C" {
         specifier_len: usize,
         target_record: NativeModuleHandle,
     ) -> i32;
+    #[cfg(any(test, feature = "module-runner"))]
+    fn ex_hermes_module_record_link_computed_dynamic_import(
+        runtime: *mut c_void,
+        runtime_nonce: u64,
+        record: NativeModuleHandle,
+        site: u32,
+        specifier: *const u8,
+        specifier_len: usize,
+        target_record: NativeModuleHandle,
+    ) -> i32;
     fn ex_hermes_module_record_instantiate(
         runtime: *mut c_void,
         runtime_nonce: u64,
@@ -261,7 +285,21 @@ unsafe extern "C" {
         out_error: *mut *mut c_char,
     ) -> i32;
     fn ex_hermes_free_string(value: *mut c_char);
-    #[cfg(test)]
+    #[cfg(feature = "sfe-dev-spike")]
+    fn ex_hermes_create_diagnostic() -> *mut c_void;
+    #[cfg(feature = "sfe-dev-spike")]
+    fn ex_hermes_runtime_nonce(runtime: *mut c_void) -> u64;
+    #[cfg(feature = "sfe-dev-spike")]
+    fn ex_hermes_destroy(runtime: *mut c_void);
+    #[cfg(feature = "sfe-dev-spike")]
+    fn ex_hermes_poll(runtime: *mut c_void, now_ms: u64) -> i32;
+    #[cfg(feature = "sfe-dev-spike")]
+    fn ex_hermes_next_timer(runtime: *mut c_void) -> i64;
+    #[cfg(feature = "sfe-dev-spike")]
+    fn ex_hermes_has_pending_tasks(runtime: *mut c_void) -> i32;
+    #[cfg(feature = "sfe-dev-spike")]
+    fn ex_hermes_now_ms() -> u64;
+    #[cfg(any(test, feature = "sfe-dev-spike"))]
     fn ex_hermes_eval(
         runtime: *mut c_void,
         data: *const u8,
@@ -270,6 +308,215 @@ unsafe extern "C" {
         is_bytecode: i32,
         out_value: *mut *mut c_char,
     ) -> i32;
+}
+
+/// Ask the exact linked Hermes decoder to sanity-check an authenticated HBC
+/// carrier without evaluating it. Callers bulk-preflight all carriers before
+/// creating any factory table.
+pub fn preflight_hermes_bytecode(bytes: &[u8]) -> Result<()> {
+    if bytes.is_empty() {
+        bail!("Hermes bytecode preflight requires non-empty bytes");
+    }
+    let mut error = std::ptr::null_mut();
+    let status =
+        unsafe { ex_hermes_module_preflight_bytecode(bytes.as_ptr(), bytes.len(), &mut error) };
+    if status != 0 {
+        let detail = take_error(error);
+        bail!("native Hermes bytecode preflight refused ({status}): {detail}");
+    }
+    if !error.is_null() {
+        unsafe { ex_hermes_free_string(error) };
+    }
+    Ok(())
+}
+
+/// Explicitly diagnostic owner used only by LLP 0029's phase-0 dynamic stub.
+/// Production compiled executables must construct an advertised armed runtime.
+#[cfg(feature = "sfe-dev-spike")]
+pub struct DiagnosticModuleRuntime {
+    raw: NonNull<c_void>,
+}
+
+#[cfg(feature = "sfe-dev-spike")]
+impl DiagnosticModuleRuntime {
+    pub fn new() -> Result<Self> {
+        let raw = NonNull::new(unsafe { ex_hermes_create_diagnostic() })
+            .ok_or_else(|| anyhow!("diagnostic Hermes runtime construction failed"))?;
+        Ok(Self { raw })
+    }
+
+    pub fn borrow(&mut self) -> Result<NativeModuleRuntime<'_>> {
+        let nonce = unsafe { ex_hermes_runtime_nonce(self.raw.as_ptr()) };
+        // SAFETY: this owner retains the live pointer and the mutable borrow
+        // prevents destruction or a second drive until the module borrow ends.
+        unsafe { NativeModuleRuntime::from_raw(self.raw, nonce) }
+    }
+
+    /// Install the process identity visible to a compiled application before
+    /// any authenticated module record is linked. There is no CLI parser in
+    /// this path: every argument after the invoked name remains application
+    /// data and `execArgv` is always empty.
+    /// @ref LLP 0029#6-compiled-boot-and-process-semantics
+    pub fn install_compiled_process_metadata(
+        &mut self,
+        exec_path: &str,
+        entry_designation: &str,
+        invoked_name: &str,
+        application_arguments: &[String],
+    ) -> Result<()> {
+        let mut argv = Vec::with_capacity(application_arguments.len() + 2);
+        argv.push(exec_path.to_owned());
+        argv.push(entry_designation.to_owned());
+        argv.extend(application_arguments.iter().cloned());
+        let argv = serde_json::to_string(&argv)?;
+        let exec_path = serde_json::to_string(exec_path)?;
+        let invoked_name = serde_json::to_string(invoked_name)?;
+        let source = format!(
+            "globalThis.__exactArgv={argv};\n\
+             globalThis.__exactExecArgv=[];\n\
+             globalThis.__exactExecPath={exec_path};\n\
+             globalThis.__exactRawArgv0={invoked_name};\n\
+             if (globalThis.process && typeof globalThis.process === 'object') {{\n\
+               globalThis.process.argv=globalThis.__exactArgv;\n\
+               globalThis.process.execArgv=globalThis.__exactExecArgv;\n\
+               globalThis.process.argv0=globalThis.__exactRawArgv0;\n\
+               globalThis.process.execPath=globalThis.__exactExecPath;\n\
+             }}\n\
+             true;"
+        );
+        self.eval_text(&source, "ibex:compiled-process-metadata")?;
+        Ok(())
+    }
+
+    /// Drive the compiled program's referenced work until the native event
+    /// loop reaches quiescence. The timer deadline and poll timestamp come
+    /// from Hermes' one monotonic clock domain; background callbacks wake the
+    /// sleeping owner through the library-owned host hook.
+    /// @ref LLP 0029#6-compiled-boot-and-process-semantics
+    pub fn drive_compiled_event_loop_to_quiescence(&mut self) -> Result<()> {
+        let _wake_hook = CompiledWakeHookGuard::install();
+        loop {
+            let observed_generation = compiled_wake_generation();
+            let now = unsafe { ex_hermes_now_ms() };
+            let executed = unsafe { ex_hermes_poll(self.raw.as_ptr(), now) };
+            if executed < 0 {
+                bail!("compiled Hermes task execution failed");
+            }
+            if executed > 0 {
+                continue;
+            }
+            if unsafe { ex_hermes_has_pending_tasks(self.raw.as_ptr()) } == 0 {
+                return Ok(());
+            }
+
+            let next_timer = unsafe { ex_hermes_next_timer(self.raw.as_ptr()) };
+            let wait = if next_timer < 0 {
+                std::time::Duration::from_secs(1)
+            } else {
+                std::time::Duration::from_millis((next_timer as u64).saturating_sub(now))
+            };
+            wait_for_compiled_wake(observed_generation, wait);
+        }
+    }
+
+    /// Read the status selected by a root-set `process.exitCode` after the
+    /// compiled event loop reaches quiescence. Invalid or absent values retain
+    /// the orderly zero status; platform exit truncation remains the OS's job.
+    /// @ref LLP 0025#8-exit-and-lifecycle
+    pub fn compiled_process_exit_code(&mut self) -> Result<i32> {
+        let value = self.eval_text(
+            "(typeof globalThis.process === 'object' && globalThis.process !== null && typeof globalThis.process.exitCode === 'number') ? String(globalThis.process.exitCode) : '0'",
+            "ibex:compiled-process-exit-code",
+        )?;
+        Ok(value.trim().parse::<i32>().unwrap_or(0))
+    }
+
+    fn eval_text(&mut self, source: &str, source_label: &str) -> Result<String> {
+        let source_url = std::ffi::CString::new(source_label)?;
+        let mut output = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_eval(
+                self.raw.as_ptr(),
+                source.as_ptr(),
+                source.len(),
+                source_url.as_ptr(),
+                0,
+                &mut output,
+            )
+        };
+        let detail = take_error(output);
+        if status != 0 {
+            bail!("compiled runtime evaluation refused ({status}): {detail}");
+        }
+        Ok(detail)
+    }
+}
+
+#[cfg(feature = "sfe-dev-spike")]
+static COMPILED_EVENT_LOOP_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+#[cfg(feature = "sfe-dev-spike")]
+extern "C" fn wake_compiled_event_loop(_: *mut c_void) {
+    let mut generation = COMPILED_EVENT_LOOP_WAKE
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *generation = generation.wrapping_add(1);
+    COMPILED_EVENT_LOOP_WAKE.1.notify_one();
+}
+
+#[cfg(feature = "sfe-dev-spike")]
+fn compiled_wake_generation() -> u64 {
+    *COMPILED_EVENT_LOOP_WAKE
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(feature = "sfe-dev-spike")]
+fn wait_for_compiled_wake(observed_generation: u64, wait: std::time::Duration) {
+    let generation = COMPILED_EVENT_LOOP_WAKE
+        .0
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *generation != observed_generation || wait.is_zero() {
+        return;
+    }
+    drop(
+        COMPILED_EVENT_LOOP_WAKE
+            .1
+            .wait_timeout(generation, wait)
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+}
+
+#[cfg(feature = "sfe-dev-spike")]
+struct CompiledWakeHookGuard;
+
+#[cfg(feature = "sfe-dev-spike")]
+impl CompiledWakeHookGuard {
+    fn install() -> Self {
+        crate::engine::ex_hermes_set_host_wake_hook(
+            Some(wake_compiled_event_loop),
+            std::ptr::null_mut(),
+        );
+        Self
+    }
+}
+
+#[cfg(feature = "sfe-dev-spike")]
+impl Drop for CompiledWakeHookGuard {
+    fn drop(&mut self) {
+        crate::engine::ex_hermes_set_host_wake_hook(None, std::ptr::null_mut());
+    }
+}
+
+#[cfg(feature = "sfe-dev-spike")]
+impl Drop for DiagnosticModuleRuntime {
+    fn drop(&mut self) {
+        unsafe { ex_hermes_destroy(self.raw.as_ptr()) };
+    }
 }
 
 /// Borrowed owner-thread access to one live Hermes runtime generation.
@@ -445,7 +692,7 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
     pub fn load_verified_prepared_factory(
         &'runtime self,
         verified: VerifiedModuleArtifactV1<'_>,
-        carrier_entry: VerifiedPreparedCarrierEntryV1<'_>,
+        carrier_entry: VerifiedPreparedCarrierEntryV2<'_>,
         principal_id: u32,
         compartment_identity: Option<&str>,
         graph_generation: u64,
@@ -482,8 +729,8 @@ impl<'runtime> NativeModuleRuntime<'runtime> {
             SourceGoalV1::Builtin => 3,
         };
         let native_encoding = match &manifest.encoding {
-            PreparedCarrierEncodingV1::JavascriptFactoryTable => 0,
-            PreparedCarrierEncodingV1::HermesBytecode { .. } => 1,
+            PreparedCarrierEncodingV2::JavascriptFactoryTable => 0,
+            PreparedCarrierEncodingV2::HermesBytecode { .. } => 1,
         };
         let compartment = compartment_identity.unwrap_or("");
         let digest = artifact.semantic_digest.as_str();
@@ -893,6 +1140,32 @@ impl<'runtime> NativeCommonJsRecord<'runtime> {
         Ok(())
     }
 
+    fn link_computed_dynamic_import_handle(
+        &mut self,
+        site: u32,
+        specifier: &str,
+        target: NativeModuleHandle,
+    ) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("CommonJS computed dynamic-import specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_commonjs_record_link_computed_dynamic_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                site,
+                specifier.as_ptr(),
+                specifier.len(),
+                target,
+            )
+        };
+        if status != 0 {
+            bail!("native CommonJS computed dynamic-import link refused ({status})");
+        }
+        Ok(())
+    }
+
     pub fn evaluate(&mut self) -> Result<()> {
         let handle = self.live_handle()?;
         let mut evicted = 0;
@@ -1054,6 +1327,33 @@ impl NativeModuleRecord<'_> {
         };
         if status != 0 {
             bail!("native dynamic import binding refused ({status})");
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "module-runner"))]
+    fn link_computed_dynamic_import_handle(
+        &mut self,
+        site: u32,
+        specifier: &str,
+        target: NativeModuleHandle,
+    ) -> Result<()> {
+        if specifier.is_empty() {
+            bail!("computed dynamic-import specifier must not be empty");
+        }
+        let status = unsafe {
+            ex_hermes_module_record_link_computed_dynamic_import(
+                self.runtime.raw.as_ptr(),
+                self.runtime.nonce,
+                self.live_handle()?,
+                site,
+                specifier.as_ptr(),
+                specifier.len(),
+                target,
+            )
+        };
+        if status != 0 {
+            bail!("native computed dynamic-import binding refused ({status})");
         }
         Ok(())
     }
@@ -1249,6 +1549,9 @@ impl<'runtime> NativeLinkedRecord<'runtime> {
 }
 
 #[cfg(any(test, feature = "module-runner"))]
+pub type ComputedDynamicImportLinks = BTreeMap<SourceId, BTreeMap<(u32, String), SourceId>>;
+
+#[cfg(any(test, feature = "module-runner"))]
 pub struct NativeSynchronousGraph<'runtime> {
     entry: SourceId,
     evaluation_order: Vec<SourceId>,
@@ -1283,6 +1586,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             receipts,
             Some(dynamic.allowed_specifiers),
             None,
+            None,
         )
     }
 
@@ -1295,7 +1599,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
-        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
     ) -> Result<Self> {
         let evaluation_order = plan.synchronous_evaluation_order(entry)?;
         let mut receipts =
@@ -1310,6 +1614,7 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             configs,
             receipts,
             Some(dynamic.allowed_specifiers),
+            None,
             Some(prepared_entries),
         )
     }
@@ -1333,16 +1638,17 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             Vec::new(),
             None,
             None,
+            None,
         )
     }
 
     #[cfg(test)]
-    pub fn link_prepared(
+    pub fn link_with_computed_candidates(
         runtime: &'runtime NativeModuleRuntime<'runtime>,
         plan: &SynchronousGraphPlan<'_>,
         entry: &SourceId,
         configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
-        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>,
+        computed_candidates: &ComputedDynamicImportLinks,
     ) -> Result<Self> {
         let evaluation_order = plan.synchronous_evaluation_order(entry)?;
         Self::link_inner(
@@ -1353,6 +1659,52 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
             configs,
             Vec::new(),
             None,
+            Some(computed_candidates),
+            None,
+        )
+    }
+
+    #[cfg(any(test, feature = "sfe-dev-spike"))]
+    pub fn link_prepared(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
+    ) -> Result<Self> {
+        let evaluation_order = plan.synchronous_evaluation_order(entry)?;
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            evaluation_order,
+            configs,
+            Vec::new(),
+            None,
+            None,
+            Some(prepared_entries),
+        )
+    }
+
+    #[cfg(any(test, feature = "sfe-dev-spike"))]
+    pub fn link_prepared_with_computed_candidates(
+        runtime: &'runtime NativeModuleRuntime<'runtime>,
+        plan: &SynchronousGraphPlan<'_>,
+        entry: &SourceId,
+        configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
+        computed_candidates: &ComputedDynamicImportLinks,
+    ) -> Result<Self> {
+        let evaluation_order = plan.synchronous_evaluation_order(entry)?;
+        Self::link_inner(
+            runtime,
+            plan,
+            entry,
+            evaluation_order,
+            configs,
+            Vec::new(),
+            None,
+            Some(computed_candidates),
             Some(prepared_entries),
         )
     }
@@ -1365,7 +1717,8 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
         mut configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorization_receipts: Vec<AuthorizedGraphOperation>,
         allowed_dynamic_specifiers: Option<BTreeMap<SourceId, BTreeSet<String>>>,
-        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>>,
+        computed_candidates: Option<&ComputedDynamicImportLinks>,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
     ) -> Result<Self> {
         let linkage_order = match &allowed_dynamic_specifiers {
             Some(allowed) => plan.linkage_order_for_authorized(entry, allowed)?,
@@ -1591,7 +1944,12 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                     record.link_dependency_handle(target_handle)?;
                 }
             }
-            for (specifier, target) in plan.dynamic_import_targets(source_id)? {
+            for binding in plan.dynamic_import_bindings(source_id)? {
+                if binding.computed_candidate {
+                    continue;
+                }
+                let specifier = binding.specifier;
+                let target = binding.target;
                 if allowed_dynamic_specifiers.as_ref().is_some_and(|allowed| {
                     !allowed
                         .get(source_id)
@@ -1612,6 +1970,47 @@ impl<'runtime> NativeSynchronousGraph<'runtime> {
                     }
                     NativeLinkedRecord::CommonJs { record, .. } => {
                         record.link_dynamic_import_handle(&specifier, target_handle)?;
+                    }
+                }
+            }
+            let site_rows = match computed_candidates {
+                Some(rows) => rows.get(source_id),
+                None => plan.computed_candidate_sites().get(source_id),
+            };
+            if let Some(site_rows) = site_rows {
+                let authenticated = plan
+                    .dynamic_import_bindings(source_id)?
+                    .into_iter()
+                    .filter(|binding| binding.computed_candidate)
+                    .map(|binding| ((binding.specifier, binding.target.clone()), binding.target))
+                    .collect::<BTreeMap<_, _>>();
+                for ((site, specifier), target) in site_rows {
+                    if allowed_dynamic_specifiers.as_ref().is_some_and(|allowed| {
+                        !allowed
+                            .get(source_id)
+                            .is_some_and(|specifiers| specifiers.contains(specifier))
+                    }) {
+                        continue;
+                    }
+                    if !authenticated.contains_key(&(specifier.clone(), target.clone())) {
+                        bail!(
+                            "computed candidate site {site} spelling {specifier:?} is absent from the authenticated plan"
+                        );
+                    }
+                    let target_handle = records
+                        .get(target)
+                        .ok_or_else(|| {
+                            anyhow!("computed dynamic-import target is outside linkage closure")
+                        })?
+                        .esm_link_handle()?;
+                    match records
+                        .get_mut(source_id)
+                        .expect("linkage order was used to create every record")
+                    {
+                        NativeLinkedRecord::Esm(record) => record
+                            .link_computed_dynamic_import_handle(*site, specifier, target_handle)?,
+                        NativeLinkedRecord::CommonJs { record, .. } => record
+                            .link_computed_dynamic_import_handle(*site, specifier, target_handle)?,
                     }
                 }
             }
@@ -1760,7 +2159,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorizer: &ModuleGraphAuthorizer<'_, P>,
         authority_contexts: &BTreeMap<SourceId, GraphAuthorityContext>,
-        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>,
+        prepared_entries: &BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>,
     ) -> Result<Self> {
         let schedule = plan.asynchronous_evaluation_plan(entry)?;
         let mut receipts =
@@ -1807,7 +2206,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
         configs: BTreeMap<SourceId, NativeModuleRecordConfig>,
         authorization_receipts: Vec<AuthorizedGraphOperation>,
         allowed_dynamic_specifiers: Option<BTreeMap<SourceId, BTreeSet<String>>>,
-        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV1<'_>>>,
+        prepared_entries: Option<&BTreeMap<SourceId, VerifiedPreparedCarrierEntryV2<'_>>>,
     ) -> Result<Self> {
         let linked = NativeSynchronousGraph::link_inner(
             runtime,
@@ -1817,6 +2216,7 @@ impl<'runtime> NativeAsynchronousGraph<'runtime> {
             configs,
             authorization_receipts,
             allowed_dynamic_specifiers,
+            None,
             prepared_entries,
         )?;
         let NativeSynchronousGraph {
@@ -1999,9 +2399,11 @@ mod tests {
         MODULE_ARTIFACT_FACTORY_DOMAIN_V1,
     };
     use crate::module_loader::carrier::{
-        AdmittedPreparedCarrierV1, PreparedCarrierAdmissionV1, PreparedModuleCarrierV1,
+        AdmittedPreparedCarrierV2, HermesBytecodeMetadataV1, PreparedCarrierAdmissionV2,
+        PreparedCarrierEngineBindingV2, PreparedModuleCarrierV2,
     };
     use crate::module_loader::identity::ImportAttributes;
+    use crate::module_loader::producer_spike::produce_module_artifact_v1;
     use capsec_semantics::model::{Digest, NonEmptyString, PathComponent, Principal};
 
     #[allow(clashing_extern_declarations)]
@@ -2140,6 +2542,132 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "sfe-dev-spike")]
+    #[test]
+    fn compiled_process_metadata_keeps_reserved_words_as_application_data() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let mut owner = DiagnosticModuleRuntime::new().unwrap();
+        owner
+            .install_compiled_process_metadata(
+                "/tmp/app",
+                "/app/entry.mjs",
+                "custom-argv0",
+                &["--inspect".into(), "compile".into()],
+            )
+            .unwrap();
+        let source = b"JSON.stringify([globalThis.__exactArgv,globalThis.__exactExecArgv,globalThis.__exactRawArgv0,globalThis.__exactExecPath])";
+        let source_url = CString::new("compiled-process-metadata-test.js").unwrap();
+        let mut output = std::ptr::null_mut();
+        let status = unsafe {
+            ex_hermes_eval(
+                owner.raw.as_ptr(),
+                source.as_ptr(),
+                source.len(),
+                source_url.as_ptr(),
+                0,
+                &mut output,
+            )
+        };
+        assert_eq!(status, 0);
+        assert_eq!(
+            take_error(output),
+            r#"[["/tmp/app","/app/entry.mjs","--inspect","compile"],[],"custom-argv0","/tmp/app"]"#
+        );
+    }
+
+    #[cfg(feature = "sfe-dev-spike")]
+    #[test]
+    fn compiled_runtime_drains_referenced_work_and_reads_exit_code() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let mut owner = DiagnosticModuleRuntime::new().unwrap();
+        owner
+            .eval_text(
+                "globalThis.__compiledTimerRan=false; setTimeout(function(){ globalThis.__compiledTimerRan=true; process.exitCode=7; }, 5); 'scheduled'",
+                "compiled-lifecycle-test.js",
+            )
+            .unwrap();
+
+        owner.drive_compiled_event_loop_to_quiescence().unwrap();
+
+        assert_eq!(owner.compiled_process_exit_code().unwrap(), 7);
+        assert_eq!(
+            owner
+                .eval_text(
+                    "String(globalThis.__compiledTimerRan)",
+                    "compiled-lifecycle-result.js",
+                )
+                .unwrap(),
+            "true"
+        );
+    }
+
+    /// Separate from SWC/Oxc parse equivalence: this proves that JavaScript
+    /// emitted by the exact pinned Oxc producer is accepted and executed by the
+    /// Hermes library actually loaded on each advertised native tuple.
+    /// @ref LLP 0028#3-the-llp-0024-gates-revise-the-seam-then-build-on-oxc
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn oxc_javascript_goal_output_is_accepted_by_loaded_hermes() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let source_id = SourceId::synthetic("oxc-hermes-acceptance", "entry.mjs").unwrap();
+        let producer_digest = digest("oxc-hermes-acceptance-producer");
+        let artifact = produce_module_artifact_v1(
+            source_id.clone(),
+            "entry.mjs",
+            std::path::Path::new("entry.mjs"),
+            "const state = { value: 40 }; export const answer = (state?.value ?? 0) + 2;",
+            producer_digest.clone(),
+        )
+        .unwrap();
+        let verified = artifact
+            .verify_for_admission(&ArtifactAdmissionV1::TrustedInProcess {
+                expected_source_id: source_id.clone(),
+                expected_source_integrity: artifact.semantics.source_integrity.clone(),
+                expected_producer_id: NonEmptyString::new("ibex-runtime-oxc").unwrap(),
+                producer_binary_digest: producer_digest,
+                transform_fingerprint_digest: artifact
+                    .semantics
+                    .transform_fingerprint
+                    .digest()
+                    .unwrap(),
+            })
+            .unwrap();
+
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(source_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let factory = runtime
+                .compile_verified_factory(verified, 0, None, 1, "entry.mjs")
+                .unwrap();
+            let mut record = factory.create_record(&context, &source_id).unwrap();
+            record.declare_export("answer").unwrap();
+            record
+                .instantiate("synthetic:oxc-hermes-acceptance/entry.mjs", true)
+                .unwrap();
+            record.run_declare().unwrap();
+            assert_eq!(
+                record.run_execute().unwrap(),
+                ModuleExecutionKind::Synchronous
+            );
+            assert_eq!(record.namespace_json().unwrap(), r#"{"answer":42}"#);
+            drop(record);
+            drop(factory);
+            drop(context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
     fn asynchronous_artifact(
         artifact: ModuleArtifactV1,
         dynamic_edges: Vec<DynamicEdgeV1>,
@@ -2154,6 +2682,23 @@ mod tests {
         };
         let mut semantics = artifact.semantics;
         semantics.has_top_level_await = true;
+        semantics.dynamic_edges = dynamic_edges;
+        ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer).unwrap()
+    }
+
+    fn with_dynamic_edges(
+        artifact: ModuleArtifactV1,
+        dynamic_edges: Vec<DynamicEdgeV1>,
+    ) -> ModuleArtifactV1 {
+        let factory_source = match artifact.payload {
+            crate::module_loader::artifact::ModulePayloadV1::Inline { factory_source, .. } => {
+                factory_source
+            }
+            crate::module_loader::artifact::ModulePayloadV1::Carrier { .. } => {
+                panic!("test artifacts are inline")
+            }
+        };
+        let mut semantics = artifact.semantics;
         semantics.dynamic_edges = dynamic_edges;
         ModuleArtifactV1::new_inline(semantics, factory_source, artifact.producer).unwrap()
     }
@@ -2176,9 +2721,9 @@ mod tests {
 
     fn prepared_admission(
         owner: Principal,
-        manifest: &PreparedModuleCarrierV1,
-    ) -> PreparedCarrierAdmissionV1 {
-        PreparedCarrierAdmissionV1 {
+        manifest: &PreparedModuleCarrierV2,
+    ) -> PreparedCarrierAdmissionV2 {
+        PreparedCarrierAdmissionV2 {
             expected_principal: owner,
             expected_producer_id: NonEmptyString::new("prepared-test").unwrap(),
             producer_binary_digest: digest("prepared-producer"),
@@ -2188,14 +2733,14 @@ mod tests {
                 .iter()
                 .map(|entry| entry.semantic_digest.clone())
                 .collect(),
-            expected_engine_binary_digest: None,
+            expected_engine_binding: None,
             expected_bytecode_version: None,
         }
     }
 
     fn verify_prepared_artifact<'a>(
         artifact: &'a ModuleArtifactV1,
-        manifest: &PreparedModuleCarrierV1,
+        manifest: &PreparedModuleCarrierV2,
     ) -> VerifiedModuleArtifactV1<'a> {
         artifact
             .verify_for_admission(&ArtifactAdmissionV1::DigestBoundPrepared {
@@ -2321,7 +2866,7 @@ mod tests {
         )
         .unwrap();
         let source_artifact = test_artifact(source_id.clone());
-        let (source_manifest, source_bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
+        let (source_manifest, source_bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
             owner.clone(),
             NonEmptyString::new("prepared-test").unwrap(),
             digest("prepared-producer"),
@@ -2368,9 +2913,19 @@ mod tests {
             "matching hermesc must compile the carrier"
         );
         let hbc_bytes = std::fs::read(hbc_path).unwrap();
-        let engine_digest = digest("prepared-engine");
+        preflight_hermes_bytecode(&hbc_bytes).unwrap();
+        let mut corrupted_hbc = hbc_bytes.clone();
+        corrupted_hbc.pop();
+        assert!(preflight_hermes_bytecode(&corrupted_hbc).is_err());
+        let engine_binding = PreparedCarrierEngineBindingV2::LoadedFile {
+            binary_digest: Digest::new(crate::engine::loaded_engine_binary_digest().unwrap())
+                .unwrap(),
+        };
+        let bytecode_version = HermesBytecodeMetadataV1::inspect(&hbc_bytes)
+            .unwrap()
+            .bytecode_version;
         let hbc_manifest = source_manifest
-            .bind_hermes_bytecode(&hbc_bytes, engine_digest.clone(), 1)
+            .bind_hermes_bytecode(&hbc_bytes, engine_binding.clone())
             .unwrap();
 
         unsafe {
@@ -2384,10 +2939,10 @@ mod tests {
             ] {
                 let mut admission = prepared_admission(owner.clone(), manifest);
                 if is_hbc {
-                    admission.expected_engine_binary_digest = Some(engine_digest.clone());
-                    admission.expected_bytecode_version = Some(1);
+                    admission.expected_engine_binding = Some(engine_binding.clone());
+                    admission.expected_bytecode_version = Some(bytecode_version);
                 }
-                let carrier = AdmittedPreparedCarrierV1::decode_and_admit(
+                let carrier = AdmittedPreparedCarrierV2::decode_and_admit(
                     &manifest.encode_canonical().unwrap(),
                     bytes,
                     &admission,
@@ -2454,7 +3009,7 @@ mod tests {
             "function ($export) { return { declare: function () {}, execute: function () { var observe = globalThis.__ibexCapsecContextObserver_eng25060; delete globalThis.__ibexCapsecContextObserver_eng25060; var principal = observe().principalId; globalThis.__ibexCapsecObservedPrincipal_eng25060 = principal; $export('principal', principal); } }; }",
             &["principal"],
         );
-        let (source_manifest, source_bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
+        let (source_manifest, source_bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
             owner.clone(),
             NonEmptyString::new("prepared-test").unwrap(),
             digest("prepared-producer"),
@@ -2499,9 +3054,15 @@ mod tests {
             "matching hermesc must compile the attributed carrier"
         );
         let hbc_bytes = std::fs::read(hbc_path).unwrap();
-        let engine_digest = digest("attributed-engine");
+        let engine_binding = PreparedCarrierEngineBindingV2::LoadedFile {
+            binary_digest: Digest::new(crate::engine::loaded_engine_binary_digest().unwrap())
+                .unwrap(),
+        };
+        let bytecode_version = HermesBytecodeMetadataV1::inspect(&hbc_bytes)
+            .unwrap()
+            .bytecode_version;
         let hbc_manifest = source_manifest
-            .bind_hermes_bytecode(&hbc_bytes, engine_digest.clone(), 1)
+            .bind_hermes_bytecode(&hbc_bytes, engine_binding.clone())
             .unwrap();
 
         unsafe {
@@ -2584,10 +3145,10 @@ mod tests {
             ] {
                 let mut admission = prepared_admission(owner.clone(), manifest);
                 if is_hbc {
-                    admission.expected_engine_binary_digest = Some(engine_digest.clone());
-                    admission.expected_bytecode_version = Some(1);
+                    admission.expected_engine_binding = Some(engine_binding.clone());
+                    admission.expected_bytecode_version = Some(bytecode_version);
                 }
-                let carrier = AdmittedPreparedCarrierV1::decode_and_admit(
+                let carrier = AdmittedPreparedCarrierV2::decode_and_admit(
                     &manifest.encode_canonical().unwrap(),
                     bytes,
                     &admission,
@@ -2637,7 +3198,7 @@ mod tests {
         )
         .unwrap();
         let inline = test_artifact(source_id.clone());
-        let (manifest, bytes) = PreparedModuleCarrierV1::from_inline_artifacts(
+        let (manifest, bytes) = PreparedModuleCarrierV2::from_inline_artifacts(
             owner.clone(),
             NonEmptyString::new("prepared-test").unwrap(),
             digest("prepared-producer"),
@@ -2648,7 +3209,7 @@ mod tests {
             )],
         )
         .unwrap();
-        let carrier = AdmittedPreparedCarrierV1::decode_and_admit(
+        let carrier = AdmittedPreparedCarrierV2::decode_and_admit(
             &manifest.encode_canonical().unwrap(),
             &bytes,
             &prepared_admission(owner, &manifest),
@@ -2684,6 +3245,178 @@ mod tests {
             .unwrap();
             graph.evaluate().unwrap();
             assert_eq!(graph.namespace_json(&source_id).unwrap(), r#"{"value":42}"#);
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn per_module_hbc_carriers_enter_the_full_graph_linker() {
+        let hermesc = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tools/hermes")
+            .join(if cfg!(target_os = "windows") {
+                "hermesc.exe"
+            } else if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+                "hermesc-macos-arm64"
+            } else if cfg!(target_os = "macos") {
+                "hermesc-macos-x64"
+            } else if cfg!(target_arch = "aarch64") {
+                "hermesc-linux-arm64"
+            } else {
+                "hermesc-linux-x64"
+            });
+        if !hermesc.is_file() {
+            eprintln!(
+                "skipping prepared HBC graph execution: {} is absent",
+                hermesc.display()
+            );
+            return;
+        }
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        let owner = Principal::Root {
+            identity: NonEmptyString::new("prepared-hbc-graph-project").unwrap(),
+        };
+        let target_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("target.mjs").unwrap()],
+        )
+        .unwrap();
+        let entry_id = SourceId::file(
+            owner.clone(),
+            vec![PathComponent::utf8("entry.mjs").unwrap()],
+        )
+        .unwrap();
+        let target_inline = test_artifact_with_factory(
+            target_id.clone(),
+            "function ($export) { return { declare: function () {}, execute: function () { $export('value', 41); } }; }",
+            &["value"],
+        );
+        let entry_inline = test_graph_artifact(
+            entry_id.clone(),
+            "function ($export, context) { return { declare: function () {}, execute: function () { $export('answer', context.importValue('./target', 'value') + 1); } }; }",
+            vec![StaticEdgeV1::Named {
+                specifier: NonEmptyString::new("./target").unwrap(),
+                imported: NonEmptyString::new("value").unwrap(),
+                local: NonEmptyString::new("value").unwrap(),
+                attributes: ImportAttributes::default(),
+            }],
+            vec![ExportDescriptorV1::Local {
+                exported: NonEmptyString::new("answer").unwrap(),
+                local: NonEmptyString::new("answer").unwrap(),
+            }],
+        );
+        let source_carrier = |artifact: &ModuleArtifactV1| {
+            PreparedModuleCarrierV2::from_inline_artifacts(
+                owner.clone(),
+                NonEmptyString::new("prepared-test").unwrap(),
+                digest("prepared-producer"),
+                digest("prepared-graph"),
+                [(
+                    NonEmptyString::new("entry").unwrap(),
+                    verify_test_artifact(artifact),
+                )],
+            )
+            .unwrap()
+        };
+        let (target_source_manifest, target_source) = source_carrier(&target_inline);
+        let (entry_source_manifest, entry_source) = source_carrier(&entry_inline);
+        let temp = tempfile::tempdir().unwrap();
+        let compile = |name: &str, source: &[u8]| {
+            let source_path = temp.path().join(format!("{name}.js"));
+            let hbc_path = temp.path().join(format!("{name}.hbc"));
+            std::fs::write(&source_path, source).unwrap();
+            assert!(
+                std::process::Command::new(&hermesc)
+                    .args(["-O", "-emit-binary", "-out"])
+                    .arg(&hbc_path)
+                    .arg(&source_path)
+                    .status()
+                    .unwrap()
+                    .success(),
+                "matching hermesc must compile {name}"
+            );
+            std::fs::read(hbc_path).unwrap()
+        };
+        let target_hbc = compile("target", &target_source);
+        let entry_hbc = compile("entry", &entry_source);
+        let engine_binding = PreparedCarrierEngineBindingV2::LoadedFile {
+            binary_digest: Digest::new(crate::engine::loaded_engine_binary_digest().unwrap())
+                .unwrap(),
+        };
+        let bytecode_version = HermesBytecodeMetadataV1::inspect(&target_hbc)
+            .unwrap()
+            .bytecode_version;
+        assert_eq!(
+            HermesBytecodeMetadataV1::inspect(&entry_hbc)
+                .unwrap()
+                .bytecode_version,
+            bytecode_version
+        );
+        let target_manifest = target_source_manifest
+            .bind_hermes_bytecode(&target_hbc, engine_binding.clone())
+            .unwrap();
+        let entry_manifest = entry_source_manifest
+            .bind_hermes_bytecode(&entry_hbc, engine_binding.clone())
+            .unwrap();
+        let admit = |manifest: &PreparedModuleCarrierV2, bytes: &[u8]| {
+            let mut admission = prepared_admission(owner.clone(), manifest);
+            admission.expected_engine_binding = Some(engine_binding.clone());
+            admission.expected_bytecode_version = Some(bytecode_version);
+            AdmittedPreparedCarrierV2::decode_and_admit(
+                &manifest.encode_canonical().unwrap(),
+                bytes,
+                &admission,
+            )
+            .unwrap()
+        };
+        let target_carrier = admit(&target_manifest, &target_hbc);
+        let entry_carrier = admit(&entry_manifest, &entry_hbc);
+        let target_artifact = target_manifest.prepared_artifact("entry").unwrap();
+        let entry_artifact = entry_manifest.prepared_artifact("entry").unwrap();
+        let plan = SynchronousGraphPlan::new([
+            (
+                verify_prepared_artifact(&target_artifact, &target_manifest),
+                BTreeMap::new(),
+            ),
+            (
+                verify_prepared_artifact(&entry_artifact, &entry_manifest),
+                BTreeMap::from([("./target".into(), target_id.clone())]),
+            ),
+        ])
+        .unwrap();
+        let entries = BTreeMap::from([
+            (target_id.clone(), target_carrier.entry("entry").unwrap()),
+            (entry_id.clone(), entry_carrier.entry("entry").unwrap()),
+        ]);
+        let config = |source_id: SourceId, label: &str| {
+            NativeModuleRecordConfig::new(
+                0,
+                None,
+                GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                label,
+                format!("file:prepared-hbc-graph-project/{label}"),
+            )
+            .unwrap()
+        };
+        let configs = BTreeMap::from([
+            (target_id.clone(), config(target_id.clone(), "target.mjs")),
+            (entry_id.clone(), config(entry_id.clone(), "entry.mjs")),
+        ]);
+
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let mut graph = NativeSynchronousGraph::link_prepared(
+                &runtime, &plan, &entry_id, configs, &entries,
+            )
+            .unwrap();
+            graph.evaluate().unwrap();
+            assert_eq!(graph.namespace_json(&entry_id).unwrap(), r#"{"answer":42}"#);
             drop(graph);
             drop(runtime);
             ex_hermes_destroy(raw);
@@ -3378,6 +4111,105 @@ mod tests {
     }
 
     #[test]
+    fn computed_dynamic_import_candidates_are_site_specific() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+            let entry_id = SourceId::synthetic("module-runner-test", "computed-entry").unwrap();
+            let left_id = SourceId::synthetic("module-runner-test", "computed-left").unwrap();
+            let right_id = SourceId::synthetic("module-runner-test", "computed-right").unwrap();
+            let entry = with_dynamic_edges(
+                test_artifact_with_factory(
+                    entry_id.clone(),
+                    "function ($export, context) { return { declare: function () {}, execute: function () { $export('leftAllowed', false); $export('rightAllowed', false); $export('crossSiteDenied', false); $export('denialMessage', ''); $export('optionsRejected', false); context.dynamicImport(0, 40, 55, 0, './left').then(function () { $export('leftAllowed', true); }, function () {}); context.dynamicImport(1, 60, 75, 0, './right').then(function () { $export('rightAllowed', true); }, function () {}); context.dynamicImport(0, 40, 55, 0, './right').then(function () {}, function (error) { $export('crossSiteDenied', true); $export('denialMessage', error.message); }); context.dynamicImport(0, 100, 120, 1, './left', { with: { mystery: 'x' } }).then(function () {}, function () { $export('optionsRejected', true); }); } }; }",
+                    &[
+                        "leftAllowed",
+                        "rightAllowed",
+                        "crossSiteDenied",
+                        "denialMessage",
+                        "optionsRejected",
+                    ],
+                ),
+                vec![
+                    DynamicEdgeV1::Computed { site: 0 },
+                    DynamicEdgeV1::Computed { site: 1 },
+                ],
+            );
+            let left = test_artifact_with_factory(
+                left_id.clone(),
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 'left'); } }; }",
+                &["value"],
+            );
+            let right = test_artifact_with_factory(
+                right_id.clone(),
+                "function ($export) { return { declare: function () {}, execute: function () { $export('value', 'right'); } }; }",
+                &["value"],
+            );
+            let plan = SynchronousGraphPlan::new([
+                (
+                    verify_test_artifact(&entry),
+                    BTreeMap::from([
+                        ("./left".into(), left_id.clone()),
+                        ("./right".into(), right_id.clone()),
+                    ]),
+                ),
+                (verify_test_artifact(&left), BTreeMap::new()),
+                (verify_test_artifact(&right), BTreeMap::new()),
+            ])
+            .unwrap();
+            let config = |source_id: SourceId, label: &str| {
+                NativeModuleRecordConfig::new(
+                    0,
+                    None,
+                    GraphEvaluationContext::new(source_id, 0, 0, [0], 1).unwrap(),
+                    format!("{label}.mjs"),
+                    format!("synthetic:module-runner-test/{label}"),
+                )
+                .unwrap()
+            };
+            let links = ComputedDynamicImportLinks::from([(
+                entry_id.clone(),
+                BTreeMap::from([
+                    ((0, "./left".into()), left_id.clone()),
+                    ((1, "./right".into()), right_id.clone()),
+                ]),
+            )]);
+            let mut graph = NativeSynchronousGraph::link_with_computed_candidates(
+                &runtime,
+                &plan,
+                &entry_id,
+                BTreeMap::from([
+                    (entry_id.clone(), config(entry_id.clone(), "computed-entry")),
+                    (left_id.clone(), config(left_id.clone(), "computed-left")),
+                    (right_id.clone(), config(right_id.clone(), "computed-right")),
+                ]),
+                &links,
+            )
+            .unwrap();
+            graph.evaluate().unwrap();
+            for tick in 0..8 {
+                assert_ne!(ex_hermes_poll(raw, tick), -1);
+            }
+            let namespace: serde_json::Value =
+                serde_json::from_str(&graph.namespace_json(&entry_id).unwrap()).unwrap();
+            assert_eq!(namespace["leftAllowed"], true);
+            assert_eq!(namespace["rightAllowed"], true);
+            assert_eq!(namespace["crossSiteDenied"], true);
+            assert_eq!(namespace["optionsRejected"], true);
+            let denial = namespace["denialMessage"].as_str().unwrap();
+            assert!(denial.contains("original-source bytes 40..55"));
+            assert!(denial.contains("ibex-source-id-v1:"));
+            drop(graph);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
     fn pinned_generation_keeps_fire_and_forget_dynamic_target_live() {
         let _host_guard = crate::host::abi::host_test_lock();
         crate::host::abi::install_host(crate::host::Host::strict());
@@ -3637,6 +4469,99 @@ mod tests {
             drop(cjs_context);
             drop(esm_factory);
             drop(esm_context);
+            drop(runtime);
+            ex_hermes_destroy(raw);
+        }
+    }
+
+    #[test]
+    fn computed_commonjs_require_fails_only_when_reached_after_arguments() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+        unsafe {
+            let raw = ex_hermes_create_diagnostic();
+            assert!(!raw.is_null());
+            let nonce = ex_hermes_runtime_nonce(raw);
+            let runtime = NativeModuleRuntime::from_raw(NonNull::new(raw).unwrap(), nonce).unwrap();
+
+            let dead_id =
+                SourceId::synthetic("module-runner-test", "computed-require-dead").unwrap();
+            let dead_artifact = test_commonjs_artifact(
+                dead_id.clone(),
+                "function (require, module, exports, __filename, __dirname, dynamicImport, computedRequire) { if (false) computedRequire(10, 20, './dead.cjs'); module.exports = 41; }",
+                &[],
+            );
+            let dead_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(dead_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let dead_factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&dead_artifact),
+                    0,
+                    None,
+                    1,
+                    "computed-require-dead.cjs",
+                )
+                .unwrap();
+            let mut dead_record = dead_factory
+                .create_commonjs_record(&dead_context, &dead_id, "/pkg/dead.cjs", "/pkg")
+                .unwrap();
+            dead_record.evaluate().unwrap();
+
+            let live_id =
+                SourceId::synthetic("module-runner-test", "computed-require-live").unwrap();
+            let live_artifact = test_commonjs_artifact(
+                live_id.clone(),
+                "function (require, module, exports, __filename, __dirname, dynamicImport, computedRequire) { let evaluated = 0; function argument() { evaluated = 1; return './live.cjs'; } try { computedRequire(40, 55, argument()); } finally { globalThis.computedRequireArgumentEvaluated = evaluated; } }",
+                &[],
+            );
+            let live_context = runtime
+                .create_graph_context(
+                    GraphEvaluationContext::new(live_id.clone(), 0, 0, [0], 1).unwrap(),
+                )
+                .unwrap();
+            let live_factory = runtime
+                .compile_verified_commonjs_factory(
+                    verify_test_artifact(&live_artifact),
+                    0,
+                    None,
+                    1,
+                    "computed-require-live.cjs",
+                )
+                .unwrap();
+            let mut live_record = live_factory
+                .create_commonjs_record(&live_context, &live_id, "/pkg/live.cjs", "/pkg")
+                .unwrap();
+            let error = live_record.evaluate().unwrap_err().to_string();
+            assert!(error.contains("IBEX_LEGACY_COMPUTED_REQUIRE"));
+            assert!(error.contains(&live_id.encode().unwrap()));
+            assert!(error.contains("original-source bytes 40..55"));
+
+            let source = "String(globalThis.computedRequireArgumentEvaluated)";
+            let source_url = CString::new("computed-require-observation.js").unwrap();
+            let mut output = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_eval(
+                    raw,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut output,
+                ),
+                0
+            );
+            assert_eq!(CStr::from_ptr(output).to_string_lossy(), "1");
+            ex_hermes_free_string(output);
+
+            drop(live_record);
+            drop(live_factory);
+            drop(live_context);
+            drop(dead_record);
+            drop(dead_factory);
+            drop(dead_context);
             drop(runtime);
             ex_hermes_destroy(raw);
         }
