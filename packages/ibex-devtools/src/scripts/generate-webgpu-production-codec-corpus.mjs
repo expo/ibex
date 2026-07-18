@@ -1439,7 +1439,6 @@ function buildCorpus() {
     "validate-buffer-size-under-logical-max-and-structural-ceiling",
     "validate-buffer-usage-closed-bits",
     "validate-buffer-map-usage-combination",
-    "validate-buffer-mapped-at-creation-alignment",
     "authenticate-wrapper-allocated-buffer-target-provenance",
     "validate-wrapper-allocated-buffer-target-generation",
     "reserve-buffer-table-and-dual-ledger-capacity",
@@ -1453,39 +1452,112 @@ function buildCorpus() {
   }
   const positiveBufferVector = createBufferWorkloadVectors[19];
   const createBufferAdversarialMutations = Object.freeze([
-    ["sealed-timeline-gap", { sealedLocalTimelinePrefixContiguous: false }],
-    ["stale-device-generation", { deviceGeneration: "stale" }],
-    ["coverage-absent", { operationCoverageInstalled: false }],
-    ["aggregate-envelope-not-live", { aggregateEnvelopeState: "CLOSED" }],
-    ["unreviewed-workload-size", { descriptor: { size: 8 } }],
-    ["logical-max-below-size", { logicalMaxBufferSize: 64 }],
-    ["closed-usage-mask-mismatch", { allowedBufferUsageMask: 12 }],
-    ["illegal-map-usage-combination", { reviewedUsageSetAdds: 3, usage: 3 }],
-    ["mapped-size-misaligned", { reviewedSizeSetAdds: 6, size: 6 }],
-    ["foreign-target-provenance", { targetLogicalDeviceId: "56" }],
-    ["stale-target-generation", { targetSlotGeneration: "2" }],
-    ["dual-ledger-capacity-exhausted", { aggregateEnvelopeResourceCredit: 0 }],
-    ["provider-completion-credit-exhausted", { completionCredit: 0 }],
-    ["overlong-label", { label: "x".repeat(44) }],
+    [
+      "sealed-timeline-gap",
+      "authenticate-contiguous-sealed-local-timeline-prefix",
+      { sealedLocalTimelinePrefixContiguous: false },
+    ],
+    [
+      "stale-device-generation",
+      "validate-current-live-device-generation",
+      { deviceGeneration: "stale" },
+    ],
+    [
+      "coverage-absent",
+      "validate-operation-coverage",
+      { operationCoverageInstalled: false },
+    ],
+    [
+      "aggregate-envelope-not-live",
+      "validate-authorized-live-account-and-aggregate-envelope",
+      { aggregateEnvelopeState: "CLOSED" },
+    ],
+    [
+      "unreviewed-workload-size",
+      "validate-buffer-descriptor-under-reviewed-workload",
+      { descriptor: { size: 8 } },
+    ],
+    [
+      "logical-max-below-size",
+      "validate-buffer-size-under-logical-max-and-structural-ceiling",
+      { logicalMaxBufferSize: 64 },
+    ],
+    [
+      "closed-usage-mask-mismatch",
+      "validate-buffer-usage-closed-bits",
+      { allowedBufferUsageMask: 12 },
+    ],
+    [
+      "illegal-map-usage-combination",
+      "validate-buffer-map-usage-combination",
+      { reviewedUsageSetAdds: 3, usage: 3 },
+    ],
+    [
+      "foreign-target-provenance",
+      "authenticate-wrapper-allocated-buffer-target-provenance",
+      { targetLogicalDeviceId: "56" },
+    ],
+    [
+      "stale-target-generation",
+      "validate-wrapper-allocated-buffer-target-generation",
+      { targetSlotGeneration: "2" },
+    ],
+    [
+      "dual-ledger-capacity-exhausted",
+      "reserve-buffer-table-and-dual-ledger-capacity",
+      { aggregateEnvelopeResourceCredit: 0 },
+    ],
+    [
+      "provider-completion-credit-exhausted",
+      "reserve-buffer-provider-request-completion-and-physical-sequence",
+      { completionCredit: 0 },
+    ],
+    [
+      "overlong-label",
+      "validate-buffer-label-under-reviewed-workload",
+      { label: "x".repeat(44) },
+    ],
   ]);
+  const createBufferMutationStepIds = createBufferAdversarialMutations.map(
+    ([, semanticStepId]) => semanticStepId,
+  );
+  if (
+    new Set(createBufferMutationStepIds).size !==
+      createBufferMutationStepIds.length ||
+    canonicalJson(createBufferMutationStepIds) !==
+      canonicalJson(createBufferSemanticSteps)
+  ) {
+    fail(
+      "GPUDevice.createBuffer adversarial mutations must map bijectively to semantic steps",
+    );
+  }
   const createBufferAdversarialVectors = Object.freeze(
-    createBufferAdversarialMutations.map(([suffix, mutation], index) =>
-      Object.freeze({
-        id: `create-buffer-${suffix}-rejected`,
-        kind: "semantic-rejection",
-        operationId: createBufferOperationId,
-        semanticTerminalId: "later-predicate-rejection",
-        semanticStepIndex: index + 1,
-        firstFailingSemanticStep: createBufferSemanticSteps[index],
-        earlierSemanticStepsMustPass: createBufferSemanticSteps.slice(0, index),
-        mutation,
-        bytesHex: positiveBufferVector.bytesHex,
-        expected: Object.freeze({
-          codegenDisposition: "encoded-for-post-decode-semantic-validation",
-          providerTokenCount: 0,
-          physicalSequenceCount: 0,
-        }),
-      })),
+    createBufferAdversarialMutations.map(
+      ([suffix, firstFailingSemanticStep, mutation]) => {
+        const firstFailureIndex = createBufferSemanticSteps.indexOf(
+          firstFailingSemanticStep,
+        );
+        return Object.freeze({
+          id: `create-buffer-${suffix}-rejected`,
+          kind: "semantic-rejection",
+          operationId: createBufferOperationId,
+          semanticTerminalId: "later-predicate-rejection",
+          semanticStepIndex: firstFailureIndex + 1,
+          firstFailingSemanticStep,
+          earlierSemanticStepsMustPass: createBufferSemanticSteps.slice(
+            0,
+            firstFailureIndex,
+          ),
+          mutation,
+          bytesHex: positiveBufferVector.bytesHex,
+          expected: Object.freeze({
+            codegenDisposition: "encoded-for-post-decode-semantic-validation",
+            providerTokenCount: 0,
+            physicalSequenceCount: 0,
+          }),
+        });
+      },
+    ),
   );
 
   const RESOURCE_SOURCE_AFFINITY_STEP =

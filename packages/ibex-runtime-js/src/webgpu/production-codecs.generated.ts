@@ -35,7 +35,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   "disposition": "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-  "operationCount": 36,
+  "operationCount": 41,
   "operationIds": [
     "GPU.getPreferredCanvasFormat",
     "GPU.requestAdapter",
@@ -46,7 +46,11 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "GPUCanvasContext.unconfigure",
     "GPUCommandEncoder.beginRenderPass",
     "GPUCommandEncoder.finish",
+    "GPUBuffer.destroy",
+    "GPUBuffer.getMappedRange",
+    "GPUBuffer.mapAsync",
     "GPUBuffer.mapState",
+    "GPUBuffer.unmap",
     "GPUBuffer.usage",
     "GPUDevice.createBindGroupLayout",
     "GPUDevice.createBuffer",
@@ -63,6 +67,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "GPUDevice.popErrorScope",
     "GPUDevice.pushErrorScope",
     "GPUDevice.queue",
+    "GPUQueue.writeBuffer",
     "GPUQueue.submit",
     "GPURenderPassEncoder.draw",
     "GPURenderPassEncoder.end",
@@ -87,11 +92,11 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "1697bf9b90dda9c7d68bc7ad18d728e32cfdd1155286dedd97e2230913a7916c",
-    "semanticProgramSet": "d1597f689232b885df51d11c056126959dca3d8ad8bc09a00e0fedf6e58efec7",
-    "runtimeRouting": "c518de2284af428128398420ed77f60882394aaa31cdfe26879125ff954efbc3",
-    "webgpuCVocabulary": "3c8f5550f05d23a24668a4f04a56daf676780e0c567c0a0906f89d50201e5404",
-    "projection": "c2116dace3eacb3825db4e51f247d55b0d0701f77d7e41ad8dcabaac1fe37d10"
+    "operationSet": "635e0cdf264e3c59fda245d04b38d88ef3bdac81b62a405108fba25c0d2186aa",
+    "semanticProgramSet": "c8fe26b4706bd691355b82f6e85a1ac915461004b59416cf13d6573182a104d2",
+    "runtimeRouting": "e6ea90e4c14ed02757fe940fc611cc8c5cc65a6d2787a1c2a0d75d90fb54c303",
+    "webgpuCVocabulary": "012cf790a04f6b949dbab310b787954d97b8839720bc79728b3148d9e94adf71",
+    "projection": "78e4fe9341d4d62d853988b570e6c777826a8acb560a7bc6780c855489f8d7dc"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -2624,7 +2629,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUDevice.createBuffer",
-        "wireId": 3212558232,
+        "wireId": 1869756926,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -2642,7 +2647,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 17,
-                  "operationWireId": 3212558232
+                  "operationWireId": 1869756926
                 }
               },
               {
@@ -2781,7 +2786,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 3212558232
+              "value": 1869756926
             },
             {
               "carrierPath": "flags",
@@ -2888,7 +2893,6 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
               "validate-buffer-size-under-logical-max-and-structural-ceiling",
               "validate-buffer-usage-closed-bits",
               "validate-buffer-map-usage-combination",
-              "validate-buffer-mapped-at-creation-alignment",
               "authenticate-wrapper-allocated-buffer-target-provenance",
               "validate-wrapper-allocated-buffer-target-generation",
               "reserve-buffer-table-and-dual-ledger-capacity",
@@ -2925,7 +2929,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 3212558232
+              "value": 1869756926
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",
@@ -2991,6 +2995,17 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
               {
                 "terminalId": "webidl-rejection",
                 "errorTiming": "synchronous-webidl",
+                "resultDisposition": "throw",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "no-service-call",
+                  "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+                }
+              },
+              {
+                "terminalId": "content-rejection",
+                "errorTiming": "content-timeline",
                 "resultDisposition": "throw",
                 "providerTokenCount": 0,
                 "physicalSequenceCount": 0,
@@ -3909,7 +3924,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUDevice.createTexture",
-        "wireId": 159202366,
+        "wireId": 3876131162,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -3927,7 +3942,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 19,
-                  "operationWireId": 159202366
+                  "operationWireId": 3876131162
                 }
               },
               {
@@ -4066,7 +4081,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 159202366
+              "value": 3876131162
             },
             {
               "carrierPath": "flags",
@@ -4213,7 +4228,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 159202366
+              "value": 3876131162
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",
@@ -4279,6 +4294,17 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
               {
                 "terminalId": "webidl-rejection",
                 "errorTiming": "synchronous-webidl",
+                "resultDisposition": "throw",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "no-service-call",
+                  "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+                }
+              },
+              {
+                "terminalId": "content-rejection",
+                "errorTiming": "content-timeline",
                 "resultDisposition": "throw",
                 "providerTokenCount": 0,
                 "physicalSequenceCount": 0,
@@ -6156,6 +6182,110 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       "astc-12x12-unorm",
       "astc-12x12-unorm-srgb"
     ],
+    "gpuTextureFormatCapabilityRowsSha256": "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04",
+    "gpuTextureFormatRequiredFeatures": {
+      "r8unorm": null,
+      "r8snorm": null,
+      "r8uint": null,
+      "r8sint": null,
+      "r16unorm": "texture-formats-tier1",
+      "r16snorm": "texture-formats-tier1",
+      "r16uint": null,
+      "r16sint": null,
+      "r16float": null,
+      "rg8unorm": null,
+      "rg8snorm": null,
+      "rg8uint": null,
+      "rg8sint": null,
+      "r32uint": null,
+      "r32sint": null,
+      "r32float": null,
+      "rg16unorm": "texture-formats-tier1",
+      "rg16snorm": "texture-formats-tier1",
+      "rg16uint": null,
+      "rg16sint": null,
+      "rg16float": null,
+      "rgba8unorm": null,
+      "rgba8unorm-srgb": null,
+      "rgba8snorm": null,
+      "rgba8uint": null,
+      "rgba8sint": null,
+      "bgra8unorm": null,
+      "bgra8unorm-srgb": "core-features-and-limits",
+      "rgb9e5ufloat": null,
+      "rgb10a2uint": null,
+      "rgb10a2unorm": null,
+      "rg11b10ufloat": null,
+      "rg32uint": null,
+      "rg32sint": null,
+      "rg32float": null,
+      "rgba16unorm": "texture-formats-tier1",
+      "rgba16snorm": "texture-formats-tier1",
+      "rgba16uint": null,
+      "rgba16sint": null,
+      "rgba16float": null,
+      "rgba32uint": null,
+      "rgba32sint": null,
+      "rgba32float": null,
+      "stencil8": null,
+      "depth16unorm": null,
+      "depth24plus": null,
+      "depth24plus-stencil8": null,
+      "depth32float": null,
+      "depth32float-stencil8": "depth32float-stencil8",
+      "bc1-rgba-unorm": "texture-compression-bc",
+      "bc1-rgba-unorm-srgb": "texture-compression-bc",
+      "bc2-rgba-unorm": "texture-compression-bc",
+      "bc2-rgba-unorm-srgb": "texture-compression-bc",
+      "bc3-rgba-unorm": "texture-compression-bc",
+      "bc3-rgba-unorm-srgb": "texture-compression-bc",
+      "bc4-r-unorm": "texture-compression-bc",
+      "bc4-r-snorm": "texture-compression-bc",
+      "bc5-rg-unorm": "texture-compression-bc",
+      "bc5-rg-snorm": "texture-compression-bc",
+      "bc6h-rgb-ufloat": "texture-compression-bc",
+      "bc6h-rgb-float": "texture-compression-bc",
+      "bc7-rgba-unorm": "texture-compression-bc",
+      "bc7-rgba-unorm-srgb": "texture-compression-bc",
+      "etc2-rgb8unorm": "texture-compression-etc2",
+      "etc2-rgb8unorm-srgb": "texture-compression-etc2",
+      "etc2-rgb8a1unorm": "texture-compression-etc2",
+      "etc2-rgb8a1unorm-srgb": "texture-compression-etc2",
+      "etc2-rgba8unorm": "texture-compression-etc2",
+      "etc2-rgba8unorm-srgb": "texture-compression-etc2",
+      "eac-r11unorm": "texture-compression-etc2",
+      "eac-r11snorm": "texture-compression-etc2",
+      "eac-rg11unorm": "texture-compression-etc2",
+      "eac-rg11snorm": "texture-compression-etc2",
+      "astc-4x4-unorm": "texture-compression-astc",
+      "astc-4x4-unorm-srgb": "texture-compression-astc",
+      "astc-5x4-unorm": "texture-compression-astc",
+      "astc-5x4-unorm-srgb": "texture-compression-astc",
+      "astc-5x5-unorm": "texture-compression-astc",
+      "astc-5x5-unorm-srgb": "texture-compression-astc",
+      "astc-6x5-unorm": "texture-compression-astc",
+      "astc-6x5-unorm-srgb": "texture-compression-astc",
+      "astc-6x6-unorm": "texture-compression-astc",
+      "astc-6x6-unorm-srgb": "texture-compression-astc",
+      "astc-8x5-unorm": "texture-compression-astc",
+      "astc-8x5-unorm-srgb": "texture-compression-astc",
+      "astc-8x6-unorm": "texture-compression-astc",
+      "astc-8x6-unorm-srgb": "texture-compression-astc",
+      "astc-8x8-unorm": "texture-compression-astc",
+      "astc-8x8-unorm-srgb": "texture-compression-astc",
+      "astc-10x5-unorm": "texture-compression-astc",
+      "astc-10x5-unorm-srgb": "texture-compression-astc",
+      "astc-10x6-unorm": "texture-compression-astc",
+      "astc-10x6-unorm-srgb": "texture-compression-astc",
+      "astc-10x8-unorm": "texture-compression-astc",
+      "astc-10x8-unorm-srgb": "texture-compression-astc",
+      "astc-10x10-unorm": "texture-compression-astc",
+      "astc-10x10-unorm-srgb": "texture-compression-astc",
+      "astc-12x10-unorm": "texture-compression-astc",
+      "astc-12x10-unorm-srgb": "texture-compression-astc",
+      "astc-12x12-unorm": "texture-compression-astc",
+      "astc-12x12-unorm-srgb": "texture-compression-astc"
+    },
     "gpuAddressModes": [
       "clamp-to-edge",
       "repeat",
@@ -6307,6 +6437,24 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       "tag": "gpu-texture-descriptor-v1",
       "wireShape": "complete pinned GPUTextureDescriptor after observable inherited-dictionary Web IDL conversion in lexicographic member order: dimension default 2d, required format, label default empty, mipLevelCount default 1, sampleCount default 1, required size converted once from iterable or lexicographic GPUExtent3DDict depthOrArrayLayers/height/width with each missing coordinate default 1, optional textureBindingViewDimension absent, required closed u32 usage flags, and viewFormats default empty consumed exactly once; dimension vocab 1d/2d/3d and texture format/view vocab from the pinned profile",
       "ownership": "owned-copy-no-handle-references"
+    },
+    {
+      "wireTag": 20,
+      "tag": "gpu-buffer-mapped-range-arguments-v1",
+      "wireShape": "wrapper-local optional safe-u64 offset and size after ordered Web IDL conversion; omitted offset is zero and omitted size remains absent until active-mapping defaulting",
+      "ownership": "wrapper-local-scalars-never-cross-service-boundary"
+    },
+    {
+      "wireTag": 21,
+      "tag": "gpu-buffer-map-async-arguments-v1",
+      "wireShape": "u32 mode flags, safe-u64 offset, and optional safe-u64 size after ordered Web IDL conversion, retained with one nonzero wrapper pending-map generation",
+      "ownership": "owned-copy-with-generation-fenced-promise"
+    },
+    {
+      "wireTag": 22,
+      "tag": "gpu-queue-write-buffer-arguments-v1",
+      "wireShape": "generation-fenced GPUBuffer reference, safe-u64 destination offset, converted AllowSharedBufferSource view, and optional safe-u64 source element offset and size; content processing snapshots the selected full byte range before service projection",
+      "ownership": "wrapper-source-view-plus-one-owned-selected-byte-snapshot"
     }
   ],
   "serviceArguments": [
@@ -6626,6 +6774,42 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       "nativeProgramPrerequisitesRepresented": true,
       "executableFromCurrentAuthenticatedInputs": true,
       "unavailableSemanticFields": []
+    },
+    {
+      "wireTag": 20,
+      "tag": "gpu-buffer-destroy-service-request-v1",
+      "wireShape": "source-affine exact GPUBuffer reference plus cancelled pending-map generation and at most one complete owned MAP_WRITE extent captured only after wrapper ArrayBuffer detachment; no caller-provided provider identity",
+      "ownership": "affine-cleanup-token-and-owned-optional-writeback",
+      "nativeProgramPrerequisitesRepresented": true,
+      "executableFromCurrentAuthenticatedInputs": true,
+      "unavailableSemanticFields": []
+    },
+    {
+      "wireTag": 21,
+      "tag": "gpu-buffer-map-async-service-request-v1",
+      "wireShape": "source-affine exact GPUBuffer reference, pending-map generation, READ-or-WRITE mode, validated safe-u64 offset and normalized size, authenticated device-ingress/physical-sequence correlation, and one source-derived last-exclusive same-device queue map-dependency ordinal registered for capture by later queue.onSubmittedWorkDone calls",
+      "ownership": "one-generation-fenced-provider-promise-request",
+      "nativeProgramPrerequisitesRepresented": true,
+      "executableFromCurrentAuthenticatedInputs": true,
+      "unavailableSemanticFields": []
+    },
+    {
+      "wireTag": 22,
+      "tag": "gpu-buffer-unmap-service-request-v1",
+      "wireShape": "source-affine exact GPUBuffer reference plus cancelled pending-map generation and at most one complete owned MAP_WRITE extent captured only after wrapper ArrayBuffer detachment",
+      "ownership": "affine-cleanup-token-and-owned-optional-writeback",
+      "nativeProgramPrerequisitesRepresented": true,
+      "executableFromCurrentAuthenticatedInputs": true,
+      "unavailableSemanticFields": []
+    },
+    {
+      "wireTag": 23,
+      "tag": "gpu-queue-write-buffer-service-request-v1",
+      "wireShape": "source-affine GPUQueue reference, exact generation-fenced destination GPUBuffer reference, safe-u64 destination offset, and the complete immutable selected source snapshot; structurally bounded chunks are derived only after whole-snapshot staging admission and retain one operation identity",
+      "ownership": "one-owned-snapshot-with-ordered-borrowed-transport-chunks",
+      "nativeProgramPrerequisitesRepresented": true,
+      "executableFromCurrentAuthenticatedInputs": true,
+      "unavailableSemanticFields": []
     }
   ],
   "serviceCompletions": [
@@ -6664,6 +6848,12 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       "tag": "nullable-gpu-adapter-service-completion-v2",
       "wireShape": "null or fresh adapter identity plus a required authenticated serviceDetachedExpired u8; zero retains a live service attachment and credits, one denotes a post-positive-commit close settlement with no retained service object, credits, or provider handle",
       "identity": "one-promise-settlement"
+    },
+    {
+      "wireTag": 7,
+      "tag": "gpu-buffer-map-async-service-completion-v1",
+      "wireShape": "one exact pending-map completion carrying an owned mapped byte block of the normalized extent or a closed provider/loss/cancellation failure; callback threads copy only and settlement occurs on the owning runtime thread",
+      "identity": "one-generation-fenced-promise-settlement"
     }
   ],
   "completeLimitNames": [

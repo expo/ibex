@@ -47,6 +47,7 @@ interface DeviceState {
   readonly logicalDeviceGeneration: string;
   readonly providerGeneration: string;
   readonly features: object;
+  readonly featureNames: readonly string[];
   readonly limits: Readonly<Record<string, number>>;
   readonly lost: LostController;
   queue: object | undefined;
@@ -100,8 +101,10 @@ interface WrapperState {
   textureExpired: boolean;
   materialized: boolean;
   currentOrigin: Readonly<Record<string, unknown>> | undefined;
+  bufferSize: number | undefined;
   bufferUsage: number | undefined;
   bufferMapState: 'mapped' | 'pending' | 'unmapped' | undefined;
+  bufferMappedBytes: ArrayBuffer | undefined;
   textureDimension: '1d' | '2d' | '3d' | undefined;
   textureFormat: string | undefined;
   textureWidth: number | undefined;
@@ -548,12 +551,16 @@ function installReadonlyFeatureSetPrototype(
   Object.freeze(prototype);
 }
 
+function normalizeFeatureNames(values: readonly string[]): readonly string[] {
+  return Object.freeze([...new Set(values.map((value) => String(value)))].sort());
+}
+
 function createReadonlyFeatureSet(
   values: readonly string[],
   prototype: object,
   states: WeakMap<object, readonly string[]>,
 ): object {
-  const ordered = [...new Set(values.map((value) => String(value)))].sort();
+  const ordered = normalizeFeatureNames(values);
   const result = Object.create(prototype) as object;
   states.set(result, Object.freeze(ordered));
   return Object.freeze(result);
@@ -1026,8 +1033,10 @@ export function createProductionWebGpuPrivateBinding(
       textureExpired: false,
       materialized: false,
       currentOrigin: undefined,
+      bufferSize: undefined,
       bufferUsage: undefined,
       bufferMapState: undefined,
+      bufferMappedBytes: undefined,
       textureDimension: undefined,
       textureFormat: undefined,
       textureWidth: undefined,
@@ -1603,15 +1612,17 @@ export function createProductionWebGpuPrivateBinding(
       ) {
         throw new TypeError('GPUDevice result lacks its full typed identity');
       }
+      const featureNames = normalizeFeatureNames(identity.features ?? []);
       const device: DeviceState = {
         logicalDeviceId,
         logicalDeviceGeneration,
         providerGeneration,
         features: createReadonlyFeatureSet(
-          identity.features ?? [],
+          featureNames,
           featurePrototype,
           featureStates,
         ),
+        featureNames,
         limits: Object.freeze(
           Object.assign(
             Object.create(supportedLimitsPrototype) as Record<string, number>,
@@ -2175,16 +2186,34 @@ export function createProductionWebGpuPrivateBinding(
     const state = requireState(this, 'GPUDevice');
     const converted = convert('GPUDevice.createBuffer', [descriptor]) as Readonly<{
       mappedAtCreation: boolean;
+      size: number;
       usage: number;
     }>;
+    let mappedBytes: ArrayBuffer | undefined;
+    if (converted.mappedAtCreation) {
+      if (converted.size % 4 !== 0) {
+        throw new RangeError(
+          'GPUBufferDescriptor.size must be a multiple of 4 when mappedAtCreation is true',
+        );
+      }
+      try {
+        mappedBytes = new ArrayBuffer(converted.size);
+      } catch {
+        throw new RangeError(
+          'GPUBuffer mapped-at-creation byte block could not be allocated',
+        );
+      }
+    }
     const servicePlan = prepareServiceCounters(
       'GPUDevice.createBuffer',
       state,
       state.device,
     );
     const buffer = allocateWrapper('GPUBuffer', state.device);
+    buffer.bufferSize = converted.size;
     buffer.bufferUsage = converted.usage;
     buffer.bufferMapState = converted.mappedAtCreation ? 'mapped' : 'unmapped';
+    buffer.bufferMappedBytes = mappedBytes;
     submitService(
       'GPUDevice.createBuffer',
       state,
@@ -2247,17 +2276,36 @@ export function createProductionWebGpuPrivateBinding(
     descriptor: unknown,
   ) {
     const state = requireState(this, 'GPUDevice');
+    const logicalDevice = state.device;
+    if (!logicalDevice) throw new Error('GPUDevice lacks logical device state');
     const converted = convert('GPUDevice.createTexture', [descriptor]) as Readonly<{
       dimension: '1d' | '2d' | '3d';
       format: string;
       size: Readonly<{ width: number; height: number }>;
+      viewFormats: readonly string[];
     }>;
+    const requiredFeatures =
+      WEBGPU_PRODUCTION_PLAN.webIdlVocabulary.gpuTextureFormatRequiredFeatures;
+    for (const format of [converted.format, ...converted.viewFormats]) {
+      if (!Object.prototype.hasOwnProperty.call(requiredFeatures, format)) {
+        throw new Error(`GPUTextureFormat ${format} lacks capability metadata`);
+      }
+      const requiredFeature = requiredFeatures[format];
+      if (
+        requiredFeature !== null &&
+        !logicalDevice.featureNames.includes(requiredFeature)
+      ) {
+        throw new TypeError(
+          `GPUTextureFormat ${format} requires feature ${requiredFeature}`,
+        );
+      }
+    }
     const servicePlan = prepareServiceCounters(
       'GPUDevice.createTexture',
       state,
-      state.device,
+      logicalDevice,
     );
-    const texture = allocateWrapper('GPUTexture', state.device);
+    const texture = allocateWrapper('GPUTexture', logicalDevice);
     texture.textureDimension = converted.dimension;
     texture.textureFormat = converted.format;
     texture.textureWidth = converted.size.width;

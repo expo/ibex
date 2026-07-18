@@ -176,6 +176,7 @@ function createFakeCodecs(
     convertPublicArguments(operationId, args, wrappers) {
       log.push(`convert:${operationId}`);
       if (
+        operationId === 'GPUDevice.createTexture' ||
         operationId === 'GPUTexture.createView' ||
         operationId === 'GPUCanvasContext.configure'
       ) {
@@ -610,17 +611,128 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('keeps the unauthorised TypeGPU delta absent after resource graduation', () => {
+  test('defers texture extent shape and format-feature rejection until complete conversion without allocating', async () => {
+    const log: string[] = [];
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs(log);
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestDevice(binding) as TestGpuDevice & {
+      createTexture(descriptor: unknown): object;
+    };
+    const first = device.createTexture({
+      format: 'rgba8unorm',
+      size: [4, 4],
+      usage: 4,
+    });
+    expect(first).toBeObject();
+    const firstTarget = codecs.encodings.at(-1)?.target as { objectId: string };
+
+    const observations: string[] = [];
+    const extent = {
+      [Symbol.iterator]: function* () {
+        observations.push('extent-iterator');
+        for (let index = 0; index < 4; index += 1) {
+          yield {
+            valueOf() {
+              observations.push(`extent-${index}`);
+              return index + 1;
+            },
+          };
+        }
+      },
+    };
+    const viewFormats = {
+      [Symbol.iterator]: function* () {
+        observations.push('view-formats-iterator');
+        yield 'rgba8unorm';
+      },
+    };
+    const hostile = Object.create(null) as Record<string, unknown>;
+    for (const [name, value] of [
+      ['dimension', '2d'],
+      ['format', 'rgba8unorm'],
+      ['label', 'hostile'],
+      ['mipLevelCount', 1],
+      ['sampleCount', 1],
+      ['size', extent],
+      ['textureBindingViewDimension', '2d'],
+      ['usage', 4],
+      ['viewFormats', viewFormats],
+    ] as const) {
+      Object.defineProperty(hostile, name, {
+        enumerable: true,
+        get() {
+          observations.push(`get-${name}`);
+          return value;
+        },
+      });
+    }
+    const encodingCount = codecs.encodings.length;
+    const submissionCount = bridge.submissions.length;
+    const wrapperCount = inspectBinding(binding).current.allocatedWrapperCount;
+    expect(() => device.createTexture(hostile)).toThrow(
+      'GPUTextureDescriptor.size sequence must contain one to three members',
+    );
+    expect(observations).toEqual([
+      'get-dimension',
+      'get-format',
+      'get-label',
+      'get-mipLevelCount',
+      'get-sampleCount',
+      'get-size',
+      'extent-iterator',
+      'extent-0',
+      'extent-1',
+      'extent-2',
+      'extent-3',
+      'get-textureBindingViewDimension',
+      'get-usage',
+      'get-viewFormats',
+      'view-formats-iterator',
+    ]);
+    expect(codecs.encodings).toHaveLength(encodingCount);
+    expect(bridge.submissions).toHaveLength(submissionCount);
+    expect(inspectBinding(binding).current.allocatedWrapperCount)
+      .toBe(wrapperCount);
+
+    for (const descriptor of [
+      { format: 'rgba8unorm', size: [], usage: 4 },
+      { format: 'r16unorm', size: [4, 4], usage: 4 },
+      {
+        format: 'rgba8unorm',
+        size: [4, 4],
+        usage: 4,
+        viewFormats: ['bc1-rgba-unorm'],
+      },
+    ]) {
+      expect(() => device.createTexture(descriptor)).toThrow(TypeError);
+      expect(codecs.encodings).toHaveLength(encodingCount);
+      expect(bridge.submissions).toHaveLength(submissionCount);
+      expect(inspectBinding(binding).current.allocatedWrapperCount)
+        .toBe(wrapperCount);
+    }
+
+    device.createTexture({ format: 'rgba8unorm', size: [8, 8], usage: 4 });
+    const finalTarget = codecs.encodings.at(-1)?.target as { objectId: string };
+    expect(BigInt(finalTarget.objectId)).toBe(BigInt(firstTarget.objectId) + 1n);
+    binding.revoke();
+  });
+
+  test('keeps the unauthorised TypeGPU delta absent after buffer semantic graduation', () => {
     const staging = describeProductionWebGpuWorkloadStaging();
     expect(staging.supportClaim).toBe('none');
     expect(staging.nativeExecutionEvidence).toBe(
       'none-recording-provider-is-inventory-only',
     );
     expect(staging.typegpuVersion).toBe('0.11.9');
-    expect(staging.activeRouteOperationCount).toBe(36);
+    expect(staging.activeRouteOperationCount).toBe(41);
     expect(staging.workloadOperationCount).toBe(51);
-    expect(staging.additionalOperationCount).toBe(19);
-    expect(staging.additionalOperations).toHaveLength(19);
+    expect(staging.additionalOperationCount).toBe(14);
+    expect(staging.additionalOperations).toHaveLength(14);
     expect(staging.blockers).toHaveLength(5);
     expect(staging.embeddedCodecRule).toBe(
       'EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined',
@@ -649,14 +761,21 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('materializes exactly the reviewed 36-operation interface shape', () => {
+  test('materializes only routes whose native and CapSec installation gates are closed', () => {
     const binding = createProductionWebGpuPrivateBinding(
       createFakeBridge(),
       createFakeCodecs(),
     );
-    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(36);
+    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(41);
     expect(Object.keys(binding.interfaceObjects)).toHaveLength(24);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
+    const uninstalledBufferRoutes = new Set([
+      'GPUBuffer.destroy',
+      'GPUBuffer.getMappedRange',
+      'GPUBuffer.mapAsync',
+      'GPUBuffer.unmap',
+      'GPUQueue.writeBuffer',
+    ]);
     for (const selected of WEBGPU_PRODUCTION_PLAN.routes) {
       const interfaceObject = binding.interfaceObjects[selected.interfaceName] as {
         readonly prototype: object;
@@ -666,6 +785,10 @@ describe('production-private WebGPU wrapper factory', () => {
         interfaceObject.prototype,
         selected.memberName,
       );
+      if (uninstalledBufferRoutes.has(selected.operationId)) {
+        expect(descriptor).toBeUndefined();
+        continue;
+      }
       expect(descriptor).toBeDefined();
       if (selected.memberKind === 'method') {
         expect(descriptor?.value).toBeFunction();
@@ -752,6 +875,18 @@ describe('production-private WebGPU wrapper factory', () => {
       logicalDeviceGeneration: '1',
       providerGeneration: '7',
     });
+    const submissionsBeforeMappedAlignmentFailure = bridge.submissions.length;
+    const encodingsBeforeMappedAlignmentFailure = codecs.encodings.length;
+    expect(() => device.createBuffer({
+      label: 'misaligned-mapped-buffer',
+      mappedAtCreation: true,
+      size: 6,
+      usage: 9,
+    })).toThrow(RangeError);
+    expect(bridge.submissions).toHaveLength(
+      submissionsBeforeMappedAlignmentFailure,
+    );
+    expect(codecs.encodings).toHaveLength(encodingsBeforeMappedAlignmentFailure);
     const mappedBuffer = device.createBuffer({
       label: 'mapped-buffer',
       mappedAtCreation: true,
@@ -778,7 +913,7 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(() => {
       (unmappedBuffer as { usage: number }).usage = 1;
     }).toThrow();
-    expect(log.filter((entry) => entry === 'convert:GPUDevice.createBuffer')).toHaveLength(2);
+    expect(log.filter((entry) => entry === 'convert:GPUDevice.createBuffer')).toHaveLength(3);
     expect(log.filter((entry) => entry === 'encode:GPUDevice.createBuffer')).toHaveLength(2);
     const bufferEncoding = codecs.encodings.find(
       (encoding) => encoding.operationId === 'GPUDevice.createBuffer',
@@ -791,6 +926,10 @@ describe('production-private WebGPU wrapper factory', () => {
       logicalDeviceGeneration: '1',
       providerGeneration: '7',
     });
+    expect(BigInt((bufferEncoding.target as { objectId: string }).objectId)).toBe(
+      BigInt((bindGroupLayoutEncoding.target as { objectId: string }).objectId) +
+        1n,
+    );
     const pipelineLayout = device.createPipelineLayout({
       bindGroupLayouts: [bindGroupLayout],
       immediateSize: 0,

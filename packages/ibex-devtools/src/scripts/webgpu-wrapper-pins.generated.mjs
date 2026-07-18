@@ -2,14 +2,14 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "c2116dace3eacb3825db4e51f247d55b0d0701f77d7e41ad8dcabaac1fe37d10",
-  "operationSet": "1697bf9b90dda9c7d68bc7ad18d728e32cfdd1155286dedd97e2230913a7916c",
-  "semanticProgramSet": "d1597f689232b885df51d11c056126959dca3d8ad8bc09a00e0fedf6e58efec7",
-  "runtimeRouting": "c518de2284af428128398420ed77f60882394aaa31cdfe26879125ff954efbc3",
-  "webgpuCVocabulary": "3c8f5550f05d23a24668a4f04a56daf676780e0c567c0a0906f89d50201e5404"
+  "projection": "78e4fe9341d4d62d853988b570e6c777826a8acb560a7bc6780c855489f8d7dc",
+  "operationSet": "635e0cdf264e3c59fda245d04b38d88ef3bdac81b62a405108fba25c0d2186aa",
+  "semanticProgramSet": "c8fe26b4706bd691355b82f6e85a1ac915461004b59416cf13d6573182a104d2",
+  "runtimeRouting": "e6ea90e4c14ed02757fe940fc611cc8c5cc65a6d2787a1c2a0d75d90fb54c303",
+  "webgpuCVocabulary": "012cf790a04f6b949dbab310b787954d97b8839720bc79728b3148d9e94adf71"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
-  "semanticProjection": "eb26abade746a618151e726107baddc0ed348dae638f6c575e69b0c8be183de4",
+  "semanticProjection": "4d8860b84f07b50c785f8ab716a3df93ff2ba8107838a28d0f358810524294ea",
   "fakeClientData": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
 });
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
@@ -68,10 +68,34 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "method"
   ],
   [
+    "GPUBuffer.destroy",
+    "GPUBuffer",
+    "destroy",
+    "method"
+  ],
+  [
+    "GPUBuffer.getMappedRange",
+    "GPUBuffer",
+    "getMappedRange",
+    "method"
+  ],
+  [
+    "GPUBuffer.mapAsync",
+    "GPUBuffer",
+    "mapAsync",
+    "method"
+  ],
+  [
     "GPUBuffer.mapState",
     "GPUBuffer",
     "mapState",
     "property"
+  ],
+  [
+    "GPUBuffer.unmap",
+    "GPUBuffer",
+    "unmap",
+    "method"
   ],
   [
     "GPUBuffer.usage",
@@ -170,6 +194,12 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "property"
   ],
   [
+    "GPUQueue.writeBuffer",
+    "GPUQueue",
+    "writeBuffer",
+    "method"
+  ],
+  [
     "GPUQueue.submit",
     "GPUQueue",
     "submit",
@@ -246,6 +276,9 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
 export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPU.requestAdapter",
   "GPUAdapter.requestDevice",
+  "GPUBuffer.destroy",
+  "GPUBuffer.mapAsync",
+  "GPUBuffer.unmap",
   "GPUCanvasContext.configure",
   "GPUCanvasContext.unconfigure",
   "GPUDevice.createBindGroupLayout",
@@ -259,8 +292,113 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUDevice.destroy",
   "GPUDevice.popErrorScope",
   "GPUQueue.submit",
+  "GPUQueue.writeBuffer",
   "GPUTexture.createView",
   "GPUTexture.destroy"
 ]);
-export const WRAPPER_ROUTE_COUNT = 36;
-export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 17;
+export const TEXTURE_FORMAT_REQUIRED_FEATURES = Object.freeze({
+  "r8unorm": null,
+  "r8snorm": null,
+  "r8uint": null,
+  "r8sint": null,
+  "r16unorm": "texture-formats-tier1",
+  "r16snorm": "texture-formats-tier1",
+  "r16uint": null,
+  "r16sint": null,
+  "r16float": null,
+  "rg8unorm": null,
+  "rg8snorm": null,
+  "rg8uint": null,
+  "rg8sint": null,
+  "r32uint": null,
+  "r32sint": null,
+  "r32float": null,
+  "rg16unorm": "texture-formats-tier1",
+  "rg16snorm": "texture-formats-tier1",
+  "rg16uint": null,
+  "rg16sint": null,
+  "rg16float": null,
+  "rgba8unorm": null,
+  "rgba8unorm-srgb": null,
+  "rgba8snorm": null,
+  "rgba8uint": null,
+  "rgba8sint": null,
+  "bgra8unorm": null,
+  "bgra8unorm-srgb": "core-features-and-limits",
+  "rgb9e5ufloat": null,
+  "rgb10a2uint": null,
+  "rgb10a2unorm": null,
+  "rg11b10ufloat": null,
+  "rg32uint": null,
+  "rg32sint": null,
+  "rg32float": null,
+  "rgba16unorm": "texture-formats-tier1",
+  "rgba16snorm": "texture-formats-tier1",
+  "rgba16uint": null,
+  "rgba16sint": null,
+  "rgba16float": null,
+  "rgba32uint": null,
+  "rgba32sint": null,
+  "rgba32float": null,
+  "stencil8": null,
+  "depth16unorm": null,
+  "depth24plus": null,
+  "depth24plus-stencil8": null,
+  "depth32float": null,
+  "depth32float-stencil8": "depth32float-stencil8",
+  "bc1-rgba-unorm": "texture-compression-bc",
+  "bc1-rgba-unorm-srgb": "texture-compression-bc",
+  "bc2-rgba-unorm": "texture-compression-bc",
+  "bc2-rgba-unorm-srgb": "texture-compression-bc",
+  "bc3-rgba-unorm": "texture-compression-bc",
+  "bc3-rgba-unorm-srgb": "texture-compression-bc",
+  "bc4-r-unorm": "texture-compression-bc",
+  "bc4-r-snorm": "texture-compression-bc",
+  "bc5-rg-unorm": "texture-compression-bc",
+  "bc5-rg-snorm": "texture-compression-bc",
+  "bc6h-rgb-ufloat": "texture-compression-bc",
+  "bc6h-rgb-float": "texture-compression-bc",
+  "bc7-rgba-unorm": "texture-compression-bc",
+  "bc7-rgba-unorm-srgb": "texture-compression-bc",
+  "etc2-rgb8unorm": "texture-compression-etc2",
+  "etc2-rgb8unorm-srgb": "texture-compression-etc2",
+  "etc2-rgb8a1unorm": "texture-compression-etc2",
+  "etc2-rgb8a1unorm-srgb": "texture-compression-etc2",
+  "etc2-rgba8unorm": "texture-compression-etc2",
+  "etc2-rgba8unorm-srgb": "texture-compression-etc2",
+  "eac-r11unorm": "texture-compression-etc2",
+  "eac-r11snorm": "texture-compression-etc2",
+  "eac-rg11unorm": "texture-compression-etc2",
+  "eac-rg11snorm": "texture-compression-etc2",
+  "astc-4x4-unorm": "texture-compression-astc",
+  "astc-4x4-unorm-srgb": "texture-compression-astc",
+  "astc-5x4-unorm": "texture-compression-astc",
+  "astc-5x4-unorm-srgb": "texture-compression-astc",
+  "astc-5x5-unorm": "texture-compression-astc",
+  "astc-5x5-unorm-srgb": "texture-compression-astc",
+  "astc-6x5-unorm": "texture-compression-astc",
+  "astc-6x5-unorm-srgb": "texture-compression-astc",
+  "astc-6x6-unorm": "texture-compression-astc",
+  "astc-6x6-unorm-srgb": "texture-compression-astc",
+  "astc-8x5-unorm": "texture-compression-astc",
+  "astc-8x5-unorm-srgb": "texture-compression-astc",
+  "astc-8x6-unorm": "texture-compression-astc",
+  "astc-8x6-unorm-srgb": "texture-compression-astc",
+  "astc-8x8-unorm": "texture-compression-astc",
+  "astc-8x8-unorm-srgb": "texture-compression-astc",
+  "astc-10x5-unorm": "texture-compression-astc",
+  "astc-10x5-unorm-srgb": "texture-compression-astc",
+  "astc-10x6-unorm": "texture-compression-astc",
+  "astc-10x6-unorm-srgb": "texture-compression-astc",
+  "astc-10x8-unorm": "texture-compression-astc",
+  "astc-10x8-unorm-srgb": "texture-compression-astc",
+  "astc-10x10-unorm": "texture-compression-astc",
+  "astc-10x10-unorm-srgb": "texture-compression-astc",
+  "astc-12x10-unorm": "texture-compression-astc",
+  "astc-12x10-unorm-srgb": "texture-compression-astc",
+  "astc-12x12-unorm": "texture-compression-astc",
+  "astc-12x12-unorm-srgb": "texture-compression-astc"
+});
+export const TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256 = "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04";
+export const WRAPPER_ROUTE_COUNT = 41;
+export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 21;

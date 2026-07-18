@@ -26,6 +26,10 @@ import {
   validateWebGpuWrapperSemantics,
   validateWebGpuWrapperAuthority,
 } from "./webgpu-test-wrapper-generator.mjs";
+import {
+  TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256,
+  TEXTURE_FORMAT_REQUIRED_FEATURES,
+} from "./webgpu-wrapper-pins.generated.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDirectory, "../../../..");
@@ -167,6 +171,19 @@ function readPinnedWebIdlVocabulary() {
   ) {
     throw new Error("pinned GPUTextureFormat vocabulary drifted");
   }
+  if (
+    !/^[0-9a-f]{64}$/u.test(TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256) ||
+    JSON.stringify(Object.keys(TEXTURE_FORMAT_REQUIRED_FEATURES)) !==
+      JSON.stringify(gpuTextureFormats) ||
+    Object.values(TEXTURE_FORMAT_REQUIRED_FEATURES).some(
+      (requiredFeature) =>
+        requiredFeature !== null && typeof requiredFeature !== "string",
+    )
+  ) {
+    throw new Error(
+      "pinned GPUTextureFormat required-feature authority drifted",
+    );
+  }
 
   return Object.freeze({
     bindingPackage: "@webgpu/types",
@@ -177,6 +194,11 @@ function readPinnedWebIdlVocabulary() {
       .update(declarationBytes)
       .digest("hex"),
     gpuTextureFormats: Object.freeze(gpuTextureFormats),
+    gpuTextureFormatCapabilityRowsSha256:
+      TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256,
+    gpuTextureFormatRequiredFeatures: Object.freeze({
+      ...TEXTURE_FORMAT_REQUIRED_FEATURES,
+    }),
     gpuAddressModes: stringUnion("GPUAddressMode", 3),
     gpuFilterModes: stringUnion("GPUFilterMode", 2),
     gpuMipmapFilterModes: stringUnion("GPUMipmapFilterMode", 2),
@@ -692,6 +714,10 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   }
   const createCommandEncoderCompletionEvents = {
     "webidl-rejection": {
+      kind: "no-service-call",
+      completionPayloadEncoderEligibility: "excluded-before-service-ingress",
+    },
+    "content-rejection": {
       kind: "no-service-call",
       completionPayloadEncoderEligibility: "excluded-before-service-ingress",
     },

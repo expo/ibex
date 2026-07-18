@@ -238,7 +238,6 @@ function buildExpectedCreateBufferNativeRoute({
     "validate-buffer-size-under-logical-max-and-structural-ceiling",
     "validate-buffer-usage-closed-bits",
     "validate-buffer-map-usage-combination",
-    "validate-buffer-mapped-at-creation-alignment",
     "authenticate-wrapper-allocated-buffer-target-provenance",
     "validate-wrapper-allocated-buffer-target-generation",
     "reserve-buffer-table-and-dual-ledger-capacity",
@@ -262,6 +261,17 @@ function buildExpectedCreateBufferNativeRoute({
   }
   route.completion.semanticTerminalMapping.authorityPath =
     `semanticProjection.providerRoutingPrograms[operationId=${operation.operationId}]`;
+  route.completion.semanticTerminalMapping.terminals.splice(1, 0, {
+    terminalId: "content-rejection",
+    errorTiming: "content-timeline",
+    resultDisposition: "throw",
+    providerTokenCount: 0,
+    physicalSequenceCount: 0,
+    event: {
+      kind: "no-service-call",
+      completionPayloadEncoderEligibility: "excluded-before-service-ingress",
+    },
+  });
   return route;
 }
 
@@ -274,6 +284,7 @@ function buildExpectedResourceNativeRoute({
   receiverKind = "GPUDevice",
   targetKind,
   semanticSteps,
+  contentRejection = false,
 }) {
   const route = buildExpectedCreateBufferNativeRoute({
     templateRoute,
@@ -281,6 +292,12 @@ function buildExpectedResourceNativeRoute({
     requestCatalogIndex,
     completionCatalogIndex,
   });
+  if (!contentRejection) {
+    route.completion.semanticTerminalMapping.terminals =
+      route.completion.semanticTerminalMapping.terminals.filter(
+        (terminal) => terminal.terminalId !== "content-rejection",
+      );
+  }
   route.request.payload.fields.find(
     (field) => field.name === "convertedArguments",
   ).constraintType = descriptorType;
@@ -2480,6 +2497,7 @@ function validateNativeCodecPrograms(payload) {
       operationId: "GPUDevice.createTexture",
       descriptorType: "textureDescriptorV1",
       targetKind: "GPUTexture",
+      contentRejection: true,
       semanticSteps: [
         "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
         "authenticate-contiguous-sealed-local-timeline-prefix",
@@ -2555,6 +2573,7 @@ function validateNativeCodecPrograms(payload) {
         receiverKind: resource.receiverKind,
         targetKind: resource.targetKind,
         semanticSteps: resource.semanticSteps,
+        contentRejection: resource.contentRejection,
       }),
       `native ${resource.operationId} codec route`,
     );

@@ -74,11 +74,11 @@ interface NativeCodecField {
       | 1660448199
       | 194635792
       | 206890944
-      | 3212558232
+      | 1869756926
       | 2544948076
       | 3373402978
       | 3285037552
-      | 159202366
+      | 3876131162
       | 1853125118
       | 599085487
       | 4055478657;
@@ -355,7 +355,7 @@ interface NativeCodecCreatePipelineLayoutRoute {
 
 interface NativeCodecCreateBufferRoute {
   readonly operationId: 'GPUDevice.createBuffer';
-  readonly wireId: 3212558232;
+  readonly wireId: 1869756926;
   readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
@@ -369,7 +369,7 @@ interface NativeCodecCreateSamplerRoute {
 
 interface NativeCodecCreateTextureRoute {
   readonly operationId: 'GPUDevice.createTexture';
-  readonly wireId: 159202366;
+  readonly wireId: 3876131162;
   readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
@@ -626,6 +626,8 @@ export interface ExecutableWebGpuCodecManifest {
     declarationPath: 'node_modules/@webgpu/types/dist/index.d.ts';
     declarationSha256: string;
     gpuTextureFormats: readonly string[];
+    gpuTextureFormatCapabilityRowsSha256: string;
+    gpuTextureFormatRequiredFeatures: Readonly<Record<string, string | null>>;
     gpuAddressModes: readonly string[];
     gpuFilterModes: readonly string[];
     gpuMipmapFilterModes: readonly string[];
@@ -685,7 +687,7 @@ const CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC =
 const CREATE_BIND_GROUP_LAYOUT_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_BUFFER_OPERATION_ID = 'GPUDevice.createBuffer';
-const CREATE_BUFFER_WIRE_ID = 3212558232;
+const CREATE_BUFFER_WIRE_ID = 1869756926;
 const CREATE_BUFFER_MAX_LABEL_UTF8_BYTES = 16_777_017;
 const CREATE_BUFFER_REQUEST_CODEC = 'gpu-create-buffer-service-request-v1';
 const CREATE_BUFFER_COMPLETION_CODEC =
@@ -696,7 +698,7 @@ const CREATE_SAMPLER_REQUEST_CODEC = 'gpu-create-sampler-service-request-v1';
 const CREATE_SAMPLER_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_TEXTURE_OPERATION_ID = 'GPUDevice.createTexture';
-const CREATE_TEXTURE_WIRE_ID = 159202366;
+const CREATE_TEXTURE_WIRE_ID = 3876131162;
 const CREATE_TEXTURE_REQUEST_CODEC = 'gpu-create-texture-service-request-v1';
 const CREATE_TEXTURE_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
@@ -3533,6 +3535,17 @@ function validateNativeCodecProgram(
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-bind-group-layout-descriptor-under-logical-device-capabilities","reserve-bind-group-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-bind-group-layout-target","select-provider-admission-and-physical-sequence"]',
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-pipeline-layout-group-count-under-reviewed-workload","validate-pipeline-layout-count-under-logical-max-bind-groups","validate-pipeline-layout-non-null-group-positions","authenticate-pipeline-layout-bind-group-layout-full-references","validate-current-live-nonexclusive-bind-group-layout-generations","validate-pipeline-layout-aggregate-binding-slots-under-logical-limits","validate-pipeline-layout-immediate-alignment","validate-pipeline-layout-immediate-size-under-logical-limit","validate-pipeline-layout-label-under-reviewed-workload","reserve-pipeline-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-pipeline-layout-target","select-provider-admission-and-physical-sequence"]',
     );
+  const contentRejectionTerminalCanonical = canonicalManifestJson({
+    terminalId: 'content-rejection',
+    errorTiming: 'content-timeline',
+    resultDisposition: 'throw',
+    providerTokenCount: 0,
+    physicalSequenceCount: 0,
+    event: {
+      kind: 'no-service-call',
+      completionPayloadEncoderEligibility: 'excluded-before-service-ingress',
+    },
+  });
   const expectedCreateBufferCanonical = expectedCreateBindGroupLayoutCanonical
     .replaceAll(CREATE_BIND_GROUP_LAYOUT_OPERATION_ID, CREATE_BUFFER_OPERATION_ID)
     .replaceAll(CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC, CREATE_BUFFER_REQUEST_CODEC)
@@ -3543,7 +3556,11 @@ function validateNativeCodecProgram(
     .replaceAll('"wireTag":15', '"wireTag":17')
     .replace(
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-bind-group-layout-descriptor-under-logical-device-capabilities","reserve-bind-group-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-bind-group-layout-target","select-provider-admission-and-physical-sequence"]',
-      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","validate-buffer-mapped-at-creation-alignment","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
+      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
+    )
+    .replace(
+      '"terminalId":"webidl-rejection"},{"errorTiming":"device-timeline"',
+      `"terminalId":"webidl-rejection"},${contentRejectionTerminalCanonical},{"errorTiming":"device-timeline"`,
     );
   const expectedCreateSamplerCanonical = expectedCreateBufferCanonical
     .replaceAll(CREATE_BUFFER_OPERATION_ID, CREATE_SAMPLER_OPERATION_ID)
@@ -3554,9 +3571,10 @@ function validateNativeCodecProgram(
     .replaceAll('"codecTag":17', '"codecTag":18')
     .replaceAll('"wireTag":17', '"wireTag":18')
     .replace(
-      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","validate-buffer-mapped-at-creation-alignment","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
+      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
       '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-sampler-lod-order-and-range","validate-sampler-anisotropy-and-filter-combination","validate-sampler-label-under-reviewed-workload","validate-sampler-descriptor-under-reviewed-workload","authenticate-wrapper-allocated-sampler-target-provenance","validate-wrapper-allocated-sampler-target-generation","reserve-sampler-table-and-resource-ledger-capacity","reserve-sampler-provider-request-completion-and-physical-sequence"]',
-    );
+    )
+    .replace(`,${contentRejectionTerminalCanonical}`, '');
   const expectedCreateTextureCanonical = expectedCreateBufferCanonical
     .replaceAll(CREATE_BUFFER_OPERATION_ID, CREATE_TEXTURE_OPERATION_ID)
     .replaceAll(CREATE_BUFFER_REQUEST_CODEC, CREATE_TEXTURE_REQUEST_CODEC)
@@ -3566,7 +3584,7 @@ function validateNativeCodecProgram(
     .replaceAll('"codecTag":17', '"codecTag":19')
     .replaceAll('"wireTag":17', '"wireTag":19')
     .replace(
-      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","validate-buffer-mapped-at-creation-alignment","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
+      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-buffer-descriptor-under-reviewed-workload","validate-buffer-size-under-logical-max-and-structural-ceiling","validate-buffer-usage-closed-bits","validate-buffer-map-usage-combination","authenticate-wrapper-allocated-buffer-target-provenance","validate-wrapper-allocated-buffer-target-generation","reserve-buffer-table-and-dual-ledger-capacity","reserve-buffer-provider-request-completion-and-physical-sequence","validate-buffer-label-under-reviewed-workload"]',
       '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-texture-extent-under-logical-limits-and-structural-bounds","validate-texture-format-under-logical-capabilities","validate-texture-usage-closed-bits-and-format-compatibility","validate-texture-mip-level-and-sample-count-bounds","validate-texture-view-formats-compatibility","validate-texture-binding-view-dimension-compatibility","validate-texture-label-under-reviewed-workload","validate-texture-descriptor-under-reviewed-workload","authenticate-wrapper-allocated-texture-target-provenance","validate-wrapper-allocated-texture-target-generation","compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity","reserve-texture-provider-request-completion-and-physical-sequence"]',
     );
   const expectedCreateTextureViewCanonical = expectedCreateTextureCanonical
@@ -3582,7 +3600,8 @@ function validateNativeCodecProgram(
     .replace(
       '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-texture-extent-under-logical-limits-and-structural-bounds","validate-texture-format-under-logical-capabilities","validate-texture-usage-closed-bits-and-format-compatibility","validate-texture-mip-level-and-sample-count-bounds","validate-texture-view-formats-compatibility","validate-texture-binding-view-dimension-compatibility","validate-texture-label-under-reviewed-workload","validate-texture-descriptor-under-reviewed-workload","authenticate-wrapper-allocated-texture-target-provenance","validate-wrapper-allocated-texture-target-generation","compute-checked-texture-resource-bytes-and-reserve-dual-ledger-capacity","reserve-texture-provider-request-completion-and-physical-sequence"]',
       '"requiredAfterDecode":["authenticate-source-affine-texture-receiver-and-reconstruct-authority-from-texture-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-undestroyed-texture-device-and-provider-generation","authenticate-current-texture-origin-provenance-and-epoch","validate-operation-coverage","validate-authorized-live-source-account-and-aggregate-envelope-with-alias-accounting","validate-texture-view-format-and-aspect-compatibility","validate-texture-view-dimension-compatibility","validate-texture-view-subresource-range","validate-texture-view-usage-and-swizzle-capability","validate-texture-view-label-under-reviewed-workload","validate-exact-texture-view-descriptor-parent-origin-workload-tuples","authenticate-wrapper-allocated-texture-view-target-provenance","validate-wrapper-allocated-texture-view-target-generation","reserve-texture-view-table-and-independent-cost-without-backing-double-charge","reserve-texture-view-provider-request-completion-and-physical-sequence"]',
-    );
+    )
+    .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
     manifest.nativeCodecPrograms.routes.length !== 11 ||
     new Set(
@@ -3917,10 +3936,16 @@ function clampUnsignedShort(value: unknown, label: string): number {
   return lower % 2 === 0 ? lower : lower + 1;
 }
 
-function convertExtent3D(value: unknown): Readonly<{
-  width: number;
-  height: number;
-  depthOrArrayLayers: number;
+function convertExtent3D(
+  value: unknown,
+  maximum: number,
+): Readonly<{
+  size: Readonly<{
+    width: number;
+    height: number;
+    depthOrArrayLayers: number;
+  }>;
+  iterableLength: number | null;
 }> {
   if (!isObjectLike(value)) {
     throw new TypeError('GPUTextureDescriptor.size must be an iterable or dictionary');
@@ -3941,20 +3966,25 @@ function convertExtent3D(value: unknown): Readonly<{
       },
     };
     for (const member of iterable) {
-      if (converted.length >= 3) {
-        throw new TypeError('GPUTextureDescriptor.size sequence must contain one to three members');
+      if (converted.length >= maximum) {
+        throw new TypeError(
+          'GPUTextureDescriptor.size sequence exceeds the structural transport bound',
+        );
       }
       converted.push(
         u32(member, `GPUTextureDescriptor.size[${converted.length}]`),
       );
     }
-    if (converted.length === 0) {
-      throw new TypeError('GPUTextureDescriptor.size sequence must contain one to three members');
-    }
     return frozenRecord({
-      width: converted[0],
-      height: converted[1] ?? 1,
-      depthOrArrayLayers: converted[2] ?? 1,
+      size: frozenRecord({
+        // Invalid empty and overlong iterable shapes are rejected only after
+        // the complete enclosing descriptor has been converted. These
+        // placeholders can therefore never enter the service boundary.
+        width: converted[0] ?? 0,
+        height: converted[1] ?? 1,
+        depthOrArrayLayers: converted[2] ?? 1,
+      }),
+      iterableLength: converted.length,
     });
   }
 
@@ -3972,7 +4002,10 @@ function convertExtent3D(value: unknown): Readonly<{
     throw new TypeError('GPUTextureDescriptor.size.width is required');
   }
   const width = u32(widthValue, 'GPUTextureDescriptor.size.width');
-  return frozenRecord({ width, height, depthOrArrayLayers });
+  return frozenRecord({
+    size: frozenRecord({ width, height, depthOrArrayLayers }),
+    iterableLength: null,
+  });
 }
 
 function sequence(
@@ -4403,15 +4436,216 @@ function convertBufferDescriptor(value: unknown): unknown {
     throw new TypeError('GPUBufferDescriptor.size is required');
   }
   const size = u64Number(sizeValue, 'GPUBufferDescriptor.size');
-  if (size > 268_435_456) {
-    throw new TypeError('GPUBufferDescriptor.size exceeds the structural ceiling');
-  }
   const usageValue = source.usage;
   if (usageValue === undefined) {
     throw new TypeError('GPUBufferDescriptor.usage is required');
   }
   const usage = u32(usageValue, 'GPUBufferDescriptor.usage');
+  if (size > 268_435_456) {
+    throw new TypeError('GPUBufferDescriptor.size exceeds the structural ceiling');
+  }
   return frozenRecord({ label, mappedAtCreation, size, usage });
+}
+
+function convertBufferMappedRangeArguments(
+  args: readonly unknown[],
+): Readonly<Record<string, unknown>> {
+  const offset = args[0] === undefined
+    ? 0
+    : u64Number(args[0], 'GPUBuffer.getMappedRange offset');
+  const size = args[1] === undefined
+    ? undefined
+    : u64Number(args[1], 'GPUBuffer.getMappedRange size');
+  return frozenRecord({
+    offset,
+    ...(size === undefined ? {} : { size }),
+  });
+}
+
+function convertBufferMapAsyncArguments(
+  args: readonly unknown[],
+): Readonly<Record<string, unknown>> {
+  const mode = u32(args[0], 'GPUBuffer.mapAsync mode');
+  const offset = args[1] === undefined
+    ? 0
+    : u64Number(args[1], 'GPUBuffer.mapAsync offset');
+  const size = args[2] === undefined
+    ? undefined
+    : u64Number(args[2], 'GPUBuffer.mapAsync size');
+  return frozenRecord({
+    mode,
+    offset,
+    ...(size === undefined ? {} : { size }),
+  });
+}
+
+function requiredIntrinsicGetter(
+  prototype: object,
+  key: PropertyKey,
+): (this: unknown) => unknown {
+  const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get;
+  if (getter === undefined) {
+    throw new Error(`Missing required ECMAScript intrinsic getter: ${String(key)}`);
+  }
+  return getter;
+}
+
+const TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(
+  Uint8Array.prototype,
+) as object;
+const TYPED_ARRAY_BUFFER_GETTER = requiredIntrinsicGetter(
+  TYPED_ARRAY_PROTOTYPE,
+  'buffer',
+);
+const TYPED_ARRAY_BYTE_OFFSET_GETTER = requiredIntrinsicGetter(
+  TYPED_ARRAY_PROTOTYPE,
+  'byteOffset',
+);
+const TYPED_ARRAY_BYTE_LENGTH_GETTER = requiredIntrinsicGetter(
+  TYPED_ARRAY_PROTOTYPE,
+  'byteLength',
+);
+const TYPED_ARRAY_TAG_GETTER = requiredIntrinsicGetter(
+  TYPED_ARRAY_PROTOTYPE,
+  Symbol.toStringTag,
+);
+const DATA_VIEW_BUFFER_GETTER = requiredIntrinsicGetter(
+  DataView.prototype,
+  'buffer',
+);
+const DATA_VIEW_BYTE_OFFSET_GETTER = requiredIntrinsicGetter(
+  DataView.prototype,
+  'byteOffset',
+);
+const DATA_VIEW_BYTE_LENGTH_GETTER = requiredIntrinsicGetter(
+  DataView.prototype,
+  'byteLength',
+);
+const ARRAY_BUFFER_BYTE_LENGTH_GETTER = requiredIntrinsicGetter(
+  ArrayBuffer.prototype,
+  'byteLength',
+);
+const SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
+  typeof SharedArrayBuffer === 'undefined'
+    ? undefined
+    : requiredIntrinsicGetter(SharedArrayBuffer.prototype, 'byteLength');
+const TYPED_ARRAY_ELEMENT_SIZES: Readonly<Record<string, number>> =
+  Object.freeze({
+    Int8Array: 1,
+    Uint8Array: 1,
+    Uint8ClampedArray: 1,
+    Int16Array: 2,
+    Uint16Array: 2,
+    Float16Array: 2,
+    Int32Array: 4,
+    Uint32Array: 4,
+    Float32Array: 4,
+    Float64Array: 8,
+    BigInt64Array: 8,
+    BigUint64Array: 8,
+  });
+
+function convertedAllowSharedBufferSource(value: unknown): Readonly<{
+  source: ArrayBufferLike;
+  byteOffset: number;
+  byteLength: number;
+  elementSize: number;
+}> {
+  if (ArrayBuffer.isView(value)) {
+    try {
+      return Object.freeze({
+        source: Reflect.apply(DATA_VIEW_BUFFER_GETTER, value, []) as ArrayBufferLike,
+        byteOffset: Reflect.apply(DATA_VIEW_BYTE_OFFSET_GETTER, value, []) as number,
+        byteLength: Reflect.apply(DATA_VIEW_BYTE_LENGTH_GETTER, value, []) as number,
+        elementSize: 1,
+      });
+    } catch {
+      const tag = Reflect.apply(TYPED_ARRAY_TAG_GETTER, value, []);
+      const elementSize = typeof tag === 'string'
+        ? TYPED_ARRAY_ELEMENT_SIZES[tag]
+        : undefined;
+      if (elementSize === undefined) {
+        throw new TypeError(
+          'GPUQueue.writeBuffer data has an unknown typed-array brand',
+        );
+      }
+      return Object.freeze({
+        source: Reflect.apply(
+          TYPED_ARRAY_BUFFER_GETTER,
+          value,
+          [],
+        ) as ArrayBufferLike,
+        byteOffset: Reflect.apply(
+          TYPED_ARRAY_BYTE_OFFSET_GETTER,
+          value,
+          [],
+        ) as number,
+        byteLength: Reflect.apply(
+          TYPED_ARRAY_BYTE_LENGTH_GETTER,
+          value,
+          [],
+        ) as number,
+        elementSize,
+      });
+    }
+  }
+  let byteLength: number | undefined;
+  try {
+    byteLength = Reflect.apply(
+      ARRAY_BUFFER_BYTE_LENGTH_GETTER,
+      value,
+      [],
+    ) as number;
+  } catch {
+    if (SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER !== undefined) {
+      try {
+        byteLength = Reflect.apply(
+          SHARED_ARRAY_BUFFER_BYTE_LENGTH_GETTER,
+          value,
+          [],
+        ) as number;
+      } catch {
+        // The public error below covers values without an ArrayBuffer slot.
+      }
+    }
+  }
+  if (byteLength === undefined) {
+    throw new TypeError(
+      'GPUQueue.writeBuffer data must be an AllowSharedBufferSource',
+    );
+  }
+  const source = value as ArrayBufferLike;
+  return Object.freeze({
+    source,
+    byteOffset: 0,
+    byteLength,
+    elementSize: 1,
+  });
+}
+
+function convertQueueWriteBufferArguments(
+  args: readonly unknown[],
+  wrappers: ProductionGpuCodecWrapperAccess,
+): Readonly<Record<string, unknown>> {
+  const buffer = wrappers.reference(args[0], 'GPUBuffer');
+  const bufferOffset = u64Number(
+    args[1],
+    'GPUQueue.writeBuffer bufferOffset',
+  );
+  const data = convertedAllowSharedBufferSource(args[2]);
+  const dataOffset = args[3] === undefined
+    ? 0
+    : u64Number(args[3], 'GPUQueue.writeBuffer dataOffset');
+  const size = args[4] === undefined
+    ? undefined
+    : u64Number(args[4], 'GPUQueue.writeBuffer size');
+  return frozenRecord({
+    buffer,
+    bufferOffset,
+    data,
+    dataOffset,
+    ...(size === undefined ? {} : { size }),
+  });
 }
 
 function convertSamplerDescriptor(
@@ -4521,7 +4755,7 @@ function convertTextureDescriptor(
   if (sizeValue === undefined) {
     throw new TypeError('GPUTextureDescriptor.size is required');
   }
-  const size = convertExtent3D(sizeValue);
+  const convertedSize = convertExtent3D(sizeValue, maximum);
   const textureBindingViewDimensionValue = source.textureBindingViewDimension;
   const textureBindingViewDimension = textureBindingViewDimensionValue === undefined
     ? undefined
@@ -4548,13 +4782,21 @@ function convertTextureDescriptor(
         'GPUTextureDescriptor.viewFormats member',
       ),
     );
+  if (
+    convertedSize.iterableLength !== null &&
+    (convertedSize.iterableLength < 1 || convertedSize.iterableLength > 3)
+  ) {
+    throw new TypeError(
+      'GPUTextureDescriptor.size sequence must contain one to three members',
+    );
+  }
   return frozenRecord({
     dimension,
     format,
     label,
     mipLevelCount,
     sampleCount,
-    size,
+    size: convertedSize.size,
     ...(textureBindingViewDimension === undefined
       ? {}
       : { textureBindingViewDimension }),
@@ -7109,6 +7351,9 @@ export function createExecutableWebGpuCodecs(
     manifest,
     expectedObjectKindTags,
   );
+  const textureFormatRequiredFeatureEntries = Object.entries(
+    manifest.webIdlVocabulary.gpuTextureFormatRequiredFeatures,
+  );
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
@@ -7176,6 +7421,15 @@ export function createExecutableWebGpuCodecs(
     manifest.webIdlVocabulary.gpuTextureFormats[0] !== 'r8unorm' ||
     manifest.webIdlVocabulary.gpuTextureFormats.at(-1) !==
       'astc-12x12-unorm-srgb' ||
+    !/^[0-9a-f]{64}$/u.test(
+      manifest.webIdlVocabulary.gpuTextureFormatCapabilityRowsSha256,
+    ) ||
+    textureFormatRequiredFeatureEntries.length !== 101 ||
+    textureFormatRequiredFeatureEntries.some(
+      ([format, requiredFeature], index) =>
+        format !== manifest.webIdlVocabulary.gpuTextureFormats[index] ||
+        (requiredFeature !== null && typeof requiredFeature !== 'string'),
+    ) ||
     JSON.stringify(manifest.webIdlVocabulary.gpuAddressModes) !==
       JSON.stringify(['clamp-to-edge', 'repeat', 'mirror-repeat']) ||
     JSON.stringify(manifest.webIdlVocabulary.gpuFilterModes) !==
@@ -7309,6 +7563,12 @@ export function createExecutableWebGpuCodecs(
         );
       case 'gpu-buffer-descriptor-v1':
         return convertBufferDescriptor(args[0]);
+      case 'gpu-buffer-mapped-range-arguments-v1':
+        return convertBufferMappedRangeArguments(args);
+      case 'gpu-buffer-map-async-arguments-v1':
+        return convertBufferMapAsyncArguments(args);
+      case 'gpu-queue-write-buffer-arguments-v1':
+        return convertQueueWriteBufferArguments(args, wrappers);
       case 'gpu-sampler-descriptor-v1':
         return convertSamplerDescriptor(args[0], manifest.webIdlVocabulary);
       case 'gpu-texture-descriptor-v1':

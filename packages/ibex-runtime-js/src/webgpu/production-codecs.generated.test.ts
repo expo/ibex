@@ -58,6 +58,7 @@ function wrapper(kind: ProductionGpuWrapperKind): object {
 }
 
 const gpuAdapter = wrapper('GPUAdapter');
+const gpuBuffer = wrapper('GPUBuffer');
 const gpuDevice = wrapper('GPUDevice');
 const bindGroupLayout = wrapper('GPUBindGroupLayout');
 const canvasContext = wrapper('GPUCanvasContext');
@@ -167,6 +168,10 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [{ colorAttachments: [{ view: textureView }] }];
     case 'GPUCommandEncoder.finish':
       return [{ label: 'buffer' }];
+    case 'GPUBuffer.getMappedRange':
+      return [0, 4];
+    case 'GPUBuffer.mapAsync':
+      return [1, 0, 4];
     case 'GPUDevice.createBindGroupLayout':
       return [bindGroupLayoutDescriptor()];
     case 'GPUDevice.createBuffer':
@@ -199,6 +204,8 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return ['validation'];
     case 'GPUQueue.submit':
       return [new Set([commandBuffer])];
+    case 'GPUQueue.writeBuffer':
+      return [gpuBuffer, 0, new Uint8Array([1, 2, 3, 4])];
     case 'GPURenderPassEncoder.draw':
       return [3];
     case 'GPURenderPassEncoder.setPipeline':
@@ -484,11 +491,11 @@ function completeLimits(value = 4): Record<string, number> {
 }
 
 describe('generated injection-only WebGPU executable codecs', () => {
-  test('pins one generated catalog over the exact reviewed 36-operation profile', () => {
+  test('pins one generated catalog over the exact reviewed 41-operation profile', () => {
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationCount).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
     );
-    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(36);
+    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(41);
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).toEqual(
       WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     );
@@ -522,10 +529,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
-        { operationId: 'GPUDevice.createBuffer', wireId: 3212558232 },
+        { operationId: 'GPUDevice.createBuffer', wireId: 1869756926 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
         { operationId: 'GPUDevice.createSampler', wireId: 3285037552 },
-        { operationId: 'GPUDevice.createTexture', wireId: 159202366 },
+        { operationId: 'GPUDevice.createTexture', wireId: 3876131162 },
         { operationId: 'GPUTexture.createView', wireId: 1853125118 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
@@ -1181,6 +1188,78 @@ describe('generated injection-only WebGPU executable codecs', () => {
       swizzle: 'rgba',
       usage: 0,
     });
+  });
+
+  test('converts buffer lifecycle arguments without prematurely snapshotting uploads', () => {
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUBuffer.getMappedRange',
+      [],
+      wrappers,
+    )).toEqual({ offset: 0 });
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUBuffer.mapAsync',
+      [2, 8, 16],
+      wrappers,
+    )).toEqual({ mode: 2, offset: 8, size: 16 });
+
+    const source = new Uint16Array([10, 20, 30, 40]);
+    const sourceBuffer = source.buffer;
+    const sourceByteOffset = source.byteOffset;
+    const sourceByteLength = source.byteLength;
+    let shadowedMetadataReads = 0;
+    for (const [name, value] of [
+      ['buffer', sourceBuffer],
+      ['byteOffset', sourceByteOffset],
+      ['byteLength', sourceByteLength],
+      ['BYTES_PER_ELEMENT', 99],
+    ] as const) {
+      Object.defineProperty(source, name, {
+        configurable: true,
+        get() {
+          shadowedMetadataReads += 1;
+          return value;
+        },
+      });
+    }
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUQueue.writeBuffer',
+        [gpuBuffer, 12, source, 1, 2],
+        wrappers,
+      ) as Readonly<{
+        buffer: Readonly<Record<string, unknown>>;
+        bufferOffset: number;
+        data: Readonly<{
+          source: ArrayBufferLike;
+          byteOffset: number;
+          byteLength: number;
+          elementSize: number;
+        }>;
+        dataOffset: number;
+        size: number;
+      }>;
+    expect(converted.buffer).toMatchObject({ kind: 'GPUBuffer' });
+    expect(converted.bufferOffset).toBe(12);
+    expect(converted.data.source).toBe(sourceBuffer);
+    expect(converted.data.byteOffset).toBe(sourceByteOffset);
+    expect(converted.data.byteLength).toBe(sourceByteLength);
+    expect(converted.data.elementSize).toBe(Uint16Array.BYTES_PER_ELEMENT);
+    expect(shadowedMetadataReads).toBe(0);
+    expect(converted.dataOffset).toBe(1);
+    expect(converted.size).toBe(2);
+    source[1] = 99;
+    expect(new Uint16Array(converted.data.source)[1]).toBe(99);
+
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUBuffer.mapAsync',
+      [1n],
+      wrappers,
+    )).toThrow(TypeError);
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUQueue.writeBuffer',
+      [gpuBuffer, 0, {}],
+      wrappers,
+    )).toThrow('AllowSharedBufferSource');
   });
 
   test('converts createView in inherited lexicographic order exactly once', () => {
@@ -2100,7 +2179,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     const codec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
       (candidate) => candidate.tag === 'gpu-create-buffer-service-request-v1',
     )!;
-    expect(nativeRoute.wireId).toBe(3212558232);
+    expect(nativeRoute.wireId).toBe(1869756926);
     expect(nativeRoute.request.catalog.wireTag).toBe(17);
     expect(nativeRoute.completion.catalog.wireTag).toBe(2);
     expect(nativeRoute.request.executablePrerequisites).toEqual([]);
@@ -2113,7 +2192,6 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'validate-buffer-size-under-logical-max-and-structural-ceiling',
       'validate-buffer-usage-closed-bits',
       'validate-buffer-map-usage-combination',
-      'validate-buffer-mapped-at-creation-alignment',
       'authenticate-wrapper-allocated-buffer-target-provenance',
       'validate-wrapper-allocated-buffer-target-generation',
       'reserve-buffer-table-and-dual-ledger-capacity',
@@ -2231,7 +2309,12 @@ describe('generated injection-only WebGPU executable codecs', () => {
       usage: {
         get() {
           laterGetCount += 1;
-          return 9;
+          return {
+            valueOf() {
+              laterGetCount += 1;
+              return 9;
+            },
+          };
         },
       },
     });
@@ -2240,7 +2323,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       [overCeiling],
       wrappers,
     )).toThrow('structural ceiling');
-    expect(laterGetCount).toBe(0);
+    expect(laterGetCount).toBe(2);
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
       operationId,
       [{ size: 4n, usage: 9 }],
@@ -2259,7 +2342,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       payload.buffer,
       payload.byteOffset,
       payload.byteLength,
-    ).getUint32(8, true)).toBe(3212558232);
+    ).getUint32(8, true)).toBe(1869756926);
     expect(Array.from(payload.slice(53, 55))).toEqual([
       1,
       WEBGPU_OBJECT_KIND_TAGS.GPUBuffer,
@@ -3551,6 +3634,27 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary.gpuTextureFormats)
       .toHaveLength(101);
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary
+        .gpuTextureFormatCapabilityRowsSha256,
+    ).toMatch(/^[0-9a-f]{64}$/u);
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary
+        .gpuTextureFormatRequiredFeatures,
+    ).toMatchObject({
+      rgba8unorm: null,
+      r16unorm: 'texture-formats-tier1',
+      'bc7-rgba-unorm': 'texture-compression-bc',
+      'astc-12x12-unorm-srgb': 'texture-compression-astc',
+    });
+    expect(
+      Object.keys(
+        WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary
+          .gpuTextureFormatRequiredFeatures,
+      ),
+    ).toEqual(
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary.gpuTextureFormats,
+    );
 
     for (const format of
       WEBGPU_EXECUTABLE_CODEC_MANIFEST.webIdlVocabulary.gpuTextureFormats) {

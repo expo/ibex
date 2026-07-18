@@ -11,7 +11,7 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "semanticProjectionSha256": "eb26abade746a618151e726107baddc0ed348dae638f6c575e69b0c8be183de4",
+    "semanticProjectionSha256": "4d8860b84f07b50c785f8ab716a3df93ff2ba8107838a28d0f358810524294ea",
     "fakeClientDataSha256": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
   },
   "semanticProjection": {
@@ -2843,6 +2843,429 @@
         ]
       },
       {
+        "operationId": "GPUBuffer.destroy",
+        "facts": [
+          "alreadyTerminal",
+          "cleanupPredicatesValid"
+        ],
+        "precedence": [
+          "alreadyTerminal",
+          "cleanupPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "repeat-cleanup-noop",
+            "conditions": {
+              "alreadyTerminal": true
+            },
+            "branchPath": [
+              "wrapper-detach",
+              "already-destroyed"
+            ],
+            "terminalOutcome": "return undefined without provider work",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "none"
+            }
+          },
+          {
+            "terminalId": "first-cleanup-rejection",
+            "conditions": {
+              "alreadyTerminal": false,
+              "cleanupPredicatesValid": false
+            },
+            "branchPath": [
+              "wrapper-detach",
+              "provider-cleanup"
+            ],
+            "terminalOutcome": "silently quarantine and reclaim invalid cleanup ownership after synchronous wrapper authority reduction",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "provider-cleanup"
+            }
+          },
+          {
+            "terminalId": "first-cleanup-provider",
+            "conditions": {
+              "alreadyTerminal": false,
+              "cleanupPredicatesValid": true
+            },
+            "branchPath": [
+              "wrapper-detach",
+              "provider-cleanup"
+            ],
+            "terminalOutcome": "enqueue one affine writeback-unmap-destroy cleanup",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "alreadyTerminal",
+            "kind": "branch-selector",
+            "branchId": "already-destroyed",
+            "selectedWhen": true
+          },
+          {
+            "fact": "cleanupPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "provider-cleanup",
+            "passWhen": true
+          }
+        ]
+      },
+      {
+        "operationId": "GPUBuffer.mapAsync",
+        "facts": [
+          "webidlValid",
+          "contentMapStateValid",
+          "deviceMapValidityValid",
+          "deviceMapPredicatesValid",
+          "pendingMapCurrent",
+          "providerSettlementValid"
+        ],
+        "precedence": [
+          "webidlValid",
+          "contentMapStateValid",
+          "deviceMapValidityValid",
+          "deviceMapPredicatesValid",
+          "pendingMapCurrent",
+          "providerSettlementValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "conditions": {
+              "webidlValid": false
+            },
+            "branchPath": [
+              "webidl"
+            ],
+            "terminalOutcome": "reject the returned promise during Web IDL conversion",
+            "errorTiming": "promise-rejection",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "promise-reject",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "webidl"
+            }
+          },
+          {
+            "terminalId": "content-map-state-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentMapStateValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-map-state"
+            ],
+            "terminalOutcome": "reject OperationError and enqueue one captured-scope validation error without installing a pending generation, provider token, or physical sequence",
+            "errorTiming": "promise-rejection",
+            "resultDisposition": "promise-reject-and-report-validation-error",
+            "publicGpuErrorEffect": "captured-validation-error-or-uncaptured-error-event",
+            "validationErrorDelivery": {
+              "errorTag": "validation-error-device-timeline-v1",
+              "scopeCapture": "captured-at-device-ingress",
+              "delivery": "matching-error-scope-or-uncaptured-error-event",
+              "orderingOrdinal": "deviceIngress"
+            },
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "content-map-state"
+            }
+          },
+          {
+            "terminalId": "device-validity-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentMapStateValid": true,
+              "deviceMapValidityValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-map-state",
+              "device-map-validity"
+            ],
+            "terminalOutcome": "clear the pending generation and reject AbortError without generating a validation error",
+            "errorTiming": "promise-rejection",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "promise-reject",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "device-map-validity"
+            }
+          },
+          {
+            "terminalId": "device-map-validation-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentMapStateValid": true,
+              "deviceMapValidityValid": true,
+              "deviceMapPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-map-state",
+              "device-map-validity",
+              "device-map-validation"
+            ],
+            "terminalOutcome": "clear the pending generation, reject OperationError, and generate one captured-scope validation error",
+            "errorTiming": "promise-rejection",
+            "resultDisposition": "promise-reject-and-report-validation-error",
+            "publicGpuErrorEffect": "captured-validation-error-or-uncaptured-error-event",
+            "validationErrorDelivery": {
+              "errorTag": "validation-error-device-timeline-v1",
+              "scopeCapture": "captured-at-device-ingress",
+              "delivery": "matching-error-scope-or-uncaptured-error-event",
+              "orderingOrdinal": "deviceIngress"
+            },
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "device-map-validation"
+            }
+          },
+          {
+            "terminalId": "late-cancelled-cleanup",
+            "conditions": {
+              "webidlValid": true,
+              "contentMapStateValid": true,
+              "deviceMapValidityValid": true,
+              "deviceMapPredicatesValid": true,
+              "pendingMapCurrent": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-map-state",
+              "device-map-validity",
+              "device-map-validation",
+              "provider-map",
+              "provider-settlement"
+            ],
+            "terminalOutcome": "physically unmap and reclaim the stale completion without a second promise settlement or validation error; public pending stays cleared and the stale callback never changes internal state to available (unmap or loss preserves unavailable, while destroy preserves destroyed)",
+            "errorTiming": "none",
+            "resultDisposition": "promise-already-settled-cleanup",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "errorSource": {
+              "kind": "none"
+            }
+          },
+          {
+            "terminalId": "provider-map-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentMapStateValid": true,
+              "deviceMapValidityValid": true,
+              "deviceMapPredicatesValid": true,
+              "pendingMapCurrent": true,
+              "providerSettlementValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-map-state",
+              "device-map-validity",
+              "device-map-validation",
+              "provider-map",
+              "provider-settlement"
+            ],
+            "terminalOutcome": "physically unmap without publication, clear public pending while preserving internal state unavailable, and reject OperationError or RangeError exactly once",
+            "errorTiming": "promise-rejection",
+            "resultDisposition": "promise-reject",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "provider-settlement"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "conditions": {
+              "webidlValid": true,
+              "contentMapStateValid": true,
+              "deviceMapValidityValid": true,
+              "deviceMapPredicatesValid": true,
+              "pendingMapCurrent": true,
+              "providerSettlementValid": true
+            },
+            "branchPath": [
+              "webidl",
+              "content-map-state",
+              "device-map-validity",
+              "device-map-validation",
+              "provider-map",
+              "provider-settlement"
+            ],
+            "terminalOutcome": "publish one wrapper-owned mapped byte block and resolve undefined",
+            "errorTiming": "none",
+            "resultDisposition": "promise-resolve-undefined",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "webidlValid",
+            "kind": "branch-predicates",
+            "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "contentMapStateValid",
+            "kind": "branch-predicates",
+            "branchId": "content-map-state",
+            "passWhen": true
+          },
+          {
+            "fact": "deviceMapValidityValid",
+            "kind": "branch-predicates",
+            "branchId": "device-map-validity",
+            "passWhen": true
+          },
+          {
+            "fact": "deviceMapPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "device-map-validation",
+            "passWhen": true
+          },
+          {
+            "fact": "pendingMapCurrent",
+            "kind": "external-outcome",
+            "source": "generation-fenced-wrapper-pending-map-state-at-provider-settlement",
+            "requiredBranchId": "provider-settlement"
+          },
+          {
+            "fact": "providerSettlementValid",
+            "kind": "branch-predicates",
+            "branchId": "provider-settlement",
+            "passWhen": true
+          }
+        ]
+      },
+      {
+        "operationId": "GPUBuffer.unmap",
+        "facts": [
+          "alreadyTerminal",
+          "cleanupPredicatesValid"
+        ],
+        "precedence": [
+          "alreadyTerminal",
+          "cleanupPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "unmapped-noop",
+            "conditions": {
+              "alreadyTerminal": true
+            },
+            "branchPath": [
+              "wrapper-detach",
+              "no-active-mapping"
+            ],
+            "terminalOutcome": "return undefined without provider work",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "none"
+            }
+          },
+          {
+            "terminalId": "cleanup-rejection",
+            "conditions": {
+              "alreadyTerminal": false,
+              "cleanupPredicatesValid": false
+            },
+            "branchPath": [
+              "wrapper-detach",
+              "provider-cleanup"
+            ],
+            "terminalOutcome": "silently quarantine and reclaim invalid cleanup ownership after synchronous wrapper detachment",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "provider-cleanup"
+            }
+          },
+          {
+            "terminalId": "cleanup-provider",
+            "conditions": {
+              "alreadyTerminal": false,
+              "cleanupPredicatesValid": true
+            },
+            "branchPath": [
+              "wrapper-detach",
+              "provider-cleanup"
+            ],
+            "terminalOutcome": "enqueue one affine writeback and physical unmap",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "alreadyTerminal",
+            "kind": "branch-selector",
+            "branchId": "no-active-mapping",
+            "selectedWhen": true
+          },
+          {
+            "fact": "cleanupPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "provider-cleanup",
+            "passWhen": true
+          }
+        ]
+      },
+      {
         "operationId": "GPUCanvasContext.configure",
         "facts": [
           "webidlValid",
@@ -3101,10 +3524,12 @@
         "operationId": "GPUDevice.createBuffer",
         "facts": [
           "webidlValid",
+          "contentValidationPassed",
           "providerPredicatesValid"
         ],
         "precedence": [
           "webidlValid",
+          "contentValidationPassed",
           "providerPredicatesValid"
         ],
         "exhaustive": true,
@@ -3129,20 +3554,43 @@
             }
           },
           {
+            "terminalId": "content-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-mapping"
+            ],
+            "terminalOutcome": "synchronously throw RangeError for mapped-at-creation alignment or active byte-block allocation failure before wrapper target allocation, service ingress, counter mutation, provider work, or physical sequencing",
+            "errorTiming": "content-timeline",
+            "resultDisposition": "throw",
+            "publicGpuErrorEffect": "no-public-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "content-mapping"
+            }
+          },
+          {
             "terminalId": "later-predicate-rejection",
             "conditions": {
               "webidlValid": true,
+              "contentValidationPassed": true,
               "providerPredicatesValid": false
             },
             "branchPath": [
               "webidl",
+              "content-mapping",
               "service-provider"
             ],
-            "terminalOutcome": "reject before the terminal operation outcome",
+            "terminalOutcome": "return an invalid GPUBuffer and report the device-timeline error while preserving any already-initialized wrapper-owned active mapped byte block for getMappedRange until unmap or destroy",
             "errorTiming": "device-timeline",
+            "resultDisposition": "return-invalid-object-and-report-error",
             "providerTokenCount": 0,
             "physicalSequenceCount": 0,
-            "resultDisposition": "return-invalid-object-and-report-error",
             "errorSource": {
               "kind": "first-failing-predicate",
               "branchId": "service-provider"
@@ -3152,13 +3600,15 @@
             "terminalId": "operation-success",
             "conditions": {
               "webidlValid": true,
+              "contentValidationPassed": true,
               "providerPredicatesValid": true
             },
             "branchPath": [
               "webidl",
+              "content-mapping",
               "service-provider"
             ],
-            "terminalOutcome": "enqueue one logically validated buffer creation",
+            "terminalOutcome": "return one GPUBuffer and enqueue its logically validated device initialization without transferring ownership of any wrapper mapped byte block",
             "errorTiming": "none",
             "providerTokenCount": 1,
             "physicalSequenceCount": 1,
@@ -3173,6 +3623,12 @@
             "fact": "webidlValid",
             "kind": "branch-predicates",
             "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "contentValidationPassed",
+            "kind": "branch-predicates",
+            "branchId": "content-mapping",
             "passWhen": true
           },
           {
@@ -3617,10 +4073,12 @@
         "operationId": "GPUDevice.createTexture",
         "facts": [
           "webidlValid",
+          "contentValidationPassed",
           "providerPredicatesValid"
         ],
         "precedence": [
           "webidlValid",
+          "contentValidationPassed",
           "providerPredicatesValid"
         ],
         "exhaustive": true,
@@ -3645,13 +4103,35 @@
             }
           },
           {
+            "terminalId": "content-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "contentValidationPassed": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-validation"
+            ],
+            "terminalOutcome": "throw TypeError for an invalid converted iterable extent shape or a base or alternate format whose required feature is not enabled before target allocation or device ingress",
+            "errorTiming": "content-timeline",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "throw",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "content-validation"
+            }
+          },
+          {
             "terminalId": "later-predicate-rejection",
             "conditions": {
               "webidlValid": true,
+              "contentValidationPassed": true,
               "providerPredicatesValid": false
             },
             "branchPath": [
               "webidl",
+              "content-validation",
               "service-provider"
             ],
             "terminalOutcome": "reject before the terminal operation outcome",
@@ -3668,10 +4148,12 @@
             "terminalId": "operation-success",
             "conditions": {
               "webidlValid": true,
+              "contentValidationPassed": true,
               "providerPredicatesValid": true
             },
             "branchPath": [
               "webidl",
+              "content-validation",
               "service-provider"
             ],
             "terminalOutcome": "enqueue one logically validated texture creation",
@@ -3689,6 +4171,12 @@
             "fact": "webidlValid",
             "kind": "branch-predicates",
             "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "contentValidationPassed",
+            "kind": "branch-predicates",
+            "branchId": "content-validation",
             "passWhen": true
           },
           {
@@ -3942,6 +4430,124 @@
             "fact": "webidlValid",
             "kind": "branch-predicates",
             "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "providerPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "service-provider",
+            "passWhen": true
+          }
+        ]
+      },
+      {
+        "operationId": "GPUQueue.writeBuffer",
+        "facts": [
+          "webidlValid",
+          "localPredicatesValid",
+          "providerPredicatesValid"
+        ],
+        "precedence": [
+          "webidlValid",
+          "localPredicatesValid",
+          "providerPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "conditions": {
+              "webidlValid": false
+            },
+            "branchPath": [
+              "webidl"
+            ],
+            "terminalOutcome": "throw during synchronous Web IDL conversion",
+            "errorTiming": "synchronous-webidl",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "throw",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "webidl"
+            }
+          },
+          {
+            "terminalId": "source-range-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "localPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot"
+            ],
+            "terminalOutcome": "throw OperationError before retaining service work",
+            "errorTiming": "synchronous-operation-state",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "throw",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "content-snapshot"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "localPredicatesValid": true,
+              "providerPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot",
+              "service-provider"
+            ],
+            "terminalOutcome": "report a device-timeline validation, security, or OOM error before provider dispatch",
+            "errorTiming": "device-timeline",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "return-undefined-and-report-error",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "service-provider"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "conditions": {
+              "webidlValid": true,
+              "localPredicatesValid": true,
+              "providerPredicatesValid": true
+            },
+            "branchPath": [
+              "webidl",
+              "content-snapshot",
+              "service-provider"
+            ],
+            "terminalOutcome": "enqueue one ordered authenticated buffer upload",
+            "errorTiming": "none",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "resultDisposition": "return-undefined",
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "webidlValid",
+            "kind": "branch-predicates",
+            "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "localPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "content-snapshot",
             "passWhen": true
           },
           {
