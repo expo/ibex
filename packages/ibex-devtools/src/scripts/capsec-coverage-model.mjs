@@ -10975,7 +10975,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (globalName === "indexeddb") {
     if (member === "cmp") {
-      return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB helpers are closed with the ambient database factory until its namespace is principal-isolated.",
+      );
     }
     if (member === "databases") {
       return closedSpec(
@@ -10994,10 +10998,18 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     return null;
   }
   if (globalName === "idbkeyrange") {
-    return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+    return closedSpec(
+      "storage:persist",
+      "WP7",
+      "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph.",
+    );
   }
   if (/^(?:idbrequest|idbopendbrequest)$/u.test(globalName)) {
-    return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    return closedSpec(
+      "storage:persist",
+      "WP7",
+      "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects.",
+    );
   }
   if (
     /^(?:idbcursor|idbcursorwithvalue|idbdatabase|idbindex|idbobjectstore|idbtransaction)$/u.test(
@@ -11009,10 +11021,18 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
         member,
       )
     ) {
-      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB callbacks are closed with the ambient retained object that would produce them.",
+      );
     }
     if (/^(?:close|abort|_abortwith|_release)$/u.test(member)) {
-      return nonCapabilitySpec("authority-release", "WP8");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB release operations are closed because the armed profile cannot mint the ambient retained object.",
+      );
     }
     if (
       /(?:add|put|update|delete|clear|create|commit|exec|save|rollback|backfill|migrate|ensuretable|ensureindex|transactionfinished|upgradetransaction|noteexplicitkey|nextautoincrement|beforecommit|enqueueop|start)$/u.test(
@@ -11260,8 +11280,15 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   }
   if (
     member === "[[symbol.tostringtag]]" &&
-    /^(?:caches|localstorage|process|sessionstorage)$/u.test(globalName)
+    /^(?:caches|localstorage|sessionstorage)$/u.test(globalName)
   ) {
+    return closedSpec(
+      globalName === "caches" ? "storage:persist" : "storage:read",
+      "WP7",
+      "The armed profile closes the ambient storage namespace together with every member exposed through it.",
+    );
+  }
+  if (member === "[[symbol.tostringtag]]" && globalName === "process") {
     return nonCapabilitySpec("module-reachability-only", "WP7");
   }
 

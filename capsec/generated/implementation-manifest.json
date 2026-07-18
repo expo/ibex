@@ -177509,7 +177509,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.caches.symbol.tostringtag.1wacfok.all.non-capability"
+        "surface.native.op.global.caches.symbol.tostringtag.1wacfok.all.closed"
       ]
     },
     {
@@ -198774,13 +198774,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBDatabase",
         "packages/ibex-runtime-js/src/indexeddb/IDBDatabase.ts#IDBDatabase.prototype.addEventListener"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbdatabase.addeventlistener.05px9o8.all.attribution-missing-deny",
-        "surface.native.op.global.idbdatabase.addeventlistener.05px9o8.all.generation-recheck",
-        "surface.native.op.global.idbdatabase.addeventlistener.05px9o8.all.non-capability",
-        "surface.native.op.global.idbdatabase.addeventlistener.05px9o8.all.principal-restore",
-        "surface.native.op.global.idbdatabase.addeventlistener.05px9o8.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbdatabase.addeventlistener.05px9o8.all.closed"
       ]
     },
     {
@@ -198914,9 +198910,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBDatabase",
         "packages/ibex-runtime-js/src/indexeddb/IDBDatabase.ts#IDBDatabase.prototype.close"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbdatabase.close.19kv6pb.all.non-capability"
+        "surface.native.op.global.idbdatabase.close.19kv6pb.all.closed"
       ]
     },
     {
@@ -199628,13 +199624,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBDatabase",
         "packages/ibex-runtime-js/src/indexeddb/IDBDatabase.ts#IDBDatabase.prototype.onabort"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbdatabase.onabort.0p105ae.all.attribution-missing-deny",
-        "surface.native.op.global.idbdatabase.onabort.0p105ae.all.generation-recheck",
-        "surface.native.op.global.idbdatabase.onabort.0p105ae.all.non-capability",
-        "surface.native.op.global.idbdatabase.onabort.0p105ae.all.principal-restore",
-        "surface.native.op.global.idbdatabase.onabort.0p105ae.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbdatabase.onabort.0p105ae.all.closed"
       ]
     },
     {
@@ -199666,13 +199658,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBDatabase",
         "packages/ibex-runtime-js/src/indexeddb/IDBDatabase.ts#IDBDatabase.prototype.onclose"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbdatabase.onclose.14vpr74.all.attribution-missing-deny",
-        "surface.native.op.global.idbdatabase.onclose.14vpr74.all.generation-recheck",
-        "surface.native.op.global.idbdatabase.onclose.14vpr74.all.non-capability",
-        "surface.native.op.global.idbdatabase.onclose.14vpr74.all.principal-restore",
-        "surface.native.op.global.idbdatabase.onclose.14vpr74.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbdatabase.onclose.14vpr74.all.closed"
       ]
     },
     {
@@ -199704,13 +199692,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBDatabase",
         "packages/ibex-runtime-js/src/indexeddb/IDBDatabase.ts#IDBDatabase.prototype.onerror"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbdatabase.onerror.0ks9n22.all.attribution-missing-deny",
-        "surface.native.op.global.idbdatabase.onerror.0ks9n22.all.generation-recheck",
-        "surface.native.op.global.idbdatabase.onerror.0ks9n22.all.non-capability",
-        "surface.native.op.global.idbdatabase.onerror.0ks9n22.all.principal-restore",
-        "surface.native.op.global.idbdatabase.onerror.0ks9n22.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbdatabase.onerror.0ks9n22.all.closed"
       ]
     },
     {
@@ -199742,13 +199726,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBDatabase",
         "packages/ibex-runtime-js/src/indexeddb/IDBDatabase.ts#IDBDatabase.prototype.onversionchange"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbdatabase.onversionchange.00sr9o8.all.attribution-missing-deny",
-        "surface.native.op.global.idbdatabase.onversionchange.00sr9o8.all.generation-recheck",
-        "surface.native.op.global.idbdatabase.onversionchange.00sr9o8.all.non-capability",
-        "surface.native.op.global.idbdatabase.onversionchange.00sr9o8.all.principal-restore",
-        "surface.native.op.global.idbdatabase.onversionchange.00sr9o8.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbdatabase.onversionchange.00sr9o8.all.closed"
       ]
     },
     {
@@ -199780,13 +199760,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBDatabase",
         "packages/ibex-runtime-js/src/indexeddb/IDBDatabase.ts#IDBDatabase.prototype.removeEventListener"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbdatabase.removeeventlistener.0ba4ncj.all.attribution-missing-deny",
-        "surface.native.op.global.idbdatabase.removeeventlistener.0ba4ncj.all.generation-recheck",
-        "surface.native.op.global.idbdatabase.removeeventlistener.0ba4ncj.all.non-capability",
-        "surface.native.op.global.idbdatabase.removeeventlistener.0ba4ncj.all.principal-restore",
-        "surface.native.op.global.idbdatabase.removeeventlistener.0ba4ncj.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbdatabase.removeeventlistener.0ba4ncj.all.closed"
       ]
     },
     {
@@ -200662,9 +200638,9 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.0f6yn9o.all.non-capability"
+        "surface.native.op.global.idbkeyrange.0f6yn9o.all.closed"
       ]
     },
     {
@@ -200696,9 +200672,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.bound"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.bound.1ogfhv2.all.non-capability"
+        "surface.native.op.global.idbkeyrange.bound.1ogfhv2.all.closed"
       ]
     },
     {
@@ -200730,9 +200706,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.prototype.includes"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.includes.096co6n.all.non-capability"
+        "surface.native.op.global.idbkeyrange.includes.096co6n.all.closed"
       ]
     },
     {
@@ -200764,9 +200740,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.prototype.lower"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.lower.01z6f4b.all.non-capability"
+        "surface.native.op.global.idbkeyrange.lower.01z6f4b.all.closed"
       ]
     },
     {
@@ -200798,9 +200774,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.lowerBound"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.lowerbound.0yse2pd.all.non-capability"
+        "surface.native.op.global.idbkeyrange.lowerbound.0yse2pd.all.closed"
       ]
     },
     {
@@ -200832,9 +200808,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.prototype.lowerOpen"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.loweropen.1g784d3.all.non-capability"
+        "surface.native.op.global.idbkeyrange.loweropen.1g784d3.all.closed"
       ]
     },
     {
@@ -200866,9 +200842,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.only"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.only.03o1tio.all.non-capability"
+        "surface.native.op.global.idbkeyrange.only.03o1tio.all.closed"
       ]
     },
     {
@@ -200900,9 +200876,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.prototype.upper"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.upper.1i82gq2.all.non-capability"
+        "surface.native.op.global.idbkeyrange.upper.1i82gq2.all.closed"
       ]
     },
     {
@@ -200934,9 +200910,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.upperBound"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.upperbound.17bv0zu.all.non-capability"
+        "surface.native.op.global.idbkeyrange.upperbound.17bv0zu.all.closed"
       ]
     },
     {
@@ -200968,9 +200944,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBKeyRange",
         "packages/ibex-runtime-js/src/indexeddb/IDBKeyRange.ts#IDBKeyRange.prototype.upperOpen"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbkeyrange.upperopen.1lb1wqa.all.non-capability"
+        "surface.native.op.global.idbkeyrange.upperopen.1lb1wqa.all.closed"
       ]
     },
     {
@@ -202662,13 +202638,9 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.099nrw7.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.099nrw7.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.099nrw7.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.099nrw7.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.099nrw7.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.099nrw7.all.closed"
       ]
     },
     {
@@ -202700,13 +202672,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._abort"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.abort.14kwmau.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.abort.14kwmau.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.abort.14kwmau.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.abort.14kwmau.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.abort.14kwmau.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.abort.14kwmau.all.closed"
       ]
     },
     {
@@ -202738,13 +202706,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.addEventListener"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.addeventlistener.15fig1i.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.addeventlistener.15fig1i.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.addeventlistener.15fig1i.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.addeventlistener.15fig1i.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.addeventlistener.15fig1i.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.addeventlistener.15fig1i.all.closed"
       ]
     },
     {
@@ -202776,13 +202740,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.error"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.error.1245p7n.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.error.1245p7n.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.error.1245p7n.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.error.1245p7n.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.error.1245p7n.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.error.1245p7n.all.closed"
       ]
     },
     {
@@ -202814,13 +202774,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._invokeListeners"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.invokelisteners.0poqjj1.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.invokelisteners.0poqjj1.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.invokelisteners.0poqjj1.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.invokelisteners.0poqjj1.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.invokelisteners.0poqjj1.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.invokelisteners.0poqjj1.all.closed"
       ]
     },
     {
@@ -202852,13 +202808,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBOpenDBRequest.prototype.onblocked"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.onblocked.06rtlhu.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.onblocked.06rtlhu.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.onblocked.06rtlhu.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.onblocked.06rtlhu.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.onblocked.06rtlhu.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.onblocked.06rtlhu.all.closed"
       ]
     },
     {
@@ -202890,13 +202842,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.onerror"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.onerror.1pukj34.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.onerror.1pukj34.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.onerror.1pukj34.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.onerror.1pukj34.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.onerror.1pukj34.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.onerror.1pukj34.all.closed"
       ]
     },
     {
@@ -202928,13 +202876,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.onsuccess"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.onsuccess.0bqmee9.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.onsuccess.0bqmee9.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.onsuccess.0bqmee9.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.onsuccess.0bqmee9.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.onsuccess.0bqmee9.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.onsuccess.0bqmee9.all.closed"
       ]
     },
     {
@@ -202966,13 +202910,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBOpenDBRequest.prototype.onupgradeneeded"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.onupgradeneeded.1qy82tj.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.onupgradeneeded.1qy82tj.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.onupgradeneeded.1qy82tj.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.onupgradeneeded.1qy82tj.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.onupgradeneeded.1qy82tj.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.onupgradeneeded.1qy82tj.all.closed"
       ]
     },
     {
@@ -203004,13 +202944,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.readyState"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.readystate.1g6wx3b.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.readystate.1g6wx3b.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.readystate.1g6wx3b.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.readystate.1g6wx3b.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.readystate.1g6wx3b.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.readystate.1g6wx3b.all.closed"
       ]
     },
     {
@@ -203042,13 +202978,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._reject"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.reject.0ay1pdj.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.reject.0ay1pdj.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.reject.0ay1pdj.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.reject.0ay1pdj.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.reject.0ay1pdj.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.reject.0ay1pdj.all.closed"
       ]
     },
     {
@@ -203080,13 +203012,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.removeEventListener"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.removeeventlistener.1ipjefl.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.removeeventlistener.1ipjefl.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.removeeventlistener.1ipjefl.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.removeeventlistener.1ipjefl.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.removeeventlistener.1ipjefl.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.removeeventlistener.1ipjefl.all.closed"
       ]
     },
     {
@@ -203118,13 +203046,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._resolve"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.resolve.00t36iw.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.resolve.00t36iw.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.resolve.00t36iw.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.resolve.00t36iw.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.resolve.00t36iw.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.resolve.00t36iw.all.closed"
       ]
     },
     {
@@ -203156,13 +203080,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._resolveSync"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.resolvesync.103dikj.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.resolvesync.103dikj.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.resolvesync.103dikj.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.resolvesync.103dikj.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.resolvesync.103dikj.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.resolvesync.103dikj.all.closed"
       ]
     },
     {
@@ -203194,13 +203114,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.result"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.result.1yb2igi.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.result.1yb2igi.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.result.1yb2igi.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.result.1yb2igi.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.result.1yb2igi.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.result.1yb2igi.all.closed"
       ]
     },
     {
@@ -203232,13 +203148,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._setResult"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.setresult.188zrbx.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.setresult.188zrbx.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.setresult.188zrbx.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.setresult.188zrbx.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.setresult.188zrbx.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.setresult.188zrbx.all.closed"
       ]
     },
     {
@@ -203270,13 +203182,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.source"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.source.155xwm6.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.source.155xwm6.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.source.155xwm6.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.source.155xwm6.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.source.155xwm6.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.source.155xwm6.all.closed"
       ]
     },
     {
@@ -203308,13 +203216,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBOpenDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.transaction"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbopendbrequest.transaction.0p9pqkd.all.attribution-missing-deny",
-        "surface.native.op.global.idbopendbrequest.transaction.0p9pqkd.all.generation-recheck",
-        "surface.native.op.global.idbopendbrequest.transaction.0p9pqkd.all.non-capability",
-        "surface.native.op.global.idbopendbrequest.transaction.0p9pqkd.all.principal-restore",
-        "surface.native.op.global.idbopendbrequest.transaction.0p9pqkd.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbopendbrequest.transaction.0p9pqkd.all.closed"
       ]
     },
     {
@@ -203343,13 +203247,9 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.1c5odp5.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.1c5odp5.all.generation-recheck",
-        "surface.native.op.global.idbrequest.1c5odp5.all.non-capability",
-        "surface.native.op.global.idbrequest.1c5odp5.all.principal-restore",
-        "surface.native.op.global.idbrequest.1c5odp5.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.1c5odp5.all.closed"
       ]
     },
     {
@@ -203381,13 +203281,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._abort"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.abort.1q6j9e0.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.abort.1q6j9e0.all.generation-recheck",
-        "surface.native.op.global.idbrequest.abort.1q6j9e0.all.non-capability",
-        "surface.native.op.global.idbrequest.abort.1q6j9e0.all.principal-restore",
-        "surface.native.op.global.idbrequest.abort.1q6j9e0.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.abort.1q6j9e0.all.closed"
       ]
     },
     {
@@ -203419,13 +203315,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.addEventListener"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.addeventlistener.09zng58.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.addeventlistener.09zng58.all.generation-recheck",
-        "surface.native.op.global.idbrequest.addeventlistener.09zng58.all.non-capability",
-        "surface.native.op.global.idbrequest.addeventlistener.09zng58.all.principal-restore",
-        "surface.native.op.global.idbrequest.addeventlistener.09zng58.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.addeventlistener.09zng58.all.closed"
       ]
     },
     {
@@ -203457,13 +203349,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.error"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.error.0vqnnj5.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.error.0vqnnj5.all.generation-recheck",
-        "surface.native.op.global.idbrequest.error.0vqnnj5.all.non-capability",
-        "surface.native.op.global.idbrequest.error.0vqnnj5.all.principal-restore",
-        "surface.native.op.global.idbrequest.error.0vqnnj5.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.error.0vqnnj5.all.closed"
       ]
     },
     {
@@ -203495,13 +203383,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._invokeListeners"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.invokelisteners.046ft0z.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.invokelisteners.046ft0z.all.generation-recheck",
-        "surface.native.op.global.idbrequest.invokelisteners.046ft0z.all.non-capability",
-        "surface.native.op.global.idbrequest.invokelisteners.046ft0z.all.principal-restore",
-        "surface.native.op.global.idbrequest.invokelisteners.046ft0z.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.invokelisteners.046ft0z.all.closed"
       ]
     },
     {
@@ -203533,13 +203417,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.onerror"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.onerror.1g7fg6e.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.onerror.1g7fg6e.all.generation-recheck",
-        "surface.native.op.global.idbrequest.onerror.1g7fg6e.all.non-capability",
-        "surface.native.op.global.idbrequest.onerror.1g7fg6e.all.principal-restore",
-        "surface.native.op.global.idbrequest.onerror.1g7fg6e.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.onerror.1g7fg6e.all.closed"
       ]
     },
     {
@@ -203571,13 +203451,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.onsuccess"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.onsuccess.0lw9ver.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.onsuccess.0lw9ver.all.generation-recheck",
-        "surface.native.op.global.idbrequest.onsuccess.0lw9ver.all.non-capability",
-        "surface.native.op.global.idbrequest.onsuccess.0lw9ver.all.principal-restore",
-        "surface.native.op.global.idbrequest.onsuccess.0lw9ver.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.onsuccess.0lw9ver.all.closed"
       ]
     },
     {
@@ -203609,13 +203485,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.readyState"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.readystate.0mp36op.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.readystate.0mp36op.all.generation-recheck",
-        "surface.native.op.global.idbrequest.readystate.0mp36op.all.non-capability",
-        "surface.native.op.global.idbrequest.readystate.0mp36op.all.principal-restore",
-        "surface.native.op.global.idbrequest.readystate.0mp36op.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.readystate.0mp36op.all.closed"
       ]
     },
     {
@@ -203647,13 +203519,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._reject"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.reject.1t0xc71.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.reject.1t0xc71.all.generation-recheck",
-        "surface.native.op.global.idbrequest.reject.1t0xc71.all.non-capability",
-        "surface.native.op.global.idbrequest.reject.1t0xc71.all.principal-restore",
-        "surface.native.op.global.idbrequest.reject.1t0xc71.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.reject.1t0xc71.all.closed"
       ]
     },
     {
@@ -203685,13 +203553,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.removeEventListener"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.removeeventlistener.0kpkbpj.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.removeeventlistener.0kpkbpj.all.generation-recheck",
-        "surface.native.op.global.idbrequest.removeeventlistener.0kpkbpj.all.non-capability",
-        "surface.native.op.global.idbrequest.removeeventlistener.0kpkbpj.all.principal-restore",
-        "surface.native.op.global.idbrequest.removeeventlistener.0kpkbpj.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.removeeventlistener.0kpkbpj.all.closed"
       ]
     },
     {
@@ -203723,13 +203587,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._resolve"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.resolve.0xd36xq.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.resolve.0xd36xq.all.generation-recheck",
-        "surface.native.op.global.idbrequest.resolve.0xd36xq.all.non-capability",
-        "surface.native.op.global.idbrequest.resolve.0xd36xq.all.principal-restore",
-        "surface.native.op.global.idbrequest.resolve.0xd36xq.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.resolve.0xd36xq.all.closed"
       ]
     },
     {
@@ -203761,13 +203621,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._resolveSync"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.resolvesync.11dca3h.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.resolvesync.11dca3h.all.generation-recheck",
-        "surface.native.op.global.idbrequest.resolvesync.11dca3h.all.non-capability",
-        "surface.native.op.global.idbrequest.resolvesync.11dca3h.all.principal-restore",
-        "surface.native.op.global.idbrequest.resolvesync.11dca3h.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.resolvesync.11dca3h.all.closed"
       ]
     },
     {
@@ -203799,13 +203655,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.result"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.result.0vi10hg.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.result.0vi10hg.all.generation-recheck",
-        "surface.native.op.global.idbrequest.result.0vi10hg.all.non-capability",
-        "surface.native.op.global.idbrequest.result.0vi10hg.all.principal-restore",
-        "surface.native.op.global.idbrequest.result.0vi10hg.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.result.0vi10hg.all.closed"
       ]
     },
     {
@@ -203837,13 +203689,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype._setResult"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.setresult.0kmoptb.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.setresult.0kmoptb.all.generation-recheck",
-        "surface.native.op.global.idbrequest.setresult.0kmoptb.all.non-capability",
-        "surface.native.op.global.idbrequest.setresult.0kmoptb.all.principal-restore",
-        "surface.native.op.global.idbrequest.setresult.0kmoptb.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.setresult.0kmoptb.all.closed"
       ]
     },
     {
@@ -203875,13 +203723,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.source"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.source.0iw2pqg.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.source.0iw2pqg.all.generation-recheck",
-        "surface.native.op.global.idbrequest.source.0iw2pqg.all.non-capability",
-        "surface.native.op.global.idbrequest.source.0iw2pqg.all.principal-restore",
-        "surface.native.op.global.idbrequest.source.0iw2pqg.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.source.0iw2pqg.all.closed"
       ]
     },
     {
@@ -203913,13 +203757,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBRequest",
         "packages/ibex-runtime-js/src/indexeddb/IDBRequest.ts#IDBRequest.prototype.transaction"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbrequest.transaction.0bgacwj.all.attribution-missing-deny",
-        "surface.native.op.global.idbrequest.transaction.0bgacwj.all.generation-recheck",
-        "surface.native.op.global.idbrequest.transaction.0bgacwj.all.non-capability",
-        "surface.native.op.global.idbrequest.transaction.0bgacwj.all.principal-restore",
-        "surface.native.op.global.idbrequest.transaction.0bgacwj.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbrequest.transaction.0bgacwj.all.closed"
       ]
     },
     {
@@ -203982,9 +203822,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBTransaction",
         "packages/ibex-runtime-js/src/indexeddb/IDBTransaction.ts#IDBTransaction.prototype.abort"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbtransaction.abort.0std5n0.all.non-capability"
+        "surface.native.op.global.idbtransaction.abort.0std5n0.all.closed"
       ]
     },
     {
@@ -204016,9 +203856,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBTransaction",
         "packages/ibex-runtime-js/src/indexeddb/IDBTransaction.ts#IDBTransaction.prototype._abortWith"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbtransaction.abortwith.03a8s9n.all.non-capability"
+        "surface.native.op.global.idbtransaction.abortwith.03a8s9n.all.closed"
       ]
     },
     {
@@ -204050,13 +203890,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBTransaction",
         "packages/ibex-runtime-js/src/indexeddb/IDBTransaction.ts#IDBTransaction.prototype.addEventListener"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbtransaction.addeventlistener.1drobtv.all.attribution-missing-deny",
-        "surface.native.op.global.idbtransaction.addeventlistener.1drobtv.all.generation-recheck",
-        "surface.native.op.global.idbtransaction.addeventlistener.1drobtv.all.non-capability",
-        "surface.native.op.global.idbtransaction.addeventlistener.1drobtv.all.principal-restore",
-        "surface.native.op.global.idbtransaction.addeventlistener.1drobtv.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbtransaction.addeventlistener.1drobtv.all.closed"
       ]
     },
     {
@@ -204564,13 +204400,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBTransaction",
         "packages/ibex-runtime-js/src/indexeddb/IDBTransaction.ts#IDBTransaction.prototype.onabort"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbtransaction.onabort.1qogkmn.all.attribution-missing-deny",
-        "surface.native.op.global.idbtransaction.onabort.1qogkmn.all.generation-recheck",
-        "surface.native.op.global.idbtransaction.onabort.1qogkmn.all.non-capability",
-        "surface.native.op.global.idbtransaction.onabort.1qogkmn.all.principal-restore",
-        "surface.native.op.global.idbtransaction.onabort.1qogkmn.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbtransaction.onabort.1qogkmn.all.closed"
       ]
     },
     {
@@ -204602,13 +204434,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBTransaction",
         "packages/ibex-runtime-js/src/indexeddb/IDBTransaction.ts#IDBTransaction.prototype.oncomplete"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbtransaction.oncomplete.0umo0nk.all.attribution-missing-deny",
-        "surface.native.op.global.idbtransaction.oncomplete.0umo0nk.all.generation-recheck",
-        "surface.native.op.global.idbtransaction.oncomplete.0umo0nk.all.non-capability",
-        "surface.native.op.global.idbtransaction.oncomplete.0umo0nk.all.principal-restore",
-        "surface.native.op.global.idbtransaction.oncomplete.0umo0nk.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbtransaction.oncomplete.0umo0nk.all.closed"
       ]
     },
     {
@@ -204640,13 +204468,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBTransaction",
         "packages/ibex-runtime-js/src/indexeddb/IDBTransaction.ts#IDBTransaction.prototype.onerror"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbtransaction.onerror.0o1dcmz.all.attribution-missing-deny",
-        "surface.native.op.global.idbtransaction.onerror.0o1dcmz.all.generation-recheck",
-        "surface.native.op.global.idbtransaction.onerror.0o1dcmz.all.non-capability",
-        "surface.native.op.global.idbtransaction.onerror.0o1dcmz.all.principal-restore",
-        "surface.native.op.global.idbtransaction.onerror.0o1dcmz.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbtransaction.onerror.0o1dcmz.all.closed"
       ]
     },
     {
@@ -204780,9 +204604,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBTransaction",
         "packages/ibex-runtime-js/src/indexeddb/IDBTransaction.ts#IDBTransaction.prototype._release"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbtransaction.release.1hh7shg.all.non-capability"
+        "surface.native.op.global.idbtransaction.release.1hh7shg.all.closed"
       ]
     },
     {
@@ -204814,13 +204638,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:IDBTransaction",
         "packages/ibex-runtime-js/src/indexeddb/IDBTransaction.ts#IDBTransaction.prototype.removeEventListener"
       ],
-      "implementationOwner": "WP8",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.idbtransaction.removeeventlistener.0g4hkiu.all.attribution-missing-deny",
-        "surface.native.op.global.idbtransaction.removeeventlistener.0g4hkiu.all.generation-recheck",
-        "surface.native.op.global.idbtransaction.removeeventlistener.0g4hkiu.all.non-capability",
-        "surface.native.op.global.idbtransaction.removeeventlistener.0g4hkiu.all.principal-restore",
-        "surface.native.op.global.idbtransaction.removeeventlistener.0g4hkiu.all.snapshot-mismatch-deny"
+        "surface.native.op.global.idbtransaction.removeeventlistener.0g4hkiu.all.closed"
       ]
     },
     {
@@ -205223,9 +205043,9 @@
         "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:indexedDB",
         "packages/ibex-runtime-js/src/indexeddb/IDBFactory.ts#IDBFactory.prototype.cmp"
       ],
-      "implementationOwner": "WP1",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.indexeddb.cmp.08nqrx8.all.non-capability"
+        "surface.native.op.global.indexeddb.cmp.08nqrx8.all.closed"
       ]
     },
     {
@@ -210964,7 +210784,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.localstorage.symbol.tostringtag.052tk05.all.non-capability"
+        "surface.native.op.global.localstorage.symbol.tostringtag.052tk05.all.closed"
       ]
     },
     {
@@ -233954,7 +233774,7 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.native.op.global.sessionstorage.symbol.tostringtag.1i8i4na.all.non-capability"
+        "surface.native.op.global.sessionstorage.symbol.tostringtag.1i8i4na.all.closed"
       ]
     },
     {
@@ -264150,21 +263970,82 @@
         "surface.native.op.global.caches.0ubcjl4",
         "surface.native.op.global.caches.delete.0dbx5fx",
         "surface.native.op.global.caches.open.1a7lo1m",
+        "surface.native.op.global.caches.symbol.tostringtag.1wacfok",
         "surface.native.op.global.cachestorage.1884h3s",
         "surface.native.op.global.cachestorage.delete.0seo1q5",
         "surface.native.op.global.cachestorage.open.1jpxasq",
         "surface.native.op.global.idbcursor.0yxim1m",
         "surface.native.op.global.idbcursorwithvalue.0146w07",
         "surface.native.op.global.idbdatabase.0fn2as5",
+        "surface.native.op.global.idbdatabase.addeventlistener.05px9o8",
+        "surface.native.op.global.idbdatabase.close.19kv6pb",
+        "surface.native.op.global.idbdatabase.onabort.0p105ae",
+        "surface.native.op.global.idbdatabase.onclose.14vpr74",
+        "surface.native.op.global.idbdatabase.onerror.0ks9n22",
+        "surface.native.op.global.idbdatabase.onversionchange.00sr9o8",
+        "surface.native.op.global.idbdatabase.removeeventlistener.0ba4ncj",
         "surface.native.op.global.idbindex.10l9h0k",
+        "surface.native.op.global.idbkeyrange.0f6yn9o",
+        "surface.native.op.global.idbkeyrange.bound.1ogfhv2",
+        "surface.native.op.global.idbkeyrange.includes.096co6n",
+        "surface.native.op.global.idbkeyrange.lower.01z6f4b",
+        "surface.native.op.global.idbkeyrange.lowerbound.0yse2pd",
+        "surface.native.op.global.idbkeyrange.loweropen.1g784d3",
+        "surface.native.op.global.idbkeyrange.only.03o1tio",
+        "surface.native.op.global.idbkeyrange.upper.1i82gq2",
+        "surface.native.op.global.idbkeyrange.upperbound.17bv0zu",
+        "surface.native.op.global.idbkeyrange.upperopen.1lb1wqa",
         "surface.native.op.global.idbobjectstore.1wdr648",
+        "surface.native.op.global.idbopendbrequest.099nrw7",
+        "surface.native.op.global.idbopendbrequest.abort.14kwmau",
+        "surface.native.op.global.idbopendbrequest.addeventlistener.15fig1i",
+        "surface.native.op.global.idbopendbrequest.error.1245p7n",
+        "surface.native.op.global.idbopendbrequest.invokelisteners.0poqjj1",
+        "surface.native.op.global.idbopendbrequest.onblocked.06rtlhu",
+        "surface.native.op.global.idbopendbrequest.onerror.1pukj34",
+        "surface.native.op.global.idbopendbrequest.onsuccess.0bqmee9",
+        "surface.native.op.global.idbopendbrequest.onupgradeneeded.1qy82tj",
+        "surface.native.op.global.idbopendbrequest.readystate.1g6wx3b",
+        "surface.native.op.global.idbopendbrequest.reject.0ay1pdj",
+        "surface.native.op.global.idbopendbrequest.removeeventlistener.1ipjefl",
+        "surface.native.op.global.idbopendbrequest.resolve.00t36iw",
+        "surface.native.op.global.idbopendbrequest.resolvesync.103dikj",
+        "surface.native.op.global.idbopendbrequest.result.1yb2igi",
+        "surface.native.op.global.idbopendbrequest.setresult.188zrbx",
+        "surface.native.op.global.idbopendbrequest.source.155xwm6",
+        "surface.native.op.global.idbopendbrequest.transaction.0p9pqkd",
+        "surface.native.op.global.idbrequest.1c5odp5",
+        "surface.native.op.global.idbrequest.abort.1q6j9e0",
+        "surface.native.op.global.idbrequest.addeventlistener.09zng58",
+        "surface.native.op.global.idbrequest.error.0vqnnj5",
+        "surface.native.op.global.idbrequest.invokelisteners.046ft0z",
+        "surface.native.op.global.idbrequest.onerror.1g7fg6e",
+        "surface.native.op.global.idbrequest.onsuccess.0lw9ver",
+        "surface.native.op.global.idbrequest.readystate.0mp36op",
+        "surface.native.op.global.idbrequest.reject.1t0xc71",
+        "surface.native.op.global.idbrequest.removeeventlistener.0kpkbpj",
+        "surface.native.op.global.idbrequest.resolve.0xd36xq",
+        "surface.native.op.global.idbrequest.resolvesync.11dca3h",
+        "surface.native.op.global.idbrequest.result.0vi10hg",
+        "surface.native.op.global.idbrequest.setresult.0kmoptb",
+        "surface.native.op.global.idbrequest.source.0iw2pqg",
+        "surface.native.op.global.idbrequest.transaction.0bgacwj",
         "surface.native.op.global.idbtransaction.1l9v9u8",
+        "surface.native.op.global.idbtransaction.abort.0std5n0",
+        "surface.native.op.global.idbtransaction.abortwith.03a8s9n",
+        "surface.native.op.global.idbtransaction.addeventlistener.1drobtv",
+        "surface.native.op.global.idbtransaction.onabort.1qogkmn",
+        "surface.native.op.global.idbtransaction.oncomplete.0umo0nk",
+        "surface.native.op.global.idbtransaction.onerror.0o1dcmz",
+        "surface.native.op.global.idbtransaction.release.1hh7shg",
+        "surface.native.op.global.idbtransaction.removeeventlistener.0g4hkiu",
         "surface.native.op.global.indexeddb.0ljja2u",
+        "surface.native.op.global.indexeddb.cmp.08nqrx8",
         "surface.native.op.global.indexeddb.deletedatabase.0zq97rq",
         "surface.native.op.global.indexeddb.open.05pc868",
         "surface.native.op.global.localstorage.persistence.0v3ny3e"
       ],
-      "rationale": "Closed by 17 observed surface edges."
+      "rationale": "Closed by 78 observed surface edges."
     },
     {
       "definitionId": "storage:read",
@@ -264303,12 +264184,14 @@
         "surface.native.op.global.localstorage.getitem.0yuqi9m",
         "surface.native.op.global.localstorage.key.0r7xopa",
         "surface.native.op.global.localstorage.length.0wp76mv",
+        "surface.native.op.global.localstorage.symbol.tostringtag.052tk05",
         "surface.native.op.global.sessionstorage.1gmliga",
         "surface.native.op.global.sessionstorage.getitem.18kbmkn",
         "surface.native.op.global.sessionstorage.key.031r5yz",
-        "surface.native.op.global.sessionstorage.length.1w0autc"
+        "surface.native.op.global.sessionstorage.length.1w0autc",
+        "surface.native.op.global.sessionstorage.symbol.tostringtag.1i8i4na"
       ],
-      "rationale": "Closed by 137 observed surface edges."
+      "rationale": "Closed by 139 observed surface edges."
     },
     {
       "definitionId": "storage:write",
@@ -264753,12 +264636,12 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-0lRkkq4s0YWpM5Co2MPRUaTNSe5vyebpd2EZvlplvrc"
+      "rawContentDigest": "sha256-vljWaxh0p5XnNKoZzfke5j6YcFk_0bQN2L_azloPG0Q"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-DtCvQC_Tmlv03-jYPE3bvtcgf5gSHIkn5Pu8xxrwdw4"
+      "rawContentDigest": "sha256-7_g5cMlXB29C5Y45j-2p5XMupSaVZNlA9bu0pbHzD-E"
     },
     {
       "kind": "typescript",

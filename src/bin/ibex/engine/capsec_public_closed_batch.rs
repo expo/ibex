@@ -1674,6 +1674,28 @@ async fn execute_closed_debugger_abi(
     })
 }
 
+fn reviewed_closed_shared_runtime_root(root_name: &str) -> bool {
+    matches!(
+        root_name,
+        "BroadcastChannel"
+            | "caches"
+            | "IDBCursor"
+            | "IDBCursorWithValue"
+            | "IDBDatabase"
+            | "IDBIndex"
+            | "IDBKeyRange"
+            | "IDBObjectStore"
+            | "IDBOpenDBRequest"
+            | "IDBRequest"
+            | "IDBTransaction"
+            | "indexedDB"
+            | "localStorage"
+            | "MessageChannel"
+            | "MessagePort"
+            | "sessionStorage"
+    )
+}
+
 fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
     matches!(
         surface_name,
@@ -1767,7 +1789,10 @@ fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
             | "global:MessagePort.postMessage"
             | "global:MessagePort.removeEventListener"
             | "global:MessagePort.start"
-    )
+    ) || surface_name
+        .strip_prefix("global:")
+        .and_then(|name| name.split('.').next())
+        .is_some_and(reviewed_closed_shared_runtime_root)
 }
 
 fn reviewed_armed_native_absent_surface(surface_name: &str) -> bool {
@@ -1903,9 +1928,14 @@ async fn execute_closed_shared_runtime_global_absence(
         let shared_runtime = metadata["sourceKey"] == "shared_runtime"
             && branches[0]["route"] == "shared-runtime"
             && branches[0]["targetVariant"] == "all";
+        let composed_shared_runtime = metadata["sourceKey"] == "shared_runtime"
+            && branches[0]["route"] == "composed:legacy-bootstrap+shared-runtime"
+            && branches[0]["targetVariant"] == "default"
+            && branches[0]["routes"]
+                == serde_json::json!(["legacy-bootstrap", "shared-runtime"]);
         assert!(
             if metadata["sourceKey"] == "shared_runtime" {
-                shared_runtime
+                shared_runtime || composed_shared_runtime
             } else {
                 legacy_bootstrap
             },
@@ -1932,10 +1962,7 @@ async fn execute_closed_shared_runtime_global_absence(
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
     let global_json = serde_json::to_string(global_name).unwrap();
-    let root_is_sealed = matches!(
-        global_name.as_str(),
-        "BroadcastChannel" | "MessageChannel" | "MessagePort"
-    );
+    let root_is_sealed = reviewed_closed_shared_runtime_root(global_name);
     let script = if root_is_sealed {
         format!("{global_json} in globalThis?'present':'absent'")
     } else if let Some(member_name) = member_name {
@@ -2868,6 +2895,22 @@ async fn capsec_closed_native_seal_preserves_diagnostic_runtime_compatibility() 
     let messaging: Vec<String> =
         serde_json::from_str(&messaging).expect("decode diagnostic messaging globals");
     assert_eq!(messaging, ["function", "function", "function"]);
+    let storage = engine
+        .eval_immediate(
+            "JSON.stringify([typeof caches, typeof localStorage, typeof sessionStorage, typeof indexedDB, typeof IDBCursor, typeof IDBCursorWithValue, typeof IDBDatabase, typeof IDBIndex, typeof IDBKeyRange, typeof IDBObjectStore, typeof IDBOpenDBRequest, typeof IDBRequest, typeof IDBTransaction])",
+        )
+        .await
+        .expect("inspect diagnostic storage compatibility")
+        .expect("diagnostic storage inspection returned no result");
+    let storage: Vec<String> =
+        serde_json::from_str(&storage).expect("decode diagnostic storage globals");
+    assert_eq!(
+        storage,
+        [
+            "object", "object", "object", "object", "function", "function", "function",
+            "function", "function", "function", "function", "function", "function",
+        ]
+    );
 }
 
 #[cfg(test)]
@@ -3051,8 +3094,8 @@ async fn capsec_public_closed_recipe_batch() {
     );
     let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
         match catalog.target.triple.as_str() {
-            "aarch64-apple-darwin" => (18, 90, 9),
-            "x86_64-pc-windows-msvc" => (18, 90, 9),
+            "aarch64-apple-darwin" => (18, 322, 9),
+            "x86_64-pc-windows-msvc" => (18, 322, 9),
             target => panic!("closed public batch has no reviewed target shape for {target}"),
         };
     assert_eq!(

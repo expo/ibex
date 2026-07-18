@@ -2401,6 +2401,30 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ]);
     }
 
+    for (const [globalName, memberName, expectedAction] of [
+      ["caches", "[[Symbol.toStringTag]]", "storage:persist"],
+      ["localStorage", "[[Symbol.toStringTag]]", "storage:read"],
+      ["sessionStorage", "[[Symbol.toStringTag]]", "storage:read"],
+      ["indexedDB", "cmp", "storage:persist"],
+      ["IDBKeyRange", null, "storage:persist"],
+      ["IDBRequest", "onsuccess", "storage:persist"],
+      ["IDBOpenDBRequest", "onupgradeneeded", "storage:persist"],
+      ["IDBDatabase", "close", "storage:persist"],
+      ["IDBTransaction", "abort", "storage:persist"],
+    ]) {
+      const classified = classifyObservedSurface(
+        globalApi(globalName, memberName),
+        context,
+      );
+      expect(
+        classified.edge.classification,
+        `${globalName}.${memberName}`,
+      ).toBe("closed");
+      expect(edgeActions(classified), `${globalName}.${memberName}`).toEqual([
+        expectedAction,
+      ]);
+    }
+
     for (const observed of [
       globalApi("Bun", "spawnSecret"),
       globalApi("readSecret"),

@@ -2298,8 +2298,8 @@ async fn capsec_public_callback_invariant_batch() {
             .or_insert(0usize) += 1;
     }
     let target_wide_scenario_count = match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => 552,
-        "x86_64-pc-windows-msvc" => 552,
+        "aarch64-apple-darwin" => 507,
+        "x86_64-pc-windows-msvc" => 507,
         target => panic!("callback invariant batch has no reviewed target shape for {target}"),
     };
     assert_eq!(recipes.len(), target_wide_scenario_count * 4 + 682);

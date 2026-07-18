@@ -65,7 +65,7 @@ and notification hooks remain installed, so web and React Native compatibility
 consumers can continue to share coherent host state without exposing the
 ambient application-state channel directly to project globals.
 
-## Cross-context Messaging Boundary
+## Ambient Shared Runtime Boundaries
 
 The shared runtime installs `BroadcastChannel`, `MessageChannel`, and
 `MessagePort` for compatibility, and trusted bootstrap code may capture those
@@ -77,6 +77,17 @@ before the package-compartment baseline is finalized `[observed]`
 constructor and member surface while preserving constructors already captured
 inside trusted modules. A diagnostic runtime remains unarmed and retains all
 three compatibility constructors.
+
+The same boundary applies to shared persistent storage. Cache Storage, Web
+Storage, and IndexedDB are useful diagnostic compatibility APIs, but their
+default instances and retained objects are not package-namespaced, quota-bound,
+or principal-owned. The armed runtime therefore deletes `caches`,
+`localStorage`, `sessionStorage`, `indexedDB`, and every public IndexedDB
+constructor root after trusted bootstrap. This closes helpers, callback
+carriers, and release methods together with the object graph that would mint
+them; treating those otherwise unreachable members as freestanding
+non-capability APIs would be misleading. Diagnostic runtimes retain the full
+compatibility surface.
 
 ## Host Snapshot Contract
 

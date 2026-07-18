@@ -211,6 +211,33 @@ const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
   "x86_64-pc-windows-msvc",
 ]);
 
+const CLOSED_SHARED_RUNTIME_ROOTS = new Set([
+  "BroadcastChannel",
+  "caches",
+  "IDBCursor",
+  "IDBCursorWithValue",
+  "IDBDatabase",
+  "IDBIndex",
+  "IDBKeyRange",
+  "IDBObjectStore",
+  "IDBOpenDBRequest",
+  "IDBRequest",
+  "IDBTransaction",
+  "indexedDB",
+  "localStorage",
+  "MessageChannel",
+  "MessagePort",
+  "sessionStorage",
+]);
+
+function reviewedSharedRuntimeAbsentSurface(surfaceName) {
+  if (SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName)) return true;
+  const globalPrefix = "global:";
+  if (!surfaceName.startsWith(globalPrefix)) return false;
+  const root = surfaceName.slice(globalPrefix.length).split(".", 1)[0];
+  return CLOSED_SHARED_RUNTIME_ROOTS.has(root);
+}
+
 const ARMED_NATIVE_ABSENT_GLOBALS = new Set([
   "__exactExit",
   "__exactGetGCStats",
@@ -1014,19 +1041,26 @@ function sharedRuntimeGlobalAbsenceProbe({
   const prefix = "native-op:";
   if (!surfaceObservedKey.startsWith(prefix)) return null;
   const surfaceName = surfaceObservedKey.slice(prefix.length);
-  if (!SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName)) return null;
+  if (!reviewedSharedRuntimeAbsentSurface(surfaceName)) return null;
   const live = liveByObservedKey.get(surfaceObservedKey);
   const edge = coverageByObservedKey.get(surfaceObservedKey);
   const metadata = live?.metadata;
   const branches = metadata?.installationBranches;
   const sharedRuntimeInstallation = metadata?.sourceKey === "shared_runtime";
+  const reviewedSharedRuntimeBranch =
+    branches?.[0]?.route === "shared-runtime" &&
+    branches[0].targetVariant === "all";
+  const reviewedComposedSharedRuntimeBranch =
+    branches?.[0]?.route === "composed:legacy-bootstrap+shared-runtime" &&
+    branches[0].targetVariant === "default" &&
+    canonicalJson(branches[0].routes) ===
+      canonicalJson(["legacy-bootstrap", "shared-runtime"]);
   const reviewedInstallation =
     Array.isArray(branches) &&
     branches.length === 1 &&
     canonicalJson(branches[0].sourceRefs) === canonicalJson(live?.sourceRefs) &&
     (sharedRuntimeInstallation
-      ? branches[0].route === "shared-runtime" &&
-        branches[0].targetVariant === "all"
+      ? reviewedSharedRuntimeBranch || reviewedComposedSharedRuntimeBranch
       : branches[0].route === "legacy-bootstrap" &&
         branches[0].targetVariant === "default");
   const expectedExportName =

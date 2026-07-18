@@ -214563,13 +214563,13 @@
     },
     {
       "id": "surface.native.op.global.caches.symbol.tostringtag.1wacfok",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:caches.[[Symbol.toStringTag]]"
       },
-      "rationaleId": "module-reachability-only",
-      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+      "cap": "storage:persist",
+      "rationale": "The armed profile closes the ambient storage namespace together with every member exposed through it."
     },
     {
       "id": "surface.native.op.global.cachestorage.1884h3s",
@@ -223044,13 +223044,13 @@
     },
     {
       "id": "surface.native.op.global.idbdatabase.addeventlistener.05px9o8",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBDatabase.addEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbdatabase.all.1i3ftmp",
@@ -223084,13 +223084,13 @@
     },
     {
       "id": "surface.native.op.global.idbdatabase.close.19kv6pb",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBDatabase.close"
       },
-      "rationaleId": "authority-release",
-      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB release operations are closed because the armed profile cannot mint the ambient retained object."
     },
     {
       "id": "surface.native.op.global.idbdatabase.committxnsnapshot.14ms7dr",
@@ -223294,53 +223294,53 @@
     },
     {
       "id": "surface.native.op.global.idbdatabase.onabort.0p105ae",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBDatabase.onabort"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbdatabase.onclose.14vpr74",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBDatabase.onclose"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbdatabase.onerror.0ks9n22",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBDatabase.onerror"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbdatabase.onversionchange.00sr9o8",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBDatabase.onversionchange"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbdatabase.removeeventlistener.0ba4ncj",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBDatabase.removeEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbdatabase.rollbacktxnsnapshot.031exxg",
@@ -223594,103 +223594,103 @@
     },
     {
       "id": "surface.native.op.global.idbkeyrange.0f6yn9o",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.bound.1ogfhv2",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.bound"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.includes.096co6n",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.includes"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.lower.01z6f4b",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.lower"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.lowerbound.0yse2pd",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.lowerBound"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.loweropen.1g784d3",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.lowerOpen"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.only.03o1tio",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.only"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.upper.1i82gq2",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.upper"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.upperbound.17bv0zu",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.upperBound"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbkeyrange.upperopen.1lb1wqa",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBKeyRange.upperOpen"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph."
     },
     {
       "id": "surface.native.op.global.idbobjectstore.1wdr648",
@@ -224184,343 +224184,343 @@
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.099nrw7",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.abort.14kwmau",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest._abort"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.addeventlistener.15fig1i",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.addEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.error.1245p7n",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.error"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.invokelisteners.0poqjj1",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest._invokeListeners"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.onblocked.06rtlhu",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.onblocked"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.onerror.1pukj34",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.onerror"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.onsuccess.0bqmee9",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.onsuccess"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.onupgradeneeded.1qy82tj",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.onupgradeneeded"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.readystate.1g6wx3b",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.readyState"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.reject.0ay1pdj",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest._reject"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.removeeventlistener.1ipjefl",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.removeEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.resolve.00t36iw",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest._resolve"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.resolvesync.103dikj",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest._resolveSync"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.result.1yb2igi",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.result"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.setresult.188zrbx",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest._setResult"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.source.155xwm6",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.source"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbopendbrequest.transaction.0p9pqkd",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBOpenDBRequest.transaction"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.1c5odp5",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.abort.1q6j9e0",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest._abort"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.addeventlistener.09zng58",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.addEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.error.0vqnnj5",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.error"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.invokelisteners.046ft0z",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest._invokeListeners"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.onerror.1g7fg6e",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.onerror"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.onsuccess.0lw9ver",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.onsuccess"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.readystate.0mp36op",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.readyState"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.reject.1t0xc71",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest._reject"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.removeeventlistener.0kpkbpj",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.removeEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.resolve.0xd36xq",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest._resolve"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.resolvesync.11dca3h",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest._resolveSync"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.result.0vi10hg",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.result"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.setresult.0kmoptb",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest._setResult"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.source.0iw2pqg",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.source"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbrequest.transaction.0bgacwj",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBRequest.transaction"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects."
     },
     {
       "id": "surface.native.op.global.idbtransaction.1l9v9u8",
@@ -224534,33 +224534,33 @@
     },
     {
       "id": "surface.native.op.global.idbtransaction.abort.0std5n0",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBTransaction.abort"
       },
-      "rationaleId": "authority-release",
-      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB release operations are closed because the armed profile cannot mint the ambient retained object."
     },
     {
       "id": "surface.native.op.global.idbtransaction.abortwith.03a8s9n",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBTransaction._abortWith"
       },
-      "rationaleId": "authority-release",
-      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB release operations are closed because the armed profile cannot mint the ambient retained object."
     },
     {
       "id": "surface.native.op.global.idbtransaction.addeventlistener.1drobtv",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBTransaction.addEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbtransaction.addtoscope.0ku0dbx",
@@ -224704,33 +224704,33 @@
     },
     {
       "id": "surface.native.op.global.idbtransaction.onabort.1qogkmn",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBTransaction.onabort"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbtransaction.oncomplete.0umo0nk",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBTransaction.oncomplete"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbtransaction.onerror.0o1dcmz",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBTransaction.onerror"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbtransaction.onfinished.1afoqto",
@@ -224764,23 +224764,23 @@
     },
     {
       "id": "surface.native.op.global.idbtransaction.release.1hh7shg",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBTransaction._release"
       },
-      "rationaleId": "authority-release",
-      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB release operations are closed because the armed profile cannot mint the ambient retained object."
     },
     {
       "id": "surface.native.op.global.idbtransaction.removeeventlistener.0g4hkiu",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:IDBTransaction.removeEventListener"
       },
-      "rationaleId": "callback-attribution-carrier",
-      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB callbacks are closed with the ambient retained object that would produce them."
     },
     {
       "id": "surface.native.op.global.idbtransaction.removefromscope.0wgg0xp",
@@ -225780,13 +225780,13 @@
     },
     {
       "id": "surface.native.op.global.indexeddb.cmp.08nqrx8",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:indexedDB.cmp"
       },
-      "rationaleId": "pure-in-memory-compute",
-      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      "cap": "storage:persist",
+      "rationale": "IndexedDB helpers are closed with the ambient database factory until its namespace is principal-isolated."
     },
     {
       "id": "surface.native.op.global.indexeddb.databases.0rjvo9u",
@@ -233401,13 +233401,13 @@
     },
     {
       "id": "surface.native.op.global.localstorage.symbol.tostringtag.052tk05",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:localStorage.[[Symbol.toStringTag]]"
       },
-      "rationaleId": "module-reachability-only",
-      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+      "cap": "storage:read",
+      "rationale": "The armed profile closes the ambient storage namespace together with every member exposed through it."
     },
     {
       "id": "surface.native.op.global.log.0883yaf",
@@ -245283,13 +245283,13 @@
     },
     {
       "id": "surface.native.op.global.sessionstorage.symbol.tostringtag.1i8i4na",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "native-op",
         "name": "global:sessionStorage.[[Symbol.toStringTag]]"
       },
-      "rationaleId": "module-reachability-only",
-      "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+      "cap": "storage:read",
+      "rationale": "The armed profile closes the ambient storage namespace together with every member exposed through it."
     },
     {
       "id": "surface.native.op.global.setimmediate.11cozte",

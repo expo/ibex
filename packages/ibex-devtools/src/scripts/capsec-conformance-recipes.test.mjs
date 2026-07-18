@@ -109,6 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
+    expect(recipes.summary.requiredFixtures).toBe(22_938);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_112);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_826);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -200,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_118);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_942);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_176);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_938);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_994);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_944);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
@@ -226,7 +229,7 @@ describe("exact-target CapSec executable recipes", () => {
             "capsec_public_closed_recipe_batch",
           ),
       ),
-    ).toHaveLength(386);
+    ).toHaveLength(618);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -240,7 +243,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
           "shared-runtime-global-absence",
       ),
-    ).toHaveLength(90);
+    ).toHaveLength(322);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -418,7 +421,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_890);
+    expect(callbackRecipes).toHaveLength(2_710);
     expect(
       Object.fromEntries(
         [
@@ -436,10 +439,10 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 552,
-      "generation-recheck": 552,
-      "principal-restore": 552,
-      "snapshot-mismatch-deny": 552,
+      "attribution-missing-deny": 507,
+      "generation-recheck": 507,
+      "principal-restore": 507,
+      "snapshot-mismatch-deny": 507,
       "cannot-widen-authority": 337,
       "post-lockdown-invariant": 337,
       "non-capability": 8,
@@ -1646,7 +1649,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "shared-runtime-global-absence",
     );
-    expect(rows).toHaveLength(90);
+    expect(rows).toHaveLength(322);
     expect(
       rows.every(
         (recipe) =>
@@ -1662,7 +1665,8 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches.every(
             (branch) =>
               branch.route === "legacy-bootstrap" ||
-              branch.route === "shared-runtime",
+              branch.route === "shared-runtime" ||
+              branch.route === "composed:legacy-bootstrap+shared-runtime",
           ),
       ),
     ).toBe(true);
@@ -1710,6 +1714,58 @@ describe("exact-target CapSec executable recipes", () => {
             kind: "shared-runtime-global-absence",
             globalName: "BroadcastChannel",
             memberName: "postMessage",
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:global:IDBTransaction.abort",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "IDBTransaction",
+            memberName: "abort",
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "IDBTransaction",
+            memberName: "abort",
+          },
+        },
+      },
+    });
+    expect(
+      rows.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "native-op:global:localStorage.getItem",
+      ),
+    ).toMatchObject({
+      publicSurfaceProbe: {
+        invocation: {
+          sourceDescriptor: {
+            globalName: "localStorage",
+            memberName: "getItem",
+            sourceMetadata: {
+              sourceKey: "shared_runtime",
+              installationBranches: [
+                {
+                  route: "composed:legacy-bootstrap+shared-runtime",
+                  routes: ["legacy-bootstrap", "shared-runtime"],
+                  targetVariant: "default",
+                },
+              ],
+            },
+          },
+          operation: {
+            kind: "shared-runtime-global-absence",
+            globalName: "localStorage",
+            memberName: "getItem",
           },
         },
       },

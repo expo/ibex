@@ -617,12 +617,12 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed per-target catalogs each have
-23,118 required fixtures: Apple has 5,060 fully executable recipes and 18,058
-unresolved fixtures, while Windows has 4,942 executable and 18,176 unresolved.
+22,938 required fixtures: Apple has 5,112 fully executable recipes and 17,826
+unresolved fixtures, while Windows has 4,994 executable and 17,944 unresolved.
 The Windows difference is explicit target applicability: 102 Apple
 target-absence probes are not applicable and 16 Windows non-capability paths
 remain unauthored. None of those differences is credited as a pass. The latest
-source-bound tranches add 90 armed shared-runtime global
+source-bound tranches add 322 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
 terminal-builtin closure recipes, four
@@ -682,7 +682,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 18,058 unresolved Apple fixtures and 18,176
+are 7,043 ambiguous routes with 17,826 unresolved Apple fixtures and 17,944
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -702,9 +702,19 @@ breaking the unarmed diagnostic compatibility runtime. The physical
 no-debugger tranche also executes all nine debugger ABI functions on both exact
 candidates and binds their nine corresponding native-operation facets to the
 same zero, null-pointer, or no-event results; the Windows `get_scripts` stub
-returns no debugger data. Together with the other closed families, each exact
-target now carries 386 closed fixtures, and the loaded Apple engine passes all
-386 with zero typed or legacy decisions.
+returns no debugger data. Together with the other closed families, the
+preceding messaging checkpoint carried 386 closed fixtures per exact target,
+and the loaded Apple engine passed all 386 with zero typed or legacy decisions.
+Cache Storage, Web Storage, and IndexedDB now follow the same physical-absence
+rule. The armed runtime deletes all 13 ambient storage roots while diagnostic
+runtimes retain them. Sixty-three helper, callback, and release members that
+were previously labeled non-capability are now closed with the object graph
+that would mint them; this removes 180 inapplicable callback-invariant
+obligations instead of pretending those unreachable members are independent
+APIs. The 232 source-derived storage cells raise each exact target to 618
+closed fixtures; the loaded Apple engine passes the complete batch with zero
+typed or legacy decisions. Its reduced 2,710-fixture callback-invariant batch
+also passes against the same catalog and loaded engine.
 
 ### WP0 artifacts and gate
 
@@ -1556,7 +1566,7 @@ Windows x64 is now a declared but unadvertised candidate alongside Apple arm64.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
 manifest, digest, patched export, and debugger-free profile, then explicitly
 selects `x86_64-pc-windows-msvc` for recipe generation and report execution.
-Its current catalog has 4,942 executable and 18,176 unresolved fixtures. The
+Its current catalog has 4,994 executable and 17,944 unresolved fixtures. The
 first authoritative Windows report must still finish and be inspected before
 any Windows target cell or advertisement can change; incomplete evidence is
 retained as a refusal artifact, not promotion authority.
