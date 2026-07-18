@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(22_932);
+    expect(recipes.summary.requiredFixtures).toBe(22_933);
     expect(recipes.summary.fullyExecutableFixtures).toBe(5_226);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_706);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_707);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -203,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_672);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_673);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_962);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_710);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_711);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===

@@ -210,11 +210,26 @@ enum ClosedOperation {
     ArmedNativeGlobalAbsence {
         #[serde(rename = "globalName")]
         global_name: String,
-        #[serde(default, rename = "memberName")]
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+        // retained evidence must preserve the authored probe's absent-vs-null
+        // shape so aggregation can compare it byte-semantically.
+        #[serde(default, rename = "memberName", skip_serializing_if = "Option::is_none")]
         member_name: Option<String>,
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+}
+
+#[test]
+fn armed_native_root_absence_preserves_an_omitted_member_name() {
+    let operation = ClosedOperation::ArmedNativeGlobalAbsence {
+        global_name: "__exactExit".to_owned(),
+        member_name: None,
+        expected_error: "armed runtime does not expose __exactExit".to_owned(),
+    };
+    let serialized = serde_json::to_value(operation).unwrap();
+    assert_eq!(serialized["kind"], "armed-native-global-absence");
+    assert!(!serialized.as_object().unwrap().contains_key("memberName"));
 }
 
 impl ClosedOperation {

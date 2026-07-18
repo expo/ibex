@@ -181877,6 +181877,16 @@
             "rationale": "Transforming already-held bytes or strings carries no independent external authority."
           },
           {
+            "id": "surface.loader.route.resolution.rust.oxc.compatible.file.specifier.1kx483u",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "loader",
+              "name": "route:resolution:rust:oxc_compatible_file_specifier"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+          },
+          {
             "id": "surface.loader.route.resolution.rust.oxc.target.07x4uw1",
             "classification": "non-capability",
             "surface": {

@@ -27,6 +27,7 @@ use base64::Engine as _;
 use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::io::Read;
@@ -233,6 +234,8 @@ impl ModuleLoader {
             return Err(anyhow!("Empty module specifier"));
         }
         let specifier = strip_file_specifier_decorations(specifier);
+        let resolver_specifier = oxc_compatible_file_specifier(specifier)?;
+        let specifier = resolver_specifier.as_ref();
         if !attributes.is_empty() && kind == ResolutionKind::CommonJsRequire {
             return Err(anyhow!(
                 "CommonJS require does not accept import attributes"
@@ -1792,6 +1795,37 @@ fn strip_file_specifier_decorations(specifier: &str) -> &str {
     &specifier[..end]
 }
 
+fn oxc_compatible_file_specifier(specifier: &str) -> Result<Cow<'_, str>> {
+    // Oxc treats the `?` in a Windows verbatim path as a URL query delimiter.
+    // Armed preflight has already authenticated the requested spelling before
+    // this resolver boundary, and the Host canonicalizes and re-authenticates
+    // Oxc's result afterward. Convert only the two filesystem namespaces that
+    // have an equivalent ordinary Windows spelling; reject device namespaces
+    // whose semantics cannot be preserved by removing the marker.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    if let Some(rest) = specifier.strip_prefix(r"\\?\UNC\") {
+        let mut components = rest.split('\\');
+        if components.next().is_some_and(|value| !value.is_empty())
+            && components.next().is_some_and(|value| !value.is_empty())
+        {
+            return Ok(Cow::Owned(format!(r"\\{rest}")));
+        }
+        anyhow::bail!("Windows verbatim UNC module specifier has no server/share root");
+    }
+    if let Some(rest) = specifier.strip_prefix(r"\\?\") {
+        let bytes = rest.as_bytes();
+        if bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'\\' | b'/')
+        {
+            return Ok(Cow::Borrowed(rest));
+        }
+        anyhow::bail!("unsupported Windows verbatim module specifier namespace");
+    }
+    Ok(Cow::Borrowed(specifier))
+}
+
 fn find_package_root(start: &Path) -> Option<PathBuf> {
     let mut current = if start.is_file() {
         start.parent()?.to_path_buf()
@@ -2912,6 +2946,46 @@ mod tests {
         assert_eq!(
             strip_file_specifier_decorations(r"\\?\D:\project\entry.mjs?cache=one#section"),
             r"\\?\D:\project\entry.mjs"
+        );
+        assert_eq!(
+            oxc_compatible_file_specifier(r"\\?\D:\project\entry.mjs")
+                .unwrap()
+                .as_ref(),
+            r"D:\project\entry.mjs"
+        );
+        assert_eq!(
+            oxc_compatible_file_specifier(r"\\?\UNC\server\share\entry.mjs")
+                .unwrap()
+                .as_ref(),
+            r"\\server\share\entry.mjs"
+        );
+        assert!(oxc_compatible_file_specifier(r"\\?\Volume{1234}\entry.mjs").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_verbatim_entry_resolves_through_oxc() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("entry.mjs");
+        std::fs::write(&file, "export const value = 1;\n").unwrap();
+        let canonical = std::fs::canonicalize(&file).unwrap();
+        assert!(
+            canonical.to_string_lossy().starts_with(r"\\?\"),
+            "Windows canonical path must exercise the verbatim resolver boundary"
+        );
+
+        let meta = test_loader()
+            .resolve_meta_typed(
+                canonical.to_str().unwrap(),
+                None,
+                ResolutionKind::Entry,
+                &ConditionSet::for_kind(ResolutionKind::Entry),
+                &ImportAttributes::default(),
+            )
+            .unwrap();
+        assert_eq!(
+            std::fs::canonicalize(meta.path.unwrap()).unwrap(),
+            canonical
         );
     }
 

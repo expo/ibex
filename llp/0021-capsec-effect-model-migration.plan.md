@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 preserves authenticated Windows verbatim drive/UNC identity while presenting Oxc only its equivalent ordinary resolver spelling)
 **Revised:** 2026-07-18 (ENG-24933 permits isolated manual physical-target reruns without weakening or canceling the required two-target matrix)
 **Revised:** 2026-07-18 (ENG-24933 binds physical test-host project roots and module resolution to the complete target-local path and actual object identity on both Unix and Windows)
 **Revised:** 2026-07-18 (ENG-24933 derives POSIX-only native-global branches and target-specific public ABI descriptors from the build graph so Windows evidence neither invokes an unlinked backend nor borrows POSIX arities and arguments)
@@ -1780,6 +1781,15 @@ prefix). It never leaves the canonical fixture's Unix object identity attached
 to a Windows path binding or authenticates a prefix-less alias of that binding.
 Module resolution likewise treats the `\\?\` verbatim marker as part of the
 authenticated filesystem path, never as the start of a URL query decoration.
+After armed preflight authenticates that spelling, the Oxc boundary converts
+only verbatim drive and UNC paths to their equivalent ordinary Windows
+spelling; unsupported device namespaces refuse. The Host then canonicalizes
+and re-authenticates the resolved object, so this compatibility bridge cannot
+substitute path spelling for filesystem identity.
+Retained public-surface evidence also preserves the authored probe's exact JSON
+shape. In particular, an omitted optional native-global member stays omitted
+rather than being reserialized as `null`; aggregation rejects either shape if
+it differs from the content-addressed executable recipe.
 Deterministic registry, contract, generated-policy, aggregate-generated, and
 LLP-reference drift checks run as an evidence-retained preflight before engine
 attestation or physical fixture execution, so stale source artifacts cannot

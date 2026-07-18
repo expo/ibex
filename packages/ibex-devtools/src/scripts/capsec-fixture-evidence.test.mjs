@@ -264,12 +264,12 @@ describe("Exact fixture-evidence pilot", () => {
     });
     expect(report.status).toBe("incomplete");
     expect(report.summary).toMatchObject({
-      cells: 7_108,
+      cells: 7_109,
       conformantCells: 1,
-      incompleteCells: 7_107,
-      requiredFixtures: 22_932,
+      incompleteCells: 7_108,
+      requiredFixtures: 22_933,
       passedFixtures: 9,
-      missingFixtures: 22_923,
+      missingFixtures: 22_924,
       failedFixtures: 0,
     });
     expect(() => assertReportMayAdvertise(report)).toThrow(/incomplete/u);

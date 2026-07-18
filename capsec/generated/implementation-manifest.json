@@ -127804,6 +127804,18 @@
           "src/module_loader/mod.rs#normalize_import_target:external:method:is_none:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:join:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:call:Ok:count-3",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:call:Some:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:as_bytes:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_ascii_alphabetic:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_empty:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_some_and:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:len:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:next:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:split:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:strip_prefix:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:qualified:Cow::Borrowed:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:qualified:Cow::Owned:count-1",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:call:Some:count-1",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:as_os_str:count-5",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:collect:count-2",
@@ -127913,6 +127925,7 @@
           "src/module_loader/mod.rs#resolve_meta:external:qualified:ImportAttributes::default:count-1",
           "src/module_loader/mod.rs#resolve_meta_typed:external:call:Err:count-5",
           "src/module_loader/mod.rs#resolve_meta_typed:external:call:Some:count-5",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:method:as_ref:count-1",
           "src/module_loader/mod.rs#resolve_meta_typed:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_meta_typed:external:method:find:count-1",
           "src/module_loader/mod.rs#resolve_meta_typed:external:method:get:count-1",
@@ -128512,6 +128525,18 @@
           "src/module_loader/mod.rs#normalize_import_target:external:method:is_none:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:join:count-1",
           "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:call:Ok:count-3",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:call:Some:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:as_bytes:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_ascii_alphabetic:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_empty:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_some_and:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:len:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:next:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:split:count-1",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:strip_prefix:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:qualified:Cow::Borrowed:count-2",
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:qualified:Cow::Owned:count-1",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:call:Some:count-1",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:as_os_str:count-5",
           "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:collect:count-2",
@@ -128621,6 +128646,7 @@
           "src/module_loader/mod.rs#resolve_meta:external:qualified:ImportAttributes::default:count-1",
           "src/module_loader/mod.rs#resolve_meta_typed:external:call:Err:count-5",
           "src/module_loader/mod.rs#resolve_meta_typed:external:call:Some:count-5",
+          "src/module_loader/mod.rs#resolve_meta_typed:external:method:as_ref:count-1",
           "src/module_loader/mod.rs#resolve_meta_typed:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_meta_typed:external:method:find:count-1",
           "src/module_loader/mod.rs#resolve_meta_typed:external:method:get:count-1",
@@ -129227,6 +129253,18 @@
         "src/module_loader/mod.rs#normalize_import_target:external:method:is_none:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:join:count-1",
         "src/module_loader/mod.rs#normalize_import_target:external:method:with_extension:count-1",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:call:Ok:count-3",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:call:Some:count-2",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:as_bytes:count-1",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_ascii_alphabetic:count-1",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_empty:count-2",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:is_some_and:count-2",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:len:count-1",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:next:count-2",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:split:count-1",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:method:strip_prefix:count-2",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:qualified:Cow::Borrowed:count-2",
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier:external:qualified:Cow::Owned:count-1",
         "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:call:Some:count-1",
         "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:as_os_str:count-5",
         "src/module_loader/mod.rs#package_name_and_root_in_node_modules:external:method:collect:count-2",
@@ -129336,6 +129374,7 @@
         "src/module_loader/mod.rs#resolve_meta:external:qualified:ImportAttributes::default:count-1",
         "src/module_loader/mod.rs#resolve_meta_typed:external:call:Err:count-5",
         "src/module_loader/mod.rs#resolve_meta_typed:external:call:Some:count-5",
+        "src/module_loader/mod.rs#resolve_meta_typed:external:method:as_ref:count-1",
         "src/module_loader/mod.rs#resolve_meta_typed:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_meta_typed:external:method:find:count-1",
         "src/module_loader/mod.rs#resolve_meta_typed:external:method:get:count-1",
@@ -144999,6 +145038,37 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.loader.route.resolution.rust.output.has.esm.module.syntax.10x2lfm.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.oxc.compatible.file.specifier.1kx483u",
+      "observedKey": "loader:route:resolution:rust:oxc_compatible_file_specifier",
+      "branchId": "surface.loader.route.resolution.rust.oxc.compatible.file.specifier.1kx483u.main",
+      "enforcementBranchId": "surface.loader.route.resolution.rust.oxc.compatible.file.specifier.1kx483u.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:route:resolution:rust:oxc_compatible_file_specifier"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#oxc_compatible_file_specifier"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:oxc_compatible_file_specifier"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#oxc_compatible_file_specifier"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.loader.route.resolution.rust.oxc.compatible.file.specifier.1kx483u.main.non-capability"
       ]
     },
     {
@@ -266147,44 +266217,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-XW28OIzcpR_JXveXDGTUuIVSc4iDUB9zSctv8FB6qCE"
+      "rawContentDigest": "sha256-T2VTRksGKtnm9KzO22iAwNUMz30jWbCoARdEcxG9pFY"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-YcMlfqWh7jC0z0gGpoR2H5S8pbpAy_cHotsFoFBT-2E"
+      "rawContentDigest": "sha256-vb1gytg4vASByUhP9YUtv27mWVKNiT9DdZyFSC0wHfY"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-9T_1Vk4b_j0P7x61Ak1V3751o_NWQ24Cp0nqPFJr-Gg"
+      "rawContentDigest": "sha256-5JanXBXhxxbxzVts00VIs0u8-VmCuun73JbdHgE3ZyE"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-U56ANq8APOGrYbcircwkKTdaW7EgJTbsV9dOsTcNUG0"
+      "rawContentDigest": "sha256-9M9uNCpXKNh5m7t9R_4jWnqpyZOGAXXkXcxcQx4Kshc"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-_N2O9FfPA5YEA2WHVypuokenJTmDERSD8j9zU6CokNc"
+      "rawContentDigest": "sha256-LYY7dj6fE53TWizYSTmkkU2e6Nfit3n1Ewt-RIKN2qM"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-uypWAnY0T-pulZseagEp5xQvWjXRDkkdzVVJQi_G2PU"
+      "rawContentDigest": "sha256-atFsmNJsyJJhGSbK34FMxP5bq8FE80nbPNGzTBQGghM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-XcSmlhMzdLheZKPs8Uen3Vqiswg4-M3YrPOaW-Yjm6Q"
+      "rawContentDigest": "sha256-SRfvWFH1AYq87Z6x1sqZ8GfupEG-eD45W_zlJAouDbg"
     }
   ],
   "counts": {
-    "observedReferences": 12809,
-    "logicalSurfaces": 7108,
-    "enforcementBranches": 7345,
-    "coverageEdges": 7108,
-    "targetCells": 14216
+    "observedReferences": 12823,
+    "logicalSurfaces": 7109,
+    "enforcementBranches": 7346,
+    "coverageEdges": 7109,
+    "targetCells": 14218
   }
 }
