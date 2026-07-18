@@ -1306,7 +1306,6 @@ const nativeRetainedFsFstatTemplate = () =>
 const nativeRetainedFsStatAsyncTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
-    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
     arguments: [
       harnessFsFileDescriptorArgument(),
       literalArgument("fstat"),

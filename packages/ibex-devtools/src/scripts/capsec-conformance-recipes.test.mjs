@@ -1247,7 +1247,7 @@ describe("exact-target CapSec executable recipes", () => {
       });
       expect(invocation.setup).toHaveLength(1);
       expect(invocation.setup[0].globalName).toBe("__exactFsOpen");
-      expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+      expect(invocation.allowedCoverageEdgeIds).toHaveLength(1);
       expect(invocation.requiredFloor.map((selector) => selector.cap)).toEqual([
         "fs:list",
         "fs:read",
