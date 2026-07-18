@@ -68,7 +68,7 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
-          - os: windows-2025
+          - os: windows-2022
             platform: win32
             arch: x64
     runs-on: ${{ matrix.os }}
@@ -245,7 +245,7 @@ jobs:
             report: performance-linux-x64
             platform: linux
             arch: x64
-          - os: windows-2025
+          - os: windows-2022
             report: performance-windows-x64
             platform: win32
             arch: x64

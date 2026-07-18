@@ -103,7 +103,10 @@ export function engineLoaderEnvironment(
     }
     throw new Error("macOS Hermes artifact is not inside a framework");
   }
-  if (platform === "win32") prepend("PATH", path.dirname(enginePath));
-  else prepend("LD_LIBRARY_PATH", path.dirname(enginePath));
+  if (platform === "win32") {
+    const pathName =
+      Object.keys(env).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
+    prepend(pathName, path.dirname(enginePath));
+  } else prepend("LD_LIBRARY_PATH", path.dirname(enginePath));
   return env;
 }

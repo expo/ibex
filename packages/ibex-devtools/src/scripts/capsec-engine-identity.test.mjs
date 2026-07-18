@@ -70,6 +70,22 @@ describe("exact loaded engine identity", () => {
         platform: "linux",
       }).LD_LIBRARY_PATH,
     ).toBe("/opt/ibex/lib");
+
+    const windowsArtifact = path.join(
+      path.parse(process.cwd()).root,
+      "repo",
+      "hermes.dll",
+    );
+    const priorPath = path.join(path.parse(process.cwd()).root, "tools", "bun");
+    const windowsEnvironment = engineLoaderEnvironment(windowsArtifact, {
+      baseEnvironment: { Path: priorPath, SYSTEMROOT: "C:\\Windows" },
+      platform: "win32",
+    });
+    expect(windowsEnvironment.Path).toBe(
+      `${path.dirname(windowsArtifact)}${path.delimiter}${priorPath}`,
+    );
+    expect(Object.hasOwn(windowsEnvironment, "PATH")).toBe(false);
+    expect(windowsEnvironment.SYSTEMROOT).toBe("C:\\Windows");
   });
 
   test("derives Windows volume and file identity from the named artifact", () => {
