@@ -6,6 +6,7 @@
 import type { NativeGpuEventV2 } from './native-bridge';
 import type {
   ExecutableWebGpuCodecBundle,
+  ProductionGpuTextureOriginDigestInput,
   ProductionGpuCodecWrapperAccess,
   ProductionGpuDecodedResult,
   ProductionGpuServiceEncodingInput,
@@ -1357,10 +1358,10 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
             fields: [
               { name: 'originClass', required: true, value: { kind: 'string-enum', values: ['canvas-current'] } },
               { name: 'contextRef', required: true, value: { kind: 'full-object-reference' } },
-              { name: 'attachmentGeneration', required: true, value: { kind: 'u64', constraints: ['positive'] } },
-              { name: 'contextGeneration', required: true, value: { kind: 'u64', constraints: ['positive'] } },
-              { name: 'configurationGeneration', required: true, value: { kind: 'u64', constraints: ['positive'] } },
-              { name: 'currentEpoch', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+              { name: 'attachmentGeneration', required: true, value: { kind: 'string', constraints: ['positive-u64-canonical-decimal'] } },
+              { name: 'contextGeneration', required: true, value: { kind: 'string', constraints: ['positive-u64-canonical-decimal'] } },
+              { name: 'configurationGeneration', required: true, value: { kind: 'string', constraints: ['positive-u64-canonical-decimal'] } },
+              { name: 'currentEpoch', required: true, value: { kind: 'string', constraints: ['positive-u64-canonical-decimal'] } },
               {
                 name: 'mintOperationProvenance',
                 required: true,
@@ -1368,8 +1369,8 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
                   kind: 'closed-dictionary',
                   unknownFields: 'reject',
                   fields: [
-                    { name: 'operationInstanceId', required: true, value: { kind: 'u64', constraints: ['positive'] } },
-                    { name: 'deviceIngressOrdinal', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+                    { name: 'operationInstanceId', required: true, value: { kind: 'string', constraints: ['positive-u64-canonical-decimal'] } },
+                    { name: 'deviceIngressOrdinal', required: true, value: { kind: 'string', constraints: ['positive-u64-canonical-decimal'] } },
                   ],
                 },
               },
@@ -1380,8 +1381,8 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
               { name: 'alphaMode', required: true, value: { kind: 'string-enum', values: ['opaque', 'premultiplied'] } },
               { name: 'colorSpace', required: true, value: { kind: 'string-enum', values: ['srgb', 'display-p3'] } },
               { name: 'targetAuthorityDigest', required: true, value: { kind: 'string', constraints: ['sha256-hex'] } },
-              { name: 'surfaceAccountToken', required: true, value: { kind: 'u64', constraints: ['positive'] } },
-              { name: 'surfaceAccountGeneration', required: true, value: { kind: 'u64', constraints: ['positive'] } },
+              { name: 'surfaceAccountToken', required: true, value: { kind: 'string', constraints: ['positive-u64-canonical-decimal'] } },
+              { name: 'surfaceAccountGeneration', required: true, value: { kind: 'string', constraints: ['positive-u64-canonical-decimal'] } },
             ],
           },
         },
@@ -2648,6 +2649,93 @@ function canonicalManifestJson(value: unknown): string {
     throw new TypeError('Generated WebGPU codec manifest is not JSON-safe');
   }
   return encoded;
+}
+
+const SHA256_INITIAL_STATE = Object.freeze([
+  0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+  0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+]);
+const SHA256_ROUND_CONSTANTS = Object.freeze([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+  0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+  0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+  0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+  0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+  0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+]);
+
+function rotateRight32(value: number, count: number): number {
+  return ((value >>> count) | (value << (32 - count))) >>> 0;
+}
+
+function sha256HexUtf8(value: string): string {
+  const input = encodeUtf8(value);
+  const bitLength = input.length * 8;
+  const paddedLength = Math.ceil((input.length + 9) / 64) * 64;
+  const padded = new Uint8Array(paddedLength);
+  padded.set(input);
+  padded[input.length] = 0x80;
+  const paddedView = new DataView(padded.buffer);
+  paddedView.setUint32(paddedLength - 8, Math.floor(bitLength / 0x1_0000_0000), false);
+  paddedView.setUint32(paddedLength - 4, bitLength >>> 0, false);
+
+  const state = SHA256_INITIAL_STATE.slice();
+  const words = new Uint32Array(64);
+  for (let offset = 0; offset < paddedLength; offset += 64) {
+    for (let index = 0; index < 16; index += 1) {
+      words[index] = paddedView.getUint32(offset + index * 4, false);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const left = words[index - 15];
+      const right = words[index - 2];
+      const sigma0 = rotateRight32(left, 7) ^ rotateRight32(left, 18) ^
+        (left >>> 3);
+      const sigma1 = rotateRight32(right, 17) ^ rotateRight32(right, 19) ^
+        (right >>> 10);
+      words[index] = (words[index - 16] + sigma0 + words[index - 7] + sigma1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, h] = state;
+    for (let index = 0; index < 64; index += 1) {
+      const sum1 = rotateRight32(e, 6) ^ rotateRight32(e, 11) ^
+        rotateRight32(e, 25);
+      const choose = (e & f) ^ (~e & g);
+      const temporary1 = (h + sum1 + choose + SHA256_ROUND_CONSTANTS[index] +
+        words[index]) >>> 0;
+      const sum0 = rotateRight32(a, 2) ^ rotateRight32(a, 13) ^
+        rotateRight32(a, 22);
+      const majority = (a & b) ^ (a & c) ^ (b & c);
+      const temporary2 = (sum0 + majority) >>> 0;
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temporary1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temporary1 + temporary2) >>> 0;
+    }
+    state[0] = (state[0] + a) >>> 0;
+    state[1] = (state[1] + b) >>> 0;
+    state[2] = (state[2] + c) >>> 0;
+    state[3] = (state[3] + d) >>> 0;
+    state[4] = (state[4] + e) >>> 0;
+    state[5] = (state[5] + f) >>> 0;
+    state[6] = (state[6] + g) >>> 0;
+    state[7] = (state[7] + h) >>> 0;
+  }
+  return state
+    .map((word) => word.toString(16).padStart(8, '0'))
+    .join('');
 }
 
 interface ValidatedNativeCodecProgram {
@@ -5618,6 +5706,15 @@ function isConvertedU64(value: unknown): value is number {
     value <= Number.MAX_SAFE_INTEGER;
 }
 
+function isPositiveCanonicalDecimalU64(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^[1-9][0-9]*$/u.test(value)) {
+    return false;
+  }
+  const maximum = '18446744073709551615';
+  return value.length < maximum.length ||
+    (value.length === maximum.length && value <= maximum);
+}
+
 function validateCreateBindGroupLayoutDescriptorForService(
   value: unknown,
   sequenceMaximum: number,
@@ -5959,7 +6056,7 @@ function validateCreateTextureDescriptorForService(
 
 function validateTextureViewFullReference(
   value: unknown,
-  expectedKind: 'GPUCanvasContext' | 'GPUDevice',
+  expectedKind: 'GPUCanvasContext' | 'GPUDevice' | 'GPUTexture',
   label: string,
 ): void {
   if (
@@ -6139,8 +6236,7 @@ function validateCreateTextureViewRequestForService(
     );
   }
   const mintRecord = mint as Readonly<Record<string, unknown>>;
-  const positiveU64 = (candidate: unknown) =>
-    isConvertedU64(candidate) && candidate > 0;
+  const positiveU64 = isPositiveCanonicalDecimalU64;
   if (
     currentOrigin.originClass !== 'canvas-current' ||
     !positiveU64(currentOrigin.attachmentGeneration) ||
@@ -6167,6 +6263,86 @@ function validateCreateTextureViewRequestForService(
       'GPUTexture.createView canvas-current origin violates structural bounds',
     );
   }
+}
+
+function canonicalTextureOriginDigestInput(
+  input: ProductionGpuTextureOriginDigestInput,
+  vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
+): string {
+  if (
+    typeof input !== 'object' ||
+    input === null ||
+    Array.isArray(input) ||
+    !hasExactOwnProperties(
+      input as unknown as Readonly<Record<string, unknown>>,
+      [
+        'originClass',
+        'receiverTextureRef',
+        'contextRef',
+        'attachmentGeneration',
+        'contextGeneration',
+        'configurationGeneration',
+        'currentEpoch',
+        'mintOperationProvenance',
+        'configuredDeviceRef',
+        'format',
+        'usage',
+        'alphaMode',
+        'colorSpace',
+        'targetAuthorityDigest',
+        'surfaceAccountToken',
+        'surfaceAccountGeneration',
+      ],
+    )
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView texture-origin digest input must be a closed dictionary',
+    );
+  }
+  validateTextureViewFullReference(
+    input.receiverTextureRef,
+    'GPUTexture',
+    'GPUTexture.createView texture-origin digest receiverTextureRef',
+  );
+  validateTextureViewFullReference(
+    input.contextRef,
+    'GPUCanvasContext',
+    'GPUTexture.createView texture-origin digest contextRef',
+  );
+  validateTextureViewFullReference(
+    input.configuredDeviceRef,
+    'GPUDevice',
+    'GPUTexture.createView texture-origin digest configuredDeviceRef',
+  );
+  const mint = input.mintOperationProvenance;
+  if (
+    input.originClass !== 'canvas-current' ||
+    !isPositiveCanonicalDecimalU64(input.attachmentGeneration) ||
+    !isPositiveCanonicalDecimalU64(input.contextGeneration) ||
+    !isPositiveCanonicalDecimalU64(input.configurationGeneration) ||
+    !isPositiveCanonicalDecimalU64(input.currentEpoch) ||
+    typeof mint !== 'object' ||
+    mint === null ||
+    Array.isArray(mint) ||
+    !hasExactOwnProperties(
+      mint as unknown as Readonly<Record<string, unknown>>,
+      ['operationInstanceId', 'deviceIngressOrdinal'],
+    ) ||
+    !isPositiveCanonicalDecimalU64(mint.operationInstanceId) ||
+    !isPositiveCanonicalDecimalU64(mint.deviceIngressOrdinal) ||
+    !vocabulary.gpuTextureFormats.includes(input.format) ||
+    !isConvertedU32(input.usage) ||
+    !['opaque', 'premultiplied'].includes(input.alphaMode) ||
+    !['srgb', 'display-p3'].includes(input.colorSpace) ||
+    !/^[0-9a-f]{64}$/u.test(input.targetAuthorityDigest) ||
+    !isPositiveCanonicalDecimalU64(input.surfaceAccountToken) ||
+    !isPositiveCanonicalDecimalU64(input.surfaceAccountGeneration)
+  ) {
+    throw new TypeError(
+      'GPUTexture.createView texture-origin digest input violates structural bounds',
+    );
+  }
+  return `exact.webgpu.texture-origin.v1\0${canonicalManifestJson(input)}`;
 }
 
 function validateCreateBindGroupLayoutRequestFields(
@@ -7980,6 +8156,12 @@ export function createExecutableWebGpuCodecs(
     return writer.finish();
   };
 
+  const deriveTextureOriginDigest = (
+    input: ProductionGpuTextureOriginDigestInput,
+  ): string => sha256HexUtf8(
+    canonicalTextureOriginDigestInput(input, manifest.webIdlVocabulary),
+  );
+
   const bundle: ExecutableWebGpuCodecBundle = Object.freeze({
     schema: 'ibex/webgpu-executable-codecs/1',
     operationSetDigest: manifest.digests.operationSet,
@@ -7987,6 +8169,7 @@ export function createExecutableWebGpuCodecs(
     runtimeRoutingDigest: manifest.digests.runtimeRouting,
     webgpuCVocabularyDigest: manifest.digests.webgpuCVocabulary,
     operationIds: Object.freeze(manifest.operationIds.slice()),
+    deriveTextureOriginDigest,
     convertPublicArguments,
     encodeServiceRequest,
     decodeServiceResult,

@@ -11,8 +11,8 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "operationSet": "1697bf9b90dda9c7d68bc7ad18d728e32cfdd1155286dedd97e2230913a7916c",
     "semanticProgramSet": "d1597f689232b885df51d11c056126959dca3d8ad8bc09a00e0fedf6e58efec7",
     "runtimeRouting": "c518de2284af428128398420ed77f60882394aaa31cdfe26879125ff954efbc3",
-    "webgpuCVocabulary": "2ce9f1e5e9c34088830633efb66d63ab2c67536257d61142be06d9e477eb1ab4",
-    "projection": "f475f1de0fa824392b3821317552c271ab7943bd6879668d0969f96ccbee94fb"
+    "webgpuCVocabulary": "3c8f5550f05d23a24668a4f04a56daf676780e0c567c0a0906f89d50201e5404",
+    "projection": "c2116dace3eacb3825db4e51f247d55b0d0701f77d7e41ad8dcabaac1fe37d10"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",

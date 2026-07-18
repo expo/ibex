@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 
 import type { NativeGpuEventV2 } from './native-bridge';
 import {
@@ -6,6 +7,7 @@ import {
   WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION,
   type ProductionGpuCodecWrapperAccess,
   type ProductionGpuServiceEncodingInput,
+  type ProductionGpuTextureOriginDigestInput,
   type ProductionGpuWrapperKind,
   validateExecutableWebGpuCodecs,
 } from './production-codecs';
@@ -30,6 +32,23 @@ function bytesHex(bytes: Uint8Array): string {
     bytes,
     (byte) => byte.toString(16).padStart(2, '0'),
   ).join('');
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalJson(entry)).join(',')}]`;
+  }
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(
+        (value as Readonly<Record<string, unknown>>)[key],
+      )}`)
+      .join(',')}}`;
+  }
+  const encoded = JSON.stringify(value);
+  if (encoded === undefined) throw new TypeError('value is not JSON-safe');
+  return encoded;
 }
 
 function wrapper(kind: ProductionGpuWrapperKind): object {
@@ -219,26 +238,35 @@ function convertedTextureViewRequest(
 }
 
 function completeTextureViewCurrentOrigin() {
-  return Object.freeze({
+  const digestInput: ProductionGpuTextureOriginDigestInput = Object.freeze({
     originClass: 'canvas-current',
+    receiverTextureRef: reference('GPUTexture'),
     contextRef: reference('GPUCanvasContext'),
-    attachmentGeneration: 3,
-    contextGeneration: 5,
-    configurationGeneration: 7,
-    currentEpoch: 11,
+    attachmentGeneration: '3',
+    contextGeneration: '5',
+    configurationGeneration: '7',
+    currentEpoch: '11',
     mintOperationProvenance: Object.freeze({
-      operationInstanceId: 13,
-      deviceIngressOrdinal: 17,
+      operationInstanceId: '13',
+      deviceIngressOrdinal: '17',
     }),
-    textureOriginDigest: '1'.repeat(64),
     configuredDeviceRef: reference('GPUDevice'),
     format: 'bgra8unorm',
     usage: 16,
     alphaMode: 'premultiplied',
     colorSpace: 'srgb',
     targetAuthorityDigest: '2'.repeat(64),
-    surfaceAccountToken: 19,
-    surfaceAccountGeneration: 23,
+    surfaceAccountToken: '19',
+    surfaceAccountGeneration: '23',
+  });
+  const {
+    receiverTextureRef: _receiverTextureRef,
+    ...currentOrigin
+  } = digestInput;
+  return Object.freeze({
+    ...currentOrigin,
+    textureOriginDigest: WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .deriveTextureOriginDigest(digestInput),
   });
 }
 
@@ -2710,6 +2738,20 @@ describe('generated injection-only WebGPU executable codecs', () => {
 
     const currentOrigin = completeTextureViewCurrentOrigin();
     const {
+      textureOriginDigest,
+      ...originDigestFacts
+    } = currentOrigin;
+    const digestInput = Object.freeze({
+      receiverTextureRef: reference('GPUTexture'),
+      ...originDigestFacts,
+    }) as ProductionGpuTextureOriginDigestInput;
+    const nodeDigest = createHash('sha256')
+      .update(`exact.webgpu.texture-origin.v1\0${canonicalJson(digestInput)}`)
+      .digest('hex');
+    expect(textureOriginDigest).toBe(nodeDigest);
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .deriveTextureOriginDigest(digestInput)).toBe(nodeDigest);
+    const {
       textureOriginDigest: _omittedTextureOriginDigest,
       ...missingTextureOriginDigest
     } = currentOrigin;
@@ -2764,7 +2806,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       })),
       convertedTextureViewRequest(Object.freeze({
         ...currentOrigin,
-        configurationGeneration: 0,
+        configurationGeneration: '0',
       })),
     ];
     for (const request of malformedRequests) {

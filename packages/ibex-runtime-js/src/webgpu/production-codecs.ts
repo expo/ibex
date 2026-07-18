@@ -49,18 +49,43 @@ export type ProductionGpuDecodedResult =
   | Readonly<{ kind: 'value'; value: unknown }>
   | Readonly<{ kind: 'object'; object: ProductionGpuObjectIdentity }>;
 
+export interface ProductionGpuFullObjectReference {
+  readonly kind: ProductionGpuWrapperKind;
+  readonly objectId: string;
+  readonly objectGeneration: string;
+  readonly logicalDeviceId: string;
+  readonly logicalDeviceGeneration: string;
+  readonly providerGeneration: string;
+}
+
+/** Closed, source-affine input to the codec-owned canvas-current digest. */
+export interface ProductionGpuTextureOriginDigestInput {
+  readonly originClass: 'canvas-current';
+  readonly receiverTextureRef: ProductionGpuFullObjectReference;
+  readonly contextRef: ProductionGpuFullObjectReference;
+  readonly attachmentGeneration: string;
+  readonly contextGeneration: string;
+  readonly configurationGeneration: string;
+  readonly currentEpoch: string;
+  readonly mintOperationProvenance: Readonly<{
+    readonly operationInstanceId: string;
+    readonly deviceIngressOrdinal: string;
+  }>;
+  readonly configuredDeviceRef: ProductionGpuFullObjectReference;
+  readonly format: string;
+  readonly usage: number;
+  readonly alphaMode: 'opaque' | 'premultiplied';
+  readonly colorSpace: 'srgb' | 'display-p3';
+  readonly targetAuthorityDigest: string;
+  readonly surfaceAccountToken: string;
+  readonly surfaceAccountGeneration: string;
+}
+
 export interface ProductionGpuCodecWrapperAccess {
   readonly reference: (
     value: unknown,
     expectedKind?: ProductionGpuWrapperKind,
-  ) => Readonly<{
-    kind: ProductionGpuWrapperKind;
-    objectId: string;
-    objectGeneration: string;
-    logicalDeviceId: string;
-    logicalDeviceGeneration: string;
-    providerGeneration: string;
-  }>;
+  ) => Readonly<ProductionGpuFullObjectReference>;
 }
 
 export interface ProductionGpuServiceEncodingInput {
@@ -89,6 +114,9 @@ export interface ExecutableWebGpuCodecBundle {
   readonly runtimeRoutingDigest: string;
   readonly webgpuCVocabularyDigest: string;
   readonly operationIds: readonly string[];
+  readonly deriveTextureOriginDigest: (
+    input: ProductionGpuTextureOriginDigestInput,
+  ) => string;
   readonly convertPublicArguments: (
     operationId: string,
     args: readonly unknown[],
@@ -160,6 +188,7 @@ export function validateExecutableWebGpuCodecs(
     return false;
   }
   return (
+    typeof value.deriveTextureOriginDigest === 'function' &&
     typeof value.convertPublicArguments === 'function' &&
     typeof value.encodeServiceRequest === 'function' &&
     typeof value.decodeServiceResult === 'function' &&

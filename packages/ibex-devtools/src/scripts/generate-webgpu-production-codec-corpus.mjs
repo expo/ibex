@@ -2295,40 +2295,48 @@ function buildCorpus() {
       logicalDeviceGeneration: "1",
       providerGeneration: "9",
     });
-    const digestInput = Object.freeze({
-      contextRef,
-      currentEpoch: spec.currentEpoch,
-      format: "bgra8unorm",
-      usage: 16,
-      alphaMode: spec.alphaMode,
-      colorSpace: "srgb",
-      receiverObjectId: textureViewReceiver(index).objectId,
+    const targetAuthorityDigest = sha256(canonicalJson({
+      contextId,
+      configuredDeviceRef: textureViewConfiguredDeviceRef,
+      configurationGeneration: "1",
+    }));
+    const mintOperationProvenance = Object.freeze({
+      operationInstanceId: String(1_000 + spec.traceSequence),
+      deviceIngressOrdinal: String(100 + index),
     });
-    return Object.freeze({
+    const digestInput = Object.freeze({
       originClass: "canvas-current",
+      receiverTextureRef: textureViewReceiver(index),
       contextRef,
-      attachmentGeneration: 1,
-      contextGeneration: 1,
-      configurationGeneration: 1,
-      currentEpoch: spec.currentEpoch,
-      mintOperationProvenance: Object.freeze({
-        operationInstanceId: 1_000 + spec.traceSequence,
-        deviceIngressOrdinal: 100 + index,
-      }),
-      textureOriginDigest: sha256(canonicalJson(digestInput)),
+      attachmentGeneration: "1",
+      contextGeneration: "1",
+      configurationGeneration: "1",
+      currentEpoch: String(spec.currentEpoch),
+      mintOperationProvenance,
       configuredDeviceRef: textureViewConfiguredDeviceRef,
       format: "bgra8unorm",
       usage: 16,
       alphaMode: spec.alphaMode,
       colorSpace: "srgb",
-      targetAuthorityDigest: sha256(canonicalJson({
-        contextId,
-        configuredDeviceRef: textureViewConfiguredDeviceRef,
-        configurationGeneration: 1,
-      })),
+      targetAuthorityDigest,
       surfaceAccountToken:
-        spec.sourceWorkload === "typegpu-genetic-racing" ? 700 : 701,
-      surfaceAccountGeneration: 1,
+        spec.sourceWorkload === "typegpu-genetic-racing" ? "700" : "701",
+      surfaceAccountGeneration: "1",
+    });
+    const textureOriginDigest =
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.deriveTextureOriginDigest(
+        digestInput,
+      );
+    const nodeTextureOriginDigest = sha256(
+      `exact.webgpu.texture-origin.v1\0${canonicalJson(digestInput)}`,
+    );
+    if (textureOriginDigest !== nodeTextureOriginDigest) {
+      fail("GPUTexture.createView codec-owned texture origin digest drifted from Node SHA-256");
+    }
+    const { receiverTextureRef: _receiverTextureRef, ...origin } = digestInput;
+    return Object.freeze({
+      ...origin,
+      textureOriginDigest,
     });
   };
   const expectedTextureViewDescriptor = (rawDescriptor) => Object.freeze({

@@ -9,13 +9,25 @@ import type {
   ExecutableWebGpuCodecBundle,
   ProductionGpuServiceEncodingInput,
 } from './production-codecs';
-import { WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION } from './production-codecs.generated';
+import {
+  WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION,
+  WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT,
+} from './production-codecs.generated';
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 import {
   createProductionWebGpuPrivateBinding,
   describeProductionWebGpuWorkloadStaging,
+  incrementCanonicalU64Decimal,
   installProductionWebGpu,
 } from './production-wrapper';
+
+const CANVAS_AUTHORITY = Object.freeze({
+  attachmentGeneration: '31',
+  contextGeneration: '37',
+  targetAuthorityDigest: 'ab'.repeat(32),
+  surfaceAccountToken: '41',
+  surfaceAccountGeneration: '43',
+});
 
 type OperationResultEvent = Extract<NativeGpuEventV2, { kind: 1 }>;
 
@@ -137,9 +149,16 @@ function createFakeCodecs(
     webgpuCVocabularyDigest: WEBGPU_PRODUCTION_PLAN.digests.webgpuCVocabulary,
     operationIds: WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     encodings,
+    deriveTextureOriginDigest(input) {
+      return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+        .deriveTextureOriginDigest(input);
+    },
     convertPublicArguments(operationId, args, wrappers) {
       log.push(`convert:${operationId}`);
-      if (operationId === 'GPUTexture.createView') {
+      if (
+        operationId === 'GPUTexture.createView' ||
+        operationId === 'GPUCanvasContext.configure'
+      ) {
         return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
           operationId,
           args,
@@ -162,9 +181,6 @@ function createFakeCodecs(
       if (operationId === 'GPUQueue.submit') {
         return Array.from(args[0] as Iterable<unknown>);
       }
-      if (operationId === 'GPUCanvasContext.configure') {
-        return { ...(args[0] as Record<string, unknown>) };
-      }
       if (operationId === 'GPUDevice.pushErrorScope') return String(args[0]);
       if (operationId === 'GPURenderPassEncoder.draw') {
         if (args[0] === undefined) throw new TypeError('vertexCount is required');
@@ -181,6 +197,10 @@ function createFakeCodecs(
     encodeServiceRequest(input) {
       log.push(`encode:${input.operationId}`);
       encodings.push(input);
+      if (input.operationId === 'GPUTexture.createView') {
+        return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+          .encodeServiceRequest(input);
+      }
       return new Uint8Array([input.wireId & 0xff]);
     },
     decodeServiceResult(operationId) {
@@ -251,6 +271,20 @@ function isolatedGlobal(): typeof globalThis {
 }
 
 describe('production-private WebGPU wrapper gate', () => {
+  test('increments private u64 counters exactly and rejects overflow before wrap', () => {
+    expect(incrementCanonicalU64Decimal('18446744073709551614')).toBe(
+      '18446744073709551615',
+    );
+    const state = { counter: '18446744073709551615' };
+    expect(() => {
+      state.counter = incrementCanonicalU64Decimal(state.counter);
+    }).toThrow(RangeError);
+    expect(state.counter).toBe('18446744073709551615');
+    expect(() => incrementCanonicalU64Decimal('018')).toThrow(TypeError);
+    expect(() => incrementCanonicalU64Decimal('18446744073709551616'))
+      .toThrow(TypeError);
+  });
+
   test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
       'generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
@@ -787,6 +821,7 @@ describe('production-private WebGPU wrapper factory', () => {
       objectGeneration: '1',
       drawingBufferWidth: 640,
       drawingBufferHeight: 480,
+      authority: CANVAS_AUTHORITY,
     }) as {
       configure(configuration: unknown): void;
       getConfiguration(): Record<string, unknown> | null;
@@ -808,10 +843,111 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(first.height).toBe(480);
     expect(first.width).toBe(640);
     expect(first.createView()).toBeObject();
+    const createViewWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUTexture.createView',
+    )?.wireId;
+    if (createViewWireId === undefined) throw new Error('missing createView route');
+    const firstSubmission = bridge.submissions.findLast(
+      (submission) => submission.operationId === createViewWireId,
+    );
+    if (!firstSubmission) throw new Error('missing createView submission');
+    const firstRequest = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .inspectServiceRequest(firstSubmission.payload) as Readonly<{
+        receiver: Readonly<Record<string, unknown>>;
+        convertedArguments: Readonly<{
+          currentOrigin: Readonly<Record<string, unknown>>;
+        }>;
+      }>;
+    const firstOrigin = firstRequest.convertedArguments.currentOrigin;
+    expect(firstOrigin).toMatchObject({
+      originClass: 'canvas-current',
+      contextRef: {
+        kind: 'GPUCanvasContext',
+        objectId: '401',
+        objectGeneration: '1',
+        logicalDeviceId: '301',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      attachmentGeneration: '31',
+      contextGeneration: '37',
+      configurationGeneration: '1',
+      currentEpoch: '1',
+      mintOperationProvenance: {
+        operationInstanceId: '9223372036854775808',
+        deviceIngressOrdinal: '2',
+      },
+      configuredDeviceRef: {
+        kind: 'GPUDevice',
+        objectId: '201',
+        objectGeneration: '1',
+        logicalDeviceId: '301',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      format: 'bgra8unorm',
+      usage: 16,
+      alphaMode: 'opaque',
+      colorSpace: 'srgb',
+      targetAuthorityDigest: CANVAS_AUTHORITY.targetAuthorityDigest,
+      surfaceAccountToken: '41',
+      surfaceAccountGeneration: '43',
+    });
+    expect(firstOrigin.textureOriginDigest).toMatch(/^[0-9a-f]{64}$/u);
+    expect(firstOrigin).not.toHaveProperty('receiverTextureRef');
+    expect(firstRequest.receiver).toMatchObject({
+      kind: 'GPUTexture',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
     const snapshot = context.getConfiguration();
     expect(snapshot?.format).toBe('bgra8unorm');
     expect(snapshot).not.toBe(context.getConfiguration());
+    context.configure({ device, format: 'bgra8unorm' });
+    const second = context.getCurrentTexture();
+    expect(second).not.toBe(first);
+    expect(second.createView()).toBeObject();
+    const secondSubmission = bridge.submissions.findLast(
+      (submission) => submission.operationId === createViewWireId,
+    );
+    if (!secondSubmission) throw new Error('missing second createView submission');
+    const secondRequest = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .inspectServiceRequest(secondSubmission.payload) as Readonly<{
+        convertedArguments: Readonly<{
+          currentOrigin: Readonly<Record<string, unknown>>;
+        }>;
+      }>;
+    const secondOrigin = secondRequest.convertedArguments.currentOrigin;
+    expect(secondOrigin.configurationGeneration).toBe('2');
+    expect(secondOrigin.currentEpoch).toBe('2');
+    expect(secondOrigin.mintOperationProvenance).not.toEqual(
+      firstOrigin.mintOperationProvenance,
+    );
+    expect(secondOrigin.textureOriginDigest).not.toBe(
+      firstOrigin.textureOriginDigest,
+    );
+    // The private codec may structurally encode an old canvas texture. It
+    // must preserve the immutable origin so the eventual semantic executor,
+    // rather than a silent wrapper rebind, rejects the stale generation.
+    expect(first.createView()).toBeObject();
+    const staleSubmission = bridge.submissions.findLast(
+      (submission) => submission.operationId === createViewWireId,
+    );
+    if (!staleSubmission) throw new Error('missing stale createView submission');
+    const staleRequest = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .inspectServiceRequest(staleSubmission.payload) as Readonly<{
+        convertedArguments: Readonly<{
+          currentOrigin: Readonly<Record<string, unknown>>;
+        }>;
+      }>;
+    expect(staleRequest.convertedArguments.currentOrigin).toEqual(firstOrigin);
+    expect(staleRequest.convertedArguments.currentOrigin).toMatchObject({
+      configurationGeneration: '1',
+      currentEpoch: '1',
+    });
     context.unconfigure();
+    expect(() => context.getCurrentTexture()).toThrow('not configured');
     first.destroy();
 
     const lost = device.lost;
@@ -836,6 +972,43 @@ describe('production-private WebGPU wrapper factory', () => {
       payload: new Uint8Array(),
     });
     expect(await lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    binding.revoke();
+  });
+
+  test('rejects missing or malformed host canvas authority synchronously', () => {
+    const binding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    const base = {
+      objectId: '401',
+      objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
+    };
+    expect(() => binding.mintCanvasContext(base as never))
+      .toThrow('authority is incomplete or malformed');
+    expect(() => binding.mintCanvasContext({
+      ...base,
+      authority: {
+        ...CANVAS_AUTHORITY,
+        targetAuthorityDigest: 'not-a-digest',
+      },
+    })).toThrow('authority is incomplete or malformed');
+    expect(() => binding.mintCanvasContext({
+      ...base,
+      authority: {
+        ...CANVAS_AUTHORITY,
+        attachmentGeneration: '18446744073709551616',
+      },
+    })).toThrow('authority is incomplete or malformed');
+    expect(() => binding.mintCanvasContext({
+      ...base,
+      authority: {
+        ...CANVAS_AUTHORITY,
+        unexpected: 'ambient-data-must-not-be-carried',
+      },
+    } as never)).toThrow('authority is incomplete or malformed');
     binding.revoke();
   });
 
