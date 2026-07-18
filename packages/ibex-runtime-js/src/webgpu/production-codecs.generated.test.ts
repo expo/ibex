@@ -46,6 +46,7 @@ const commandBuffer = wrapper('GPUCommandBuffer');
 const commandEncoder = wrapper('GPUCommandEncoder');
 const renderPass = wrapper('GPURenderPassEncoder');
 const renderPipeline = wrapper('GPURenderPipeline');
+const sampler = wrapper('GPUSampler');
 const shaderModule = wrapper('GPUShaderModule');
 const texture = wrapper('GPUTexture');
 const textureView = wrapper('GPUTextureView');
@@ -157,6 +158,15 @@ function conversionArguments(operationId: string): readonly unknown[] {
         bindGroupLayouts: [bindGroupLayout],
         immediateSize: 0,
       }];
+    case 'GPUDevice.createSampler':
+      return [{ label: 'sampler', magFilter: 'linear', minFilter: 'linear' }];
+    case 'GPUDevice.createTexture':
+      return [{
+        label: 'texture',
+        format: 'rgba8unorm',
+        size: [32, 32],
+        usage: 23,
+      }];
     case 'GPUDevice.createCommandEncoder':
       return [{ label: 'encoder' }];
     case 'GPUDevice.createRenderPipeline':
@@ -221,6 +231,30 @@ function serviceInput(
       label: 'pipeline-layout',
       bindGroupLayouts: Object.freeze([reference('GPUBindGroupLayout')]),
       immediateSize: 0,
+    })
+    : operationId === 'GPUDevice.createSampler'
+    ? Object.freeze({
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+      addressModeW: 'clamp-to-edge',
+      label: 'sampler',
+      lodMaxClamp: 32,
+      lodMinClamp: 0,
+      magFilter: 'linear',
+      maxAnisotropy: 1,
+      minFilter: 'linear',
+      mipmapFilter: 'nearest',
+    })
+    : operationId === 'GPUDevice.createTexture'
+    ? Object.freeze({
+      dimension: '2d',
+      format: 'rgba8unorm',
+      label: 'texture',
+      mipLevelCount: 1,
+      sampleCount: 1,
+      size: Object.freeze({ width: 32, height: 32, depthOrArrayLayers: 1 }),
+      usage: 23,
+      viewFormats: Object.freeze([]),
     })
     : operationId === 'GPUDevice.createCommandEncoder'
     ? Object.freeze({ label: 'encoder' })
@@ -380,11 +414,11 @@ function completeLimits(value = 4): Record<string, number> {
 }
 
 describe('generated injection-only WebGPU executable codecs', () => {
-  test('pins one generated catalog over the exact reviewed 28-operation profile', () => {
+  test('pins one generated catalog over the exact reviewed 36-operation profile', () => {
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationCount).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
     );
-    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(28);
+    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(36);
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).toEqual(
       WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     );
@@ -1083,7 +1117,9 @@ describe('generated injection-only WebGPU executable codecs', () => {
       ['GPUDevice.createBuffer', [{}]],
       ['GPUDevice.createPipelineLayout', [{}]],
       ['GPUDevice.createRenderPipeline', [{}]],
+      ['GPUDevice.createSampler', [{ magFilter: 'cubic' }]],
       ['GPUDevice.createShaderModule', [{}]],
+      ['GPUDevice.createTexture', [{}]],
       ['GPUDevice.pushErrorScope', ['network']],
       ['GPUQueue.submit', [[{}]]],
       ['GPURenderPassEncoder.draw', [-1]],
@@ -1165,6 +1201,30 @@ describe('generated injection-only WebGPU executable codecs', () => {
               label: 'pipeline-layout',
               bindGroupLayouts: [reference('GPUBindGroupLayout')],
               immediateSize: 0,
+            }
+            : route.operationId === 'GPUDevice.createSampler'
+            ? {
+              addressModeU: 'clamp-to-edge',
+              addressModeV: 'clamp-to-edge',
+              addressModeW: 'clamp-to-edge',
+              label: 'sampler',
+              lodMaxClamp: 32,
+              lodMinClamp: 0,
+              magFilter: 'linear',
+              maxAnisotropy: 1,
+              minFilter: 'linear',
+              mipmapFilter: 'nearest',
+            }
+            : route.operationId === 'GPUDevice.createTexture'
+            ? {
+              dimension: '2d',
+              format: 'rgba8unorm',
+              label: 'texture',
+              mipLevelCount: 1,
+              sampleCount: 1,
+              size: { width: 32, height: 32, depthOrArrayLayers: 1 },
+              usage: 23,
+              viewFormats: [],
             }
             : route.operationId === 'GPUDevice.createCommandEncoder'
             ? { label: 'encoder' }
@@ -2109,6 +2169,373 @@ describe('generated injection-only WebGPU executable codecs', () => {
       operationId,
       { kind: 'null' },
     )).toThrow('wrong shape');
+  });
+
+  test('converts createSampler in exact inherited dictionary order with pinned defaults and vocabularies', () => {
+    const operationId = 'GPUDevice.createSampler';
+    const effects: string[] = [];
+    const counts = new Map<string, number>();
+    const enumToken = (name: string, value: string) => ({
+      toString() {
+        effects.push(`convert-${name}`);
+        return value;
+      },
+    });
+    const numberToken = (name: string, value: number) => ({
+      [Symbol.toPrimitive]() {
+        effects.push(`convert-${name}`);
+        return value;
+      },
+    });
+    const values: Readonly<Record<string, unknown>> = {
+      addressModeU: enumToken('addressModeU', 'repeat'),
+      addressModeV: enumToken('addressModeV', 'mirror-repeat'),
+      addressModeW: enumToken('addressModeW', 'clamp-to-edge'),
+      compare: enumToken('compare', 'less-equal'),
+      label: enumToken('label', 'ordered-sampler'),
+      lodMaxClamp: numberToken('lodMaxClamp', 12.25),
+      lodMinClamp: numberToken('lodMinClamp', 1.5),
+      magFilter: enumToken('magFilter', 'linear'),
+      maxAnisotropy: numberToken('maxAnisotropy', 2.5),
+      minFilter: enumToken('minFilter', 'linear'),
+      mipmapFilter: enumToken('mipmapFilter', 'linear'),
+    };
+    const descriptor = Object.create(null) as Record<string, unknown>;
+    for (const name of Object.keys(values)) {
+      Object.defineProperty(descriptor, name, {
+        enumerable: true,
+        get() {
+          counts.set(name, (counts.get(name) ?? 0) + 1);
+          effects.push(`get-${name}`);
+          return values[name];
+        },
+      });
+    }
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [descriptor],
+      wrappers,
+    )).toEqual({
+      addressModeU: 'repeat',
+      addressModeV: 'mirror-repeat',
+      addressModeW: 'clamp-to-edge',
+      compare: 'less-equal',
+      label: 'ordered-sampler',
+      lodMaxClamp: 12.25,
+      lodMinClamp: 1.5,
+      magFilter: 'linear',
+      maxAnisotropy: 2,
+      minFilter: 'linear',
+      mipmapFilter: 'linear',
+    });
+    expect([...counts.values()]).toEqual(Array(11).fill(1));
+    expect(effects).toEqual([
+      'get-addressModeU', 'convert-addressModeU',
+      'get-addressModeV', 'convert-addressModeV',
+      'get-addressModeW', 'convert-addressModeW',
+      'get-compare', 'convert-compare',
+      'get-label', 'convert-label',
+      'get-lodMaxClamp', 'convert-lodMaxClamp',
+      'get-lodMinClamp', 'convert-lodMinClamp',
+      'get-magFilter', 'convert-magFilter',
+      'get-maxAnisotropy', 'convert-maxAnisotropy',
+      'get-minFilter', 'convert-minFilter',
+      'get-mipmapFilter', 'convert-mipmapFilter',
+    ]);
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [undefined],
+      wrappers,
+    )).toEqual({
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+      addressModeW: 'clamp-to-edge',
+      label: '',
+      lodMaxClamp: 32,
+      lodMinClamp: 0,
+      magFilter: 'nearest',
+      maxAnisotropy: 1,
+      minFilter: 'nearest',
+      mipmapFilter: 'nearest',
+    });
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [{ maxAnisotropy: Number.POSITIVE_INFINITY }],
+      wrappers,
+    )).toMatchObject({ maxAnisotropy: 0xffff });
+
+    let laterReads = 0;
+    const invalidMagFilter = Object.defineProperties({}, {
+      magFilter: { get: () => 'cubic' },
+      maxAnisotropy: {
+        get() {
+          laterReads += 1;
+          return 1;
+        },
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [invalidMagFilter],
+      wrappers,
+    )).toThrow('magFilter is not a supported enum value');
+    expect(laterReads).toBe(0);
+    for (const invalidDescriptor of [
+      { addressModeU: 'border' },
+      { compare: 'approximately-equal' },
+      { lodMaxClamp: Number.NaN },
+      { lodMinClamp: 4e38 },
+      { mipmapFilter: 'cubic' },
+      { maxAnisotropy: 1n },
+    ]) {
+      expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        operationId,
+        [invalidDescriptor],
+        wrappers,
+      )).toThrow(TypeError);
+    }
+
+    expect(wrappers.reference(sampler, 'GPUSampler')).toMatchObject({
+      kind: 'GPUSampler',
+      logicalDeviceId: '17',
+    });
+    const payload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
+      serviceInput(operationId),
+    );
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(payload))
+      .toMatchObject({
+        operationId,
+        codec: 'gpu-create-sampler-service-request-v1',
+        receiver: { kind: 'GPUDevice', logicalDeviceId: '17' },
+        target: { kind: 'GPUSampler', logicalDeviceId: '17' },
+      });
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.some(
+      (route) => route.operationId === operationId,
+    )).toBe(false);
+  });
+
+  test('converts createTexture in exact descriptor and extent order with one-shot iterables', () => {
+    const operationId = 'GPUDevice.createTexture';
+    const effects: string[] = [];
+    const enumToken = (name: string, value: string) => ({
+      toString() {
+        effects.push(`convert-${name}`);
+        return value;
+      },
+    });
+    const numberToken = (name: string, value: number) => ({
+      [Symbol.toPrimitive]() {
+        effects.push(`convert-${name}`);
+        return value;
+      },
+    });
+    const extent = Object.create(null) as Record<string, unknown>;
+    for (const [name, value] of [
+      ['depthOrArrayLayers', 1],
+      ['height', 128],
+      ['width', 256],
+    ] as const) {
+      Object.defineProperty(extent, name, {
+        get() {
+          effects.push(`get-size.${name}`);
+          return numberToken(`size.${name}`, value);
+        },
+      });
+    }
+    let viewFormatIteratorGets = 0;
+    let viewFormatIteratorCalls = 0;
+    const viewFormats = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(viewFormats, Symbol.iterator, {
+      get() {
+        viewFormatIteratorGets += 1;
+        effects.push('get-viewFormats.@@iterator');
+        return function () {
+          viewFormatIteratorCalls += 1;
+          effects.push('call-viewFormats.@@iterator');
+          let done = false;
+          return {
+            next() {
+              if (done) return { done: true };
+              done = true;
+              return {
+                done: false,
+                value: enumToken('viewFormats[0]', 'rgba8unorm'),
+              };
+            },
+          };
+        };
+      },
+    });
+    const values: Readonly<Record<string, unknown>> = {
+      dimension: enumToken('dimension', '2d'),
+      format: enumToken('format', 'rgba16float'),
+      label: enumToken('label', 'ordered-texture'),
+      mipLevelCount: numberToken('mipLevelCount', 1.9),
+      sampleCount: numberToken('sampleCount', 1.9),
+      size: extent,
+      textureBindingViewDimension: enumToken('textureBindingViewDimension', '2d-array'),
+      usage: numberToken('usage', 31.9),
+      viewFormats,
+    };
+    const descriptor = Object.create(null) as Record<string, unknown>;
+    for (const name of Object.keys(values)) {
+      Object.defineProperty(descriptor, name, {
+        get() {
+          effects.push(`get-${name}`);
+          return values[name];
+        },
+      });
+    }
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [descriptor],
+      wrappers,
+    )).toEqual({
+      dimension: '2d',
+      format: 'rgba16float',
+      label: 'ordered-texture',
+      mipLevelCount: 1,
+      sampleCount: 1,
+      size: { width: 256, height: 128, depthOrArrayLayers: 1 },
+      textureBindingViewDimension: '2d-array',
+      usage: 31,
+      viewFormats: ['rgba8unorm'],
+    });
+    expect(viewFormatIteratorGets).toBe(1);
+    expect(viewFormatIteratorCalls).toBe(1);
+    expect(effects).toEqual([
+      'get-dimension', 'convert-dimension',
+      'get-format', 'convert-format',
+      'get-label', 'convert-label',
+      'get-mipLevelCount', 'convert-mipLevelCount',
+      'get-sampleCount', 'convert-sampleCount',
+      'get-size',
+      'get-size.depthOrArrayLayers', 'convert-size.depthOrArrayLayers',
+      'get-size.height', 'convert-size.height',
+      'get-size.width', 'convert-size.width',
+      'get-textureBindingViewDimension', 'convert-textureBindingViewDimension',
+      'get-usage', 'convert-usage',
+      'get-viewFormats',
+      'get-viewFormats.@@iterator', 'call-viewFormats.@@iterator',
+      'convert-viewFormats[0]',
+    ]);
+
+    let extentIteratorGets = 0;
+    const iterableExtent = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(iterableExtent, Symbol.iterator, {
+      get() {
+        extentIteratorGets += 1;
+        return function* () {
+          yield 64;
+          yield 32;
+        };
+      },
+    });
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [{ format: 'rgba8unorm', size: iterableExtent, usage: 23 }],
+      wrappers,
+    )).toMatchObject({
+      dimension: '2d',
+      label: '',
+      mipLevelCount: 1,
+      sampleCount: 1,
+      size: { width: 64, height: 32, depthOrArrayLayers: 1 },
+      viewFormats: [],
+    });
+    expect(extentIteratorGets).toBe(1);
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [{
+        format: 'rgba8unorm',
+        size: { [Symbol.iterator]: null, width: 8 },
+        usage: 17,
+      }],
+      wrappers,
+    )).toMatchObject({ size: { width: 8, height: 1, depthOrArrayLayers: 1 } });
+
+    let postFormatReads = 0;
+    const missingFormat = Object.defineProperty({}, 'label', {
+      get() {
+        postFormatReads += 1;
+        return 'never';
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [missingFormat],
+      wrappers,
+    )).toThrow('format is required');
+    expect(postFormatReads).toBe(0);
+    let postSizeReads = 0;
+    const missingExtentWidth = Object.defineProperties({}, {
+      format: { get: () => 'rgba8unorm' },
+      size: { get: () => ({ height: 2 }) },
+      usage: {
+        get() {
+          postSizeReads += 1;
+          return 17;
+        },
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [missingExtentWidth],
+      wrappers,
+    )).toThrow('size.width is required');
+    expect(postSizeReads).toBe(0);
+
+    let iteratorClosed = 0;
+    const invalidViewFormats = {
+      [Symbol.iterator]() {
+        let done = false;
+        return {
+          next() {
+            if (done) return { done: true };
+            done = true;
+            return { done: false, value: 'not-a-format' };
+          },
+          return() {
+            iteratorClosed += 1;
+            return { done: true };
+          },
+        };
+      },
+    };
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      operationId,
+      [{ format: 'rgba8unorm', size: [1], usage: 17, viewFormats: invalidViewFormats }],
+      wrappers,
+    )).toThrow('viewFormats member is not a supported enum value');
+    expect(iteratorClosed).toBe(1);
+    for (const invalidDescriptor of [
+      { dimension: '4d', format: 'rgba8unorm', size: [1], usage: 17 },
+      { format: 'not-a-format', size: [1], usage: 17 },
+      { format: 'rgba8unorm', size: [], usage: 17 },
+      { format: 'rgba8unorm', size: [1, 2, 3, 4], usage: 17 },
+      { format: 'rgba8unorm', size: [1], textureBindingViewDimension: '4d', usage: 17 },
+      { format: 'rgba8unorm', size: [1n], usage: 17 },
+    ]) {
+      expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        operationId,
+        [invalidDescriptor],
+        wrappers,
+      )).toThrow(TypeError);
+    }
+
+    const payload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
+      serviceInput(operationId),
+    );
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(payload))
+      .toMatchObject({
+        operationId,
+        codec: 'gpu-create-texture-service-request-v1',
+        receiver: { kind: 'GPUDevice', logicalDeviceId: '17' },
+        target: { kind: 'GPUTexture', logicalDeviceId: '17' },
+      });
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.some(
+      (route) => route.operationId === operationId,
+    )).toBe(false);
   });
 
   test('converts createBindGroupLayout dictionaries in observable WebIDL order with one Get each', () => {

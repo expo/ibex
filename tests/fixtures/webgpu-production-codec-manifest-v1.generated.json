@@ -3,7 +3,7 @@
   "disposition": "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-  "operationCount": 28,
+  "operationCount": 36,
   "operationIds": [
     "GPU.getPreferredCanvasFormat",
     "GPU.requestAdapter",
@@ -14,9 +14,13 @@
     "GPUCanvasContext.unconfigure",
     "GPUCommandEncoder.beginRenderPass",
     "GPUCommandEncoder.finish",
+    "GPUBuffer.mapState",
+    "GPUBuffer.usage",
     "GPUDevice.createBindGroupLayout",
     "GPUDevice.createBuffer",
     "GPUDevice.createPipelineLayout",
+    "GPUDevice.createSampler",
+    "GPUDevice.createTexture",
     "GPUDevice.createCommandEncoder",
     "GPUDevice.createRenderPipeline",
     "GPUDevice.createShaderModule",
@@ -31,6 +35,10 @@
     "GPURenderPassEncoder.draw",
     "GPURenderPassEncoder.end",
     "GPURenderPassEncoder.setPipeline",
+    "GPUTexture.dimension",
+    "GPUTexture.format",
+    "GPUTexture.height",
+    "GPUTexture.width",
     "GPUTexture.createView",
     "GPUTexture.destroy"
   ],
@@ -47,11 +55,11 @@
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "76253c3e6e9b2352877dadfff521eafdaf259e5ae86ab4604c1d7ce32661bdea",
-    "semanticProgramSet": "6fb7169e4f1a3c197cceda4e9b3570013a12c2090a636cab237247aabdb3631a",
-    "runtimeRouting": "fbdc1e4c0e382655f6ed591e86f928bcf357d41d7a58c79a6cfa8acaa54b1e89",
-    "webgpuCVocabulary": "c1b9cfa3ddd550087d066408ed174f1cc7c41c771e5cd32c0133d27d5846cfad",
-    "projection": "d195bc83f1bec557f70d66afd7657bdc1604c274f0f59b6dfdddee34a9ad614d"
+    "operationSet": "7cf1c424acb706fd6ac063e7366de85a3b8c9f6bb9943890e7fc7bd9156b8f12",
+    "semanticProgramSet": "bf30192724ca32b59ea215219e3716c2a62d7354d725ed1276e23cb2ed0127c1",
+    "runtimeRouting": "5c182e06e4bc82cc5b5da299aa029ef6f9f1d8a76fb7ab9685c1b123ac55510a",
+    "webgpuCVocabulary": "acef6a0609e716dd04b7e9dd36fb645a4b18dc38a63f87bda74d88ea24a9611d",
+    "projection": "5e4f8467d2c56f9645b76912d799c4129812ae9455a3c7e5b7cce51ab5cef427"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -4341,6 +4349,42 @@
       "astc-12x10-unorm-srgb",
       "astc-12x12-unorm",
       "astc-12x12-unorm-srgb"
+    ],
+    "gpuAddressModes": [
+      "clamp-to-edge",
+      "repeat",
+      "mirror-repeat"
+    ],
+    "gpuFilterModes": [
+      "nearest",
+      "linear"
+    ],
+    "gpuMipmapFilterModes": [
+      "nearest",
+      "linear"
+    ],
+    "gpuCompareFunctions": [
+      "never",
+      "less",
+      "equal",
+      "less-equal",
+      "greater",
+      "not-equal",
+      "greater-equal",
+      "always"
+    ],
+    "gpuTextureDimensions": [
+      "1d",
+      "2d",
+      "3d"
+    ],
+    "gpuTextureViewDimensions": [
+      "1d",
+      "2d",
+      "2d-array",
+      "cube",
+      "cube-array",
+      "3d"
     ]
   },
   "publicArguments": [
@@ -4445,6 +4489,18 @@
       "tag": "gpu-buffer-descriptor-v1",
       "wireShape": "complete pinned GPUBufferDescriptor after observable Web IDL conversion: owned label, mappedAtCreation boolean, safe u64 numeric allocation size through 268435456, and closed u32 usage flags; this descriptor carries no upload bytes and the later 16777216-byte upload chunk bound does not cap allocation size",
       "ownership": "owned-copy-no-upload-payload"
+    },
+    {
+      "wireTag": 18,
+      "tag": "gpu-sampler-descriptor-v1",
+      "wireShape": "complete pinned GPUSamplerDescriptor after observable inherited-dictionary Web IDL conversion in lexicographic member order: addressModeU/V/W clamp-to-edge, optional compare absent, label empty, lodMaxClamp 32, lodMinClamp 0, magFilter/minFilter/mipmapFilter nearest, maxAnisotropy 1; address vocab clamp-to-edge/repeat/mirror-repeat, compare vocab never/less/equal/less-equal/greater/not-equal/greater-equal/always, filter vocab nearest/linear",
+      "ownership": "owned-copy-no-handle-references"
+    },
+    {
+      "wireTag": 19,
+      "tag": "gpu-texture-descriptor-v1",
+      "wireShape": "complete pinned GPUTextureDescriptor after observable inherited-dictionary Web IDL conversion in lexicographic member order: dimension default 2d, required format, label default empty, mipLevelCount default 1, sampleCount default 1, required size converted once from iterable or lexicographic GPUExtent3DDict depthOrArrayLayers/height/width with each missing coordinate default 1, optional textureBindingViewDimension absent, required closed u32 usage flags, and viewFormats default empty consumed exactly once; dimension vocab 1d/2d/3d and texture format/view vocab from the pinned profile",
+      "ownership": "owned-copy-no-handle-references"
     }
   ],
   "serviceArguments": [
@@ -4745,6 +4801,24 @@
       "tag": "gpu-create-buffer-service-request-v1",
       "wireShape": "device receiver plus wrapper-allocated buffer target and complete converted numeric descriptor; reviewed workload, logical limit, table, dual-ledger resourceBytes/mapped extent/staging, provider-credit, and last label validation occur after native decode",
       "ownership": "owned-copy-no-upload-payload",
+      "nativeProgramPrerequisitesRepresented": true,
+      "executableFromCurrentAuthenticatedInputs": true,
+      "unavailableSemanticFields": []
+    },
+    {
+      "wireTag": 18,
+      "tag": "gpu-create-sampler-service-request-v1",
+      "wireShape": "source-affine device receiver plus wrapper-allocated sampler target and complete converted sampler descriptor; target identity is validation-only and never selects realm, device, account, provider, principal, or authority context",
+      "ownership": "owned-copy-no-handle-references",
+      "nativeProgramPrerequisitesRepresented": true,
+      "executableFromCurrentAuthenticatedInputs": true,
+      "unavailableSemanticFields": []
+    },
+    {
+      "wireTag": 19,
+      "tag": "gpu-create-texture-service-request-v1",
+      "wireShape": "source-affine device receiver plus wrapper-allocated texture target and complete converted texture descriptor; target identity is validation-only and never selects realm, device, account, provider, principal, or authority context",
+      "ownership": "owned-copy-no-handle-references",
       "nativeProgramPrerequisitesRepresented": true,
       "executableFromCurrentAuthenticatedInputs": true,
       "unavailableSemanticFields": []

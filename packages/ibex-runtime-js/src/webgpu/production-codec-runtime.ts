@@ -3517,7 +3517,7 @@ function convertExtent3D(value: unknown): Readonly<{
     throw new TypeError('GPUTextureDescriptor.size must be an iterable or dictionary');
   }
   const iteratorMethod = value[Symbol.iterator];
-  if (iteratorMethod !== undefined) {
+  if (iteratorMethod !== undefined && iteratorMethod !== null) {
     if (typeof iteratorMethod !== 'function') {
       throw new TypeError('GPUTextureDescriptor.size @@iterator must be callable');
     }

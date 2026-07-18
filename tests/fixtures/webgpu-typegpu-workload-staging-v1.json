@@ -9,11 +9,13 @@
   "typegpuVersion": "0.11.9",
   "activeRouteSubset": {
     "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-    "operationCount": 28,
+    "operationCount": 36,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
       "GPUAdapter.requestDevice",
+      "GPUBuffer.mapState",
+      "GPUBuffer.usage",
       "GPUCanvasContext.configure",
       "GPUCanvasContext.getConfiguration",
       "GPUCanvasContext.getCurrentTexture",
@@ -25,7 +27,9 @@
       "GPUDevice.createCommandEncoder",
       "GPUDevice.createPipelineLayout",
       "GPUDevice.createRenderPipeline",
+      "GPUDevice.createSampler",
       "GPUDevice.createShaderModule",
+      "GPUDevice.createTexture",
       "GPUDevice.destroy",
       "GPUDevice.features",
       "GPUDevice.limits",
@@ -38,12 +42,16 @@
       "GPURenderPassEncoder.end",
       "GPURenderPassEncoder.setPipeline",
       "GPUTexture.createView",
-      "GPUTexture.destroy"
+      "GPUTexture.destroy",
+      "GPUTexture.dimension",
+      "GPUTexture.format",
+      "GPUTexture.height",
+      "GPUTexture.width"
     ]
   },
   "workloadClosure": {
     "operationCount": 51,
-    "additionalOperationCount": 27,
+    "additionalOperationCount": 19,
     "operations": [
       {
         "operationId": "GPU.getPreferredCanvasFormat",
@@ -78,7 +86,7 @@
       {
         "operationId": "GPUBuffer.mapState",
         "memberKind": "property",
-        "disposition": "private-wrapper-local-metadata-read-no-dispatch"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUBuffer.unmap",
@@ -88,7 +96,7 @@
       {
         "operationId": "GPUBuffer.usage",
         "memberKind": "property",
-        "disposition": "private-wrapper-local-metadata-read-no-dispatch"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUCanvasContext.configure",
@@ -193,7 +201,7 @@
       {
         "operationId": "GPUDevice.createSampler",
         "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUDevice.createShaderModule",
@@ -203,7 +211,7 @@
       {
         "operationId": "GPUDevice.createTexture",
         "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUDevice.destroy",
@@ -283,22 +291,22 @@
       {
         "operationId": "GPUTexture.dimension",
         "memberKind": "property",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUTexture.format",
         "memberKind": "property",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUTexture.height",
         "memberKind": "property",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUTexture.width",
         "memberKind": "property",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       }
     ],
     "properties": [
@@ -353,7 +361,7 @@
   "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined",
   "source": {
     "path": "tests/gpu/typegpu-workload-closure-v1.json",
-    "normalizedProjectionSha256": "899f273bdbe385441879a899537129a80723b940bb471520169a3174e3ea06ce",
+    "normalizedProjectionSha256": "c341a3254dce6a538e10bea31e6d6407b425a9eec38ca9a440e028d02b42ea07",
     "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
   }
 }

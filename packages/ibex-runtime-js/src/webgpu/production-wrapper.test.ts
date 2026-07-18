@@ -365,17 +365,17 @@ describe('production-private WebGPU wrapper factory', () => {
     missing.revoke();
   });
 
-  test('keeps the audited TypeGPU delta non-dispatchable with only reviewed metadata reads', () => {
+  test('keeps the unauthorised TypeGPU delta absent after resource graduation', () => {
     const staging = describeProductionWebGpuWorkloadStaging();
     expect(staging.supportClaim).toBe('none');
     expect(staging.nativeExecutionEvidence).toBe(
       'none-recording-provider-is-inventory-only',
     );
     expect(staging.typegpuVersion).toBe('0.11.9');
-    expect(staging.activeRouteOperationCount).toBe(28);
+    expect(staging.activeRouteOperationCount).toBe(36);
     expect(staging.workloadOperationCount).toBe(51);
-    expect(staging.additionalOperationCount).toBe(27);
-    expect(staging.additionalOperations).toHaveLength(27);
+    expect(staging.additionalOperationCount).toBe(19);
+    expect(staging.additionalOperations).toHaveLength(19);
     expect(staging.blockers).toHaveLength(5);
     expect(staging.embeddedCodecRule).toBe(
       'EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined',
@@ -398,29 +398,19 @@ describe('production-private WebGPU wrapper factory', () => {
       const descriptor = interfaceObject === undefined
         ? undefined
         : Object.getOwnPropertyDescriptor(interfaceObject.prototype, memberName);
-      if (
-        operation.disposition ===
-          'private-wrapper-local-metadata-read-no-dispatch'
-      ) {
-        expect(['GPUBuffer.mapState', 'GPUBuffer.usage']).toContain(
-          operation.operationId,
-        );
-        expect(descriptor?.get).toBeFunction();
-        expect(descriptor?.set).toBeUndefined();
-      } else {
-        expect(descriptor).toBeUndefined();
-      }
+      expect(operation.disposition).toBe('staged-unroutable-no-prototype-member');
+      expect(descriptor).toBeUndefined();
     }
     binding.revoke();
   });
 
-  test('materializes exactly the reviewed 28-operation interface shape', () => {
+  test('materializes exactly the reviewed 36-operation interface shape', () => {
     const binding = createProductionWebGpuPrivateBinding(
       createFakeBridge(),
       createFakeCodecs(),
     );
-    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(28);
-    expect(Object.keys(binding.interfaceObjects)).toHaveLength(23);
+    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(36);
+    expect(Object.keys(binding.interfaceObjects)).toHaveLength(24);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
     for (const selected of WEBGPU_PRODUCTION_PLAN.routes) {
       const interfaceObject = binding.interfaceObjects[selected.interfaceName] as {
@@ -475,7 +465,14 @@ describe('production-private WebGPU wrapper factory', () => {
         readonly mapState: 'mapped' | 'pending' | 'unmapped';
       };
       createPipelineLayout(descriptor: unknown): object;
+      createSampler(descriptor?: unknown): object;
       createShaderModule(descriptor: unknown): object;
+      createTexture(descriptor: unknown): {
+        readonly dimension: '1d' | '2d' | '3d';
+        readonly format: string;
+        readonly height: number;
+        readonly width: number;
+      };
       createRenderPipeline(descriptor: unknown): object;
       createCommandEncoder(descriptor?: unknown): {
         beginRenderPass(descriptor: unknown): {
@@ -516,15 +513,23 @@ describe('production-private WebGPU wrapper factory', () => {
       size: 128,
       usage: 9,
     });
+    const logBeforeMappedBufferMetadata = log.slice();
+    const submissionsBeforeMappedBufferMetadata = bridge.submissions.length;
     expect(mappedBuffer.usage).toBe(9);
     expect(mappedBuffer.mapState).toBe('mapped');
+    expect(log).toEqual(logBeforeMappedBufferMetadata);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeMappedBufferMetadata);
     const unmappedBuffer = device.createBuffer({
       label: 'unmapped-buffer',
       size: 72,
       usage: 76,
     });
+    const logBeforeUnmappedBufferMetadata = log.slice();
+    const submissionsBeforeUnmappedBufferMetadata = bridge.submissions.length;
     expect(unmappedBuffer.usage).toBe(76);
     expect(unmappedBuffer.mapState).toBe('unmapped');
+    expect(log).toEqual(logBeforeUnmappedBufferMetadata);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeUnmappedBufferMetadata);
     expect(() => {
       (unmappedBuffer as { usage: number }).usage = 1;
     }).toThrow();
@@ -553,6 +558,66 @@ describe('production-private WebGPU wrapper factory', () => {
     )!;
     expect(pipelineLayoutEncoding.target).toMatchObject({
       kind: 'GPUPipelineLayout',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+
+    const sampler = device.createSampler({
+      label: 'sampler',
+      magFilter: 'linear',
+      minFilter: 'linear',
+    });
+    expect(Object.getPrototypeOf(sampler)).toBe(
+      (globalObject.GPUSampler as { prototype: object }).prototype,
+    );
+    const samplerEncoding = codecs.encodings.find(
+      (encoding) => encoding.operationId === 'GPUDevice.createSampler',
+    )!;
+    expect(samplerEncoding.receiver).toMatchObject({
+      kind: 'GPUDevice',
+      objectId: '201',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    expect(samplerEncoding.target).toMatchObject({
+      kind: 'GPUSampler',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+
+    const texture = device.createTexture({
+      dimension: '2d',
+      format: 'rgba8unorm',
+      label: 'texture',
+      size: { width: 32, height: 16, depthOrArrayLayers: 1 },
+      usage: 23,
+    });
+    const logBeforeTextureMetadata = log.slice();
+    const submissionsBeforeTextureMetadata = bridge.submissions.length;
+    expect(texture.dimension).toBe('2d');
+    expect(texture.format).toBe('rgba8unorm');
+    expect(texture.height).toBe(16);
+    expect(texture.width).toBe(32);
+    expect(log).toEqual(logBeforeTextureMetadata);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeTextureMetadata);
+    expect(() => {
+      (texture as { width: number }).width = 1;
+    }).toThrow();
+    const textureEncoding = codecs.encodings.find(
+      (encoding) => encoding.operationId === 'GPUDevice.createTexture',
+    )!;
+    expect(textureEncoding.receiver).toMatchObject({
+      kind: 'GPUDevice',
+      objectId: '201',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    expect(textureEncoding.target).toMatchObject({
+      kind: 'GPUTexture',
       logicalDeviceId: '301',
       logicalDeviceGeneration: '1',
       providerGeneration: '7',
@@ -647,15 +712,28 @@ describe('production-private WebGPU wrapper factory', () => {
     const context = binding.mintCanvasContext({
       objectId: '401',
       objectGeneration: '1',
+      drawingBufferWidth: 640,
+      drawingBufferHeight: 480,
     }) as {
       configure(configuration: unknown): void;
       getConfiguration(): Record<string, unknown> | null;
-      getCurrentTexture(): { createView(): object; destroy(): void };
+      getCurrentTexture(): {
+        readonly dimension: '2d';
+        readonly format: string;
+        readonly height: number;
+        readonly width: number;
+        createView(): object;
+        destroy(): void;
+      };
       unconfigure(): void;
     };
     context.configure({ device, format: 'bgra8unorm' });
     const first = context.getCurrentTexture();
     expect(context.getCurrentTexture()).toBe(first);
+    expect(first.dimension).toBe('2d');
+    expect(first.format).toBe('bgra8unorm');
+    expect(first.height).toBe(480);
+    expect(first.width).toBe(640);
     expect(first.createView()).toBeObject();
     const snapshot = context.getConfiguration();
     expect(snapshot?.format).toBe('bgra8unorm');

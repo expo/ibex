@@ -15,11 +15,11 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "operationSetSha256": "76253c3e6e9b2352877dadfff521eafdaf259e5ae86ab4604c1d7ce32661bdea",
-    "semanticProgramSetSha256": "6fb7169e4f1a3c197cceda4e9b3570013a12c2090a636cab237247aabdb3631a",
-    "runtimeRoutingSha256": "fbdc1e4c0e382655f6ed591e86f928bcf357d41d7a58c79a6cfa8acaa54b1e89",
-    "webgpuCVocabularySha256": "c1b9cfa3ddd550087d066408ed174f1cc7c41c771e5cd32c0133d27d5846cfad",
-    "projectionPayloadSha256": "d195bc83f1bec557f70d66afd7657bdc1604c274f0f59b6dfdddee34a9ad614d"
+    "operationSetSha256": "7cf1c424acb706fd6ac063e7366de85a3b8c9f6bb9943890e7fc7bd9156b8f12",
+    "semanticProgramSetSha256": "bf30192724ca32b59ea215219e3716c2a62d7354d725ed1276e23cb2ed0127c1",
+    "runtimeRoutingSha256": "5c182e06e4bc82cc5b5da299aa029ef6f9f1d8a76fb7ab9685c1b123ac55510a",
+    "webgpuCVocabularySha256": "acef6a0609e716dd04b7e9dd36fb645a4b18dc38a63f87bda74d88ea24a9611d",
+    "projectionPayloadSha256": "5e4f8467d2c56f9645b76912d799c4129812ae9455a3c7e5b7cce51ab5cef427"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -39,7 +39,7 @@
     },
     "installInventory": {
       "actualInstalledOperationCount": 0,
-      "intendedInstallOperationCount": 28,
+      "intendedInstallOperationCount": 36,
       "intendedInstallSet": "native-triangle-plus-explicit-typegpu-graduates-only",
       "activation": "selected-build-capability-plus-authenticated-provider-plus-armed-capsec-snapshot",
       "mainRuntimeGlobal": "navigator.gpu",
@@ -109,6 +109,10 @@
         },
         {
           "name": "GPURenderPipeline",
+          "construction": "forbidden-internal-wrapper"
+        },
+        {
+          "name": "GPUSampler",
           "construction": "forbidden-internal-wrapper"
         },
         {
@@ -4672,6 +4676,16 @@
           "tag": "gpu-buffer-descriptor-v1",
           "wireShape": "complete pinned GPUBufferDescriptor after observable Web IDL conversion: owned label, mappedAtCreation boolean, safe u64 numeric allocation size through 268435456, and closed u32 usage flags; this descriptor carries no upload bytes and the later 16777216-byte upload chunk bound does not cap allocation size",
           "ownership": "owned-copy-no-upload-payload"
+        },
+        {
+          "tag": "gpu-sampler-descriptor-v1",
+          "wireShape": "complete pinned GPUSamplerDescriptor after observable inherited-dictionary Web IDL conversion in lexicographic member order: addressModeU/V/W clamp-to-edge, optional compare absent, label empty, lodMaxClamp 32, lodMinClamp 0, magFilter/minFilter/mipmapFilter nearest, maxAnisotropy 1; address vocab clamp-to-edge/repeat/mirror-repeat, compare vocab never/less/equal/less-equal/greater/not-equal/greater-equal/always, filter vocab nearest/linear",
+          "ownership": "owned-copy-no-handle-references"
+        },
+        {
+          "tag": "gpu-texture-descriptor-v1",
+          "wireShape": "complete pinned GPUTextureDescriptor after observable inherited-dictionary Web IDL conversion in lexicographic member order: dimension default 2d, required format, label default empty, mipLevelCount default 1, sampleCount default 1, required size converted once from iterable or lexicographic GPUExtent3DDict depthOrArrayLayers/height/width with each missing coordinate default 1, optional textureBindingViewDimension absent, required closed u32 usage flags, and viewFormats default empty consumed exactly once; dimension vocab 1d/2d/3d and texture format/view vocab from the pinned profile",
+          "ownership": "owned-copy-no-handle-references"
         }
       ],
       "serviceArguments": [
@@ -4834,6 +4848,16 @@
           "tag": "gpu-create-buffer-service-request-v1",
           "wireShape": "device receiver plus wrapper-allocated buffer target and complete converted numeric descriptor; reviewed workload, logical limit, table, dual-ledger resourceBytes/mapped extent/staging, provider-credit, and last label validation occur after native decode",
           "ownership": "owned-copy-no-upload-payload"
+        },
+        {
+          "tag": "gpu-create-sampler-service-request-v1",
+          "wireShape": "source-affine device receiver plus wrapper-allocated sampler target and complete converted sampler descriptor; target identity is validation-only and never selects realm, device, account, provider, principal, or authority context",
+          "ownership": "owned-copy-no-handle-references"
+        },
+        {
+          "tag": "gpu-create-texture-service-request-v1",
+          "wireShape": "source-affine device receiver plus wrapper-allocated texture target and complete converted texture descriptor; target identity is validation-only and never selects realm, device, account, provider, principal, or authority context",
+          "ownership": "owned-copy-no-handle-references"
         }
       ],
       "publicResults": [
@@ -4904,8 +4928,8 @@
         },
         {
           "tag": "gpu-texture-handle-v1",
-          "wireShape": "GPUTexture-handle-ref-plus-epoch",
-          "identity": "stable-current-texture-per-epoch"
+          "wireShape": "GPUTexture-handle-ref-plus-immutable-dimension-format-width-height-and-optional-canvas-epoch-origin",
+          "identity": "fresh-created-object-or-stable-current-texture-per-epoch"
         },
         {
           "tag": "gpu-texture-view-handle-v1",
@@ -4935,6 +4959,31 @@
         {
           "tag": "gpu-buffer-handle-v1",
           "wireShape": "GPUBuffer-handle-ref-plus-immutable-usage-and-wrapper-mapping-state",
+          "identity": "fresh-logical-object"
+        },
+        {
+          "tag": "gpu-buffer-map-state-v1",
+          "wireShape": "unmapped-or-pending-or-mapped-enum",
+          "identity": "wrapper-state-value"
+        },
+        {
+          "tag": "gpu-flags-constant-v1",
+          "wireShape": "u32-WebGPU-flags-value",
+          "identity": "immutable-value"
+        },
+        {
+          "tag": "gpu-texture-dimension-v1",
+          "wireShape": "1d-or-2d-or-3d-enum",
+          "identity": "immutable-value"
+        },
+        {
+          "tag": "gpu-integer-coordinate-out-v1",
+          "wireShape": "u32-WebGPU-coordinate-value",
+          "identity": "immutable-value"
+        },
+        {
+          "tag": "gpu-sampler-handle-v1",
+          "wireShape": "GPUSampler-handle-ref",
           "identity": "fresh-logical-object"
         }
       ],
@@ -5028,6 +5077,10 @@
           "lifecycle": "live-mapped-or-unmapped-destroyed-device-generation-owned"
         },
         {
+          "name": "GPUSampler",
+          "lifecycle": "device-generation-owned"
+        },
+        {
           "name": "GPUDevice",
           "lifecycle": "active-destroyed-physically-lost-account-closing-retired"
         },
@@ -5079,6 +5132,10 @@
       "stableProperties": {
         "GPUBuffer.usage": "immutable-Web-IDL-converted-u32-for-wrapper-lifetime",
         "GPUBuffer.mapState": "wrapper-owned-mapped-pending-or-unmapped-state-without-provider-read",
+        "GPUTexture.dimension": "immutable-Web-IDL-converted-dimension-for-wrapper-lifetime",
+        "GPUTexture.format": "immutable-Web-IDL-converted-format-for-wrapper-lifetime",
+        "GPUTexture.height": "immutable-Web-IDL-converted-height-for-wrapper-lifetime",
+        "GPUTexture.width": "immutable-Web-IDL-converted-width-for-wrapper-lifetime",
         "GPUDevice.queue": "same-wrapper-for-device-lifetime",
         "GPUDevice.features": "same-readonly-setlike-snapshot",
         "GPUDevice.limits": "same-readonly-complete-limit-snapshot",
@@ -5543,6 +5600,60 @@
         "providerSubmission": "none"
       },
       {
+        "operationId": "GPUBuffer.mapState",
+        "wireId": 2040228619,
+        "semanticSha256": "7efb914c2a2eef0a623cb446260ce58266ff6b07ec72bf1945a22402e2543d0c",
+        "memberKind": "property",
+        "dispatchClass": "wrapper-property-read",
+        "logicalExecutionKind": "wrapper-local",
+        "publicArgumentCodec": "none-v1",
+        "serviceArgumentCodec": "none-service-request-v1",
+        "publicResultCodec": "gpu-buffer-map-state-v1",
+        "serviceCompletionCodec": "none-service-completion-v1",
+        "resultTiming": "synchronous-return",
+        "errors": [],
+        "receiverHandleKind": "GPUBuffer",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
+        "resultHandleKind": null,
+        "wrapperAllocatedTargetHandleKind": null,
+        "operationInstanceIdentity": "not-carried-wrapper-only",
+        "promiseIdentity": "not-carried-wrapper-only",
+        "providerSubmission": "none"
+      },
+      {
+        "operationId": "GPUBuffer.usage",
+        "wireId": 1925415872,
+        "semanticSha256": "bedab8f274bb18f195e84946c4712dcdcda19227588b15066e1de31236a47046",
+        "memberKind": "property",
+        "dispatchClass": "wrapper-property-read",
+        "logicalExecutionKind": "wrapper-local",
+        "publicArgumentCodec": "none-v1",
+        "serviceArgumentCodec": "none-service-request-v1",
+        "publicResultCodec": "gpu-flags-constant-v1",
+        "serviceCompletionCodec": "none-service-completion-v1",
+        "resultTiming": "synchronous-return",
+        "errors": [],
+        "receiverHandleKind": "GPUBuffer",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
+        "resultHandleKind": null,
+        "wrapperAllocatedTargetHandleKind": null,
+        "operationInstanceIdentity": "not-carried-wrapper-only",
+        "promiseIdentity": "not-carried-wrapper-only",
+        "providerSubmission": "none"
+      },
+      {
         "operationId": "GPUDevice.createBindGroupLayout",
         "wireId": 2544948076,
         "semanticSha256": "f40a4bba243801e87098776ea5dc50625c74d497d1eb294eebb077404cce269c",
@@ -5640,6 +5751,74 @@
         },
         "resultHandleKind": "GPUPipelineLayout",
         "wrapperAllocatedTargetHandleKind": "GPUPipelineLayout",
+        "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+        "promiseIdentity": "zero-non-applicable",
+        "providerSubmission": "semantic-call-device-timeline"
+      },
+      {
+        "operationId": "GPUDevice.createSampler",
+        "wireId": 258698389,
+        "semanticSha256": "725df2c1495904870f55088698e163f930f6bd901a87af6ccedae79b2acda3a6",
+        "memberKind": "method",
+        "dispatchClass": "service-submit",
+        "logicalExecutionKind": "service-enqueue",
+        "publicArgumentCodec": "gpu-sampler-descriptor-v1",
+        "serviceArgumentCodec": "gpu-create-sampler-service-request-v1",
+        "publicResultCodec": "gpu-sampler-handle-v1",
+        "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
+        "resultTiming": "synchronous-logical-identity-service-enqueued",
+        "errors": [
+          "internal-error-device-timeline-v1",
+          "invalid-state-device-timeline-v1",
+          "out-of-memory-device-timeline-v1",
+          "security-error-device-timeline-v1",
+          "type-error-synchronous-webidl-v1",
+          "validation-error-device-timeline-v1"
+        ],
+        "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUDevice",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
+        "resultHandleKind": "GPUSampler",
+        "wrapperAllocatedTargetHandleKind": "GPUSampler",
+        "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+        "promiseIdentity": "zero-non-applicable",
+        "providerSubmission": "semantic-call-device-timeline"
+      },
+      {
+        "operationId": "GPUDevice.createTexture",
+        "wireId": 2925687091,
+        "semanticSha256": "1fccccd704a31c1d7fea325a7c1583e6b35b771789a420cd2a1646a6fcb6445b",
+        "memberKind": "method",
+        "dispatchClass": "service-submit",
+        "logicalExecutionKind": "service-enqueue",
+        "publicArgumentCodec": "gpu-texture-descriptor-v1",
+        "serviceArgumentCodec": "gpu-create-texture-service-request-v1",
+        "publicResultCodec": "gpu-texture-handle-v1",
+        "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
+        "resultTiming": "synchronous-logical-identity-service-enqueued",
+        "errors": [
+          "internal-error-device-timeline-v1",
+          "invalid-state-device-timeline-v1",
+          "out-of-memory-device-timeline-v1",
+          "security-error-device-timeline-v1",
+          "type-error-synchronous-webidl-v1",
+          "validation-error-device-timeline-v1"
+        ],
+        "receiverHandleKind": "GPUDevice",
+        "serviceReceiverProjection": {
+          "source": "wrapper-full-reference",
+          "kind": "GPUDevice",
+          "flags": 0,
+          "objectIdSource": "wrapperReceiver.logicalHandle",
+          "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+        },
+        "resultHandleKind": "GPUTexture",
+        "wrapperAllocatedTargetHandleKind": "GPUTexture",
         "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
         "promiseIdentity": "zero-non-applicable",
         "providerSubmission": "semantic-call-device-timeline"
@@ -6069,6 +6248,114 @@
         "providerSubmission": "none"
       },
       {
+        "operationId": "GPUTexture.dimension",
+        "wireId": 1277060789,
+        "semanticSha256": "c9734040301b9a2b04fe72e5b44a9e9c70e457bb1a0b298646aacb41b1f87c66",
+        "memberKind": "property",
+        "dispatchClass": "wrapper-property-read",
+        "logicalExecutionKind": "wrapper-local",
+        "publicArgumentCodec": "none-v1",
+        "serviceArgumentCodec": "none-service-request-v1",
+        "publicResultCodec": "gpu-texture-dimension-v1",
+        "serviceCompletionCodec": "none-service-completion-v1",
+        "resultTiming": "synchronous-return",
+        "errors": [],
+        "receiverHandleKind": "GPUTexture",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
+        "resultHandleKind": null,
+        "wrapperAllocatedTargetHandleKind": null,
+        "operationInstanceIdentity": "not-carried-wrapper-only",
+        "promiseIdentity": "not-carried-wrapper-only",
+        "providerSubmission": "none"
+      },
+      {
+        "operationId": "GPUTexture.format",
+        "wireId": 4094543821,
+        "semanticSha256": "4c1a44e7dc7f1727424dbea020ca064b8430393c8ed1e580da105121c7e5c5ae",
+        "memberKind": "property",
+        "dispatchClass": "wrapper-property-read",
+        "logicalExecutionKind": "wrapper-local",
+        "publicArgumentCodec": "none-v1",
+        "serviceArgumentCodec": "none-service-request-v1",
+        "publicResultCodec": "gpu-texture-format-v1",
+        "serviceCompletionCodec": "none-service-completion-v1",
+        "resultTiming": "synchronous-return",
+        "errors": [],
+        "receiverHandleKind": "GPUTexture",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
+        "resultHandleKind": null,
+        "wrapperAllocatedTargetHandleKind": null,
+        "operationInstanceIdentity": "not-carried-wrapper-only",
+        "promiseIdentity": "not-carried-wrapper-only",
+        "providerSubmission": "none"
+      },
+      {
+        "operationId": "GPUTexture.height",
+        "wireId": 1899341095,
+        "semanticSha256": "08c3113d7cb9e8d7421e908f8f49debfbe2ae9b3b00e60a990998041f21b8956",
+        "memberKind": "property",
+        "dispatchClass": "wrapper-property-read",
+        "logicalExecutionKind": "wrapper-local",
+        "publicArgumentCodec": "none-v1",
+        "serviceArgumentCodec": "none-service-request-v1",
+        "publicResultCodec": "gpu-integer-coordinate-out-v1",
+        "serviceCompletionCodec": "none-service-completion-v1",
+        "resultTiming": "synchronous-return",
+        "errors": [],
+        "receiverHandleKind": "GPUTexture",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
+        "resultHandleKind": null,
+        "wrapperAllocatedTargetHandleKind": null,
+        "operationInstanceIdentity": "not-carried-wrapper-only",
+        "promiseIdentity": "not-carried-wrapper-only",
+        "providerSubmission": "none"
+      },
+      {
+        "operationId": "GPUTexture.width",
+        "wireId": 3310230093,
+        "semanticSha256": "72dd3ca018ca96b059fe53e1febf4013160a67a326c7d99ea6aa00990cb3c79a",
+        "memberKind": "property",
+        "dispatchClass": "wrapper-property-read",
+        "logicalExecutionKind": "wrapper-local",
+        "publicArgumentCodec": "none-v1",
+        "serviceArgumentCodec": "none-service-request-v1",
+        "publicResultCodec": "gpu-integer-coordinate-out-v1",
+        "serviceCompletionCodec": "none-service-completion-v1",
+        "resultTiming": "synchronous-return",
+        "errors": [],
+        "receiverHandleKind": "GPUTexture",
+        "serviceReceiverProjection": {
+          "source": "not-carried",
+          "kind": null,
+          "flags": 0,
+          "objectIdSource": null,
+          "objectGenerationSource": null
+        },
+        "resultHandleKind": null,
+        "wrapperAllocatedTargetHandleKind": null,
+        "operationInstanceIdentity": "not-carried-wrapper-only",
+        "promiseIdentity": "not-carried-wrapper-only",
+        "providerSubmission": "none"
+      },
+      {
         "operationId": "GPUTexture.createView",
         "wireId": 1846872529,
         "semanticSha256": "a81db85dd6322f2d7a801a414983b2eee2d2b960d67131c73b46ec8304aaedeb",
@@ -6145,39 +6432,47 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "c1b9cfa3ddd550087d066408ed174f1cc7c41c771e5cd32c0133d27d5846cfad",
-      "operationSetDigest": "76253c3e6e9b2352877dadfff521eafdaf259e5ae86ab4604c1d7ce32661bdea",
-      "semanticProgramDigest": "6fb7169e4f1a3c197cceda4e9b3570013a12c2090a636cab237247aabdb3631a",
-      "runtimeRoutingDigest": "fbdc1e4c0e382655f6ed591e86f928bcf357d41d7a58c79a6cfa8acaa54b1e89",
+      "webgpuCVocabularyDigest": "acef6a0609e716dd04b7e9dd36fb645a4b18dc38a63f87bda74d88ea24a9611d",
+      "operationSetDigest": "7cf1c424acb706fd6ac063e7366de85a3b8c9f6bb9943890e7fc7bd9156b8f12",
+      "semanticProgramDigest": "bf30192724ca32b59ea215219e3716c2a62d7354d725ed1276e23cb2ed0127c1",
+      "runtimeRoutingDigest": "5c182e06e4bc82cc5b5da299aa029ef6f9f1d8a76fb7ab9685c1b123ac55510a",
       "sortedOperationIds": [
         194635792,
         206890944,
+        258698389,
         308839175,
         551383281,
         599085487,
         892795326,
         935342475,
+        1277060789,
         1287763171,
         1311136574,
         1660448199,
         1724778411,
         1846872529,
+        1899341095,
         1908549907,
         1914447212,
+        1925415872,
         1949537636,
+        2040228619,
         2407151159,
         2481184390,
         2544948076,
         2687703037,
+        2925687091,
         2933046788,
         3054695767,
         3157634281,
         3212558232,
         3293775739,
+        3310230093,
         3373402978,
         3810427763,
         3865035710,
-        4055478657
+        4055478657,
+        4094543821
       ]
     }
   }

@@ -2,14 +2,14 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "d195bc83f1bec557f70d66afd7657bdc1604c274f0f59b6dfdddee34a9ad614d",
-  "operationSet": "76253c3e6e9b2352877dadfff521eafdaf259e5ae86ab4604c1d7ce32661bdea",
-  "semanticProgramSet": "6fb7169e4f1a3c197cceda4e9b3570013a12c2090a636cab237247aabdb3631a",
-  "runtimeRouting": "fbdc1e4c0e382655f6ed591e86f928bcf357d41d7a58c79a6cfa8acaa54b1e89",
-  "webgpuCVocabulary": "c1b9cfa3ddd550087d066408ed174f1cc7c41c771e5cd32c0133d27d5846cfad"
+  "projection": "5e4f8467d2c56f9645b76912d799c4129812ae9455a3c7e5b7cce51ab5cef427",
+  "operationSet": "7cf1c424acb706fd6ac063e7366de85a3b8c9f6bb9943890e7fc7bd9156b8f12",
+  "semanticProgramSet": "bf30192724ca32b59ea215219e3716c2a62d7354d725ed1276e23cb2ed0127c1",
+  "runtimeRouting": "5c182e06e4bc82cc5b5da299aa029ef6f9f1d8a76fb7ab9685c1b123ac55510a",
+  "webgpuCVocabulary": "acef6a0609e716dd04b7e9dd36fb645a4b18dc38a63f87bda74d88ea24a9611d"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
-  "semanticProjection": "179c41d2bbc271adf04d9916838db2728547d8b1a328b59e80f9c5df1c566e20",
+  "semanticProjection": "eb26abade746a618151e726107baddc0ed348dae638f6c575e69b0c8be183de4",
   "fakeClientData": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
 });
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
@@ -68,6 +68,18 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "method"
   ],
   [
+    "GPUBuffer.mapState",
+    "GPUBuffer",
+    "mapState",
+    "property"
+  ],
+  [
+    "GPUBuffer.usage",
+    "GPUBuffer",
+    "usage",
+    "property"
+  ],
+  [
     "GPUDevice.createBindGroupLayout",
     "GPUDevice",
     "createBindGroupLayout",
@@ -83,6 +95,18 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "GPUDevice.createPipelineLayout",
     "GPUDevice",
     "createPipelineLayout",
+    "method"
+  ],
+  [
+    "GPUDevice.createSampler",
+    "GPUDevice",
+    "createSampler",
+    "method"
+  ],
+  [
+    "GPUDevice.createTexture",
+    "GPUDevice",
+    "createTexture",
     "method"
   ],
   [
@@ -170,6 +194,30 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "method"
   ],
   [
+    "GPUTexture.dimension",
+    "GPUTexture",
+    "dimension",
+    "property"
+  ],
+  [
+    "GPUTexture.format",
+    "GPUTexture",
+    "format",
+    "property"
+  ],
+  [
+    "GPUTexture.height",
+    "GPUTexture",
+    "height",
+    "property"
+  ],
+  [
+    "GPUTexture.width",
+    "GPUTexture",
+    "width",
+    "property"
+  ],
+  [
     "GPUTexture.createView",
     "GPUTexture",
     "createView",
@@ -202,12 +250,14 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUDevice.createCommandEncoder",
   "GPUDevice.createPipelineLayout",
   "GPUDevice.createRenderPipeline",
+  "GPUDevice.createSampler",
   "GPUDevice.createShaderModule",
+  "GPUDevice.createTexture",
   "GPUDevice.destroy",
   "GPUDevice.popErrorScope",
   "GPUQueue.submit",
   "GPUTexture.createView",
   "GPUTexture.destroy"
 ]);
-export const WRAPPER_ROUTE_COUNT = 28;
-export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 15;
+export const WRAPPER_ROUTE_COUNT = 36;
+export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 17;
