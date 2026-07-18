@@ -771,6 +771,360 @@ function completeClosedLoaderCatalog() {
   return catalog;
 }
 
+function completeClosedTerminalBuiltinCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "closed-terminal-builtin",
+    surfaceObservedKey: "builtin:export:node_vm:runInNewContext",
+    sourceKey: "node_vm",
+    exportName: "runInNewContext",
+    moduleSpecifiers: ["node:vm", "vm"],
+    sourceRefs: ["src/builtins/vm.js#exports:runInNewContext"],
+    sourceMetadata: {
+      surfaceType: "export",
+      sourceKey: "node_vm",
+      exportName: "runInNewContext",
+      importReachability: "public",
+      publicModuleSpecifiers: ["node:vm", "vm"],
+    },
+  };
+  recipe.fixtureId = "fixture.builtin.vm.run-in-new-context.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "builtin",
+    surfaceName: "export:node_vm:runInNewContext",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "terminal-builtin-import",
+      terminalBuiltinRoot: "vm",
+      moduleSpecifiers: ["node:vm", "vm"],
+      expectedRejectionFragment: "Import denied:",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedSqliteExtensionCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName = "Database.loadExtension";
+  const moduleSpecifiers = ["bun:sqlite", "exact:sqlite"];
+  const sourceDescriptor = {
+    kind: "closed-sqlite-extension-load",
+    surfaceObservedKey:
+      "builtin:export:exact_sqlite:Database.loadExtension",
+    sourceKey: "exact_sqlite",
+    exportName,
+    constructorExportName: "Database",
+    moduleSpecifiers,
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/sqlite/module.js#exports:Database.loadExtension",
+    ],
+    sourceMetadata: {
+      surfaceType: "export",
+      sourceKey: "exact_sqlite",
+      exportName,
+      valueShape: "callable",
+      importReachability: "public",
+      moduleSpecifiers,
+      publicModuleSpecifiers: moduleSpecifiers,
+      enforcementRouteEvidence: {
+        terminals: ["__exactSqliteLoadExtension"],
+      },
+    },
+  };
+  recipe.fixtureId = "fixture.builtin.sqlite.load-extension.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "builtin",
+    surfaceName: "export:exact_sqlite:Database.loadExtension",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "sqlite-extension-load",
+      constructorExportName: "Database",
+      methodName: "loadExtension",
+      moduleSpecifiers,
+      databasePath: ":memory:",
+      extensionPath: "ibex-capsec-closed-extension",
+      expectedRejectionFragment: "Extension loading not supported",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedSqliteCrSqliteCatalog() {
+  const catalog = structuredClone(completeClosedSqliteExtensionCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName = "Database.enableCrSqlite";
+  const sourceDescriptor = recipe.publicSurfaceProbe.invocation.sourceDescriptor;
+  Object.assign(sourceDescriptor, {
+    kind: "closed-sqlite-crsqlite-enable",
+    surfaceObservedKey:
+      "builtin:export:exact_sqlite:Database.enableCrSqlite",
+    exportName,
+    sourceRefs: [
+      "packages/ibex-runtime-js/src/sqlite/module.js#exports:Database.enableCrSqlite",
+    ],
+  });
+  Object.assign(sourceDescriptor.sourceMetadata, {
+    exportName,
+    enforcementRouteEvidence: {
+      terminals: [
+        "__exactCrSqlitePath",
+        "__exactSqliteLoadCrSqlite",
+        "__exactSqliteLoadExtension",
+      ],
+    },
+  });
+  recipe.fixtureId = "fixture.builtin.sqlite.enable-crsqlite.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceName: "export:exact_sqlite:Database.enableCrSqlite",
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "sqlite-cr-sqlite-enable",
+      constructorExportName: "Database",
+      methodName: "enableCrSqlite",
+      moduleSpecifiers: ["bun:sqlite", "exact:sqlite"],
+      databasePath: ":memory:",
+      expectedRejectionFragment:
+        "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedDebuggerAbiCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const functionName = "ex_hermes_debugger_eval";
+  const defaultSourceRef =
+    `src/engine/hermes_runtime_debugger.cc#${functionName}`;
+  const windowsSourceRef =
+    `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+  const sourceDescriptor = {
+    kind: "closed-debugger-abi",
+    surfaceObservedKey: `host-abi:${functionName}`,
+    functionName,
+    selectedSourceRef: defaultSourceRef,
+    targetTriple: "aarch64-apple-darwin",
+    sourceRefs: [defaultSourceRef, windowsSourceRef],
+    sourceMetadata: {
+      alternatives: [
+        {
+          id: "default",
+          kind: "alternative",
+          sourceRefs: [defaultSourceRef],
+          stubDisposition: "not-structurally-proven",
+          targetVariant: "default",
+        },
+        {
+          id: "windows",
+          kind: "alternative",
+          sourceRefs: [windowsSourceRef],
+          stubDisposition: "not-structurally-proven",
+          targetVariant: "windows",
+        },
+      ],
+      branches: [
+        {
+          id: "default",
+          kind: "alternative",
+          sourceRefs: [defaultSourceRef],
+          stubDisposition: "not-structurally-proven",
+          targetVariant: "default",
+        },
+        {
+          id: "windows",
+          kind: "alternative",
+          sourceRefs: [windowsSourceRef],
+          stubDisposition: "not-structurally-proven",
+          targetVariant: "windows",
+        },
+      ],
+      definitions: [
+        {
+          language: "c++",
+          sourceRef: defaultSourceRef,
+          targetVariant: "default",
+          unsafe: false,
+          weak: false,
+        },
+        {
+          language: "c++",
+          sourceRef: windowsSourceRef,
+          targetVariant: "windows",
+          unsafe: false,
+          weak: false,
+        },
+      ],
+      provenanceLimitation:
+        "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
+    },
+  };
+  recipe.fixtureId = "fixture.debugger.eval.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "host-abi",
+    surfaceName: functionName,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "debugger-abi-disabled",
+      functionName,
+      expectedCallResult: "null-pointer",
+      expectedError:
+        `debugger ABI ${functionName} is unavailable in the no-debugger exact target`,
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedSharedRuntimeGlobalCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceRef =
+    "src/engine/bootstrap/module-loader.js#CacheStorage.open";
+  const sourceDescriptor = {
+    kind: "closed-shared-runtime-global-absence",
+    surfaceObservedKey: "native-op:global:CacheStorage.open",
+    globalName: "CacheStorage",
+    memberName: "open",
+    targetTriple: "aarch64-apple-darwin",
+    sourceRefs: [sourceRef],
+    sourceMetadata: {
+      branches: [
+        {
+          branchKind: "single",
+          id: "default",
+          kind: "single",
+          route: "legacy-bootstrap",
+          routes: ["legacy-bootstrap"],
+          sourceRefs: [sourceRef],
+          targetVariant: "default",
+        },
+      ],
+      exportName: "CacheStorage.open",
+      globalName: "CacheStorage",
+      installationBranches: [
+        {
+          branchKind: "single",
+          id: "default",
+          kind: "single",
+          route: "legacy-bootstrap",
+          routes: ["legacy-bootstrap"],
+          sourceRefs: [sourceRef],
+          targetVariant: "default",
+        },
+      ],
+      memberName: "open",
+      moduleSpecifiers: [],
+      sourceKey: "global_module_loader",
+      surfaceType: "global-api",
+    },
+  };
+  recipe.fixtureId = "fixture.shared-runtime.cache-storage-open.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName: "global:CacheStorage.open",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "shared-runtime-global-absence",
+      globalName: "CacheStorage",
+      memberName: "open",
+      expectedError:
+        "armed shared runtime does not expose CacheStorage.open",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedArmedNativeGlobalCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceRefs = [
+    "src/engine/hermes_runtime.cc#__exactExit",
+    "src/engine/hermes_runtime.cc#jsi-global:__exactExit",
+  ];
+  const sourceDescriptor = {
+    kind: "closed-armed-native-global-absence",
+    surfaceObservedKey: "native-op:__exactExit",
+    globalName: "__exactExit",
+    targetTriple: "aarch64-apple-darwin",
+    sourceRefs,
+    sourceMetadata: {
+      exportName: "__exactExit",
+      globalName: "__exactExit",
+      installationBranches: [
+        {
+          route: "native-jsi-global",
+          sourceRefs,
+          targetVariant: "default",
+        },
+      ],
+      memberKinds: ["native-root"],
+      memberName: null,
+      publicInvocation: {
+        arity: 1,
+        globalName: "__exactExit",
+        kind: "native-global-function",
+        sourceRef: sourceRefs[1],
+      },
+      sourceKey: "native_jsi_global",
+      surfaceType: "global-api",
+    },
+  };
+  recipe.fixtureId = "fixture.armed-native.exact-exit.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName: "__exactExit",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "armed-native-global-absence",
+      globalName: "__exactExit",
+      expectedError: "armed runtime does not expose __exactExit",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function completeClosedExactCatalog() {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -905,6 +1259,33 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
       ? invocation.operation.expectedRejectionFragments.join("; ")
       : invocation.operation.kind === "loader-executable-file"
         ? invocation.operation.rejectionFragment
+        : invocation.operation.kind === "terminal-builtin-import"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment} '${specifier}'`,
+              )
+              .join("\n")
+        : invocation.operation.kind === "sqlite-extension-load"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment}`,
+              )
+              .join("\n")
+        : invocation.operation.kind === "sqlite-cr-sqlite-enable"
+          ? invocation.operation.moduleSpecifiers
+              .map(
+                (specifier) =>
+                  `${specifier}: ${invocation.operation.expectedRejectionFragment}`,
+              )
+              .join("\n")
+        : invocation.operation.kind === "debugger-abi-disabled"
+          ? invocation.operation.expectedError
+        : invocation.operation.kind === "shared-runtime-global-absence"
+          ? invocation.operation.expectedError
+        : invocation.operation.kind === "armed-native-global-absence"
+          ? invocation.operation.expectedError
         : invocation.operation.kind === "exact-unendowed-operation"
           ? invocation.operation.expectedError
           : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
@@ -926,6 +1307,12 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         errorMessage,
         engineExecuted:
           invocation.operation.kind === "loader-executable-file" ||
+          invocation.operation.kind === "terminal-builtin-import" ||
+          invocation.operation.kind === "sqlite-extension-load" ||
+          invocation.operation.kind === "sqlite-cr-sqlite-enable" ||
+          invocation.operation.kind === "debugger-abi-disabled" ||
+          invocation.operation.kind === "shared-runtime-global-absence" ||
+          invocation.operation.kind === "armed-native-global-absence" ||
           invocation.operation.kind === "exact-unendowed-operation",
         projectCodeExecuted,
       },
@@ -2024,6 +2411,274 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/executed extension guard/);
   });
 
+  test("accepts terminal builtin closure only when every public alias is denied", () => {
+    const catalog = completeClosedTerminalBuiltinCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const directImportGate = structuredClone(recipe);
+    directImportGate.route.alternatives = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: directImportGate,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(directImportGate),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const unboundDirectImportGate = structuredClone(directImportGate);
+    unboundDirectImportGate.route.surfaceObservedKeys = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: unboundDirectImportGate,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(unboundDirectImportGate),
+        coverage,
+      }),
+    ).toThrow(/outside the bound route/);
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "node:vm: Import denied: 'node:vm'";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/aliases did not fail closed/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey =
+      "node_wasi";
+    drifted.publicSurfaceProbe.invocation.sourceDescriptorDigest = taggedDigest(
+      drifted.publicSurfaceProbe.invocation.sourceDescriptor,
+    );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/authenticated import gate/);
+  });
+
+  test("accepts SQLite extension closure only through both public aliases", () => {
+    const catalog = completeClosedSqliteExtensionCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "exact:sqlite: Extension loading not supported";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/every public alias/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.operation.databasePath =
+      "fixture.sqlite";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/public memory-database call/);
+  });
+
+  test("accepts cr-sqlite closure only through both public aliases", () => {
+    const catalog = completeClosedSqliteCrSqliteCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const oneAlias = closedRuntimeObservation(recipe);
+    oneAlias.invocation.result.errorMessage =
+      "exact:sqlite: cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: oneAlias,
+        coverage,
+      }),
+    ).toThrow(/every public alias/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.operation.methodName =
+      "loadExtension";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/public memory-database call/);
+  });
+
+  test("accepts debugger ABI closure only for the physical no-debugger target result", () => {
+    const catalog = completeClosedDebuggerAbiCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const wrongTarget = structuredClone(recipe);
+    wrongTarget.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple =
+      "x86_64-pc-windows-msvc";
+    wrongTarget.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        wrongTarget.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongTarget,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(wrongTarget),
+        coverage,
+      }),
+    ).toThrow(/physical no-debugger target/);
+
+    const wrongResult = structuredClone(recipe);
+    wrongResult.publicSurfaceProbe.invocation.operation.expectedCallResult =
+      "no-event";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongResult,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(wrongResult),
+        coverage,
+      }),
+    ).toThrow(/physical no-debugger target/);
+
+    const wrongError = closedRuntimeObservation(recipe);
+    wrongError.invocation.result.errorMessage = "generic debugger error";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongError,
+        coverage,
+      }),
+    ).toThrow(/no-debugger physical result/);
+  });
+
+  test("accepts shared-runtime global closure only for a reviewed installation path", () => {
+    const catalog = completeClosedSharedRuntimeGlobalCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const wrongRoute = structuredClone(recipe);
+    wrongRoute.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches[0].route =
+      "shared-runtime";
+    wrongRoute.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        wrongRoute.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongRoute,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(wrongRoute),
+        coverage,
+      }),
+    ).toThrow(/reviewed installation path/);
+
+    const present = closedRuntimeObservation(recipe);
+    present.invocation.result.engineExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: present,
+        coverage,
+      }),
+    ).toThrow(/not physically absent/);
+  });
+
+  test("accepts armed native global closure only for a source-derived JSI path", () => {
+    const catalog = completeClosedArmedNativeGlobalCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const inventedSource = structuredClone(recipe);
+    inventedSource.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.publicInvocation.sourceRef =
+      "src/engine/hermes_runtime.cc#invented";
+    inventedSource.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        inventedSource.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: inventedSource,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(inventedSource),
+        coverage,
+      }),
+    ).toThrow(/source-derived JSI path/);
+
+    const present = closedRuntimeObservation(recipe);
+    present.invocation.result.engineExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: present,
+        coverage,
+      }),
+    ).toThrow(/not physically absent/);
+  });
+
   test("accepts Exact closure only for the authenticated unendowed operation", () => {
     const catalog = completeClosedExactCatalog();
     const recipe = catalog.recipes[0];
@@ -2161,6 +2816,97 @@ describe("CapSec public-surface promotion evidence", () => {
         recipe,
         engineBinaryDigest: engine.binaryDigest,
         runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/execution proof disagrees/);
+  });
+
+  test("accepts armed environment enumeration only when its object is empty", () => {
+    const recipe = completeCatalog().recipes[0];
+    Object.assign(recipe, {
+      fixtureId: "fixture.native.get-all-env.empty",
+      classification: "effects",
+      scenario: "branch-selection",
+      actionIds: [],
+      terminalObservedKey: "native-op:__exactGetAllEnv",
+    });
+    recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+    recipe.route.alternatives[0].terminalObservedKey =
+      recipe.terminalObservedKey;
+    recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+    const invocation = recipe.publicSurfaceProbe.invocation;
+    Object.assign(invocation, {
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName: "__exactGetAllEnv",
+      sourceDescriptor: {
+        kind: "native-global-function",
+        globalName: "__exactGetAllEnv",
+        arity: 0,
+        sourceRef:
+          "src/engine/hermes_runtime.cc#jsi-global:__exactGetAllEnv",
+      },
+      arguments: [],
+      requiredFloor: [],
+      setup: [],
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      expectedActionIds: [],
+    });
+    invocation.sourceDescriptorDigest = taggedDigest(
+      invocation.sourceDescriptor,
+    );
+    delete invocation.moduleSpecifier;
+    delete invocation.exportName;
+
+    const observation = runtimeObservation(recipe);
+    Object.assign(observation.invocation, {
+      kind: invocation.kind,
+      globalName: invocation.globalName,
+      result: {
+        kind: "return",
+        globalName: invocation.globalName,
+        valueType: "object",
+        cleanup: "none",
+        valuePropertyCount: 0,
+      },
+      executionProof: {
+        kind: "armed-empty-environment-enumeration",
+        bodyEntered: true,
+        propertyCount: 0,
+      },
+    });
+    delete observation.invocation.moduleSpecifier;
+    delete observation.invocation.exportName;
+    observation.typedDecisions = [];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const nonempty = structuredClone(observation);
+    nonempty.invocation.result.valuePropertyCount = 1;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: nonempty,
+        coverage,
+      }),
+    ).toThrow(/authored cleanup/);
+
+    const weakProof = structuredClone(observation);
+    weakProof.invocation.executionProof.propertyCount = 1;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: weakProof,
         coverage,
       }),
     ).toThrow(/execution proof disagrees/);

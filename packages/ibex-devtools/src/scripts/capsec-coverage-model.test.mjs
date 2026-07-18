@@ -181,8 +181,8 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       targetVariant: "default",
     },
     {
-      authorityRef: "scripts/install-windows-hermes.ps1#Version",
-      profileId: "windows-nuget",
+      authorityRef: "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+      profileId: "windows-source-patched",
       targetVariant: "windows",
     },
   ].map(({ authorityRef, profileId, targetVariant }) => {
@@ -214,7 +214,11 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       branches,
       evidenceType: "hermes-evaluator-reachability",
       engineIdentityReviewId: HERMES_EVALUATOR_REVIEW_ID,
-      engineProfileIds: ["android-maven", "source-patched", "windows-nuget"],
+      engineProfileIds: [
+        "android-maven",
+        "source-patched",
+        "windows-source-patched",
+      ],
       installationBranches: branches,
       lockdownTamingDigest: REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST,
       tamingEvidence: "lockdownJS",
@@ -401,6 +405,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       surface("native-op", "__svGet"),
       "closed",
       ["ipc:channel"],
+    ],
+    [
+      "application-runtime worklet helper closed",
+      globalApi("worklet", "clamp"),
+      "closed",
+      ["worker:create"],
     ],
     [
       "heap inspection closed",
@@ -1669,13 +1679,13 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(fdDispatcher.edge.logicalBranches).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "durability-read",
+          id: "durability-write",
           effectOwnerSource: "descriptor-owner",
         }),
-        expect.objectContaining({ id: "durability-write" }),
         expect.objectContaining({ id: "metadata-write" }),
       ]),
     );
+    expect(fdDispatcher.edge.logicalBranches).toHaveLength(2);
 
     for (const name of [
       "__exactFsReadFileAsync",
@@ -2784,6 +2794,19 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       cap: "ipc:channel",
     });
 
+    for (const namespace of ["Exact", "Bun"]) {
+      for (const member of [
+        "accessibility",
+        "accessibility.addEventListener",
+        "accessibility.prefersReducedMotion",
+      ]) {
+        expect(
+          classifyObservedSurface(globalApi(namespace, member), context).edge,
+          `${namespace}.${member}`,
+        ).toMatchObject({ classification: "closed", cap: "ipc:channel" });
+      }
+    }
+
     for (const [globalName, memberName, expectedAction] of [
       ["Cache", null, "storage:persist"],
       ["Cache", "add", "storage:write"],
@@ -2805,6 +2828,30 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ["caches", "has", "storage:read"],
       ["caches", "keys", "storage:read"],
       ["caches", "match", "storage:read"],
+    ]) {
+      const classified = classifyObservedSurface(
+        globalApi(globalName, memberName),
+        context,
+      );
+      expect(
+        classified.edge.classification,
+        `${globalName}.${memberName}`,
+      ).toBe("closed");
+      expect(edgeActions(classified), `${globalName}.${memberName}`).toEqual([
+        expectedAction,
+      ]);
+    }
+
+    for (const [globalName, memberName, expectedAction] of [
+      ["caches", "[[Symbol.toStringTag]]", "storage:persist"],
+      ["localStorage", "[[Symbol.toStringTag]]", "storage:read"],
+      ["sessionStorage", "[[Symbol.toStringTag]]", "storage:read"],
+      ["indexedDB", "cmp", "storage:persist"],
+      ["IDBKeyRange", null, "storage:persist"],
+      ["IDBRequest", "onsuccess", "storage:persist"],
+      ["IDBOpenDBRequest", "onupgradeneeded", "storage:persist"],
+      ["IDBDatabase", "close", "storage:persist"],
+      ["IDBTransaction", "abort", "storage:persist"],
     ]) {
       const classified = classifyObservedSurface(
         globalApi(globalName, memberName),

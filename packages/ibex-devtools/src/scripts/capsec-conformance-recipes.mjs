@@ -599,6 +599,14 @@ const fsReadFileSetup = () => [
     requiredSourceArity: 4,
   },
 ];
+const fsWriteFileSetup = (path) => [
+  {
+    kind: "fs-write-file",
+    globalName: "__exactFsOpen",
+    path,
+    requiredSourceArity: 4,
+  },
+];
 const nativeResultArgument = (
   globalName,
   requiredSourceArity,
@@ -887,6 +895,58 @@ const nativeProjectStatfsTemplate = () =>
     requiredSourceArity: 1,
     setup: [],
   });
+const nativeProjectTruncateTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-truncate"),
+      literalArgument(2),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 5,
+      deny: 1,
+      malformed: 5,
+      "missing-attribution": 5,
+      "wrong-principal": 5,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+    },
+    requiredFloor: ["fs:list", "fs:write"].map((cap) => ({
+      cap,
+      resource: projectPathExactResource("target", "ibex-capsec-truncate"),
+    })),
+    requiredSourceArity: 2,
+    setup: [],
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
 const nativeProjectReadFileTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list", "fs:read"],
@@ -928,6 +988,424 @@ const nativeProjectReadFileTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectMkdirTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-mkdir"),
+      literalArgument(false),
+    ],
+    expectedCleanup: "removed-created-directory",
+    expectedDecisionCounts: {
+      allow: 4,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit"],
+      "missing-attribution": ["requested", "discovery", "discovery", "commit"],
+      "wrong-principal": ["requested", "discovery", "discovery", "commit"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-mkdir"),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource("target", "ibex-capsec-mkdir"),
+      },
+    ],
+    requiredSourceArity: 2,
+    setup: [],
+  });
+const nativeProjectWriteFileTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-write-file"),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex-capsec-write-file"),
+      ]),
+      literalArgument(null),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 5,
+      deny: 1,
+      malformed: 5,
+      "missing-attribution": 5,
+      "wrong-principal": 5,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-write-file"),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource("target", "ibex-capsec-write-file"),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: [],
+  });
+const nativeProjectAppendFileTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:write"],
+    arguments: [
+      literalArgument("target/ibex-capsec-append-file"),
+      nativeResultArgument("__exactStringToUtf8Bytes", 1, [
+        literalArgument("ibex-capsec-append-suffix"),
+      ]),
+      literalArgument(null),
+    ],
+    expectedCleanup: "removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 5,
+      deny: 1,
+      malformed: 5,
+      "missing-attribution": 5,
+      "wrong-principal": 5,
+    },
+    expectedObservedActionIds: {
+      malformed: ["fs:list", "fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "discovery",
+        "commit",
+        "repeat",
+      ],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-append-file"),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource("target", "ibex-capsec-append-file"),
+      },
+    ],
+    requiredSourceArity: 3,
+    setup: [],
+  });
+const nativeProjectFsOpenTemplate = ({
+  actionIds,
+  async = false,
+  flags,
+  fixture,
+}) =>
+  Object.freeze({
+    actionIds,
+    arguments: [
+      literalArgument(`target/${fixture}`),
+      literalArgument(flags),
+      literalArgument(0o666),
+      literalArgument(null),
+    ],
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 4,
+      "branch-selection": 4,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedObservedActionIds: {
+      malformed: actionIds,
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "discovery", "commit"],
+      "branch-selection": ["requested", "discovery", "discovery", "commit"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "discovery", "commit"],
+      "missing-attribution": ["requested", "discovery", "discovery", "commit"],
+      "wrong-principal": ["requested", "discovery", "discovery", "commit"],
+    },
+    requiredFloor: actionIds.map((cap) => ({
+      cap,
+      resource: projectPathExactResource("target", fixture),
+    })),
+    requiredSourceArity: 4,
+    setup: [],
+    ...(async
+      ? {
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+          completion: {
+            kind: "event-loop-quiescence",
+            timeoutMilliseconds: 1_000,
+          },
+          unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+        }
+      : {}),
+  });
+const nativeRetainedFsFstatTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [harnessFsFileDescriptorArgument()],
+    expectedCleanup: "closed-fs-file-descriptor",
+    expectedDecisionCounts: {
+      allow: 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:list"],
+      malformed: ["fs:list"],
+      "missing-attribution": ["fs:list"],
+      "wrong-principal": ["fs:list"],
+    },
+    expectedResults: {
+      allow: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: fsReadFileSetup(),
+    unsupportedTargetReason: "native-public-operation-not-typed-on-target",
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
+const nativeRetainedFsWriteTemplate = ({
+  path,
+  argumentsList = [],
+  requiredSourceArity = 1,
+  unsupportedTargetTriples = [],
+}) =>
+  Object.freeze({
+    actionIds: ["fs:write"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [harnessFsFileDescriptorArgument(), ...argumentsList],
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:write"],
+      malformed: ["fs:write"],
+      "missing-attribution": ["fs:write"],
+      "wrong-principal": ["fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+    ],
+    requiredSourceArity,
+    setup: fsWriteFileSetup(path),
+    ...(unsupportedTargetTriples.length > 0
+      ? { unsupportedTargetTriples }
+      : {}),
+  });
+const nativeRetainedFsAsyncWriteTemplate = ({
+  path,
+  operation,
+  argumentsList = [],
+}) =>
+  Object.freeze({
+    actionIds: ["fs:write"],
+    additionalAllowedCoverageObservedKeys: ["native-op:__exactFsOpen"],
+    arguments: [
+      literalArgument(operation),
+      harnessFsFileDescriptorArgument(),
+      ...argumentsList,
+    ],
+    completion: {
+      kind: "event-loop-quiescence",
+      timeoutMilliseconds: 1_000,
+    },
+    expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
+    expectedDecisionCounts: {
+      allow: 1,
+      "branch-selection": 1,
+      malformed: 1,
+      "missing-attribution": 1,
+      "wrong-principal": 1,
+    },
+    expectedObservedActionIds: {
+      allow: ["fs:write"],
+      "branch-selection": ["fs:write"],
+      malformed: ["fs:write"],
+      "missing-attribution": ["fs:write"],
+      "wrong-principal": ["fs:write"],
+    },
+    expectedResults: {
+      allow: "return",
+      "branch-selection": "return",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["repeat"],
+      "branch-selection": ["repeat"],
+      malformed: ["repeat"],
+      "missing-attribution": ["repeat"],
+      "wrong-principal": ["repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+      {
+        cap: "fs:write",
+        resource: projectPathExactResource(...path.split("/")),
+      },
+    ],
+    requiredSourceArity: 4,
+    setup: fsWriteFileSetup(path),
+    unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+  });
+const nativeProjectReaddirTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [
+      literalArgument("target/ibex-capsec-readdir"),
+      literalArgument(null),
+    ],
+    expectedCleanup: "removed-owned-directory",
+    expectedDecisionCounts: {
+      allow: 4,
+      deny: 1,
+      malformed: 4,
+      "missing-attribution": 4,
+      "wrong-principal": 4,
+    },
+    expectedResults: {
+      allow: "return",
+      deny: "permission-denied",
+      malformed: "return",
+      "missing-attribution": "return",
+      "wrong-principal": "return",
+    },
+    expectedStages: {
+      allow: ["requested", "discovery", "repeat", "repeat"],
+      deny: ["requested"],
+      malformed: ["requested", "discovery", "repeat", "repeat"],
+      "missing-attribution": ["requested", "discovery", "repeat", "repeat"],
+      "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("target", "ibex-capsec-readdir"),
+      },
+    ],
+    requiredSourceArity: 2,
+    setup: [],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -956,7 +1434,12 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["print", nativePrintTemplate()],
+  ["__exactAppendFile", nativeProjectAppendFileTemplate()],
+  ["__exactMkdir", nativeProjectMkdirTemplate()],
+  ["__exactReaddir", nativeProjectReaddirTemplate()],
+  ["__exactWriteFile", nativeProjectWriteFileTemplate()],
   ["__exactStatfs", nativeProjectStatfsTemplate()],
+  ["__exactTruncate", nativeProjectTruncateTemplate()],
   [
     "__exactAuthorizeSystemInfo",
     nativeCachedSystemInfoTemplate("platform", 11),
@@ -1040,10 +1523,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     "__exactTypedPermissionRevoke",
     nativeNoEffectTemplate(1, [literalArgument("unknown-grant")]),
   ],
-  [
-    "__exactTypedHandleMint",
-    nativeNoEffectTemplate(1, [literalArgument({})]),
-  ],
+  ["__exactTypedHandleMint", nativeNoEffectTemplate(1, [literalArgument({})])],
   [
     "__exactTypedHandleRevoke",
     nativeNoEffectTemplate(1, [literalArgument("unknown-handle")]),
@@ -1127,6 +1607,24 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
           resource: projectPathExactResource("Cargo.toml"),
         },
       ],
+    }),
+  ],
+  ["__exactFsFstatSync", nativeRetainedFsFstatTemplate()],
+  [
+    "__exactFsFsyncSync",
+    nativeRetainedFsWriteTemplate({ path: "target/ibex-capsec-fsync" }),
+  ],
+  [
+    "__exactFsFdatasyncSync",
+    nativeRetainedFsWriteTemplate({ path: "target/ibex-capsec-fdatasync" }),
+  ],
+  [
+    "__exactFsFtruncateSync",
+    nativeRetainedFsWriteTemplate({
+      path: "target/ibex-capsec-ftruncate",
+      argumentsList: [literalArgument(2)],
+      requiredSourceArity: 2,
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
     }),
   ],
   [
@@ -1756,6 +2254,80 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
 
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   [
+    "__exactFsFdAsync",
+    new Map([
+      [
+        "durability-write",
+        nativeRetainedFsAsyncWriteTemplate({
+          path: "target/ibex-capsec-fdasync-durability",
+          operation: "fsync",
+          argumentsList: [literalArgument(0), literalArgument(0)],
+        }),
+      ],
+    ]),
+  ],
+  [
+    "__exactFsOpen",
+    new Map([
+      [
+        "read",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read"],
+          flags: "r",
+          fixture: "ibex-capsec-fsopen-read",
+        }),
+      ],
+      [
+        "read-write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read", "fs:write"],
+          flags: "r+",
+          fixture: "ibex-capsec-fsopen-read-write",
+        }),
+      ],
+      [
+        "write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:write"],
+          flags: "a",
+          fixture: "ibex-capsec-fsopen-write",
+        }),
+      ],
+    ]),
+  ],
+  [
+    "__exactFsOpenAsync",
+    new Map([
+      [
+        "read",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read"],
+          async: true,
+          flags: "r",
+          fixture: "ibex-capsec-fsopen-async-read",
+        }),
+      ],
+      [
+        "read-write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:read", "fs:write"],
+          async: true,
+          flags: "r+",
+          fixture: "ibex-capsec-fsopen-async-read-write",
+        }),
+      ],
+      [
+        "write",
+        nativeProjectFsOpenTemplate({
+          actionIds: ["fs:list", "fs:write"],
+          async: true,
+          flags: "a",
+          fixture: "ibex-capsec-fsopen-async-write",
+        }),
+      ],
+    ]),
+  ],
+  [
     "__exactFsPathAsync",
     new Map([
       [
@@ -2366,6 +2938,7 @@ function logicalBranchIdForPlan(plan, scenario) {
 }
 
 const NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES = new Map([
+  ["__exactGetAllEnv", nativeConditionalNoEffectTemplate(0)],
   [
     "__exactSqliteOpen",
     nativeConditionalNoEffectTemplate(2, [
@@ -2529,6 +3102,7 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
   if (
     !new Set([
       "fs-read-file",
+      "fs-write-file",
       "sqlite-memory-database",
       "sqlite-memory-statement",
       "tcp-loopback-client",
@@ -2548,9 +3122,10 @@ function bindNativeSetupSources(setup, liveByObservedKey) {
     );
   }
   const sourceDescriptor = clone(producer);
+  const boundSetup = clone(setup);
+  delete boundSetup.requiredSourceArity;
   return {
-    kind: setup.kind,
-    globalName: setup.globalName,
+    ...boundSetup,
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
   };
@@ -2563,6 +3138,7 @@ function nativePublicProbeForPlan({
   liveByObservedKey,
   coverageByObservedKey,
   adapterProbe,
+  target,
 }) {
   const targetAbsence = plan.expectedObservation.kind === "target-absence";
   const surfaceObservedKey = targetAbsence
@@ -2674,6 +3250,14 @@ function nativePublicProbeForPlan({
     return {
       probe: null,
       unavailableReason: "native-public-arguments-not-authored",
+    };
+  }
+  if (template.unsupportedTargetTriples?.includes(target.triple)) {
+    return {
+      probe: null,
+      unavailableReason:
+        template.unsupportedTargetReason ??
+        "native-public-operation-not-installed-on-target",
     };
   }
   if (
@@ -3093,6 +3677,11 @@ function residualReasons({
     publicSurfaceProbe.invocation.expectedTypedDecisionCount > 0 &&
     Array.isArray(publicSurfaceProbe.invocation.allowedCoverageEdgeIds) &&
     publicSurfaceProbe.invocation.allowedCoverageEdgeIds.length > 0;
+  const terminalBuiltinClosureProbe =
+    publicSurfaceProbe?.invocation?.invocationSchema ===
+      "ibex/capsec-closed-surface-invocation/1" &&
+    publicSurfaceProbe?.invocation?.operation?.kind ===
+      "terminal-builtin-import";
   if (plan.expectedObservation.kind === "target-absence") {
     if (!publicSurfaceProbe) {
       reasons.push("target-absence-probe-not-authored");
@@ -3147,7 +3736,8 @@ function residualReasons({
   if (
     route.alternatives.length === 0 &&
     plan.expectedObservation.kind !== "target-absence" &&
-    !callbackInvariantProbe
+    !callbackInvariantProbe &&
+    !terminalBuiltinClosureProbe
   ) {
     reasons.push("no-static-enforcement-terminal");
   }
@@ -3160,7 +3750,8 @@ function residualReasons({
   if (
     route.ambiguousCallees.length > 0 &&
     !callbackInvariantProbe &&
-    !effectBuiltinProbe
+    !effectBuiltinProbe &&
+    !terminalBuiltinClosureProbe
   ) {
     reasons.push("ambiguous-static-enforcement-route");
   }
@@ -3253,6 +3844,7 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
       coverageByObservedKey,
+      target,
     });
     const startupPublicSurfaceProbe = authoredStartupPublicProbe({
       plan,
@@ -3300,6 +3892,7 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       coverageByObservedKey,
       adapterProbe,
+      target,
     });
     const conditionalHostAbiProbe = conditionalHostAbiProbeForPlan({
       plan,

@@ -2893,13 +2893,13 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.7eb7b2d1b4d4a93f66c9374c431258868790c16e5bd43fb19fb3b0f42e16e1f1";
+  "hermes-evaluators.20f17703ce0845737f582f9f52de47a3d452285ecf4a009958c7b7398e08187b";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
-  "windows-nuget",
+  "windows-source-patched",
 ]);
 const REVIEWED_HERMES_EVALUATOR_BRANCHES = Object.freeze([
   Object.freeze({
@@ -2915,9 +2915,9 @@ const REVIEWED_HERMES_EVALUATOR_BRANCHES = Object.freeze([
     targetVariant: "default",
   }),
   Object.freeze({
-    authorityRef: "scripts/install-windows-hermes.ps1#Version",
-    profileId: "windows-nuget",
-    routePrefix: "hermes-intrinsic-windows-nuget-",
+    authorityRef: "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
+    profileId: "windows-source-patched",
+    routePrefix: "hermes-intrinsic-windows-source-patched-",
     targetVariant: "windows",
   }),
 ]);
@@ -7287,7 +7287,6 @@ function filesystemDescriptorDispatcherEffectSpec() {
   });
   return conditionalBranchEffectSpec(
     [
-      branch("durability-read", ["fs:read"]),
       branch("durability-write", ["fs:write"]),
       branch("metadata-write", ["fs:write"]),
     ],
@@ -10825,14 +10824,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     if (/^(?:stdout|stderr)$/u.test(member)) {
       return effectSpec(["stdio:write"], "stdio", "WP7");
     }
-    if (/^accessibility\.addeventlistener$/u.test(member)) {
-      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
-    }
     if (/^accessibility(?:\.|$)/u.test(member)) {
       return closedSpec(
         "ipc:channel",
         "WP7",
-        "Accessibility reads and announcements cross the shared embedder application-state channel.",
+        "Accessibility reads, announcements, and change callbacks cross the shared embedder application-state channel.",
       );
     }
     if (member === "locale.addlistener") {
@@ -11120,7 +11116,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (globalName === "indexeddb") {
     if (member === "cmp") {
-      return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB helpers are closed with the ambient database factory until its namespace is principal-isolated.",
+      );
     }
     if (member === "databases") {
       return closedSpec(
@@ -11139,10 +11139,18 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     return null;
   }
   if (globalName === "idbkeyrange") {
-    return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+    return closedSpec(
+      "storage:persist",
+      "WP7",
+      "IDBKeyRange is closed with IndexedDB because armed code cannot receive an ambient persistent-store object graph.",
+    );
   }
   if (/^(?:idbrequest|idbopendbrequest)$/u.test(globalName)) {
-    return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    return closedSpec(
+      "storage:persist",
+      "WP7",
+      "IndexedDB request and callback carriers are closed because the armed profile cannot mint their ambient backing objects.",
+    );
   }
   if (
     /^(?:idbcursor|idbcursorwithvalue|idbdatabase|idbindex|idbobjectstore|idbtransaction)$/u.test(
@@ -11154,10 +11162,18 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
         member,
       )
     ) {
-      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB callbacks are closed with the ambient retained object that would produce them.",
+      );
     }
     if (/^(?:close|abort|_abortwith|_release)$/u.test(member)) {
-      return nonCapabilitySpec("authority-release", "WP8");
+      return closedSpec(
+        "storage:persist",
+        "WP7",
+        "IndexedDB release operations are closed because the armed profile cannot mint the ambient retained object.",
+      );
     }
     if (
       /(?:add|put|update|delete|clear|create|commit|exec|save|rollback|backfill|migrate|ensuretable|ensureindex|transactionfinished|upgradetransaction|noteexplicitkey|nextautoincrement|beforecommit|enqueueop|start)$/u.test(
@@ -11308,7 +11324,11 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
 
   if (globalName === "worklet") {
     if (member === "clamp" || member === "lerp") {
-      return nonCapabilitySpec("pure-in-memory-compute", "WP1");
+      return closedSpec(
+        "worker:create",
+        "WP7",
+        "Worklet-only helpers are closed with the absent worklet namespace on the application runtime.",
+      );
     }
     if (
       /^(?:capture|captureget|captureset|output|runonjs|sharedvalue)$/u.test(
@@ -11405,8 +11425,15 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
   }
   if (
     member === "[[symbol.tostringtag]]" &&
-    /^(?:caches|localstorage|process|sessionstorage)$/u.test(globalName)
+    /^(?:caches|localstorage|sessionstorage)$/u.test(globalName)
   ) {
+    return closedSpec(
+      globalName === "caches" ? "storage:persist" : "storage:read",
+      "WP7",
+      "The armed profile closes the ambient storage namespace together with every member exposed through it.",
+    );
+  }
+  if (member === "[[symbol.tostringtag]]" && globalName === "process") {
     return nonCapabilitySpec("module-reachability-only", "WP7");
   }
 

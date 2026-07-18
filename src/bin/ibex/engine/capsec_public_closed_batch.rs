@@ -12,7 +12,13 @@ use std::io::Write as _;
 struct RecipeCatalog {
     recipe_catalog_schema: String,
     recipe_catalog_digest: String,
+    target: CatalogTarget,
     recipes: Vec<Recipe>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CatalogTarget {
+    triple: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,6 +88,20 @@ struct ClosedSourceDescriptor {
     loader_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     extension: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    export_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    module_specifiers: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    constructor_export_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    function_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selected_source_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target_triple: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -137,6 +157,64 @@ enum ClosedOperation {
         #[serde(rename = "expectedError")]
         expected_error: String,
     },
+    TerminalBuiltinImport {
+        #[serde(rename = "terminalBuiltinRoot")]
+        terminal_builtin_root: String,
+        #[serde(rename = "moduleSpecifiers")]
+        module_specifiers: Vec<String>,
+        #[serde(rename = "expectedRejectionFragment")]
+        expected_rejection_fragment: String,
+    },
+    SqliteExtensionLoad {
+        #[serde(rename = "constructorExportName")]
+        constructor_export_name: String,
+        #[serde(rename = "methodName")]
+        method_name: String,
+        #[serde(rename = "moduleSpecifiers")]
+        module_specifiers: Vec<String>,
+        #[serde(rename = "databasePath")]
+        database_path: String,
+        #[serde(rename = "extensionPath")]
+        extension_path: String,
+        #[serde(rename = "expectedRejectionFragment")]
+        expected_rejection_fragment: String,
+    },
+    SqliteCrSqliteEnable {
+        #[serde(rename = "constructorExportName")]
+        constructor_export_name: String,
+        #[serde(rename = "methodName")]
+        method_name: String,
+        #[serde(rename = "moduleSpecifiers")]
+        module_specifiers: Vec<String>,
+        #[serde(rename = "databasePath")]
+        database_path: String,
+        #[serde(rename = "expectedRejectionFragment")]
+        expected_rejection_fragment: String,
+    },
+    DebuggerAbiDisabled {
+        #[serde(rename = "functionName")]
+        function_name: String,
+        #[serde(rename = "expectedCallResult")]
+        expected_call_result: String,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
+    SharedRuntimeGlobalAbsence {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "memberName")]
+        member_name: Option<String>,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
+    ArmedNativeGlobalAbsence {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(default, rename = "memberName")]
+        member_name: Option<String>,
+        #[serde(rename = "expectedError")]
+        expected_error: String,
+    },
 }
 
 impl ClosedOperation {
@@ -148,6 +226,12 @@ impl ClosedOperation {
             Self::LoaderExecutableFile { .. } => "loader-executable-file",
             Self::ExactUnendowedOperation { .. } => "exact-unendowed-operation",
             Self::ModuleRunnerNamespace { .. } => "module-runner-namespace",
+            Self::TerminalBuiltinImport { .. } => "terminal-builtin-import",
+            Self::SqliteExtensionLoad { .. } => "sqlite-extension-load",
+            Self::SqliteCrSqliteEnable { .. } => "sqlite-cr-sqlite-enable",
+            Self::DebuggerAbiDisabled { .. } => "debugger-abi-disabled",
+            Self::SharedRuntimeGlobalAbsence { .. } => "shared-runtime-global-absence",
+            Self::ArmedNativeGlobalAbsence { .. } => "armed-native-global-absence",
         }
     }
 
@@ -158,7 +242,13 @@ impl ClosedOperation {
             | Self::TamedEvaluator { .. }
             | Self::LoaderExecutableFile { .. }
             | Self::ExactUnendowedOperation { .. }
-            | Self::ModuleRunnerNamespace { .. } => None,
+            | Self::ModuleRunnerNamespace { .. }
+            | Self::TerminalBuiltinImport { .. }
+            | Self::SqliteExtensionLoad { .. }
+            | Self::SqliteCrSqliteEnable { .. }
+            | Self::DebuggerAbiDisabled { .. } => None,
+            Self::SharedRuntimeGlobalAbsence { .. }
+            | Self::ArmedNativeGlobalAbsence { .. } => None,
         }
     }
 }
@@ -1093,6 +1183,1239 @@ async fn execute_closed_loader_executable(
     })
 }
 
+fn reviewed_terminal_builtin(source_key: &str) -> Option<(&'static str, &'static [&'static str])> {
+    Some(match source_key {
+        "node_async_hooks" => ("async_hooks", &["async_hooks", "node:async_hooks"]),
+        "node_inspector" => (
+            "inspector",
+            &[
+                "inspector",
+                "inspector/promises",
+                "node:inspector",
+                "node:inspector/promises",
+            ],
+        ),
+        "node_vm" => ("vm", &["node:vm", "vm"]),
+        "node_wasi" => ("wasi", &["node:wasi", "wasi"]),
+        "node_worker_threads" => (
+            "worker_threads",
+            &["node:worker_threads", "worker_threads"],
+        ),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+async fn execute_closed_terminal_builtin_import(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::TerminalBuiltinImport {
+        terminal_builtin_root,
+        module_specifiers,
+        expected_rejection_fragment,
+    } = &invocation.operation
+    else {
+        panic!("terminal builtin probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "builtin");
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(expected_rejection_fragment, "Import denied:");
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-terminal-builtin");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.module_specifiers.as_ref(), Some(module_specifiers));
+    assert_eq!(descriptor.source_refs.len(), 1);
+    let source_key = descriptor
+        .source_key
+        .as_deref()
+        .expect("terminal builtin descriptor has no source key");
+    let (reviewed_root, reviewed_specifiers) =
+        reviewed_terminal_builtin(source_key).expect("unreviewed terminal builtin source");
+    assert_eq!(terminal_builtin_root, reviewed_root);
+    assert_eq!(
+        module_specifiers,
+        &reviewed_specifiers
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(descriptor.source_metadata["sourceKey"], source_key);
+    assert_eq!(
+        descriptor.source_metadata["importReachability"],
+        "public"
+    );
+    if let Some(export_name) = descriptor.export_name.as_deref() {
+        assert_eq!(descriptor.source_metadata["surfaceType"], "export");
+        assert_eq!(descriptor.source_metadata["exportName"], export_name);
+        assert_eq!(
+            descriptor.source_metadata["publicModuleSpecifiers"],
+            serde_json::json!(module_specifiers)
+        );
+        assert_eq!(
+            invocation.surface_name,
+            format!("export:{source_key}:{export_name}")
+        );
+    } else {
+        assert!(descriptor.source_metadata.get("surfaceType").is_none());
+        assert_eq!(descriptor.source_metadata["moduleBuiltin"], true);
+        assert_eq!(descriptor.source_metadata["bundleExternal"], true);
+        assert!(
+            reviewed_specifiers.contains(&invocation.surface_name.as_str()),
+            "unreviewed terminal builtin alias {}",
+            invocation.surface_name
+        );
+    }
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed terminal builtin recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let script = format!(
+        r#"JSON.stringify((function(specifiers) {{
+  return specifiers.map(function(specifier) {{
+    var errorName = null;
+    var errorMessage = null;
+    try {{ require(specifier); }}
+    catch (error) {{
+      errorName = String(error && error.name || 'Error');
+      errorMessage = String(error && error.message || error);
+    }}
+    return {{specifier: specifier, errorName: errorName, errorMessage: errorMessage}};
+  }});
+}})({}))"#,
+        serde_json::to_string(module_specifiers).unwrap()
+    );
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute terminal builtin public imports")
+        .expect("terminal builtin imports returned no result");
+    let observed: Vec<serde_json::Value> =
+        serde_json::from_str(&encoded).expect("terminal builtin result must be JSON");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert_eq!(observed.len(), module_specifiers.len());
+    let mut errors = Vec::with_capacity(observed.len());
+    for (row, specifier) in observed.iter().zip(module_specifiers) {
+        assert_eq!(row["specifier"].as_str(), Some(specifier.as_str()));
+        assert_eq!(row["errorName"], "Error");
+        let error = row["errorMessage"]
+            .as_str()
+            .expect("terminal builtin import unexpectedly succeeded");
+        assert!(
+            error.contains(expected_rejection_fragment) && error.contains(specifier),
+            "terminal builtin returned the wrong refusal for {specifier}: {error}"
+        );
+        errors.push(format!("{specifier}: {error}"));
+    }
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": errors.join("\n"),
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+#[cfg(test)]
+async fn execute_closed_sqlite_extension_refusal(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let (
+        constructor_export_name,
+        method_name,
+        module_specifiers,
+        database_path,
+        method_arguments,
+        expected_rejection_fragment,
+        expected_descriptor_kind,
+        expected_terminals,
+    ) = match &invocation.operation {
+        ClosedOperation::SqliteExtensionLoad {
+            constructor_export_name,
+            method_name,
+            module_specifiers,
+            database_path,
+            extension_path,
+            expected_rejection_fragment,
+        } => (
+            constructor_export_name,
+            method_name,
+            module_specifiers,
+            database_path,
+            serde_json::json!([extension_path]),
+            expected_rejection_fragment,
+            "closed-sqlite-extension-load",
+            vec!["__exactSqliteLoadExtension"],
+        ),
+        ClosedOperation::SqliteCrSqliteEnable {
+            constructor_export_name,
+            method_name,
+            module_specifiers,
+            database_path,
+            expected_rejection_fragment,
+        } => (
+            constructor_export_name,
+            method_name,
+            module_specifiers,
+            database_path,
+            serde_json::json!([]),
+            expected_rejection_fragment,
+            "closed-sqlite-crsqlite-enable",
+            vec![
+                "__exactCrSqlitePath",
+                "__exactSqliteLoadCrSqlite",
+                "__exactSqliteLoadExtension",
+            ],
+        ),
+        _ => panic!("SQLite extension probe has the wrong operation"),
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "builtin");
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(module_specifiers, &["bun:sqlite", "exact:sqlite"]);
+    assert_eq!(database_path, ":memory:");
+    match &invocation.operation {
+        ClosedOperation::SqliteExtensionLoad { extension_path, .. } => {
+            assert_eq!(method_name, "loadExtension");
+            assert_eq!(extension_path, "ibex-capsec-closed-extension");
+            assert_eq!(expected_rejection_fragment, "Extension loading not supported");
+        }
+        ClosedOperation::SqliteCrSqliteEnable { .. } => {
+            assert_eq!(method_name, "enableCrSqlite");
+            assert_eq!(
+                expected_rejection_fragment,
+                "cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support."
+            );
+        }
+        _ => unreachable!(),
+    }
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    let export_name = descriptor
+        .export_name
+        .as_deref()
+        .expect("SQLite extension descriptor has no export name");
+    let expected_constructor = match export_name {
+        "Database.loadExtension" => "Database",
+        "default.loadExtension" => "default",
+        "Database.enableCrSqlite" => "Database",
+        "default.enableCrSqlite" => "default",
+        other => panic!("unreviewed SQLite extension export {other}"),
+    };
+    assert_eq!(constructor_export_name, expected_constructor);
+    assert_eq!(
+        descriptor.constructor_export_name.as_deref(),
+        Some(expected_constructor)
+    );
+    assert_eq!(descriptor.kind, expected_descriptor_kind);
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.source_key.as_deref(), Some("exact_sqlite"));
+    assert_eq!(descriptor.module_specifiers.as_ref(), Some(module_specifiers));
+    assert_eq!(
+        descriptor.source_refs,
+        [format!(
+            "packages/ibex-runtime-js/src/sqlite/module.js#exports:{export_name}"
+        )]
+    );
+    assert_eq!(descriptor.source_metadata["sourceKey"], "exact_sqlite");
+    assert_eq!(descriptor.source_metadata["surfaceType"], "export");
+    assert_eq!(descriptor.source_metadata["exportName"], export_name);
+    assert_eq!(descriptor.source_metadata["valueShape"], "callable");
+    assert_eq!(descriptor.source_metadata["importReachability"], "public");
+    assert_eq!(
+        descriptor.source_metadata["moduleSpecifiers"],
+        serde_json::json!(module_specifiers)
+    );
+    assert_eq!(
+        descriptor.source_metadata["publicModuleSpecifiers"],
+        serde_json::json!(module_specifiers)
+    );
+    let mut descriptor_terminals = descriptor.source_metadata["enforcementRouteEvidence"]
+        ["terminals"]
+        .as_array()
+        .expect("SQLite extension source terminals must be an array")
+        .iter()
+        .map(|terminal| {
+            terminal
+                .as_str()
+                .expect("SQLite extension source terminal must be a string")
+        })
+        .collect::<Vec<_>>();
+    descriptor_terminals.sort_unstable();
+    let mut expected_terminals = expected_terminals;
+    expected_terminals.sort_unstable();
+    assert_eq!(descriptor_terminals, expected_terminals);
+    assert_eq!(
+        invocation.surface_name,
+        format!("export:exact_sqlite:{export_name}")
+    );
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed SQLite extension recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let script = format!(
+        r#"JSON.stringify((function(specifiers, constructorName, methodName, databasePath, methodArguments) {{
+  return specifiers.map(function(specifier) {{
+    var namespace = require(specifier);
+    var Constructor = namespace[constructorName];
+    if (typeof Constructor !== 'function') throw new Error('missing SQLite constructor '+constructorName+' from '+specifier);
+    var database = new Constructor(databasePath);
+    var errorName = null;
+    var errorMessage = null;
+    try {{ database[methodName].apply(database, methodArguments); }}
+    catch (error) {{
+      errorName = String(error && error.name || 'Error');
+      errorMessage = String(error && error.message || error);
+    }}
+    finally {{ database.close(true); }}
+    return {{specifier:specifier,errorName:errorName,errorMessage:errorMessage}};
+  }});
+}})({}, {}, {}, {}, {}))"#,
+        serde_json::to_string(module_specifiers).unwrap(),
+        serde_json::to_string(constructor_export_name).unwrap(),
+        serde_json::to_string(method_name).unwrap(),
+        serde_json::to_string(database_path).unwrap(),
+        serde_json::to_string(&method_arguments).unwrap(),
+    );
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute SQLite extension refusal calls")
+        .expect("SQLite extension refusal calls returned no result");
+    let observed: Vec<serde_json::Value> =
+        serde_json::from_str(&encoded).expect("SQLite extension closure result must be JSON");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert_eq!(observed.len(), module_specifiers.len());
+    let mut errors = Vec::with_capacity(observed.len());
+    for (row, specifier) in observed.iter().zip(module_specifiers) {
+        assert_eq!(row["specifier"].as_str(), Some(specifier.as_str()));
+        assert_eq!(row["errorName"], "Error");
+        let error = row["errorMessage"]
+            .as_str()
+            .expect("SQLite extension operation unexpectedly succeeded");
+        assert!(
+            error.contains(expected_rejection_fragment),
+            "SQLite extension operation returned the wrong refusal for {specifier}: {error}"
+        );
+        errors.push(format!("{specifier}: {error}"));
+    }
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": errors.join("\n"),
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+fn reviewed_debugger_abi(function_name: &str) -> Option<(&'static str, &'static str)> {
+    Some(match function_name {
+        "ex_hermes_debugger_enable" => ("enable", "integer-zero"),
+        "ex_hermes_debugger_eval" => ("eval", "null-pointer"),
+        "ex_hermes_debugger_get_script_source" => ("get-script-source", "null-pointer"),
+        "ex_hermes_debugger_get_scripts" => ("get-scripts", "null-pointer"),
+        "ex_hermes_debugger_next_event" => ("next-event", "null-pointer"),
+        "ex_hermes_debugger_pause" => ("pause", "no-event"),
+        "ex_hermes_debugger_remove_breakpoint" => ("remove-breakpoint", "no-event"),
+        "ex_hermes_debugger_resume" => ("resume", "no-event"),
+        "ex_hermes_debugger_set_breakpoint" => ("set-breakpoint", "null-pointer"),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+unsafe fn assert_null_debugger_string(
+    value: *mut std::os::raw::c_char,
+    function_name: &str,
+) {
+    if !value.is_null() {
+        unsafe { ex_hermes_free_string(value) };
+        panic!("{function_name} returned debugger data on the no-debugger exact target");
+    }
+}
+
+#[cfg(test)]
+async fn execute_closed_debugger_abi(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+    catalog_target_triple: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::DebuggerAbiDisabled {
+        function_name,
+        expected_call_result,
+        expected_error,
+    } = &invocation.operation
+    else {
+        panic!("debugger ABI probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert!(matches!(
+        invocation.surface_kind.as_str(),
+        "host-abi" | "native-op"
+    ));
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    let (operation_slug, reviewed_call_result) =
+        reviewed_debugger_abi(function_name).expect("unreviewed debugger ABI function");
+    assert_eq!(expected_call_result, reviewed_call_result);
+    assert_eq!(descriptor.kind, "closed-debugger-abi");
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(
+        descriptor.function_name.as_deref(),
+        Some(function_name.as_str())
+    );
+    assert_eq!(
+        descriptor.target_triple.as_deref(),
+        Some(catalog_target_triple)
+    );
+    assert!(matches!(
+        catalog_target_triple,
+        "aarch64-apple-darwin" | "x86_64-pc-windows-msvc"
+    ));
+    let default_source_ref = format!("src/engine/hermes_runtime_debugger.cc#{function_name}");
+    let windows_source_ref =
+        format!("src/engine/hermes_runtime_platform_windows.cc#{function_name}");
+    assert_eq!(
+        descriptor.selected_source_ref.as_deref(),
+        Some(if catalog_target_triple == "x86_64-pc-windows-msvc" {
+            windows_source_ref.as_str()
+        } else {
+            default_source_ref.as_str()
+        })
+    );
+    assert_eq!(
+        descriptor.source_refs,
+        [default_source_ref.clone(), windows_source_ref.clone()]
+    );
+    if invocation.surface_kind == "host-abi" {
+        assert_eq!(invocation.surface_name.as_str(), function_name.as_str());
+        let alternatives = serde_json::json!([
+            {
+                "id": "default",
+                "kind": "alternative",
+                "sourceRefs": [default_source_ref.clone()],
+                "stubDisposition": "not-structurally-proven",
+                "targetVariant": "default",
+            },
+            {
+                "id": "windows",
+                "kind": "alternative",
+                "sourceRefs": [windows_source_ref.clone()],
+                "stubDisposition": "not-structurally-proven",
+                "targetVariant": "windows",
+            },
+        ]);
+        assert_eq!(
+            descriptor.source_metadata,
+            serde_json::json!({
+                "alternatives": alternatives.clone(),
+                "branches": alternatives,
+                "definitions": [
+                    {
+                        "language": "c++",
+                        "sourceRef": default_source_ref,
+                        "targetVariant": "default",
+                        "unsafe": false,
+                        "weak": false,
+                    },
+                    {
+                        "language": "c++",
+                        "sourceRef": windows_source_ref,
+                        "targetVariant": "windows",
+                        "unsafe": false,
+                        "weak": false,
+                    },
+                ],
+                "provenanceLimitation": "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
+            })
+        );
+    } else {
+        assert_eq!(
+            invocation.surface_name,
+            format!("inspector.debugger-{operation_slug}")
+        );
+        assert!(descriptor.source_metadata.is_null());
+    }
+    assert_eq!(
+        expected_error,
+        &format!(
+            "debugger ABI {function_name} is unavailable in the no-debugger exact target"
+        )
+    );
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed debugger ABI recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    assert_eq!(
+        engine
+            .eval_immediate("'IBEX_CAPSEC_DEBUGGER_ABI_READY'")
+            .await
+            .expect("evaluate debugger ABI precondition marker")
+            .as_deref(),
+        Some("IBEX_CAPSEC_DEBUGGER_ABI_READY")
+    );
+    let runtime = engine
+        .ensure_runtime()
+        .await
+        .expect("load debugger ABI runtime handle");
+    let enable_result = runtime
+        .with_runtime(|raw| unsafe { ex_hermes_debugger_enable(raw) })
+        .expect("probe debugger enablement on the runtime owner thread");
+    assert_eq!(enable_result, 0, "exact target unexpectedly enabled debugger");
+    runtime
+        .with_runtime(|raw| unsafe {
+            match function_name.as_str() {
+                "ex_hermes_debugger_enable" => {}
+                "ex_hermes_debugger_eval" => {
+                    let expression = std::ffi::CString::new(
+                        "globalThis.__IBEX_CAPSEC_DEBUGGER_EVAL_EXECUTED__ = true",
+                    )
+                    .unwrap();
+                    assert_null_debugger_string(
+                        ex_hermes_debugger_eval(raw, expression.as_ptr(), 0),
+                        function_name,
+                    );
+                }
+                "ex_hermes_debugger_get_script_source" => {
+                    assert_null_debugger_string(
+                        ex_hermes_debugger_get_script_source(raw, 0),
+                        function_name,
+                    );
+                }
+                "ex_hermes_debugger_get_scripts" => {
+                    assert_null_debugger_string(ex_hermes_debugger_get_scripts(raw), function_name);
+                }
+                "ex_hermes_debugger_next_event" => {
+                    assert_null_debugger_string(ex_hermes_debugger_next_event(raw), function_name);
+                }
+                "ex_hermes_debugger_pause" => ex_hermes_debugger_pause(raw),
+                "ex_hermes_debugger_remove_breakpoint" => {
+                    ex_hermes_debugger_remove_breakpoint(raw, 0)
+                }
+                "ex_hermes_debugger_resume" => ex_hermes_debugger_resume(raw, 0),
+                "ex_hermes_debugger_set_breakpoint" => {
+                    assert_null_debugger_string(
+                        ex_hermes_debugger_set_breakpoint(raw, 0, 0, 0, std::ptr::null()),
+                        function_name,
+                    );
+                }
+                _ => unreachable!(),
+            }
+            assert_null_debugger_string(
+                ex_hermes_debugger_next_event(raw),
+                "ex_hermes_debugger_next_event after closed call",
+            );
+        })
+        .expect("invoke debugger ABI on the runtime owner thread");
+    assert_eq!(
+        engine
+            .eval_immediate(
+                "typeof globalThis.__IBEX_CAPSEC_DEBUGGER_EVAL_EXECUTED__ === 'undefined' ? 'closed' : 'executed'",
+            )
+            .await
+            .expect("evaluate debugger ABI postcondition marker")
+            .as_deref(),
+        Some("closed")
+    );
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": expected_error,
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+fn reviewed_closed_shared_runtime_root(root_name: &str) -> bool {
+    matches!(
+        root_name,
+        "BroadcastChannel"
+            | "caches"
+            | "IDBCursor"
+            | "IDBCursorWithValue"
+            | "IDBDatabase"
+            | "IDBIndex"
+            | "IDBKeyRange"
+            | "IDBObjectStore"
+            | "IDBOpenDBRequest"
+            | "IDBRequest"
+            | "IDBTransaction"
+            | "indexedDB"
+            | "localStorage"
+            | "MessageChannel"
+            | "MessagePort"
+            | "sessionStorage"
+    )
+}
+
+fn reviewed_shared_runtime_absent_surface(surface_name: &str) -> bool {
+    matches!(
+        surface_name,
+        "__exactAllowNativesSyntax"
+            | "__exactCompatEval"
+            | "__exactDebugModuleSource"
+            | "__exactDebugModuleSources"
+            | "__exactDebugModuleSources.length"
+            | "__exactInstallAsyncIpcListenerPatch"
+            | "__exactInstallProcessIpcBootstrap"
+            | "__exactNativeWrapState"
+            | "__exactNativeWrapState.Pipe"
+            | "__exactNativeWrapState.TCP"
+            | "__exactNativeWrapState.TCPConnectWrap"
+            | "__exactNativeWrapState.UV_EINVAL"
+            | "__exactNativeWrapState.byFd"
+            | "__exactNativeWrapState.pipeConstants"
+            | "__exactNativeWrapState.tcpConstants"
+            | "__exactStreamWrapState"
+            | "__exactSyncTrackedIpcListenersAfterDispatch"
+            | "global:Bun.gc"
+            | "global:BroadcastChannel"
+            | "global:BroadcastChannel.[[Symbol.toStringTag]]"
+            | "global:BroadcastChannel._deliverMessage"
+            | "global:BroadcastChannel._getChannelCount"
+            | "global:BroadcastChannel._getChannelNames"
+            | "global:BroadcastChannel.addEventListener"
+            | "global:BroadcastChannel.close"
+            | "global:BroadcastChannel.dispatchEvent"
+            | "global:BroadcastChannel.name"
+            | "global:BroadcastChannel.onmessage"
+            | "global:BroadcastChannel.onmessageerror"
+            | "global:BroadcastChannel.postMessage"
+            | "global:BroadcastChannel.removeEventListener"
+            | "global:Cache"
+            | "global:Cache.add"
+            | "global:Cache.addAll"
+            | "global:Cache.delete"
+            | "global:Cache.keys"
+            | "global:Cache.match"
+            | "global:Cache.matchAll"
+            | "global:Cache.put"
+            | "global:CacheStorage"
+            | "global:CacheStorage.delete"
+            | "global:CacheStorage.has"
+            | "global:CacheStorage.keys"
+            | "global:CacheStorage.match"
+            | "global:CacheStorage.open"
+            | "global:Bun.accessibility"
+            | "global:Bun.accessibility.addEventListener"
+            | "global:Bun.accessibility.announce"
+            | "global:Bun.accessibility.colorScheme"
+            | "global:Bun.accessibility.dynamicTypeSize"
+            | "global:Bun.accessibility.fontScale"
+            | "global:Bun.accessibility.get"
+            | "global:Bun.accessibility.isBoldTextEnabled"
+            | "global:Bun.accessibility.isGrayscaleEnabled"
+            | "global:Bun.accessibility.isInvertColorsEnabled"
+            | "global:Bun.accessibility.isScreenReaderEnabled"
+            | "global:Bun.accessibility.prefersHighContrast"
+            | "global:Bun.accessibility.prefersReducedMotion"
+            | "global:Bun.accessibility.prefersReducedTransparency"
+            | "global:Exact.accessibility"
+            | "global:Exact.accessibility.addEventListener"
+            | "global:Exact.accessibility.announce"
+            | "global:Exact.accessibility.colorScheme"
+            | "global:Exact.accessibility.dynamicTypeSize"
+            | "global:Exact.accessibility.fontScale"
+            | "global:Exact.accessibility.get"
+            | "global:Exact.accessibility.isBoldTextEnabled"
+            | "global:Exact.accessibility.isGrayscaleEnabled"
+            | "global:Exact.accessibility.isInvertColorsEnabled"
+            | "global:Exact.accessibility.isScreenReaderEnabled"
+            | "global:Exact.accessibility.prefersHighContrast"
+            | "global:Exact.accessibility.prefersReducedMotion"
+            | "global:Exact.accessibility.prefersReducedTransparency"
+            | "global:Exact.gc"
+            | "global:MessageChannel"
+            | "global:MessageChannel.[[Symbol.toStringTag]]"
+            | "global:MessageChannel.port1"
+            | "global:MessageChannel.port2"
+            | "global:MessagePort"
+            | "global:MessagePort.[[Symbol.toStringTag]]"
+            | "global:MessagePort.[[symbol-binding:structuredCloneTransferSymbol]]"
+            | "global:MessagePort._setRemotePort"
+            | "global:MessagePort.addEventListener"
+            | "global:MessagePort.close"
+            | "global:MessagePort.dispatchEvent"
+            | "global:MessagePort.onmessage"
+            | "global:MessagePort.onmessageerror"
+            | "global:MessagePort.postMessage"
+            | "global:MessagePort.removeEventListener"
+            | "global:MessagePort.start"
+    ) || surface_name
+        .strip_prefix("global:")
+        .and_then(|name| name.split('.').next())
+        .is_some_and(reviewed_closed_shared_runtime_root)
+}
+
+fn reviewed_armed_native_absent_surface(surface_name: &str) -> bool {
+    matches!(
+        surface_name,
+        "__exactExit"
+            | "__exactGetGCStats"
+            | "__exactGetHeapInfo"
+            | "__exactGetSourceCacheStats"
+            | "__exactIpcRecvMsg"
+            | "__exactIpcSendMsg"
+            | "__exactPollSignal"
+            | "__exactResetSignal"
+            | "__exactSetCwd"
+            | "global:measure"
+            | "global:scheduleOnAppRuntime"
+            | "global:worklet"
+            | "global:worklet.capture"
+            | "global:worklet.captureGet"
+            | "global:worklet.captureSet"
+            | "global:worklet.clamp"
+            | "global:worklet.lerp"
+            | "global:worklet.output"
+            | "global:worklet.runOnJS"
+            | "global:worklet.sharedValue"
+    )
+}
+
+fn reviewed_app_runtime_absent_worklet_surface(surface_name: &str) -> bool {
+    matches!(
+        surface_name,
+        "global:measure"
+            | "global:scheduleOnAppRuntime"
+            | "global:worklet"
+            | "global:worklet.capture"
+            | "global:worklet.captureGet"
+            | "global:worklet.captureSet"
+            | "global:worklet.clamp"
+            | "global:worklet.lerp"
+            | "global:worklet.output"
+            | "global:worklet.runOnJS"
+            | "global:worklet.sharedValue"
+    )
+}
+
+#[cfg(test)]
+async fn execute_closed_shared_runtime_global_absence(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+    catalog_target_triple: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let (global_name, member_name, expected_error, armed_native) = match &invocation.operation {
+        ClosedOperation::SharedRuntimeGlobalAbsence {
+            global_name,
+            member_name,
+            expected_error,
+        } => (global_name, member_name.as_ref(), expected_error, false),
+        ClosedOperation::ArmedNativeGlobalAbsence {
+            global_name,
+            member_name,
+            expected_error,
+        } => (global_name, member_name.as_ref(), expected_error, true),
+        _ => panic!("global absence probe has the wrong operation"),
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe
+        .command
+        .iter()
+        .map(String::as_str)
+        .eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(
+        invocation.invocation_schema,
+        "ibex/capsec-closed-surface-invocation/1"
+    );
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "native-op");
+    if armed_native {
+        assert!(reviewed_armed_native_absent_surface(
+            &invocation.surface_name
+        ));
+    } else {
+        assert!(reviewed_shared_runtime_absent_surface(
+            &invocation.surface_name
+        ));
+    }
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(
+        descriptor.kind,
+        if armed_native {
+            "closed-armed-native-global-absence"
+        } else {
+            "closed-shared-runtime-global-absence"
+        }
+    );
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert_eq!(descriptor.global_name.as_deref(), Some(global_name.as_str()));
+    assert_eq!(descriptor.member_name.as_ref(), member_name);
+    assert_eq!(
+        descriptor.target_triple.as_deref(),
+        Some(catalog_target_triple)
+    );
+    assert!(matches!(
+        catalog_target_triple,
+        "aarch64-apple-darwin" | "x86_64-pc-windows-msvc"
+    ));
+    assert!(!descriptor.source_refs.is_empty());
+    let metadata = &descriptor.source_metadata;
+    assert_eq!(metadata["surfaceType"], "global-api");
+    assert_eq!(metadata["globalName"], global_name.as_str());
+    assert_eq!(metadata["memberName"], serde_json::json!(member_name));
+    let export_name = member_name
+        .as_ref()
+        .map_or_else(|| global_name.clone(), |member| format!("{global_name}.{member}"));
+    assert_eq!(metadata["exportName"], export_name);
+    let branches = metadata["installationBranches"]
+        .as_array()
+        .expect("shared-runtime global source must name installation branches");
+    if armed_native {
+        if reviewed_app_runtime_absent_worklet_surface(&invocation.surface_name) {
+            assert_eq!(branches.len(), 1);
+            assert_eq!(branches[0]["targetVariant"], "worklet");
+            assert_eq!(
+                branches[0]["sourceRefs"],
+                serde_json::json!(descriptor.source_refs)
+            );
+            if metadata["sourceKey"] == "native_jsi_global" {
+                assert_eq!(branches[0]["route"], "native-jsi-global");
+                assert_eq!(
+                    metadata["memberKinds"],
+                    serde_json::json!([if member_name.is_some() {
+                        "native-object-member"
+                    } else {
+                        "native-root"
+                    }])
+                );
+            } else {
+                assert_eq!(metadata["sourceKey"], "evaluated_native_script");
+                assert_eq!(branches[0]["route"], "evaluated-native-script");
+                assert_eq!(metadata["evaluatedScript"], "kPrelude");
+                assert_eq!(metadata["sourceUrls"], serde_json::json!(["worklet-prelude.js"]));
+            }
+        } else {
+            assert_eq!(metadata["sourceKey"], "native_jsi_global");
+            assert_eq!(metadata["memberKinds"], serde_json::json!(["native-root"]));
+            let public_invocation = metadata["publicInvocation"]
+                .as_object()
+                .expect("armed native source must carry a public invocation");
+            assert_eq!(public_invocation["kind"], "native-global-function");
+            assert_eq!(public_invocation["globalName"], global_name.as_str());
+            assert!(public_invocation["arity"].as_u64().is_some());
+            assert!(branches.iter().any(|branch| {
+                branch["route"] == "native-jsi-global"
+                    && branch["targetVariant"] == "default"
+            }));
+        }
+        assert_eq!(
+            expected_error,
+            &format!("armed runtime does not expose {export_name}")
+        );
+    } else {
+        assert_eq!(branches.len(), 1);
+        let legacy_bootstrap = branches[0]["route"] == "legacy-bootstrap"
+            && branches[0]["targetVariant"] == "default"
+            && metadata["sourceKey"] != "shared_runtime";
+        let shared_runtime = metadata["sourceKey"] == "shared_runtime"
+            && branches[0]["route"] == "shared-runtime"
+            && branches[0]["targetVariant"] == "all";
+        let composed_shared_runtime = metadata["sourceKey"] == "shared_runtime"
+            && branches[0]["route"] == "composed:legacy-bootstrap+shared-runtime"
+            && branches[0]["targetVariant"] == "default"
+            && branches[0]["routes"]
+                == serde_json::json!(["legacy-bootstrap", "shared-runtime"]);
+        assert!(
+            if metadata["sourceKey"] == "shared_runtime" {
+                shared_runtime || composed_shared_runtime
+            } else {
+                legacy_bootstrap
+            },
+            "shared-runtime absence recipe named an unreviewed installation path"
+        );
+        assert_eq!(
+            branches[0]["sourceRefs"],
+            serde_json::json!(descriptor.source_refs)
+        );
+        assert_eq!(
+            expected_error,
+            &format!("armed shared runtime does not expose {export_name}")
+        );
+    }
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed shared-runtime global recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id));
+    let global_json = serde_json::to_string(global_name).unwrap();
+    let root_is_sealed = reviewed_closed_shared_runtime_root(global_name);
+    let script = if root_is_sealed {
+        format!("{global_json} in globalThis?'present':'absent'")
+    } else if let Some(member_name) = member_name {
+        let member_path_json = serde_json::to_string(
+            &member_name.split('.').collect::<Vec<_>>(),
+        )
+        .unwrap();
+        format!(
+            "(function(){{function descriptorIn(value,key){{while(value!==null){{var descriptor=Object.getOwnPropertyDescriptor(value,key);if(descriptor!==undefined)return descriptor;value=Object.getPrototypeOf(value);}}}}var root=descriptorIn(globalThis,{global_json});if(!root)return 'absent';if(!Object.prototype.hasOwnProperty.call(root,'value'))return 'present';var value=root.value;var path={member_path_json};for(var index=0;index<path.length;index+=1){{if((typeof value!=='object'&&typeof value!=='function')||value===null)return 'absent';var descriptor=descriptorIn(value,path[index]);if(descriptor===undefined)return 'absent';if(index+1===path.length)return 'present';if(!Object.prototype.hasOwnProperty.call(descriptor,'value'))return 'present';value=descriptor.value;}}return 'absent';}})()"
+        )
+    } else {
+        format!("{global_json} in globalThis?'present':'absent'")
+    };
+    assert_eq!(
+        engine
+            .eval_immediate(&script)
+            .await
+            .expect("inspect armed shared-runtime global")
+            .as_deref(),
+        Some("absent")
+    );
+    assert_eq!(
+        engine
+            .eval_immediate("'IBEX_CAPSEC_SHARED_RUNTIME_GLOBALS_HEALTHY'")
+            .await
+            .expect("evaluate shared-runtime global postcondition marker")
+            .as_deref(),
+        Some("IBEX_CAPSEC_SHARED_RUNTIME_GLOBALS_HEALTHY")
+    );
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": expected_error,
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": 0,
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 fn clap_command_at_path<'a>(root: &'a clap::Command, path: &str) -> &'a clap::Command {
     let mut components = path.split(' ');
     assert_eq!(components.next(), Some(root.get_name()));
@@ -1876,6 +3199,88 @@ async fn execute_closed_cli_control(
 
 #[cfg(test)]
 #[tokio::test(flavor = "current_thread")]
+async fn capsec_closed_native_seal_preserves_diagnostic_runtime_compatibility() {
+    let _lock = hermes_engine_test_lock().lock().await;
+    let engine = HermesEngine::new().expect("create foreground diagnostic Hermes runtime");
+    engine
+        .load_runtime()
+        .await
+        .expect("load foreground diagnostic Hermes runtime");
+    let observed = engine
+        .eval_immediate(
+            r#"JSON.stringify([
+  '__exactExit',
+  '__exactGetGCStats',
+  '__exactGetHeapInfo',
+  '__exactGetSourceCacheStats',
+  '__exactIpcRecvMsg',
+  '__exactIpcSendMsg',
+  '__exactPollSignal',
+  '__exactResetSignal',
+  '__exactSetCwd'
+].map(function (name) { return [name, typeof globalThis[name]]; }))"#,
+        )
+        .await
+        .expect("inspect diagnostic compatibility globals")
+        .expect("diagnostic compatibility inspection returned no result");
+    let observed: Vec<(String, String)> =
+        serde_json::from_str(&observed).expect("decode diagnostic compatibility globals");
+    assert_eq!(observed.len(), 9);
+    assert!(
+        observed.iter().all(|(_, value_type)| value_type == "function"),
+        "foreground diagnostic runtime lost reviewed compatibility globals: {observed:?}"
+    );
+    let accessibility = engine
+        .eval_immediate(
+            r#"JSON.stringify([
+  typeof Exact,
+  typeof Exact.accessibility,
+  typeof Exact.accessibility.addEventListener,
+  typeof Exact.accessibility.announce,
+  typeof Exact.accessibility.get,
+  typeof Object.getOwnPropertyDescriptor(Exact.accessibility, 'prefersReducedMotion').get
+])"#,
+        )
+        .await
+        .expect("inspect diagnostic accessibility compatibility")
+        .expect("diagnostic accessibility inspection returned no result");
+    let accessibility: Vec<String> =
+        serde_json::from_str(&accessibility).expect("decode diagnostic accessibility globals");
+    assert_eq!(
+        accessibility,
+        ["object", "object", "function", "function", "function", "function"],
+        "foreground diagnostic runtime lost the accessibility namespace"
+    );
+    let messaging = engine
+        .eval_immediate(
+            "JSON.stringify([typeof BroadcastChannel, typeof MessageChannel, typeof MessagePort])",
+        )
+        .await
+        .expect("inspect diagnostic messaging compatibility")
+        .expect("diagnostic messaging inspection returned no result");
+    let messaging: Vec<String> =
+        serde_json::from_str(&messaging).expect("decode diagnostic messaging globals");
+    assert_eq!(messaging, ["function", "function", "function"]);
+    let storage = engine
+        .eval_immediate(
+            "JSON.stringify([typeof caches, typeof localStorage, typeof sessionStorage, typeof indexedDB, typeof IDBCursor, typeof IDBCursorWithValue, typeof IDBDatabase, typeof IDBIndex, typeof IDBKeyRange, typeof IDBObjectStore, typeof IDBOpenDBRequest, typeof IDBRequest, typeof IDBTransaction])",
+        )
+        .await
+        .expect("inspect diagnostic storage compatibility")
+        .expect("diagnostic storage inspection returned no result");
+    let storage: Vec<String> =
+        serde_json::from_str(&storage).expect("decode diagnostic storage globals");
+    assert_eq!(
+        storage,
+        [
+            "object", "object", "object", "object", "function", "function", "function",
+            "function", "function", "function", "function", "function", "function",
+        ]
+    );
+}
+
+#[cfg(test)]
+#[tokio::test(flavor = "current_thread")]
 async fn capsec_public_closed_recipe_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
         eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping closed public batch");
@@ -1964,6 +3369,78 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
+    let terminal_builtin_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::TerminalBuiltinImport { .. }
+            )
+        })
+        .count();
+    let sqlite_extension_load_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::SqliteExtensionLoad { .. }
+            )
+        })
+        .count();
+    let sqlite_crsqlite_enable_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::SqliteCrSqliteEnable { .. }
+            )
+        })
+        .count();
+    let debugger_abi_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::DebuggerAbiDisabled { .. }
+            )
+        })
+        .count();
+    let shared_runtime_global_absence_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::SharedRuntimeGlobalAbsence { .. }
+            )
+        })
+        .count();
+    let armed_native_global_absence_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::ArmedNativeGlobalAbsence { .. }
+            )
+        })
+        .count();
     assert_eq!(
         recipe_indexes.len(),
         startup_count
@@ -1971,7 +3448,13 @@ async fn capsec_public_closed_recipe_batch() {
             + evaluator_count
             + loader_count
             + exact_unendowed_count
-            + module_runner_namespace_count,
+            + module_runner_namespace_count
+            + terminal_builtin_count
+            + sqlite_extension_load_count
+            + sqlite_crsqlite_enable_count
+            + debugger_abi_count
+            + shared_runtime_global_absence_count
+            + armed_native_global_absence_count,
         "every closed recipe must have an accounted execution family"
     );
     assert_eq!(
@@ -1997,6 +3480,36 @@ async fn capsec_public_closed_recipe_batch() {
         module_runner_namespace_count, 1,
         "expected the armed module namespace inspection closure fixture"
     );
+    assert_eq!(
+        terminal_builtin_count, 106,
+        "expected every source facet of the five terminal builtin modules"
+    );
+    assert_eq!(
+        sqlite_extension_load_count, 2,
+        "expected both public SQLite extension-loading exports"
+    );
+    assert_eq!(
+        sqlite_crsqlite_enable_count, 2,
+        "expected both public cr-sqlite enablement exports"
+    );
+    let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
+        match catalog.target.triple.as_str() {
+            "aarch64-apple-darwin" => (18, 322, 20),
+            "x86_64-pc-windows-msvc" => (18, 322, 20),
+            target => panic!("closed public batch has no reviewed target shape for {target}"),
+        };
+    assert_eq!(
+        debugger_abi_count, expected_debugger_abi,
+        "expected every target-applicable debugger ABI and native-operation facet"
+    );
+    assert_eq!(
+        shared_runtime_global_absence_count, expected_shared_runtime_absence,
+        "expected every target-applicable reviewed shared-runtime global path"
+    );
+    assert_eq!(
+        armed_native_global_absence_count, expected_native_absence,
+        "expected every target-applicable reviewed armed native global"
+    );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
     let identity_before = HermesEngine::loaded_engine_identity()
@@ -2004,9 +3517,215 @@ async fn capsec_public_closed_recipe_batch() {
     attest_exact_engine().await;
     let coverage = coverage_terminals();
     let mut executions = Vec::with_capacity(recipe_indexes.len());
+    if terminal_builtin_count > 0 {
+        let terminal_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::TerminalBuiltinImport { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let terminal_imports = terminal_indexes
+            .iter()
+            .flat_map(|index| {
+                let probe = closed_surface_probe(&catalog.recipes[*index]).unwrap();
+                let ClosedOperation::TerminalBuiltinImport {
+                    module_specifiers, ..
+                } = probe.invocation.operation
+                else {
+                    unreachable!()
+                };
+                module_specifiers
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) = build_armed_test_host_custom(
+            None,
+            false,
+            false,
+            false,
+            Vec::new(),
+            None,
+            |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(terminal_imports);
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact terminal builtin closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact terminal builtin closure runtime");
+        for index in terminal_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_terminal_builtin_import(
+                    &engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await,
+            );
+        }
+    }
+    if sqlite_extension_load_count + sqlite_crsqlite_enable_count > 0 {
+        let sqlite_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::SqliteExtensionLoad { .. }
+                        | ClosedOperation::SqliteCrSqliteEnable { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) = build_armed_test_host_custom(
+            None,
+            false,
+            false,
+            false,
+            Vec::new(),
+            None,
+            |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] =
+                    serde_json::json!(["bun:sqlite", "exact:sqlite"]);
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact SQLite extension closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact SQLite extension closure runtime");
+        for index in sqlite_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_sqlite_extension_refusal(
+                    &engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await,
+            );
+        }
+    }
+    if debugger_abi_count > 0 {
+        let debugger_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::DebuggerAbiDisabled { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact no-debugger ABI closure engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact no-debugger ABI closure runtime");
+        for index in debugger_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_debugger_abi(
+                    &engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                    &catalog.target.triple,
+                )
+                .await,
+            );
+        }
+    }
+    if shared_runtime_global_absence_count + armed_native_global_absence_count > 0 {
+        let absence_indexes = recipe_indexes
+            .iter()
+            .copied()
+            .filter(|index| {
+                matches!(
+                    &closed_surface_probe(&catalog.recipes[*index])
+                        .unwrap()
+                        .invocation
+                        .operation,
+                    ClosedOperation::SharedRuntimeGlobalAbsence { .. }
+                        | ClosedOperation::ArmedNativeGlobalAbsence { .. }
+                )
+            })
+            .collect::<Vec<_>>();
+        let (host, snapshot_digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create exact shared-runtime global absence engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load exact shared-runtime global absence runtime");
+        for index in absence_indexes {
+            let recipe = &catalog.recipes[index];
+            let probe = closed_surface_probe(recipe).unwrap();
+            executions.push(
+                execute_closed_shared_runtime_global_absence(
+                    &engine,
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                    &catalog.target.triple,
+                )
+                .await,
+            );
+        }
+    }
     for index in recipe_indexes {
         let recipe = &catalog.recipes[index];
         let probe = closed_surface_probe(recipe).unwrap();
+        if matches!(
+            &probe.invocation.operation,
+                ClosedOperation::TerminalBuiltinImport { .. }
+                | ClosedOperation::SqliteExtensionLoad { .. }
+                | ClosedOperation::SqliteCrSqliteEnable { .. }
+                | ClosedOperation::DebuggerAbiDisabled { .. }
+                | ClosedOperation::SharedRuntimeGlobalAbsence { .. }
+                | ClosedOperation::ArmedNativeGlobalAbsence { .. }
+        ) {
+            continue;
+        }
         executions.push(match &probe.invocation.operation {
             ClosedOperation::StartupEnvironment { .. } => {
                 execute_closed_startup_environment(
@@ -2062,6 +3781,12 @@ async fn capsec_public_closed_recipe_batch() {
                 )
                 .await
             }
+            ClosedOperation::TerminalBuiltinImport { .. } => unreachable!(),
+            ClosedOperation::SqliteExtensionLoad { .. } => unreachable!(),
+            ClosedOperation::SqliteCrSqliteEnable { .. } => unreachable!(),
+            ClosedOperation::DebuggerAbiDisabled { .. } => unreachable!(),
+            ClosedOperation::SharedRuntimeGlobalAbsence { .. } => unreachable!(),
+            ClosedOperation::ArmedNativeGlobalAbsence { .. } => unreachable!(),
         });
     }
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));

@@ -193,6 +193,10 @@ function liveHermesEvaluatorIdentityInputs() {
       path.join(repoRoot, "scripts", "install-windows-hermes.ps1"),
       "utf8",
     ),
+    windowsSourceBuildText: fs.readFileSync(
+      path.join(repoRoot, "scripts", "build-hermes-windows.ps1"),
+      "utf8",
+    ),
     patchApplicationText: fs.readFileSync(
       path.join(repoRoot, "scripts", "apply-hermes-patches.sh"),
       "utf8",
@@ -3719,7 +3723,7 @@ int main() { return 0; }
     expect(profiles.map((profile) => profile.id)).toEqual([
       "android-maven",
       "source-patched",
-      "windows-nuget",
+      "windows-source-patched",
     ]);
     expect(profiles.map((profile) => profile.targetVariant)).toEqual([
       "android",
@@ -3746,8 +3750,8 @@ int main() { return 0; }
       {
         ...inputs,
         windowsInstallerText: inputs.windowsInstallerText.replace(
-          '[string]$Version = "0.71.1"',
-          '[string]$Version = "0.71.2"',
+          '"ccheever/ibex"',
+          '"example/reviewed-fork"',
         ),
       },
       {
@@ -3774,6 +3778,10 @@ int main() { return 0; }
       {
         ...inputs,
         linuxSourceBuildText: `${inputs.linuxSourceBuildText}\n# reviewed consumer mutation\n`,
+      },
+      {
+        ...inputs,
+        windowsSourceBuildText: `${inputs.windowsSourceBuildText}\n# reviewed consumer mutation\n`,
       },
     ]) {
       const mutatedProfiles = scanHermesEvaluatorIdentityProfiles(mutated);
@@ -3807,6 +3815,10 @@ int main() { return 0; }
       [
         "linuxSourceBuildText",
         '"$SCRIPT_DIR/apply-hermes-patches.sh" "$SRC_DIR"',
+      ],
+      [
+        "windowsSourceBuildText",
+        "& bash $applyScriptUnix $sourceDirUnix",
       ],
     ]) {
       expect(() =>
@@ -5093,7 +5105,7 @@ int main() { return 0; }
       )?.metadata.exportIdioms,
     ).toContain("closed-dynamic-table:signal-number-overlay");
     expect(exports.every((row) => row.sourceRefs.length > 0)).toBe(true);
-  });
+  }, 15_000);
 
   test("live shared-runtime authority includes the reviewed roots, members, and opaque overlays", () => {
     expect(REVIEWED_SHARED_RUNTIME_ROOTS.length).toBeGreaterThan(0);
@@ -5674,7 +5686,7 @@ int main() { return 0; }
       expect(evaluator.metadata.engineProfileIds).toEqual([
         "android-maven",
         "source-patched",
-        "windows-nuget",
+        "windows-source-patched",
       ]);
       expect(
         evaluator.metadata.branches.map((branch) => branch.targetVariant),

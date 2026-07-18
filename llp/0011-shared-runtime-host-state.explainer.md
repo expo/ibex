@@ -5,7 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Android, Web APIs
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-27
-**Revised:** 2026-07-16
+**Revised:** 2026-07-17
 **Related:** LLP 0000; LLP 0003; LLP 0008
 
 ## Summary
@@ -55,6 +55,40 @@ notification functions remain global, but project code cannot reach into the
 runtime's listener sets, pending timers, overrides, or cached snapshots through
 an internal state object.
 
+In a diagnostic runtime, `installGlobals()` also publishes that module state
+through the compatibility namespaces `Exact.accessibility` and, when enabled,
+`Bun.accessibility` `[observed]`. An armed runtime deletes those configurable
+namespace properties after trusted shared-runtime installation and before the
+package-compartment baseline is finalized `[observed]`
+(`src/bin/ibex/engine/hermes.rs`). The module singleton, native snapshot inputs,
+and notification hooks remain installed, so web and React Native compatibility
+consumers can continue to share coherent host state without exposing the
+ambient application-state channel directly to project globals.
+
+## Ambient Shared Runtime Boundaries
+
+The shared runtime installs `BroadcastChannel`, `MessageChannel`, and
+`MessagePort` for compatibility, and trusted bootstrap code may capture those
+constructors for internal stream and worker plumbing `[observed]`. They also
+mint ambient cross-context communication paths, so an armed runtime deletes
+all three configurable roots after trusted shared-runtime installation and
+before the package-compartment baseline is finalized `[observed]`
+(`src/bin/ibex/engine/hermes.rs`). Deleting the roots closes every inventoried
+constructor and member surface while preserving constructors already captured
+inside trusted modules. A diagnostic runtime remains unarmed and retains all
+three compatibility constructors.
+
+The same boundary applies to shared persistent storage. Cache Storage, Web
+Storage, and IndexedDB are useful diagnostic compatibility APIs, but their
+default instances and retained objects are not package-namespaced, quota-bound,
+or principal-owned. The armed runtime therefore deletes `caches`,
+`localStorage`, `sessionStorage`, `indexedDB`, and every public IndexedDB
+constructor root after trusted bootstrap. This closes helpers, callback
+carriers, and release methods together with the object graph that would mint
+them; treating those otherwise unreachable members as freestanding
+non-capability APIs would be misleading. Diagnostic runtimes retain the full
+compatibility surface.
+
 ## Host Snapshot Contract
 
 The native-to-JS contract is deliberately plain data:
@@ -82,8 +116,9 @@ The shared runtime state feeds several public surfaces:
   locale, accessibility, screen, and app-state updates.
 - React Native compatibility shims expose `Dimensions`, `Appearance`,
   `AppState`, and `Linking`-style data from the same host state.
-- `Exact.locale` and `Exact.accessibility` expose the normalized snapshots and
-  listener APIs directly.
+- `Exact.locale` and, in diagnostic runtimes, `Exact.accessibility` expose the
+  normalized snapshots and listener APIs directly. The accessibility namespace
+  is closed in an armed runtime pending a typed application-state channel.
 
 This keeps host state coherent across web-standard APIs, Exact-specific APIs,
 and React Native compatibility APIs instead of giving each surface its own

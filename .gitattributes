@@ -14,6 +14,11 @@ scripts/hermes-version.sh text eol=lf
 scripts/apply-hermes-patches.sh text eol=lf
 scripts/build-hermes.sh text eol=lf
 scripts/build-hermes-linux.sh text eol=lf
+# The exact-target prerequisite matrix invokes these through Git Bash on
+# Windows; CRLF would become part of shell tokens and invalidate the evidence.
+scripts/run-tests.sh text eol=lf
+scripts/test-android-java.sh text eol=lf
+scripts/check-generated-drift.sh text eol=lf
 src/engine/hermes_runtime.cc text eol=lf
 
 # The vendored-runtime fingerprint hashes these source bytes directly. Keep

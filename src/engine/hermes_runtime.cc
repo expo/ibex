@@ -3320,8 +3320,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // lockdown/compartment path the installers stay lazy for startup cost.
   if (handle->structural_lockdown) {
     requireArmedStartupStage(handle, "eager-install-seal");
-    static const char* kEagerInstallSealJS = R"JS((function () {
+    std::string eagerInstallSealJS = std::string(R"JS((function () {
   var g = globalThis;
+  var sealClosedNative = )JS") + (handle->armed ? "true" : "false") + R"JS(;
   var ensures = ['__exactEnsureFs', '__exactEnsureHttp', '__exactEnsureSqlite',
     '__exactEnsureDns', '__exactEnsureChildProcess', '__exactEnsureNet',
     '__exactEnsureStreamEnhance', '__exactEnsureWebCrypto',
@@ -3330,6 +3331,29 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var fn = g[ensures[i]];
     if (typeof fn === 'function') fn();
     delete g[ensures[i]];
+  }
+  // These direct native globals back compatibility and diagnostic wrappers,
+  // but the production CapSec registry classifies their ambient forms as
+  // closed. Some are created by the lazy installers above, so remove the
+  // complete reviewed set only after every installer has run.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  if (sealClosedNative) {
+    var closedNative = [
+      '__exactExit',
+      '__exactGetGCStats',
+      '__exactGetHeapInfo',
+      '__exactGetSourceCacheStats',
+      '__exactIpcRecvMsg',
+      '__exactIpcSendMsg',
+      '__exactPollSignal',
+      '__exactResetSignal',
+      '__exactSetCwd'
+    ];
+    for (var j = 0; j < closedNative.length; j++) {
+      if (!delete g[closedNative[j]]) {
+        throw new TypeError('cannot close armed native global ' + closedNative[j]);
+      }
+    }
   }
   // @ref LLP 0013#phase-1 — close the ambient self-grant channel. The
   // end-of-bootstrap seal deletes __exactGrantCapability but rebinds
@@ -3345,6 +3369,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   } catch (e) { throw e; }
 })();
 )JS";
+    const char* kEagerInstallSealJS = eagerInstallSealJS.c_str();
     try {
       auto buffer =
           std::make_shared<facebook::jsi::StringBuffer>(kEagerInstallSealJS);
@@ -3622,7 +3647,38 @@ extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
   if (out_device == nullptr || out_inode == nullptr) return -1;
-#if defined(__APPLE__) && TARGET_OS_OSX
+#if defined(_WIN32)
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // derive the mapped DLL's stable Windows file identity independently of the
+  // Rust handle used to hash the named artifact.
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExA(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          reinterpret_cast<LPCSTR>(factory), &module)) {
+    return -1;
+  }
+  std::vector<char> path(32768, '\0');
+  DWORD written =
+      GetModuleFileNameA(module, path.data(), static_cast<DWORD>(path.size()));
+  if (written == 0 || written >= path.size()) return -1;
+  HANDLE file = CreateFileA(
+      path.data(), FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return -1;
+  BY_HANDLE_FILE_INFORMATION info = {};
+  BOOL identified = GetFileInformationByHandle(file, &info);
+  CloseHandle(file);
+  if (!identified) return -1;
+  *out_device = static_cast<uint64_t>(info.dwVolumeSerialNumber);
+  *out_inode = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) |
+      static_cast<uint64_t>(info.nFileIndexLow);
+  return 1;
+#elif defined(__APPLE__) && TARGET_OS_OSX
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);

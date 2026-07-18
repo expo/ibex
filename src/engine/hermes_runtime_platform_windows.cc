@@ -3075,7 +3075,9 @@ extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {
 
 extern "C" char* ex_hermes_debugger_get_scripts(ExactHermesRuntime* runtime) {
   (void)runtime;
-  return copyMallocString("[]");
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
+  // the no-debugger target must not return even an empty debugger data shape.
+  return nullptr;
 }
 
 extern "C" char* ex_hermes_debugger_get_script_source(

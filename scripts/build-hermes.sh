@@ -84,6 +84,7 @@ is_truthy() {
 verify_debugger_symbols() {
     local framework_dir="$1"
     local binary="$framework_dir/Versions/1/hermesvm"
+    local symbols
     if ! is_truthy "$HERMES_DEBUGGER"; then
         return
     fi
@@ -91,7 +92,11 @@ verify_debugger_symbols() {
         echo "[✗] Expected Hermes macOS binary at $binary"
         exit 1
     fi
-    if ! nm -gU "$binary" 2>/dev/null | grep -q "AsyncDebuggerAPI"; then
+    symbols="$(nm -gU "$binary" 2>/dev/null)" || {
+        echo "[✗] Could not inspect Hermes macOS framework symbols"
+        exit 1
+    }
+    if [[ "$symbols" != *AsyncDebuggerAPI* ]]; then
         echo "[✗] Hermes macOS framework was built without debugger symbols"
         echo "    Missing AsyncDebuggerAPI in $binary"
         exit 1

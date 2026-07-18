@@ -28,6 +28,7 @@ on:
       - "patches/hermes/**"
       - "scripts/build-hermes.sh"
       - "scripts/build-hermes-linux.sh"
+      - "scripts/build-hermes-windows.ps1"
       - "scripts/apply-hermes-patches.sh"
       - ".github/workflows/hermes-artifacts.yml"
 
@@ -51,7 +52,9 @@ jobs:
       identity: ${{ steps.compute.outputs.identity }}
       tag: ${{ steps.compute.outputs.tag }}
       need_macos: ${{ steps.assets.outputs.need_macos }}
+      need_macos_release: ${{ steps.assets.outputs.need_macos_release }}
       need_linux: ${{ steps.assets.outputs.need_linux }}
+      need_windows: ${{ steps.assets.outputs.need_windows }}
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
@@ -98,7 +101,9 @@ jobs:
           }
           {
             echo "need_macos=$(need "hermes-macos-arm64-$identity.tar.gz")"
+            echo "need_macos_release=$(need "hermes-macos-arm64-release-$identity.tar.gz")"
             echo "need_linux=$(need "hermes-linux-x64-$identity.tar.gz")"
+            echo "need_windows=$(need "hermes-windows-x64-$identity.zip")"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT" || true
 
@@ -134,7 +139,8 @@ jobs:
           test -x "$cache/bin/hermes"
           # The published engine must be the PATCHED one: an unpatched bundle
           # makes the 18 frame-attribution tests skip vacuously (LLP 0013/0018).
-          nm -gU "$cache/hermesvm.framework/Versions/1/hermesvm" | grep -q ex_hermes_vm_current_package_id \
+          symbols="$(nm -gU "$cache/hermesvm.framework/Versions/1/hermesvm")"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
             || { echo "::error::built framework lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
           "$cache/bin/hermesc" --help >/dev/null
           "$cache/bin/hermes" --help >/dev/null
@@ -185,9 +191,11 @@ jobs:
           lib_file="$(find "$install/lib" -maxdepth 1 -name 'libhermesvm.*' -print -quit)"
           test -n "$lib_file"
           case "$lib_file" in
-            *.so) nm -D "$lib_file" | grep -q ex_hermes_vm_current_package_id ;;
-            *)    nm "$lib_file" 2>/dev/null | grep -q ex_hermes_vm_current_package_id ;;
-          esac || { echo "::error::built lib lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
+            *.so) symbols="$(nm -D "$lib_file")" ;;
+            *)    symbols="$(nm "$lib_file" 2>/dev/null)" ;;
+          esac
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::built lib lacks ex_hermes_vm_current_package_id (patch stack not applied?)"; exit 1; }
           "$install/bin/hermesc" --help >/dev/null
           echo "Bundle verified: patched export present, hermesc runs."
 
@@ -204,3 +212,139 @@ jobs:
           set -euo pipefail
           asset="hermes-linux-x64-$IDENTITY.tar.gz"
           gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+
+  macos-release:
+    name: Build + publish macOS Release bundle (arm64, no debugger)
+    needs: identity
+    if: needs.identity.outputs.need_macos_release == 'true'
+    runs-on: macos-14
+    timeout-minutes: 180
+    env:
+      IDENTITY: ${{ needs.identity.outputs.identity }}
+      TAG: ${{ needs.identity.outputs.tag }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Build patched no-debugger Hermes from source
+        run: ./scripts/build-hermes.sh --release
+
+      - name: Verify Release bundle contents, patch, and debugger absence
+        run: |
+          set -euo pipefail
+          source scripts/hermes-version.sh
+          cache="$HOME/.cache/exact/hermes/${IBEX_HERMES_SOURCE_COMMIT:0:12}-p$(ibex_hermes_patch_digest)"
+          echo "cache=$cache" >> "$GITHUB_ENV"
+          binary="$cache/hermesvm.framework/Versions/1/hermesvm"
+          test -d "$cache/hermesvm.xcframework"
+          test -f "$binary"
+          test -f "$cache/include/jsi/jsi.h"
+          test -x "$cache/bin/hermesc"
+          test -x "$cache/bin/hermes"
+          symbols="$(nm -gU "$binary")"
+          [[ "$symbols" == *ex_hermes_vm_current_package_id* ]] \
+            || { echo "::error::Release framework lacks the patched attribution export"; exit 1; }
+          if [[ "$symbols" == *AsyncDebuggerAPI* ]]; then
+            echo "::error::Release framework unexpectedly exports debugger symbols"
+            exit 1
+          fi
+          "$cache/bin/hermesc" --help >/dev/null
+          "$cache/bin/hermes" --help >/dev/null
+          echo "Release bundle verified: patch present, debugger absent, host tools run."
+
+      - name: Package + checksum
+        run: |
+          set -euo pipefail
+          asset="hermes-macos-arm64-release-$IDENTITY.tar.gz"
+          tar -C "$cache" -czf "$asset" hermesvm.xcframework hermesvm.framework include bin
+          shasum -a 256 "$asset" > "$asset.sha256"
+          ls -lh "$asset"*
+
+      - name: Upload to release (idempotent overwrite)
+        run: |
+          set -euo pipefail
+          asset="hermes-macos-arm64-release-$IDENTITY.tar.gz"
+          gh release upload "$TAG" "$asset" "$asset.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+
+  windows:
+    name: Build + publish Windows bundle (x64)
+    needs: identity
+    if: needs.identity.outputs.need_windows == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      IDENTITY: ${{ needs.identity.outputs.identity }}
+      TAG: ${{ needs.identity.outputs.tag }}
+    steps:
+      - name: Check out Ibex
+        uses: actions/checkout@v4
+
+      - name: Configure MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build patched Release Hermes from source
+        shell: pwsh
+        run: ./scripts/build-hermes-windows.ps1 -Arch x64
+
+      - name: Verify bundle contents, profile, and patched export
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $install = Join-Path $PWD "tools\hermes\windows-x64"
+          "install=$install" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $required = @(
+            "include\jsi\jsi.h",
+            "include\jsi\jsi.cpp",
+            "include\hermes\hermes.h",
+            "include\hermes\Public\rtti.cpp",
+            "lib\hermes.lib",
+            "lib\hermesvm.lib",
+            "bin\hermesvm.dll",
+            "bin\hermes.exe",
+            "bin\hermesc.exe",
+            "artifact.json"
+          )
+          foreach ($relative in $required) {
+            if (-not (Test-Path -LiteralPath (Join-Path $install $relative))) {
+              throw "Windows Hermes bundle is missing $relative"
+            }
+          }
+          $manifest = Get-Content -LiteralPath (Join-Path $install "artifact.json") -Raw | ConvertFrom-Json
+          $builderDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath "scripts\build-hermes-windows.ps1").Hash.ToLowerInvariant()
+          $manifestIdentity = "$($manifest.sourceCommit.Substring(0, 12))-$($manifest.patchDigest)"
+          if ($manifestIdentity -ne $env:IDENTITY -or
+              $manifest.configuration -ne "Release" -or
+              $manifest.debugger -ne $false -or
+              $manifest.sourceBuildAuthorityDigest -ne $builderDigest) {
+            throw "Windows Hermes artifact is not bound to the current no-debugger Release build authority"
+          }
+          $exports = dumpbin /exports (Join-Path $install "bin\hermesvm.dll") | Out-String
+          if ($exports -notmatch 'ex_hermes_vm_current_package_id') {
+            throw "Patched Windows Hermes DLL lacks ex_hermes_vm_current_package_id"
+          }
+          if ($exports -match 'CDPAgent|CDPDebugAPI') {
+            throw "Patched Windows Hermes DLL exports debugger symbols"
+          }
+          & (Join-Path $install "bin\hermes.exe") --help | Out-Null
+          & (Join-Path $install "bin\hermesc.exe") --help | Out-Null
+          Write-Host "Bundle verified: patched export present and Release host tools run."
+
+      - name: Package + checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $asset = "hermes-windows-x64-$env:IDENTITY.zip"
+          Compress-Archive -Path (Join-Path $env:install "*") -DestinationPath $asset -CompressionLevel Optimal
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(
+            "$asset.sha256",
+            "$hash  $asset`n",
+            [Text.Encoding]::ASCII
+          )
+          Get-Item $asset, "$asset.sha256" | Format-Table Name, Length
+
+      - name: Upload to release (idempotent overwrite)
+        shell: pwsh
+        run: |
+          $asset = "hermes-windows-x64-$env:IDENTITY.zip"
+          gh release upload $env:TAG $asset "$asset.sha256" --repo $env:GITHUB_REPOSITORY --clobber

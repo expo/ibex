@@ -20,7 +20,7 @@ use std::sync::OnceLock;
 extern "C" {
     fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
 }
 
@@ -80,8 +80,8 @@ fn loaded_engine_identity() -> &'static std::result::Result<LoadedEngineBinaryId
         if !metadata.is_file() {
             return Err("loaded Hermes artifact is not a regular file".into());
         }
-        verify_loaded_mapping_object(&metadata)?;
-        let object = engine_object_identity(&metadata)?;
+        let object = engine_object_identity(&file, &metadata)?;
+        verify_loaded_mapping_object(&metadata, &object)?;
         let mut hash = Sha256::new();
         let mut chunk = [0u8; 64 * 1024];
         loop {
@@ -96,7 +96,7 @@ fn loaded_engine_identity() -> &'static std::result::Result<LoadedEngineBinaryId
         let after = file
             .metadata()
             .map_err(|error| format!("failed to revalidate loaded Hermes artifact: {error}"))?;
-        if engine_object_identity(&after)? != object || after.len() != metadata.len() {
+        if engine_object_identity(&file, &after)? != object || after.len() != metadata.len() {
             return Err("loaded Hermes artifact changed while it was authenticated".into());
         }
         let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
@@ -124,10 +124,12 @@ pub fn loaded_engine_structural_features() -> Vec<String> {
 }
 
 fn engine_object_identity(
+    file: &std::fs::File,
     metadata: &std::fs::Metadata,
 ) -> Result<capsec_semantics::model::ObjectIdentity, String> {
     #[cfg(unix)]
     {
+        let _ = file;
         use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
         use std::os::unix::fs::MetadataExt;
         Ok(ObjectIdentity {
@@ -145,15 +147,18 @@ fn engine_object_identity(
     #[cfg(windows)]
     {
         let _ = metadata;
-        Err(
-            "Windows cannot derive a stable loaded-engine object identity on this build; refusing pathname-only identity"
-                .into(),
-        )
+        // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+        // — bind the report to the pinned file handle, never just its path.
+        crate::host::object_identity_for_open_file(file)
+            .map_err(|error| format!("failed to identify pinned Windows Hermes artifact: {error}"))
     }
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
+fn verify_loaded_mapping_object(
+    metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
 
     let address = ex_hermes_engine_binary_path as usize;
@@ -202,7 +207,10 @@ fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), Stri
 }
 
 #[cfg(target_os = "macos")]
-fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
+fn verify_loaded_mapping_object(
+    metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
 
     let mut device = 0u64;
@@ -219,11 +227,26 @@ fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), Stri
 }
 
 #[cfg(windows)]
-fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), String> {
-    Err(
-        "Windows cannot attest the loaded Hermes section's file identity on this build; refusing pathname-only identity"
-            .into(),
-    )
+fn verify_loaded_mapping_object(
+    _metadata: &std::fs::Metadata,
+    object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
+    use capsec_semantics::model::ObjectPlatform;
+
+    let mut volume = 0u64;
+    let mut file = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut volume, &mut file) } != 1 {
+        return Err("failed to identify the mapped Windows Hermes image".into());
+    }
+    if object.platform != ObjectPlatform::Windows
+        || object.volume.as_str() != format!("volume:{volume}")
+        || object.file.as_str() != format!("file:{file}")
+    {
+        return Err(
+            "loaded Hermes path names a different object than the mapped Windows image".into(),
+        );
+    }
+    Ok(())
 }
 
 #[cfg(not(any(
@@ -232,7 +255,10 @@ fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), Str
     target_os = "macos",
     windows
 )))]
-fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), String> {
+fn verify_loaded_mapping_object(
+    _metadata: &std::fs::Metadata,
+    _object: &capsec_semantics::model::ObjectIdentity,
+) -> Result<(), String> {
     Err("this target cannot attest the loaded Hermes image object".into())
 }
 

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "bun:test";
 import {
+  commandEvidenceDirectoryModeIsPrivate,
   commandEvidenceIdSuffix,
   runObservedCommand,
 } from "./capsec-command-evidence.mjs";
@@ -23,6 +24,18 @@ test("command evidence ID suffixes are canonical and collision-resistant", () =>
   );
   expect(`public-fixtures-000-${first}`).toMatch(
     /^[a-z0-9][a-z0-9-]*$/u,
+  );
+});
+
+test("command evidence enforces real POSIX modes without trusting Windows synthetic bits", () => {
+  expect(commandEvidenceDirectoryModeIsPrivate({ mode: 0o700 }, "linux")).toBe(
+    true,
+  );
+  expect(commandEvidenceDirectoryModeIsPrivate({ mode: 0o755 }, "darwin")).toBe(
+    false,
+  );
+  expect(commandEvidenceDirectoryModeIsPrivate({ mode: 0o777 }, "win32")).toBe(
+    true,
   );
 });
 
