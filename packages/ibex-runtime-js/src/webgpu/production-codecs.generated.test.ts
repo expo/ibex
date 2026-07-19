@@ -70,6 +70,7 @@ const sampler = wrapper('GPUSampler');
 const shaderModule = wrapper('GPUShaderModule');
 const texture = wrapper('GPUTexture');
 const textureView = wrapper('GPUTextureView');
+const externalTexture = wrapper('GPUExternalTexture');
 
 function bindGroupLayoutDescriptor(): Readonly<Record<string, unknown>> {
   return Object.freeze({
@@ -582,7 +583,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       routes: [
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
-        { operationId: 'GPUDevice.createBindGroup', wireId: 900410509 },
+        { operationId: 'GPUDevice.createBindGroup', wireId: 1199806466 },
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
         { operationId: 'GPUDevice.createBuffer', wireId: 1869756926 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
@@ -995,21 +996,25 @@ describe('generated injection-only WebGPU executable codecs', () => {
       WEBGPU_OBJECT_KIND_TAGS,
     )).toThrow('bind-group workload evidence');
 
-    const changedBindGroupSignature = {
+    const changedBindGroupWitness = {
       ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
       typeGpuBindGroupWorkloadEvidence: {
         ...WEBGPU_EXECUTABLE_CODEC_MANIFEST.typeGpuBindGroupWorkloadEvidence,
-        acceptedSignatures:
+        acceptedWitnesses:
           WEBGPU_EXECUTABLE_CODEC_MANIFEST.typeGpuBindGroupWorkloadEvidence
-            .acceptedSignatures.map((signature, index) => index === 0
-              ? { ...signature, signatureCanonicalJson: `${signature.signatureCanonicalJson} ` }
-              : signature),
+            .acceptedWitnesses.map((witness, index) => index === 0
+              ? {
+                  ...witness,
+                  convertedDescriptorCanonicalJson:
+                    `${witness.convertedDescriptorCanonicalJson} `,
+                }
+              : witness),
       },
     } as unknown as ExecutableWebGpuCodecManifest;
     expect(() => createExecutableWebGpuCodecs(
-      changedBindGroupSignature,
+      changedBindGroupWitness,
       WEBGPU_OBJECT_KIND_TAGS,
-    )).toThrow('bind-group signature digest');
+    )).toThrow('bind-group full witness digest');
   });
 
   test('executes the selected public conversion for every reviewed operation', () => {
@@ -2178,35 +2183,77 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
   });
 
-  test('keeps createBindGroup structural transport broad before the exact 18-signature predicate', () => {
-    const externalReference = Object.freeze({
-      kind: 'GPUExternalTexture',
-      objectId: '31',
-      objectGeneration: '1',
-      logicalDeviceId: '17',
-      logicalDeviceGeneration: '1',
-      providerGeneration: '7',
+  test('stops createBindGroup conversion before later getters, allocation, ingress, or provider work', () => {
+    let layoutReads = 0;
+    let targetAllocations = 0;
+    let ingressCalls = 0;
+    let providerCalls = 0;
+    const entry = Object.create(null) as Record<string, unknown>;
+    Object.defineProperty(entry, 'binding', { get: () => 0 });
+    Object.defineProperty(entry, 'resource', {
+      get() {
+        throw new TypeError('early resource conversion failure');
+      },
     });
-    const converted = Object.freeze({
+    const descriptor = Object.create(null) as Record<string, unknown>;
+    Object.defineProperty(descriptor, 'label', { get: () => 'early' });
+    Object.defineProperty(descriptor, 'entries', { get: () => [entry] });
+    Object.defineProperty(descriptor, 'layout', {
+      get() {
+        layoutReads += 1;
+        return bindGroupLayout;
+      },
+    });
+    const convertThenContinue = () => {
+      const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+        .convertPublicArguments('GPUDevice.createBindGroup', [descriptor], wrappers);
+      targetAllocations += 1;
+      ingressCalls += 1;
+      providerCalls += 1;
+      return converted;
+    };
+    expect(convertThenContinue).toThrow('early resource conversion failure');
+    expect({ layoutReads, targetAllocations, ingressCalls, providerCalls }).toEqual({
+      layoutReads: 0,
+      targetAllocations: 0,
+      ingressCalls: 0,
+      providerCalls: 0,
+    });
+  });
+
+  test('keeps createBindGroup structural transport broad before the exact 18-witness predicate', () => {
+    const descriptor = Object.freeze({
       label: 'x'.repeat(58),
       entries: Object.freeze([
         ...Array.from({ length: 5 }, (_, binding) => Object.freeze({
           binding,
           resource: Object.freeze({
-            resourceKind: 'GPUBufferBinding',
-            buffer: reference('GPUBuffer'),
+            buffer: gpuBuffer,
             offset: 0,
           }),
         })),
         Object.freeze({
           binding: 5,
-          resource: Object.freeze({
-            resourceKind: 'GPUExternalTexture',
-            reference: externalReference,
-          }),
+          resource: externalTexture,
         }),
       ]),
-      layout: reference('GPUBindGroupLayout'),
+      layout: bindGroupLayout,
+    });
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroup',
+      [descriptor],
+      wrappers,
+    );
+    expect(converted).toMatchObject({ label: 'x'.repeat(58) });
+    expect(Array.isArray((converted as { entries?: unknown }).entries)).toBe(true);
+    expect((converted as { entries: readonly unknown[] }).entries.length).toBe(6);
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.sequenceMaxCount).toBe(1024);
+    expect((converted as { entries: readonly unknown[] }).entries.at(-1)).toEqual({
+      binding: 5,
+      resource: {
+        resourceKind: 'GPUExternalTexture',
+        reference: reference('GPUExternalTexture'),
+      },
     });
     const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
       serviceInput('GPUDevice.createBindGroup', converted),

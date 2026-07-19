@@ -8,11 +8,11 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "maxPayloadBytes": 16777216,
   "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
   "digests": {
-    "operationSet": "406e88e1ae91405cbeae7dfb2bdd171d4b0eeec9c435a09325a8747c0f635ccb",
-    "semanticProgramSet": "8a27284f7b69747250d58f5e1993c4617bb8f6009e10d648f20a633ab9a92eaf",
-    "runtimeRouting": "f35f70dffe809582735e68736dfad2be98cc6397a6dafbdc50cb62a11a6cd851",
-    "webgpuCVocabulary": "365db3c1bb7db56690bad5c5ea0b365a883adf17e259473ad67f97464751978e",
-    "projection": "5c49adc6ec3284ba330eb2d83fdd2c0cb812bac35d12b93c1b673a5d76ffe6b1"
+    "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
+    "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
+    "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
+    "webgpuCVocabulary": "781ab2dfe5f070c9d37486be00f8a94f2fee7db5a2d25be1e385574237979d4b",
+    "projection": "6f39c2f5106a65b7b1470458dab2a1cd27fec2a1de6591acdb1f7229ce9bc471"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -1619,7 +1619,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUDevice.createBindGroup",
-      "wireId": 900410509,
+      "wireId": 1199806466,
       "interfaceName": "GPUDevice",
       "memberName": "createBindGroup",
       "memberKind": "method",

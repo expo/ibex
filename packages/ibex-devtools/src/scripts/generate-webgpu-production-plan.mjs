@@ -569,15 +569,19 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     typeGpuBindGroupWorkloadEvidence.maximumEntriesPerDescriptor !== 5 ||
     typeGpuBindGroupWorkloadEvidence.maximumLabelUtf8Bytes !== 57 ||
     !/^[0-9a-f]{64}$/u.test(typeGpuBindGroupWorkloadEvidence.corpusSha256) ||
-    !Array.isArray(typeGpuBindGroupWorkloadEvidence.acceptedSignatures) ||
-    typeGpuBindGroupWorkloadEvidence.acceptedSignatures.length !== 18 ||
-    typeGpuBindGroupWorkloadEvidence.acceptedSignatures.some(
-      (signature) =>
-        typeof signature.signatureCanonicalJson !== "string" ||
-        !/^[0-9a-f]{64}$/u.test(signature.signatureSha256),
+    !Array.isArray(typeGpuBindGroupWorkloadEvidence.acceptedWitnesses) ||
+    typeGpuBindGroupWorkloadEvidence.acceptedWitnesses.length !== 18 ||
+    typeGpuBindGroupWorkloadEvidence.acceptedWitnesses.some(
+      (witness) =>
+        typeof witness.convertedDescriptorCanonicalJson !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(witness.convertedDescriptorSha256) ||
+        typeof witness.joinedCanonicalJson !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(witness.joinedSha256) ||
+        typeof witness.witnessCanonicalJson !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(witness.witnessSha256),
     )
   ) {
-    throw new Error("TypeGPU bind-group signature evidence is incomplete");
+    throw new Error("TypeGPU bind-group full provenance witness evidence is incomplete");
   }
   const headerVocabulary = exactGpuHeaderVocabulary();
   const nativeCodecPrograms = payload.wireEnvelope.nativeCodecPrograms;

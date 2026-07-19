@@ -15,11 +15,11 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "operationSetSha256": "406e88e1ae91405cbeae7dfb2bdd171d4b0eeec9c435a09325a8747c0f635ccb",
-    "semanticProgramSetSha256": "8a27284f7b69747250d58f5e1993c4617bb8f6009e10d648f20a633ab9a92eaf",
-    "runtimeRoutingSha256": "f35f70dffe809582735e68736dfad2be98cc6397a6dafbdc50cb62a11a6cd851",
-    "webgpuCVocabularySha256": "365db3c1bb7db56690bad5c5ea0b365a883adf17e259473ad67f97464751978e",
-    "projectionPayloadSha256": "5c49adc6ec3284ba330eb2d83fdd2c0cb812bac35d12b93c1b673a5d76ffe6b1"
+    "operationSetSha256": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
+    "semanticProgramSetSha256": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
+    "runtimeRoutingSha256": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
+    "webgpuCVocabularySha256": "781ab2dfe5f070c9d37486be00f8a94f2fee7db5a2d25be1e385574237979d4b",
+    "projectionPayloadSha256": "6f39c2f5106a65b7b1470458dab2a1cd27fec2a1de6591acdb1f7229ce9bc471"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -2677,7 +2677,7 @@
           },
           {
             "operationId": "GPUDevice.createBindGroup",
-            "wireId": 900410509,
+            "wireId": 1199806466,
             "request": {
               "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
               "catalog": {
@@ -2695,7 +2695,7 @@
                       "magic": "IBGQ",
                       "version": 1,
                       "codecTag": 24,
-                      "operationWireId": 900410509
+                      "operationWireId": 1199806466
                     }
                   },
                   {
@@ -2834,7 +2834,7 @@
                 {
                   "carrierPath": "operation_id",
                   "operator": "equal",
-                  "value": 900410509
+                  "value": 1199806466
                 },
                 {
                   "carrierPath": "flags",
@@ -2938,7 +2938,7 @@
                   "validate-current-live-device-generation",
                   "validate-operation-coverage",
                   "validate-authorized-live-account-and-aggregate-envelope",
-                  "validate-exact-generated-typegpu-bind-group-workload-signature",
+                  "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
                   "authenticate-current-same-device-bind-group-layout-full-reference-and-joined-descriptor",
                   "validate-bind-group-entry-layout-cardinality-and-exact-binding-join",
                   "authenticate-current-same-device-resource-full-references-and-creator-order",
@@ -2946,6 +2946,8 @@
                   "authenticate-wrapper-allocated-bind-group-target-provenance",
                   "validate-wrapper-allocated-bind-group-target-generation",
                   "reserve-bind-group-table-and-dual-ledger-capacity",
+                  "commit-bind-group-layout-and-resource-dependency-retention-before-provider-admission",
+                  "arm-exactly-once-terminal-unwind-for-bind-group-dependency-retention",
                   "reserve-bind-group-provider-request-completion-and-physical-sequence",
                   "validate-bind-group-label-under-reviewed-workload"
                 ],
@@ -2979,7 +2981,7 @@
                 {
                   "carrierPath": "record.operation_result.operation.operation_id",
                   "operator": "equal",
-                  "value": 900410509
+                  "value": 1199806466
                 },
                 {
                   "carrierPath": "record.operation_result.operation.device_transition",
@@ -9045,8 +9047,8 @@
       },
       {
         "operationId": "GPUDevice.createBindGroup",
-        "wireId": 900410509,
-        "semanticSha256": "1e290baa366553d128e702950d3436310950d58bd1b3ce697287e82e00ae3762",
+        "wireId": 1199806466,
+        "semanticSha256": "1e743f88cdf9851ca2df5a25780008ae370740f2be9a9d9594b071591be15627",
         "memberKind": "method",
         "dispatchClass": "service-submit",
         "logicalExecutionKind": "service-enqueue",
@@ -9154,10 +9156,10 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "365db3c1bb7db56690bad5c5ea0b365a883adf17e259473ad67f97464751978e",
-      "operationSetDigest": "406e88e1ae91405cbeae7dfb2bdd171d4b0eeec9c435a09325a8747c0f635ccb",
-      "semanticProgramDigest": "8a27284f7b69747250d58f5e1993c4617bb8f6009e10d648f20a633ab9a92eaf",
-      "runtimeRoutingDigest": "f35f70dffe809582735e68736dfad2be98cc6397a6dafbdc50cb62a11a6cd851",
+      "webgpuCVocabularyDigest": "781ab2dfe5f070c9d37486be00f8a94f2fee7db5a2d25be1e385574237979d4b",
+      "operationSetDigest": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
+      "semanticProgramDigest": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
+      "runtimeRoutingDigest": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
       "sortedOperationIds": [
         31670442,
         194635792,
@@ -9167,8 +9169,8 @@
         551383281,
         599085487,
         892795326,
-        900410509,
         935342475,
+        1199806466,
         1228615721,
         1277060789,
         1287763171,

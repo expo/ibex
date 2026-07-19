@@ -83,7 +83,7 @@ interface NativeCodecField {
       | 1853125118
       | 599085487
       | 4055478657
-      | 900410509;
+      | 1199806466;
   }>;
   readonly constant?: 1;
   readonly constraint?: 'positive' | 'boolean-zero-or-one';
@@ -352,7 +352,7 @@ interface NativeCodecCreateBindGroupLayoutRoute {
 
 interface NativeCodecCreateBindGroupRoute {
   readonly operationId: 'GPUDevice.createBindGroup';
-  readonly wireId: 900410509;
+  readonly wireId: 1199806466;
   readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
@@ -670,12 +670,16 @@ export interface ExecutableWebGpuCodecManifest {
       readonly 'typegpu-jelly-slider': 2;
     }>;
     readonly workloadDigests: Readonly<Record<string, string>>;
-    readonly acceptedSignatures: readonly Readonly<{
+    readonly acceptedWitnesses: readonly Readonly<{
       readonly id: string;
       readonly evidenceSequence: number;
-      readonly evidenceSha256: string;
-      readonly signatureCanonicalJson: string;
-      readonly signatureSha256: string;
+      readonly evidenceTraceOrdinal: number;
+      readonly convertedDescriptorCanonicalJson: string;
+      readonly convertedDescriptorSha256: string;
+      readonly joinedCanonicalJson: string;
+      readonly joinedSha256: string;
+      readonly witnessCanonicalJson: string;
+      readonly witnessSha256: string;
       readonly workloadId: string;
     }>[];
   }>;
@@ -721,7 +725,7 @@ const REQUEST_DEVICE_WIRE_ID = 194635792;
 const REQUEST_DEVICE_REQUEST_CODEC = 'gpu-request-device-service-request-v1';
 const REQUEST_DEVICE_COMPLETION_CODEC = 'gpu-device-service-completion-v1';
 const CREATE_BIND_GROUP_OPERATION_ID = 'GPUDevice.createBindGroup';
-const CREATE_BIND_GROUP_WIRE_ID = 900410509;
+const CREATE_BIND_GROUP_WIRE_ID = 1199806466;
 const CREATE_BIND_GROUP_REQUEST_CODEC =
   'gpu-create-bind-group-service-request-v1';
 const CREATE_BIND_GROUP_COMPLETION_CODEC =
@@ -2831,7 +2835,7 @@ function validateTypeGpuBindGroupWorkloadEvidence(
     !Object.values(evidence.workloadDigests).every(
       (digest) => /^[0-9a-f]{64}$/u.test(digest),
     ) ||
-    evidence.acceptedSignatures.length !== 18
+    evidence.acceptedWitnesses.length !== 18
   ) {
     throw new Error('Invalid generated TypeGPU bind-group workload evidence');
   }
@@ -2841,59 +2845,142 @@ function validateTypeGpuBindGroupWorkloadEvidence(
   let entryCount = 0;
   let maximumEntries = 0;
   let maximumLabelBytes = 0;
-  for (const signature of evidence.acceptedSignatures) {
+  for (const witness of evidence.acceptedWitnesses) {
     if (
-      !/^[0-9a-f]{64}$/u.test(signature.evidenceSha256) ||
-      !/^[0-9a-f]{64}$/u.test(signature.signatureSha256) ||
-      sha256HexUtf8(signature.signatureCanonicalJson) !==
-        signature.signatureSha256
+      !/^[0-9a-f]{64}$/u.test(witness.convertedDescriptorSha256) ||
+      !/^[0-9a-f]{64}$/u.test(witness.joinedSha256) ||
+      !/^[0-9a-f]{64}$/u.test(witness.witnessSha256) ||
+      sha256HexUtf8(witness.convertedDescriptorCanonicalJson) !==
+        witness.convertedDescriptorSha256 ||
+      sha256HexUtf8(witness.joinedCanonicalJson) !== witness.joinedSha256 ||
+      sha256HexUtf8(witness.witnessCanonicalJson) !== witness.witnessSha256
     ) {
-      throw new Error('Invalid generated TypeGPU bind-group signature digest');
+      throw new Error('Invalid generated TypeGPU bind-group full witness digest');
     }
-    let parsed: unknown;
+    let convertedParsed: unknown;
+    let joinedParsed: unknown;
+    let witnessParsed: unknown;
     try {
-      parsed = JSON.parse(signature.signatureCanonicalJson);
+      convertedParsed = JSON.parse(witness.convertedDescriptorCanonicalJson);
+      joinedParsed = JSON.parse(witness.joinedCanonicalJson);
+      witnessParsed = JSON.parse(witness.witnessCanonicalJson);
     } catch {
-      throw new Error('Invalid generated TypeGPU bind-group signature JSON');
+      throw new Error('Invalid generated TypeGPU bind-group full witness JSON');
     }
     if (
-      canonicalManifestJson(parsed) !== signature.signatureCanonicalJson ||
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      Array.isArray(parsed)
+      canonicalManifestJson(convertedParsed) !==
+        witness.convertedDescriptorCanonicalJson ||
+      canonicalManifestJson(joinedParsed) !== witness.joinedCanonicalJson ||
+      canonicalManifestJson(witnessParsed) !== witness.witnessCanonicalJson ||
+      canonicalManifestJson({
+        convertedDescriptor: convertedParsed,
+        joined: joinedParsed,
+      }) !== witness.witnessCanonicalJson ||
+      typeof convertedParsed !== 'object' ||
+      convertedParsed === null ||
+      Array.isArray(convertedParsed) ||
+      typeof joinedParsed !== 'object' ||
+      joinedParsed === null ||
+      Array.isArray(joinedParsed)
     ) {
-      throw new Error('Noncanonical generated TypeGPU bind-group signature');
+      throw new Error('Noncanonical generated TypeGPU bind-group full witness');
     }
-    const joined = parsed as Readonly<Record<string, unknown>>;
+    const converted = convertedParsed as Readonly<Record<string, unknown>>;
+    const joined = joinedParsed as Readonly<Record<string, unknown>>;
+    const convertedLayout = converted.layout as
+      | Readonly<Record<string, unknown>>
+      | undefined;
+    const joinedEntries = joined.entries;
+    const convertedEntries = converted.entries;
     if (
       typeof joined.label !== 'string' ||
-      !Array.isArray(joined.entries) ||
-      joined.entries.length < 1 ||
-      joined.entries.length > 5 ||
+      converted.label !== joined.label ||
+      joined.sequence !== witness.evidenceSequence ||
+      joined.traceOrdinal !== witness.evidenceTraceOrdinal ||
+      joined.workloadId !== witness.workloadId ||
+      !Array.isArray(joinedEntries) ||
+      joinedEntries.length < 1 ||
+      joinedEntries.length > 5 ||
+      !Array.isArray(convertedEntries) ||
+      convertedEntries.length !== joinedEntries.length ||
+      convertedLayout?.kind !== 'GPUBindGroupLayout' ||
+      convertedLayout.creationSequence !== joined.layoutCreationSequence ||
       typeof joined.layoutDescriptor !== 'object' ||
       joined.layoutDescriptor === null
     ) {
-      throw new Error('Invalid generated TypeGPU bind-group signature shape');
+      throw new Error('Invalid generated TypeGPU bind-group full witness shape');
     }
-    entryCount += joined.entries.length;
-    maximumEntries = Math.max(maximumEntries, joined.entries.length);
+    entryCount += joinedEntries.length;
+    maximumEntries = Math.max(maximumEntries, joinedEntries.length);
     maximumLabelBytes = Math.max(
       maximumLabelBytes,
       encodeUtf8(joined.label).byteLength,
     );
     layoutDescriptors.add(canonicalManifestJson(joined.layoutDescriptor));
     workloadCounts.set(
-      signature.workloadId,
-      (workloadCounts.get(signature.workloadId) ?? 0) + 1,
+      witness.workloadId,
+      (workloadCounts.get(witness.workloadId) ?? 0) + 1,
     );
-    for (const entry of joined.entries) {
+    for (const [index, entry] of joinedEntries.entries()) {
       if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
         throw new Error('Invalid generated TypeGPU bind-group entry witness');
       }
-      const resourceKind = (entry as Readonly<Record<string, unknown>>)
-        .resourceKind;
+      const joinedEntry = entry as Readonly<Record<string, unknown>>;
+      const convertedEntryValue = convertedEntries[index];
+      if (
+        typeof convertedEntryValue !== 'object' ||
+        convertedEntryValue === null ||
+        Array.isArray(convertedEntryValue)
+      ) {
+        throw new Error('Invalid converted TypeGPU bind-group entry witness');
+      }
+      const convertedEntry = convertedEntryValue as Readonly<Record<string, unknown>>;
+      const convertedResource = convertedEntry.resource as
+        | Readonly<Record<string, unknown>>
+        | undefined;
+      const resourceKind = joinedEntry.resourceKind;
       if (typeof resourceKind !== 'string') {
         throw new Error('Invalid generated TypeGPU bind-group resource witness');
+      }
+      if (
+        convertedEntry.binding !== joinedEntry.binding ||
+        convertedResource?.resourceKind !== resourceKind
+      ) {
+        throw new Error('Cross-wired generated TypeGPU bind-group entry witness');
+      }
+      if (resourceKind === 'GPUBufferBinding') {
+        const buffer = convertedResource.buffer as
+          | Readonly<Record<string, unknown>>
+          | undefined;
+        if (
+          buffer?.kind !== 'GPUBuffer' ||
+          buffer.creationSequence !== joinedEntry.bufferCreationSequence ||
+          convertedResource.offset !== joinedEntry.offset ||
+          Object.hasOwn(convertedResource, 'size') !==
+            Object.hasOwn(joinedEntry, 'size') ||
+          convertedResource.size !== joinedEntry.size
+        ) {
+          throw new Error('Buffer witness lost creator sequence or optional size presence');
+        }
+      } else {
+        const reference = convertedResource.reference as
+          | Readonly<Record<string, unknown>>
+          | undefined;
+        const creationSequence = resourceKind === 'GPUSampler'
+          ? joinedEntry.samplerCreationSequence
+          : joinedEntry.viewCreationSequence;
+        if (
+          reference?.kind !== resourceKind ||
+          reference.creationSequence !== creationSequence ||
+          (resourceKind === 'GPUTextureView' &&
+            (reference.textureCreationSequence !==
+              (joinedEntry.textureOrigin as Readonly<Record<string, unknown>> | undefined)
+                ?.creationSequence ||
+              canonicalManifestJson(reference.textureOrigin) !==
+                canonicalManifestJson(joinedEntry.textureOrigin)))
+        ) {
+          throw new Error('Resource witness lost creator, parent, or origin provenance');
+        }
       }
       resourceCounts.set(
         resourceKind,
@@ -3707,7 +3794,7 @@ function validateNativeCodecProgram(
     .replaceAll('"wireTag":15', '"wireTag":24')
     .replace(
       '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-bind-group-layout-descriptor-under-logical-device-capabilities","reserve-bind-group-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-bind-group-layout-target","select-provider-admission-and-physical-sequence"]',
-      '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-exact-generated-typegpu-bind-group-workload-signature","authenticate-current-same-device-bind-group-layout-full-reference-and-joined-descriptor","validate-bind-group-entry-layout-cardinality-and-exact-binding-join","authenticate-current-same-device-resource-full-references-and-creator-order","validate-buffer-sampler-texture-view-and-external-resource-compatibility","authenticate-wrapper-allocated-bind-group-target-provenance","validate-wrapper-allocated-bind-group-target-generation","reserve-bind-group-table-and-dual-ledger-capacity","reserve-bind-group-provider-request-completion-and-physical-sequence","validate-bind-group-label-under-reviewed-workload"]',
+      '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-exact-generated-typegpu-bind-group-full-provenance-witness","authenticate-current-same-device-bind-group-layout-full-reference-and-joined-descriptor","validate-bind-group-entry-layout-cardinality-and-exact-binding-join","authenticate-current-same-device-resource-full-references-and-creator-order","validate-buffer-sampler-texture-view-and-external-resource-compatibility","authenticate-wrapper-allocated-bind-group-target-provenance","validate-wrapper-allocated-bind-group-target-generation","reserve-bind-group-table-and-dual-ledger-capacity","commit-bind-group-layout-and-resource-dependency-retention-before-provider-admission","arm-exactly-once-terminal-unwind-for-bind-group-dependency-retention","reserve-bind-group-provider-request-completion-and-physical-sequence","validate-bind-group-label-under-reviewed-workload"]',
     );
   const expectedCreatePipelineLayoutCanonical = expectedCreateBindGroupLayoutCanonical
     .replaceAll(CREATE_BIND_GROUP_LAYOUT_OPERATION_ID, CREATE_PIPELINE_LAYOUT_OPERATION_ID)
@@ -4679,7 +4766,8 @@ function convertBindGroupDescriptor(
           reference.kind !== 'GPUSampler' &&
           reference.kind !== 'GPUTextureView' &&
           reference.kind !== 'GPUBuffer' &&
-          reference.kind !== 'GPUTexture'
+          reference.kind !== 'GPUTexture' &&
+          reference.kind !== 'GPUExternalTexture'
         ) {
           throw new TypeError(
             `GPUBindGroupEntry[${index}].resource has an unsupported wrapper brand`,

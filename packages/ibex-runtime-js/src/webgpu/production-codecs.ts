@@ -17,6 +17,7 @@ export type ProductionGpuWrapperKind =
   | 'GPUCommandBuffer'
   | 'GPUCommandEncoder'
   | 'GPUDevice'
+  | 'GPUExternalTexture'
   | 'GPUQueue'
   | 'GPURenderPassEncoder'
   | 'GPURenderPipeline'

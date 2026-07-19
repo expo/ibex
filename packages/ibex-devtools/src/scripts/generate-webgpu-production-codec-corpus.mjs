@@ -795,10 +795,10 @@ function buildCorpus() {
     bindGroupEvidence.callCount !== 18 ||
     bindGroupEvidence.maximumEntriesPerDescriptor !== 5 ||
     bindGroupEvidence.maximumLabelUtf8Bytes !== 57 ||
-    bindGroupEvidence.acceptedSignatures.length !== 18
+    bindGroupEvidence.acceptedWitnesses.length !== 18
   ) {
     fail(
-      "GPUDevice.createBindGroup native codegen program or authenticated signature evidence is incomplete",
+      "GPUDevice.createBindGroup native codegen program or authenticated full witness evidence is incomplete",
     );
   }
   const createBindGroupReceiver = Object.freeze({
@@ -810,17 +810,20 @@ function buildCorpus() {
     providerGeneration: "9",
   });
   const bindGroupBrands = new WeakMap();
-  const bindGroupReference = (kind, objectId) => Object.freeze({
+  const bindGroupReference = (kind, objectId, objectGeneration = "1") => Object.freeze({
     kind,
     objectId: String(objectId),
-    objectGeneration: "1",
+    objectGeneration: String(objectGeneration),
     logicalDeviceId: "55",
     logicalDeviceGeneration: "1",
     providerGeneration: "9",
   });
-  const bindGroupBrand = (kind, objectId) => {
+  const bindGroupBrand = (kind, objectId, objectGeneration = "1") => {
     const object = {};
-    bindGroupBrands.set(object, bindGroupReference(kind, objectId));
+    bindGroupBrands.set(
+      object,
+      bindGroupReference(kind, objectId, objectGeneration),
+    );
     return Object.freeze(object);
   };
   const bindGroupWrapperAccess = Object.freeze({
@@ -846,64 +849,195 @@ function buildCorpus() {
     queueIngressOrdinal: "0",
     sealedLocalTimeline: Object.freeze([]),
   });
-  const createBindGroupWorkloadVectors = bindGroupEvidence.acceptedSignatures.map(
-    (signature, callIndex) => {
+  const dependencyRetentionTerminalUnwinds = Object.freeze({
+    "operation-success": 1,
+    "provider-failure": 1,
+    "device-loss": 1,
+    cancellation: 1,
+    "pre-admission-rollback": 1,
+  });
+  const createBindGroupWorkloadVectors = bindGroupEvidence.acceptedWitnesses.map(
+    (witness, callIndex) => {
       if (
-        sha256(Buffer.from(signature.signatureCanonicalJson, "utf8")) !==
-          signature.signatureSha256
+        sha256(Buffer.from(witness.convertedDescriptorCanonicalJson, "utf8")) !==
+          witness.convertedDescriptorSha256 ||
+        sha256(Buffer.from(witness.joinedCanonicalJson, "utf8")) !==
+          witness.joinedSha256 ||
+        sha256(Buffer.from(witness.witnessCanonicalJson, "utf8")) !==
+          witness.witnessSha256
       ) {
-        fail(`${signature.id} bind-group signature digest drifted`);
+        fail(`${witness.id} bind-group full witness digest drifted`);
       }
-      const joinedSignature = JSON.parse(signature.signatureCanonicalJson);
+      const convertedWitness = JSON.parse(
+        witness.convertedDescriptorCanonicalJson,
+      );
+      const joinedWitness = JSON.parse(witness.joinedCanonicalJson);
+      const fullWitness = JSON.parse(witness.witnessCanonicalJson);
+      if (
+        canonicalJson({ convertedDescriptor: convertedWitness, joined: joinedWitness }) !==
+          witness.witnessCanonicalJson ||
+        canonicalJson(fullWitness) !== witness.witnessCanonicalJson ||
+        joinedWitness.workloadId !== witness.workloadId ||
+        joinedWitness.sequence !== witness.evidenceSequence ||
+        joinedWitness.traceOrdinal !== witness.evidenceTraceOrdinal ||
+        convertedWitness.layout.creationSequence !==
+          joinedWitness.layoutCreationSequence
+      ) {
+        fail(`${witness.id} bind-group full witness identity drifted`);
+      }
       const layoutObjectId = 1_000 + callIndex;
-      const target = bindGroupReference("GPUBindGroup", 2_000 + callIndex);
-      const layoutObject = bindGroupBrand("GPUBindGroupLayout", layoutObjectId);
+      const target = bindGroupReference("GPUBindGroup", 2_000 + callIndex, "2");
+      const layoutGeneration = String(
+        1 + (convertedWitness.layout.creationSequence % 3),
+      );
+      const layoutObject = bindGroupBrand(
+        "GPUBindGroupLayout",
+        layoutObjectId,
+        layoutGeneration,
+      );
       const layoutReference = bindGroupReference(
         "GPUBindGroupLayout",
         layoutObjectId,
+        layoutGeneration,
       );
       const expectedEntries = [];
-      const rawEntries = joinedSignature.entries.map((entry, entryIndex) => {
+      const provenanceEntries = [];
+      const retainedDependencies = [layoutReference];
+      const rawEntries = convertedWitness.entries.map((convertedEntry, entryIndex) => {
+        const joinedEntry = joinedWitness.entries[entryIndex];
+        if (
+          joinedEntry.binding !== convertedEntry.binding ||
+          joinedEntry.resourceKind !== convertedEntry.resource.resourceKind
+        ) {
+          fail(`${witness.id} bind-group converted/joined entry drifted`);
+        }
         const objectId = 3_000 + callIndex * 10 + entryIndex;
-        if (entry.resourceKind === "GPUBufferBinding") {
-          const bufferObject = bindGroupBrand("GPUBuffer", objectId);
-          const bufferReference = bindGroupReference("GPUBuffer", objectId);
+        if (joinedEntry.resourceKind === "GPUBufferBinding") {
+          const creatorSequence = convertedEntry.resource.buffer.creationSequence;
+          if (creatorSequence !== joinedEntry.bufferCreationSequence) {
+            fail(`${witness.id} bind-group buffer creator sequence drifted`);
+          }
+          const objectGeneration = String(1 + (creatorSequence % 3));
+          const bufferObject = bindGroupBrand(
+            "GPUBuffer",
+            objectId,
+            objectGeneration,
+          );
+          const bufferReference = bindGroupReference(
+            "GPUBuffer",
+            objectId,
+            objectGeneration,
+          );
+          const hasSize = Object.hasOwn(convertedEntry.resource, "size");
+          if (hasSize !== Object.hasOwn(joinedEntry, "size")) {
+            fail(`${witness.id} bind-group optional buffer size presence drifted`);
+          }
+          const expectedResource = Object.freeze({
+            resourceKind: "GPUBufferBinding",
+            buffer: bufferReference,
+            offset: convertedEntry.resource.offset,
+            ...(hasSize ? { size: convertedEntry.resource.size } : {}),
+          });
           expectedEntries.push(Object.freeze({
-            binding: entry.binding,
-            resource: Object.freeze({
-              resourceKind: "GPUBufferBinding",
-              buffer: bufferReference,
-              offset: entry.offset,
-              size: entry.effectiveSize,
-            }),
+            binding: convertedEntry.binding,
+            resource: expectedResource,
           }));
+          provenanceEntries.push(Object.freeze({
+            binding: convertedEntry.binding,
+            resourceKind: "GPUBufferBinding",
+            creatorSequence,
+            runtimeReference: bufferReference,
+            creatorDescriptor: joinedEntry.bufferDescriptor,
+            optionalSizePresent: hasSize,
+          }));
+          retainedDependencies.push(bufferReference);
           return Object.freeze({
-            binding: entry.binding,
+            binding: convertedEntry.binding,
             resource: Object.freeze({
               buffer: bufferObject,
-              offset: entry.offset,
-              size: entry.effectiveSize,
+              offset: convertedEntry.resource.offset,
+              ...(hasSize ? { size: convertedEntry.resource.size } : {}),
             }),
           });
         }
-        const kind = entry.resourceKind;
-        const resourceObject = bindGroupBrand(kind, objectId);
+        const kind = joinedEntry.resourceKind;
+        const creatorSequence = convertedEntry.resource.reference.creationSequence;
+        const expectedCreatorSequence = kind === "GPUSampler"
+          ? joinedEntry.samplerCreationSequence
+          : joinedEntry.viewCreationSequence;
+        if (creatorSequence !== expectedCreatorSequence) {
+          fail(`${witness.id} bind-group resource creator sequence drifted`);
+        }
+        const objectGeneration = String(1 + (creatorSequence % 3));
+        const resourceObject = bindGroupBrand(kind, objectId, objectGeneration);
+        const resourceReference = bindGroupReference(
+          kind,
+          objectId,
+          objectGeneration,
+        );
+        const parent = kind === "GPUTextureView"
+          ? (() => {
+              const parentSequence = joinedEntry.textureOrigin.creationSequence;
+              if (
+                convertedEntry.resource.reference.textureCreationSequence !==
+                  parentSequence ||
+                canonicalJson(convertedEntry.resource.reference.textureOrigin) !==
+                  canonicalJson(joinedEntry.textureOrigin)
+              ) {
+                fail(`${witness.id} bind-group texture parent/origin drifted`);
+              }
+              const parentReference = bindGroupReference(
+                "GPUTexture",
+                6_000 + callIndex * 10 + entryIndex,
+                String(1 + (parentSequence % 3)),
+              );
+              retainedDependencies.push(parentReference);
+              return Object.freeze({
+                creatorSequence: parentSequence,
+                runtimeReference: parentReference,
+                descriptor: joinedEntry.parentTexture,
+                origin: joinedEntry.textureOrigin,
+              });
+            })()
+          : undefined;
         expectedEntries.push(Object.freeze({
-          binding: entry.binding,
+          binding: convertedEntry.binding,
           resource: Object.freeze({
             resourceKind: kind,
-            reference: bindGroupReference(kind, objectId),
+            reference: resourceReference,
           }),
         }));
-        return Object.freeze({ binding: entry.binding, resource: resourceObject });
+        provenanceEntries.push(Object.freeze({
+          binding: convertedEntry.binding,
+          resourceKind: kind,
+          creatorSequence,
+          runtimeReference: resourceReference,
+          ...(kind === "GPUSampler"
+            ? {
+                creatorDescriptor: joinedEntry.samplerDescriptor,
+                samplerClass: Object.freeze({
+                  isFiltering: joinedEntry.isFiltering,
+                  isComparison: joinedEntry.isComparison,
+                }),
+              }
+            : {
+                creatorDescriptor: joinedEntry.viewDescriptor,
+                parent,
+              }),
+        }));
+        retainedDependencies.push(resourceReference);
+        return Object.freeze({
+          binding: convertedEntry.binding,
+          resource: resourceObject,
+        });
       });
       const rawDescriptor = Object.freeze({
-        label: joinedSignature.label,
+        label: convertedWitness.label,
         entries: Object.freeze(rawEntries),
         layout: layoutObject,
       });
       const expectedConvertedArguments = Object.freeze({
-        label: joinedSignature.label,
+        label: convertedWitness.label,
         entries: Object.freeze(expectedEntries),
         layout: layoutReference,
       });
@@ -917,7 +1051,7 @@ function buildCorpus() {
         canonicalJson(convertedArguments) !==
           canonicalJson(expectedConvertedArguments)
       ) {
-        fail(`${signature.id} bind-group WebIDL conversion drifted`);
+        fail(`${witness.id} bind-group WebIDL conversion drifted`);
       }
       const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
         createBindGroupInput(convertedArguments, target),
@@ -929,8 +1063,40 @@ function buildCorpus() {
         canonicalJson(inspected.convertedArguments) !==
           canonicalJson(expectedConvertedArguments)
       ) {
-        fail(`${signature.id} bind-group request did not round-trip`);
+        fail(`${witness.id} bind-group request did not round-trip`);
       }
+      const semanticProvenanceWitness = Object.freeze({
+        sourceDevice: createBindGroupReceiver,
+        serviceDerivedCreationAccount: Object.freeze({
+          accountId: String(7_000 + callIndex),
+          accountGeneration: "3",
+          state: "LIVE",
+          source: "authenticated-device-table-never-wrapper-payload",
+        }),
+        serviceDerivedAggregateEnvelope: Object.freeze({
+          envelopeId: String(8_000 + callIndex),
+          envelopeGeneration: "4",
+          state: "LIVE",
+          source: "authenticated-account-arbiter-never-wrapper-payload",
+        }),
+        layout: Object.freeze({
+          creatorSequence: convertedWitness.layout.creationSequence,
+          runtimeReference: layoutReference,
+          creatorDescriptor: joinedWitness.layoutDescriptor,
+        }),
+        resources: Object.freeze(provenanceEntries),
+        target,
+        dependencyRetention: Object.freeze({
+          dependencies: Object.freeze(retainedDependencies),
+          commitStep:
+            "commit-bind-group-layout-and-resource-dependency-retention-before-provider-admission",
+          providerAdmissionStep:
+            "reserve-bind-group-provider-request-completion-and-physical-sequence",
+          unwindStep:
+            "arm-exactly-once-terminal-unwind-for-bind-group-dependency-retention",
+          terminalUnwindCounts: dependencyRetentionTerminalUnwinds,
+        }),
+      });
       return Object.freeze({
         id: `create-bind-group-workload-call-${String(callIndex + 1).padStart(2, "0")}`,
         kind: "request",
@@ -945,14 +1111,18 @@ function buildCorpus() {
           queueIngressOrdinal: "0",
           sealedLocalTimeline: Object.freeze([]),
           convertedArguments: expectedConvertedArguments,
+          semanticProvenanceWitness,
         }),
         workloadEvidence: Object.freeze({
-          id: signature.id,
-          workloadId: signature.workloadId,
-          evidenceSequence: signature.evidenceSequence,
-          evidenceSha256: signature.evidenceSha256,
-          signatureSha256: signature.signatureSha256,
-          joinedSignature,
+          id: witness.id,
+          workloadId: witness.workloadId,
+          evidenceSequence: witness.evidenceSequence,
+          evidenceTraceOrdinal: witness.evidenceTraceOrdinal,
+          convertedDescriptorSha256: witness.convertedDescriptorSha256,
+          joinedSha256: witness.joinedSha256,
+          witnessSha256: witness.witnessSha256,
+          convertedDescriptorWitness: convertedWitness,
+          joinedWitness,
         }),
       });
     },
@@ -968,6 +1138,30 @@ function buildCorpus() {
   const firstBindGroupVector = createBindGroupWorkloadVectors[0];
   const firstBindGroupConverted = firstBindGroupVector.expected.convertedArguments;
   const firstBindGroupTarget = firstBindGroupVector.expected.target;
+  const bindGroupVectorWith = (predicate, label) => {
+    const vector = createBindGroupWorkloadVectors.find((candidate) =>
+      candidate.workloadEvidence.joinedWitness.entries.some(predicate)
+    );
+    if (!vector) fail(`bind-group corpus lacks ${label} witness`);
+    return vector;
+  };
+  const bufferBindGroupVector = bindGroupVectorWith(
+    (entry) => entry.resourceKind === "GPUBufferBinding",
+    "buffer",
+  );
+  const samplerBindGroupVector = bindGroupVectorWith(
+    (entry) => entry.resourceKind === "GPUSampler",
+    "sampler",
+  );
+  const sampledTextureBindGroupVector = bindGroupVectorWith(
+    (entry) => entry.resourceKind === "GPUTextureView" && entry.layout.texture,
+    "sampled texture",
+  );
+  const storageTextureBindGroupVector = bindGroupVectorWith(
+    (entry) => entry.resourceKind === "GPUTextureView" &&
+      entry.layout.storageTexture,
+    "storage texture",
+  );
   const bindGroupStructuralRejection = (id, mutate, expectedErrorIncludes) => {
     const converted = structuredClone(firstBindGroupConverted);
     mutate(converted);
@@ -1052,6 +1246,28 @@ function buildCorpus() {
       expected: Object.freeze({ convertedArguments }),
     });
   };
+  const semanticBindGroupStateMutation = (id, vector, mutation, predicate) =>
+    Object.freeze({
+      id,
+      kind: "semantic-rejection",
+      operationId: createBindGroupOperationId,
+      semanticTerminalId: "later-predicate-rejection",
+      firstFailingPredicate: predicate,
+      providerTokenCount: 0,
+      physicalSequenceCount: 0,
+      bytesHex: vector.bytesHex,
+      expected: Object.freeze({
+        convertedArguments: vector.expected.convertedArguments,
+        authenticatedStateMutation: Object.freeze(mutation),
+        dependencyRetentionUnwindCount: 1,
+      }),
+    });
+  const sampledTextureEntry = sampledTextureBindGroupVector.workloadEvidence
+    .joinedWitness.entries.find((entry) => entry.resourceKind === "GPUTextureView");
+  const samplerEntry = samplerBindGroupVector.workloadEvidence.joinedWitness.entries
+    .find((entry) => entry.resourceKind === "GPUSampler");
+  const storageTextureEntry = storageTextureBindGroupVector.workloadEvidence
+    .joinedWitness.entries.find((entry) => entry.layout.storageTexture);
   const createBindGroupSemanticRejections = Object.freeze([
     semanticBindGroupDescriptor(
       "create-bind-group-empty-entries-rejected",
@@ -1061,13 +1277,13 @@ function buildCorpus() {
     semanticBindGroupDescriptor(
       "create-bind-group-overlong-label-rejected",
       Object.freeze({ ...firstBindGroupConverted, label: "x".repeat(58) }),
-      "validate-exact-generated-typegpu-bind-group-workload-signature",
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
     ),
     semanticBindGroupDescriptor(
       "create-bind-group-unreviewed-range-rejected",
       Object.freeze({
-        ...firstBindGroupConverted,
-        entries: Object.freeze(firstBindGroupConverted.entries.map(
+        ...bufferBindGroupVector.expected.convertedArguments,
+        entries: Object.freeze(bufferBindGroupVector.expected.convertedArguments.entries.map(
           (entry, index) => index === 0 &&
               entry.resource.resourceKind === "GPUBufferBinding"
             ? Object.freeze({
@@ -1077,7 +1293,94 @@ function buildCorpus() {
             : entry,
         )),
       }),
-      "validate-exact-generated-typegpu-bind-group-workload-signature",
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
+    ),
+    semanticBindGroupStateMutation(
+      "create-bind-group-sampler-class-mutation-rejected",
+      samplerBindGroupVector,
+      {
+        binding: samplerEntry.binding,
+        field: "samplerClass.isFiltering",
+        from: samplerEntry.isFiltering,
+        to: !samplerEntry.isFiltering,
+      },
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
+    ),
+    semanticBindGroupStateMutation(
+      "create-bind-group-texture-format-mutation-rejected",
+      sampledTextureBindGroupVector,
+      {
+        binding: sampledTextureEntry.binding,
+        field: "parentTexture.format",
+        from: sampledTextureEntry.parentTexture.format,
+        to: "rgba8sint",
+      },
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
+    ),
+    semanticBindGroupStateMutation(
+      "create-bind-group-texture-dimension-mutation-rejected",
+      sampledTextureBindGroupVector,
+      {
+        binding: sampledTextureEntry.binding,
+        field: "parentTexture.dimension",
+        from: sampledTextureEntry.parentTexture.dimension,
+        to: "3d",
+      },
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
+    ),
+    semanticBindGroupStateMutation(
+      "create-bind-group-texture-sample-type-mutation-rejected",
+      sampledTextureBindGroupVector,
+      {
+        binding: sampledTextureEntry.binding,
+        field: "layout.texture.sampleType",
+        from: sampledTextureEntry.layout.texture.sampleType,
+        to: "sint",
+      },
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
+    ),
+    semanticBindGroupStateMutation(
+      "create-bind-group-texture-usage-mutation-rejected",
+      sampledTextureBindGroupVector,
+      {
+        binding: sampledTextureEntry.binding,
+        field: "parentTexture.usage",
+        from: sampledTextureEntry.parentTexture.usage,
+        to: sampledTextureEntry.parentTexture.usage & ~4,
+      },
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
+    ),
+    semanticBindGroupStateMutation(
+      "create-bind-group-texture-sample-count-mutation-rejected",
+      sampledTextureBindGroupVector,
+      {
+        binding: sampledTextureEntry.binding,
+        field: "parentTexture.sampleCount",
+        from: sampledTextureEntry.parentTexture.sampleCount,
+        to: 4,
+      },
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
+    ),
+    semanticBindGroupStateMutation(
+      "create-bind-group-storage-compatibility-mutation-rejected",
+      storageTextureBindGroupVector,
+      {
+        binding: storageTextureEntry.binding,
+        field: "parentTexture.format",
+        from: storageTextureEntry.parentTexture.format,
+        to: "rgba8unorm",
+      },
+      "validate-exact-generated-typegpu-bind-group-full-provenance-witness",
+    ),
+    semanticBindGroupStateMutation(
+      "create-bind-group-dependency-retention-reservation-rejected",
+      firstBindGroupVector,
+      {
+        field: "dependencyRetention.commit",
+        from: "all-dependencies-reserved",
+        to: "resource-credit-exhausted",
+      },
+      "commit-bind-group-layout-and-resource-dependency-retention-before-provider-admission",
     ),
   ]);
 
@@ -4234,12 +4537,12 @@ function buildCorpus() {
           maximumEntriesPerDescriptor:
             bindGroupEvidence.maximumEntriesPerDescriptor,
           maximumLabelUtf8Bytes: bindGroupEvidence.maximumLabelUtf8Bytes,
-          acceptedSignatureSha256s:
-            bindGroupEvidence.acceptedSignatures.map(
-              (signature) => signature.signatureSha256,
+          acceptedFullWitnessSha256s:
+            bindGroupEvidence.acceptedWitnesses.map(
+              (witness) => witness.witnessSha256,
             ),
           predicateRule:
-            "exact-generated-18-call-signature-set-after-broad-structural-decode-and-full-reference-joins",
+            "exact-generated-18-call-full-converted-and-joined-provenance-witness-set-after-broad-structural-decode-and-full-generation-qualified-reference-joins",
         },
       },
       {
@@ -4783,7 +5086,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/joined-signature/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }
