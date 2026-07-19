@@ -32,6 +32,18 @@ interface ServiceCodecCatalogRow extends CodecCatalogRow {
   readonly unavailableSemanticFields: readonly string[];
 }
 
+interface PostWebIdlPayloadCodegenInput {
+  readonly operationId: 'GPUDevice.createComputePipeline';
+  readonly memberKind: 'method';
+  readonly publicArgumentCodec: 'gpu-compute-pipeline-descriptor-v1';
+  readonly resultHandleKind: 'GPUComputePipeline';
+  readonly wireShape: string;
+  readonly ownership:
+    'construction-private-conversion-only-no-prototype-no-service-route';
+  readonly disposition:
+    'payload-codegen-input-native-decoder-executor-and-install-absent';
+}
+
 type NativeCodecPrimitiveName =
   | 'ascii4'
   | 'u8'
@@ -738,6 +750,8 @@ export interface ExecutableWebGpuCodecManifest {
   readonly publicArguments: readonly CodecCatalogRow[];
   readonly serviceArguments: readonly ServiceCodecCatalogRow[];
   readonly serviceCompletions: readonly CodecCatalogRow[];
+  readonly postWebIdlPayloadCodegenInputs:
+    readonly PostWebIdlPayloadCodegenInput[];
   readonly completeLimitNames: readonly string[];
   readonly typeGpuBindGroupWorkloadEvidence: Readonly<{
     readonly corpusSha256: string;
@@ -6266,6 +6280,33 @@ function convertRenderPipelineDescriptor(
   return frozenRecord(result);
 }
 
+function convertComputePipelineDescriptor(
+  value: unknown,
+  wrappers: ProductionGpuCodecWrapperAccess,
+): unknown {
+  const source = dictionary(value, 'GPUComputePipelineDescriptor');
+  // Web IDL observes inherited dictionary members before the derived member:
+  // label, layout, then compute. Each conversion immediately follows its Get.
+  const label = optionalLabel(source);
+  const layoutValue = source.layout;
+  if (layoutValue === undefined) {
+    throw new TypeError('GPUPipelineDescriptorBase.layout is required');
+  }
+  const layout = isObjectLike(layoutValue)
+    ? wrappers.reference(layoutValue, 'GPUPipelineLayout')
+    : enumValue(layoutValue, ['auto'], 'GPUPipelineDescriptorBase.layout');
+  const computeValue = source.compute;
+  if (computeValue === undefined) {
+    throw new TypeError('GPUComputePipelineDescriptor.compute is required');
+  }
+  const compute = convertProgrammableStage(
+    computeValue,
+    'GPUProgrammableStage',
+    wrappers,
+  );
+  return frozenRecord({ label, layout, compute: frozenRecord(compute) });
+}
+
 function convertShaderModuleDescriptor(value: unknown): unknown {
   const source = dictionary(value, 'GPUShaderModuleDescriptor');
   if (source.code === undefined) {
@@ -10514,6 +10555,12 @@ export function createExecutableWebGpuCodecs(
       canonicalManifestJson(EXPECTED_COMPLETE_LIMIT_NAMES) ||
     canonicalManifestJson(manifest.webIdlVocabulary) !==
       canonicalManifestJson(WEBGPU_PRODUCTION_PLAN.webIdlVocabulary) ||
+    !Array.isArray(manifest.postWebIdlPayloadCodegenInputs) ||
+    canonicalManifestJson(manifest.postWebIdlPayloadCodegenInputs) !==
+      canonicalManifestJson(
+        WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure
+          .postWebIdlPayloadCodegenInputs,
+      ) ||
     new Set(manifest.completeLimitNames).size !==
       EXPECTED_COMPLETE_LIMIT_NAMES.length ||
     manifest.layout.requestMagic !== 'IBGQ' ||
@@ -10636,6 +10683,12 @@ export function createExecutableWebGpuCodecs(
   const routes = new Map<string, ProductionRoute>(
     WEBGPU_PRODUCTION_PLAN.routes.map((route) => [route.operationId, route]),
   );
+  const postWebIdlPayloadCodegenInputs = new Map(
+    manifest.postWebIdlPayloadCodegenInputs.map((input) => [
+      input.operationId,
+      input,
+    ]),
+  );
   const publicCodecs = new Map(
     manifest.publicArguments.map((codec) => [codec.tag, codec]),
   );
@@ -10648,6 +10701,8 @@ export function createExecutableWebGpuCodecs(
   const consumedQueueWriteBufferSnapshots = new WeakSet<Uint8Array>();
   if (
     routes.size !== WEBGPU_PRODUCTION_PLAN.routes.length ||
+    postWebIdlPayloadCodegenInputs.size !== 1 ||
+    routes.has('GPUDevice.createComputePipeline') ||
     manifest.operationIds.length !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.operationIds.some((operationId, index) =>
       WEBGPU_PRODUCTION_PLAN.routes[index]?.operationId !== operationId)
@@ -10675,7 +10730,11 @@ export function createExecutableWebGpuCodecs(
     args: readonly unknown[],
     wrappers: ProductionGpuCodecWrapperAccess,
   ): unknown => {
-    const codec = selectedRoute(operationId).publicArgumentCodec;
+    const codec = routes.get(operationId)?.publicArgumentCodec ??
+      postWebIdlPayloadCodegenInputs.get(operationId)?.publicArgumentCodec;
+    if (codec === undefined) {
+      throw new TypeError(`Unreviewed WebGPU operation: ${operationId}`);
+    }
     switch (codec) {
       case 'none-v1':
         return null;
@@ -10741,6 +10800,8 @@ export function createExecutableWebGpuCodecs(
           manifest.layout.sequenceMaxCount,
           manifest.webIdlVocabulary.gpuTextureFormats,
         );
+      case 'gpu-compute-pipeline-descriptor-v1':
+        return convertComputePipelineDescriptor(args[0], wrappers);
       case 'gpu-shader-module-descriptor-v1':
         return convertShaderModuleDescriptor(args[0]);
       case 'gpu-error-filter-v1':

@@ -87,6 +87,20 @@ const STAGED_LOCAL_RECORDING_OPERATION_IDS = Object.freeze([
   "GPURenderPassEncoder.setBindGroup",
   "GPURenderPassEncoder.setVertexBuffer",
 ]);
+const COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID =
+  "GPUDevice.createComputePipeline";
+const COMPUTE_PIPELINE_PAYLOAD_CODEGEN_INPUT = Object.freeze({
+  operationId: COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
+  memberKind: "method",
+  publicArgumentCodec: "gpu-compute-pipeline-descriptor-v1",
+  resultHandleKind: "GPUComputePipeline",
+  wireShape:
+    "GPUComputePipelineDescriptor post-Web-IDL owned copy with a full pipeline-layout reference or layout:auto plus one full shader-module reference",
+  ownership:
+    "construction-private-conversion-only-no-prototype-no-service-route",
+  disposition:
+    "payload-codegen-input-native-decoder-executor-and-install-absent",
+});
 const PRODUCT_SELECTED_METADATA_OPERATION_IDS = Object.freeze([
   "GPUAdapter.features",
   "GPUBuffer.size",
@@ -420,6 +434,19 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
       throw new Error(`invalid TypeGPU staging disposition for ${operation.operationId}`);
     }
   }
+  const computePipeline = operations.find(
+    (operation) =>
+      operation.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
+  );
+  if (
+    computePipeline?.memberKind !== "method" ||
+    computePipeline.disposition !== "staged-unroutable-no-prototype-member" ||
+    routeSet.has(COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID)
+  ) {
+    throw new Error(
+      "compute pipeline payload-codegen input must remain staged without a prototype or route",
+    );
+  }
   return Object.freeze({
     scopeId: staging.scopeId,
     status: staging.status,
@@ -430,6 +457,9 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
     operationCount: operations.length,
     additionalOperationCount: additional.length,
     additionalOperations: additional,
+    postWebIdlPayloadCodegenInputs: Object.freeze([
+      COMPUTE_PIPELINE_PAYLOAD_CODEGEN_INPUT,
+    ]),
     localRecordingSubset: localRecording,
     properties: staging.workloadClosure.properties,
     constants: staging.workloadClosure.constants,
@@ -653,11 +683,34 @@ function exactGpuHeaderVocabulary() {
   };
 }
 
-function buildCodecManifest(authority, semantics, webIdlVocabulary) {
+function buildCodecManifest(
+  authority,
+  semantics,
+  workloadStaging,
+  webIdlVocabulary,
+) {
   const { payload, computed } = validateWebGpuWrapperAuthority(authority);
   const semantic = validateWebGpuWrapperSemantics(semantics);
   const typeGpuBindGroupWorkloadEvidence =
     semantic.semanticProjection.typeGpuBindGroupWorkloadEvidence;
+  const computePipelineStagingRow = workloadStaging.workloadClosure.operations.find(
+    (operation) =>
+      operation.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
+  );
+  if (
+    workloadStaging.typegpuVersion !== "0.11.9" ||
+    computePipelineStagingRow?.memberKind !== "method" ||
+    computePipelineStagingRow.disposition !==
+      "staged-unroutable-no-prototype-member" ||
+    authority.payload.operations.some(
+      (operation) =>
+        operation.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
+    )
+  ) {
+    throw new Error(
+      "compute pipeline post-Web-IDL payload-codegen input lost its staged authority",
+    );
+  }
   if (
     typeGpuBindGroupWorkloadEvidence?.callCount !== 18 ||
     typeGpuBindGroupWorkloadEvidence.maximumEntriesPerDescriptor !== 5 ||
@@ -1368,6 +1421,9 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     serviceCompletions: numberedCatalog(
       payload.codecCatalog.serviceCompletions,
     ),
+    postWebIdlPayloadCodegenInputs: [
+      COMPUTE_PIPELINE_PAYLOAD_CODEGEN_INPUT,
+    ],
     completeLimitNames: semantic.semanticProjection.limitPolicy.limits.map(
       (limit) => limit.name,
     ),
@@ -1453,6 +1509,7 @@ function main() {
   const codecManifest = buildCodecManifest(
     authority,
     semantics,
+    workloadStaging,
     webIdlVocabulary,
   );
   const renderedCodecs = renderCodecs(codecManifest);

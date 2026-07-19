@@ -2,6 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
 import {
+  default as computePipelineConversionFixtures,
+} from '../../../../tests/fixtures/webgpu-compute-pipeline-conversion-v1.json';
+import {
   default as renderPipelineConversionFixtures,
 } from '../../../../tests/fixtures/webgpu-render-pipeline-conversion-v1.json';
 
@@ -82,6 +85,20 @@ interface RenderPipelineFixtureBlendComponent {
   readonly operation: string;
   readonly srcFactor: string;
 }
+
+interface ComputePipelineFixtureRow {
+  readonly workloadId:
+    | 'typegpu-genetic-racing'
+    | 'typegpu-jelly-slider';
+  readonly label: string;
+  readonly layoutKind: 'explicit';
+  readonly constantsPresence: 'omitted';
+  readonly entryPointPresence: 'omitted';
+  readonly shaderSourceSha256: string;
+}
+
+const computePipelineFixtureRows = computePipelineConversionFixtures.rows as unknown as
+  readonly ComputePipelineFixtureRow[];
 
 interface RenderPipelineFixtureRow {
   readonly workload: string;
@@ -645,6 +662,26 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).toEqual(
       WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     );
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).not.toContain(
+      'GPUDevice.createComputePipeline',
+    );
+    expect(WEBGPU_PRODUCTION_PLAN.routes).not.toContainEqual(
+      expect.objectContaining({ operationId: 'GPUDevice.createComputePipeline' }),
+    );
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.postWebIdlPayloadCodegenInputs)
+      .toEqual(
+        WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure
+          .postWebIdlPayloadCodegenInputs,
+      );
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.postWebIdlPayloadCodegenInputs)
+      .toEqual([expect.objectContaining({
+        operationId: 'GPUDevice.createComputePipeline',
+        publicArgumentCodec: 'gpu-compute-pipeline-descriptor-v1',
+        ownership:
+          'construction-private-conversion-only-no-prototype-no-service-route',
+        disposition:
+          'payload-codegen-input-native-decoder-executor-and-install-absent',
+      })]);
     expect(new Set(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).size).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
     );
@@ -765,6 +802,20 @@ describe('generated injection-only WebGPU executable codecs', () => {
       expect(serviceTags.has(route.serviceArgumentCodec)).toBe(true);
       expect(completionTags.has(route.serviceCompletionCodec)).toBe(true);
     }
+  });
+
+  test('rejects drift in the staged compute payload-codegen input', () => {
+    const changed = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      postWebIdlPayloadCodegenInputs:
+        WEBGPU_EXECUTABLE_CODEC_MANIFEST.postWebIdlPayloadCodegenInputs.map(
+          (input) => ({ ...input, resultHandleKind: 'GPURenderPipeline' }),
+        ),
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      changed,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('Invalid generated WebGPU executable codec manifest');
   });
 
   test('fails closed on native codec program and carrier-constant mutations', () => {
@@ -1468,6 +1519,228 @@ describe('generated injection-only WebGPU executable codecs', () => {
       expect(Object.isFrozen(convertedVertex)).toBe(true);
       expect(Object.isFrozen(convertedTargets)).toBe(true);
     }
+  });
+
+  test('preserves the exact seven authenticated TypeGPU compute cohorts', () => {
+    expect(computePipelineConversionFixtures.schema).toBe(
+      'ibex/webgpu-compute-pipeline-conversion-fixtures/1',
+    );
+    expect(computePipelineConversionFixtures.source).toEqual({
+      typegpuVersion: '0.11.9',
+      exactCohortSha256:
+        '3a4f9df11b928d03097e994fcc6aa005c3bbde5898aca2bb0fa49772587249d3',
+      disposition:
+        'authenticated-workload-cohort-conversion-only-no-native-or-install-claim',
+    });
+    expect(computePipelineFixtureRows).toHaveLength(7);
+    expect(computePipelineFixtureRows.filter(
+      (row) => row.workloadId === 'typegpu-genetic-racing',
+    )).toHaveLength(6);
+    expect(computePipelineFixtureRows.filter(
+      (row) => row.workloadId === 'typegpu-jelly-slider',
+    )).toHaveLength(1);
+    expect(new Set(computePipelineFixtureRows.map(
+      (row) => row.shaderSourceSha256,
+    )).size).toBe(7);
+
+    for (const row of computePipelineFixtureRows) {
+      const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+        .convertPublicArguments(
+          'GPUDevice.createComputePipeline',
+          [{
+            label: row.label,
+            layout: pipelineLayout,
+            compute: { module: shaderModule },
+          }],
+          wrappers,
+        ) as Readonly<Record<string, unknown>>;
+      const compute = converted.compute as Readonly<Record<string, unknown>>;
+      expect(converted).toEqual({
+        label: row.label,
+        layout: reference('GPUPipelineLayout'),
+        compute: { module: reference('GPUShaderModule') },
+      });
+      expect(row.layoutKind).toBe('explicit');
+      expect(row.constantsPresence).toBe('omitted');
+      expect(row.entryPointPresence).toBe('omitted');
+      expect(Object.hasOwn(compute, 'constants')).toBe(false);
+      expect(Object.hasOwn(compute, 'entryPoint')).toBe(false);
+      expect(Object.isFrozen(converted)).toBe(true);
+      expect(Object.isFrozen(compute)).toBe(true);
+    }
+  });
+
+  test('converts compute descriptors in exact WebIDL order and preserves optional presence', () => {
+    const trace: string[] = [];
+    const observed = (
+      label: string,
+      values: Readonly<Record<string, unknown>>,
+    ): Record<string, unknown> => {
+      const result: Record<string, unknown> = {};
+      for (const [name, value] of Object.entries(values)) {
+        Object.defineProperty(result, name, {
+          enumerable: true,
+          get() {
+            trace.push(`${label}.${name}`);
+            return value;
+          },
+        });
+      }
+      return result;
+    };
+    const constants = observed('constants', { zeta: 2, alpha: 1 });
+    const compute = observed('compute', {
+      constants,
+      entryPoint: 'item',
+      module: shaderModule,
+    });
+    const descriptor = observed('pipeline', {
+      label: 'ordered',
+      layout: 'auto',
+      compute,
+    });
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createComputePipeline',
+        [descriptor],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+
+    expect(trace).toEqual([
+      'pipeline.label',
+      'pipeline.layout',
+      'pipeline.compute',
+      'compute.constants',
+      'constants.zeta',
+      'constants.alpha',
+      'compute.entryPoint',
+      'compute.module',
+    ]);
+    expect(converted).toEqual({
+      label: 'ordered',
+      layout: 'auto',
+      compute: {
+        constants: { alpha: 1, zeta: 2 },
+        entryPoint: 'item',
+        module: reference('GPUShaderModule'),
+      },
+    });
+    const convertedCompute = converted.compute as Readonly<Record<string, unknown>>;
+    expect(Object.hasOwn(convertedCompute, 'constants')).toBe(true);
+    expect(Object.hasOwn(convertedCompute, 'entryPoint')).toBe(true);
+
+    let laterReads = 0;
+    const rejectingCompute = {
+      constants: { bad: 1n },
+      get entryPoint() {
+        laterReads += 1;
+        return 'item';
+      },
+      get module() {
+        laterReads += 1;
+        return shaderModule;
+      },
+    };
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ layout: 'auto', compute: rejectingCompute }],
+      wrappers,
+    )).toThrow(TypeError);
+    expect(laterReads).toBe(0);
+  });
+
+  test('retains same-realm cross-device compute lineage for service rejection', () => {
+    const crossDeviceLayout = Object.freeze({ marker: 'cross-device-layout' });
+    const receiverDeviceShader = Object.freeze({ marker: 'receiver-device-shader' });
+    const lineageRefs = new WeakMap<object, ReturnType<
+      ProductionGpuCodecWrapperAccess['reference']
+    >>();
+    lineageRefs.set(crossDeviceLayout, Object.freeze({
+      kind: 'GPUPipelineLayout',
+      objectId: '41',
+      objectGeneration: '1',
+      logicalDeviceId: '311',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    }));
+    lineageRefs.set(receiverDeviceShader, Object.freeze({
+      kind: 'GPUShaderModule',
+      objectId: '42',
+      objectGeneration: '1',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    }));
+    const lineageWrappers: ProductionGpuCodecWrapperAccess = {
+      reference(value, expectedKind) {
+        if (typeof value !== 'object' || value === null) {
+          throw new TypeError('unbranded WebGPU object');
+        }
+        const ref = lineageRefs.get(value);
+        if (!ref) throw new TypeError('foreign WebGPU realm');
+        if (expectedKind !== undefined && ref.kind !== expectedKind) {
+          throw new TypeError('wrong WebGPU object brand');
+        }
+        return ref;
+      },
+    };
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createComputePipeline',
+        [{
+          layout: crossDeviceLayout,
+          compute: { module: receiverDeviceShader },
+        }],
+        lineageWrappers,
+      ) as Readonly<Record<string, unknown>>;
+    expect(converted).toMatchObject({
+      layout: {
+        kind: 'GPUPipelineLayout',
+        logicalDeviceId: '311',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      compute: {
+        module: {
+          kind: 'GPUShaderModule',
+          logicalDeviceId: '301',
+          logicalDeviceGeneration: '1',
+          providerGeneration: '7',
+        },
+      },
+    });
+
+    const foreignLayout = Object.freeze({ marker: 'foreign-layout' });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ layout: foreignLayout, compute: { module: receiverDeviceShader } }],
+      lineageWrappers,
+    )).toThrow('foreign WebGPU realm');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ layout: bindGroupLayout, compute: { module: shaderModule } }],
+      wrappers,
+    )).toThrow('wrong WebGPU object brand');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ layout: pipelineLayout, compute: { module: pipelineLayout } }],
+      wrappers,
+    )).toThrow('wrong WebGPU object brand');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ compute: { module: shaderModule } }],
+      wrappers,
+    )).toThrow('layout is required');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ layout: 'auto' }],
+      wrappers,
+    )).toThrow('compute is required');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ layout: 'auto', compute: {} }],
+      wrappers,
+    )).toThrow('module is required');
   });
 
   test('converts bounded depth-stencil state without erasing presence', () => {

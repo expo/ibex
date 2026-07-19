@@ -1,0 +1,66 @@
+{
+  "schema": "ibex/webgpu-compute-pipeline-conversion-fixtures/1",
+  "source": {
+    "typegpuVersion": "0.11.9",
+    "exactCohortSha256": "3a4f9df11b928d03097e994fcc6aa005c3bbde5898aca2bb0fa49772587249d3",
+    "disposition": "authenticated-workload-cohort-conversion-only-no-native-or-install-claim"
+  },
+  "rows": [
+    {
+      "workloadId": "typegpu-genetic-racing",
+      "label": "initPipeline",
+      "layoutKind": "explicit",
+      "constantsPresence": "omitted",
+      "entryPointPresence": "omitted",
+      "shaderSourceSha256": "4ed720f0ceb40eb1db4bc89eeaf776f39e90d6224f7ff3d7172786ebba1840eb"
+    },
+    {
+      "workloadId": "typegpu-genetic-racing",
+      "label": "simulatePipeline",
+      "layoutKind": "explicit",
+      "constantsPresence": "omitted",
+      "entryPointPresence": "omitted",
+      "shaderSourceSha256": "302e6cc49d621e1688fb1431329ef39c6db1f2051feb56f78c64a5be847de3f2"
+    },
+    {
+      "workloadId": "typegpu-genetic-racing",
+      "label": "fitPipeline",
+      "layoutKind": "explicit",
+      "constantsPresence": "omitted",
+      "entryPointPresence": "omitted",
+      "shaderSourceSha256": "9ce0f1d5ad38718cabeb384a5f6b0cd711808692b4a3aa3c7bd2df069c01615e"
+    },
+    {
+      "workloadId": "typegpu-genetic-racing",
+      "label": "reductionPipeline",
+      "layoutKind": "explicit",
+      "constantsPresence": "omitted",
+      "entryPointPresence": "omitted",
+      "shaderSourceSha256": "56719079424c1903a8be56853dbfcbc6e3b5dda2c075efc0067aeae3818e46e6"
+    },
+    {
+      "workloadId": "typegpu-genetic-racing",
+      "label": "finalizeReductionPipeline",
+      "layoutKind": "explicit",
+      "constantsPresence": "omitted",
+      "entryPointPresence": "omitted",
+      "shaderSourceSha256": "db30b8b799f053bfd7530acf70aa0fc71ff9ad7b20a9fa4aca812342fbcdde17"
+    },
+    {
+      "workloadId": "typegpu-genetic-racing",
+      "label": "evolvePipeline",
+      "layoutKind": "explicit",
+      "constantsPresence": "omitted",
+      "entryPointPresence": "omitted",
+      "shaderSourceSha256": "4a05bbe0c16cfbe981b8dd2282a2ae6d6f6becd2660e19e5962992eeb93c0f86"
+    },
+    {
+      "workloadId": "typegpu-jelly-slider",
+      "label": "computeBezierPipeline",
+      "layoutKind": "explicit",
+      "constantsPresence": "omitted",
+      "entryPointPresence": "omitted",
+      "shaderSourceSha256": "2630f9c2b035b371467a0b34567003360ac3811be4bad336666429b5d495c05b"
+    }
+  ]
+}

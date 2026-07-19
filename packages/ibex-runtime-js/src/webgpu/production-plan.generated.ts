@@ -440,6 +440,17 @@ export const WEBGPU_PRODUCTION_PLAN = {
         "recordIdentitySha256": "564d068ca63aee652e7571913e8a9a3dc13f764a907bdb0546fa8b98710a212c"
       }
     ],
+    "postWebIdlPayloadCodegenInputs": [
+      {
+        "operationId": "GPUDevice.createComputePipeline",
+        "memberKind": "method",
+        "publicArgumentCodec": "gpu-compute-pipeline-descriptor-v1",
+        "resultHandleKind": "GPUComputePipeline",
+        "wireShape": "GPUComputePipelineDescriptor post-Web-IDL owned copy with a full pipeline-layout reference or layout:auto plus one full shader-module reference",
+        "ownership": "construction-private-conversion-only-no-prototype-no-service-route",
+        "disposition": "payload-codegen-input-native-decoder-executor-and-install-absent"
+      }
+    ],
     "localRecordingSubset": {
       "scopeId": "typegpu-private-wrapper-local-recording-v1",
       "identityDomain": "exact/webgpu-staged-local-record/v1",

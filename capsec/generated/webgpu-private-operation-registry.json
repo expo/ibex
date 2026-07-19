@@ -6,7 +6,7 @@
   "status": "construction-private-source-derived-no-public-install",
   "source": {
     "productionPlanPath": "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts",
-    "productionPlanRawContentSha256": "aa62631e344b39421c987180baa7d4b0e6d073f9c197a06577f90c2668e4ce42",
+    "productionPlanRawContentSha256": "dd342d51197a1d4c2af145526fabd90eb0171d404b6a3027860a5aa3242ac5ef",
     "wrapperAuthorityPath": "tests/fixtures/webgpu-test-wrapper-authority-v1.json",
     "wrapperAuthorityRawContentSha256": "3a87d162a91b4c45fc16883884eddf72650c74fa13c80b0f4470caef41ea240d",
     "authenticatedDigests": {

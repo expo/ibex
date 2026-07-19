@@ -10199,6 +10199,17 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       "identity": "one-generation-fenced-promise-settlement"
     }
   ],
+  "postWebIdlPayloadCodegenInputs": [
+    {
+      "operationId": "GPUDevice.createComputePipeline",
+      "memberKind": "method",
+      "publicArgumentCodec": "gpu-compute-pipeline-descriptor-v1",
+      "resultHandleKind": "GPUComputePipeline",
+      "wireShape": "GPUComputePipelineDescriptor post-Web-IDL owned copy with a full pipeline-layout reference or layout:auto plus one full shader-module reference",
+      "ownership": "construction-private-conversion-only-no-prototype-no-service-route",
+      "disposition": "payload-codegen-input-native-decoder-executor-and-install-absent"
+    }
+  ],
   "completeLimitNames": [
     "maxTextureDimension1D",
     "maxTextureDimension2D",
