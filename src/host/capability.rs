@@ -1548,6 +1548,15 @@ fn network_endpoint_match(pattern: &str, value: &str) -> bool {
 }
 
 fn path_prefix_match(pattern: &str, value: &str) -> bool {
+    // @ref LLP 0002#host-boundary-constraints — native Windows separators
+    // must not change the root_dir fence's tree semantics.
+    // Windows path normalization emits native `\` separators, while policy
+    // patterns and older callers may use `/`. Compare one canonical separator
+    // spelling so a host-boundary root remains a real containment fence on
+    // Windows instead of rejecting every descendant (or depending on how the
+    // path was originally spelled).
+    #[cfg(windows)]
+    let (pattern, value) = (pattern.replace('\\', "/"), value.replace('\\', "/"));
     if !pattern.ends_with("/**") {
         return false;
     }
@@ -1581,12 +1590,25 @@ mod tests {
                 && row.module_id == "7"
                 && row.fence.is_none()
         }));
-        assert!(observations[0].capability.ends_with("/allowed"));
+        let resource_leaf = |capability: &str| {
+            capability
+                .splitn(3, ':')
+                .nth(2)
+                .and_then(|resource| Path::new(resource).file_name())
+                .map(std::ffi::OsStr::to_owned)
+        };
+        assert_eq!(
+            resource_leaf(&observations[0].capability),
+            Some(std::ffi::OsString::from("allowed"))
+        );
         assert_eq!(
             (observations[0].decision, observations[0].allowed),
             (true, true)
         );
-        assert!(observations[1].capability.ends_with("/denied"));
+        assert_eq!(
+            resource_leaf(&observations[1].capability),
+            Some(std::ffi::OsString::from("denied"))
+        );
         assert_eq!(
             (observations[1].decision, observations[1].allowed),
             (false, false)

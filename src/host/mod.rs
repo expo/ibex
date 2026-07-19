@@ -3175,8 +3175,43 @@ fn host_path_from_logical_path(
             "{label} is not an absolute host binding"
         )));
     }
+    // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    // — the serialized drive/UNC prefix must reconstruct the same absolute
+    // object path that was armed.
+    #[cfg(windows)]
+    let mut path = {
+        use std::path::Component;
+
+        let prefix = host_path.components.first().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "{label} has no Windows drive or UNC prefix"
+            ))
+        })?;
+        let prefix = std::str::from_utf8(prefix.bytes()).map_err(|_| {
+            capsec_semantics::Error::ArmRefused(
+                "non-Unicode armed root cannot be represented on this target".into(),
+            )
+        })?;
+        let mut path = std::path::PathBuf::from(prefix);
+        if !matches!(path.components().next(), Some(Component::Prefix(_))) {
+            return Err(capsec_semantics::Error::ArmRefused(format!(
+                "{label} has an invalid Windows drive or UNC prefix"
+            )));
+        }
+        // `C:` is drive-relative. Appending the root component produces `C:\`
+        // (and equivalently roots UNC/verbatim prefixes) before descendants are
+        // appended.
+        path.push(std::path::MAIN_SEPARATOR.to_string());
+        path
+    };
+    #[cfg(not(windows))]
     let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
-    for component in &host_path.components {
+
+    for (_index, component) in host_path.components.iter().enumerate() {
+        #[cfg(windows)]
+        if _index == 0 {
+            continue;
+        }
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
@@ -3191,6 +3226,11 @@ fn host_path_from_logical_path(
             })?;
             path.push(text);
         }
+    }
+    if !path.is_absolute() {
+        return Err(capsec_semantics::Error::ArmRefused(format!(
+            "{label} did not reconstruct an absolute host path"
+        )));
     }
     Ok(path)
 }
@@ -4086,11 +4126,17 @@ mod tests {
             },
             object: object_identity_for_host_path(&root).unwrap(),
         };
+        // The wire form preserves a Windows drive/UNC prefix as its first
+        // component. Pause on the reconstructed production spelling so the
+        // substitution race is exercised instead of deadlocking at a barrier
+        // when that spelling differs lexically from tempfile's input path.
+        let hook_root = host_path_from_binding(&binding).unwrap();
+        assert_eq!(hook_root, root, "armed host-path wire round trip drifted");
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
         *ROOT_SOURCE_OPEN_HOOK
             .get_or_init(|| std::sync::Mutex::new(None))
             .lock()
-            .unwrap() = Some((root.clone(), barrier.clone()));
+            .unwrap() = Some((hook_root, barrier.clone()));
         let source = root.join("src/main.js");
         let worker =
             std::thread::spawn(move || authenticated_source_beneath_binding(&binding, &source));

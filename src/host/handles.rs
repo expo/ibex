@@ -538,8 +538,20 @@ mod tests {
         // registry so a long-running process minting per-request handles does not
         // grow without bound. Revoking a leaf reclaims only that leaf; revoking an
         // interior node reclaims exactly its subtree and leaves siblings intact.
+        let temp = tempfile::tempdir().unwrap();
+        let app = temp.path().join("app");
+        std::fs::create_dir(&app).unwrap();
+        let capability = |suffix: &str| {
+            format!(
+                "fs:read:{}{}{}",
+                app.display(),
+                std::path::MAIN_SEPARATOR,
+                suffix
+            )
+        };
+
         let r = HandleRegistry::new();
-        let root = r.create("fs:read:/app/**");
+        let root = r.create(&capability("**"));
         let a = r.scoped(root, "a"); // root -> a
         let a_child = r.scoped(a, "deep"); // a -> a_child
         let b = r.scoped(root, "b"); // root -> b
@@ -548,16 +560,16 @@ mod tests {
         // Revoking a leaf reclaims just that entry; its parent/siblings survive.
         r.revoke(b);
         assert_eq!(r.handles.read().unwrap().len(), 3);
-        assert!(r.check(a, "fs:read:/app/a/x"));
-        assert!(r.check(a_child, "fs:read:/app/a/deep/x"));
+        assert!(r.check(a, &capability("a/x")));
+        assert!(r.check(a_child, &capability("a/deep/x")));
 
         // Revoking an interior node reclaims exactly its subtree (a + a_child),
         // leaving the root live.
         r.revoke(a);
         assert_eq!(r.handles.read().unwrap().len(), 1);
-        assert!(!r.check(a, "fs:read:/app/a/x"));
-        assert!(!r.check(a_child, "fs:read:/app/a/deep/x"));
-        assert!(r.check(root, "fs:read:/app/z"));
+        assert!(!r.check(a, &capability("a/x")));
+        assert!(!r.check(a_child, &capability("a/deep/x")));
+        assert!(r.check(root, &capability("z")));
 
         // Revoking an unknown id is a no-op and does not disturb the live set.
         r.revoke(0xdead_beef);

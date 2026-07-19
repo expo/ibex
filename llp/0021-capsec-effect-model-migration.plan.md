@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 reconstructs armed Windows drive/UNC roots as absolute paths and makes host-boundary tree matching separator-neutral after retained run 29694430491 exposed a malformed-root deadlock and Windows-only fence failures)
 **Revised:** 2026-07-19 (ENG-24933 keeps non-Windows crypto test-only C ABI hooks out of Windows default and all-features product linkage after physical run 29693213321 reached MSVC and exposed the false obligation)
 **Revised:** 2026-07-19 (ENG-24933 pins Cargo's Windows MSVC linker across Git Bash product suites after physical public-probe success exposed Git for Windows' unrelated `link.exe` shadow)
 **Revised:** 2026-07-19 (ENG-24933 keeps 15 Windows `node:fs` metadata recipes residual after physical evidence proved their installed native terminals still emit no typed discovery/commit/repeat decisions)
@@ -1816,6 +1817,17 @@ non-Windows node-crypto normalizer test declared a C ABI hook from
 BCrypt-only source. That hook test now excludes Windows, as does the adjacent
 OpenSSL RSA hook test when the product matrix enables every Cargo feature; a
 feature flag cannot replace the backend selected for the authenticated target.
+Physical Windows run `29694430491` then passed the repaired MSVC link, engine
+attestation, typed-adapter generation, and all seven public fixture batches
+before entering the default product suite. Its retained log exposed two shared
+path-portability defects: armed host paths rebuilt the serialized drive prefix
+under a prefix-less `\` root, and host-boundary tree matching recognized only
+`/` after Windows normalization had emitted `\`. The malformed armed root also
+caused the root-substitution regression to miss its test hook and wait forever;
+the four-hour job limit preserved that exact stalled test name. Windows now
+reconstructs the drive/UNC prefix first and roots it before appending logical
+components, path-tree matching canonicalizes native separators, and the race
+test asserts the wire round trip before entering either barrier.
 Its armed physical test host derives the selected project root's stable object
 identity through the production platform helper, and preserves the target's
 complete normalized path components (including a Windows drive or verbatim
