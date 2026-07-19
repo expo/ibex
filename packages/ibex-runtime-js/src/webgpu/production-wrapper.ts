@@ -670,11 +670,17 @@ function createPrototypeTable(): Record<
     GPUCanvasContext: Object.create(null),
     GPUCommandBuffer: Object.create(null),
     GPUCommandEncoder: Object.create(null),
+    // These identities are part of the authenticated private object-kind
+    // vocabulary even while their creator routes remain unavailable. Keeping
+    // private prototypes here makes the table exhaustive without publishing
+    // either constructor or a public prototype member.
+    GPUComputePipeline: Object.create(null),
     GPUComputePassEncoder: Object.create(null),
     GPUDevice: Object.create(EventTarget.prototype),
     GPUQueue: Object.create(null),
     GPURenderPassEncoder: Object.create(null),
     GPURenderPipeline: Object.create(null),
+    GPUQuerySet: Object.create(null),
     GPUShaderModule: Object.create(null),
     GPUTexture: Object.create(null),
     GPUTextureView: Object.create(null),
