@@ -16,6 +16,14 @@ on:
           - both
           - macos
           - windows
+      scope:
+        description: Evidence scope (focused startup repair or complete matrix)
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - startup
   schedule:
     # Weekly, Monday 08:00 UTC (after the patch canary).
     - cron: "0 8 * * 1"
@@ -27,13 +35,13 @@ on:
 concurrency:
   # Manual target-only probes must not cancel a retained full-matrix run for
   # the same ref. Automatic runs have no input and therefore share `both`.
-  group: capsec-full-matrix-${{ github.ref }}-${{ inputs.target || 'both' }}
+  group: capsec-full-matrix-${{ github.ref }}-${{ inputs.target || 'both' }}-${{ inputs.scope || 'full' }}
   cancel-in-progress: true
 
 jobs:
   conformance:
     name: Complete matrix + unadvertised evidence (macOS arm64)
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'both' || inputs.target == 'macos' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.scope == 'full' && (inputs.target == 'both' || inputs.target == 'macos')) }}
     runs-on: macos-14
     timeout-minutes: 180
     env:
@@ -245,7 +253,27 @@ jobs:
             ~/AppData/Local/Exact/hermes-windows
           key: hermes-patched-no-debugger-v2-${{ runner.os }}-x64-${{ hashFiles('scripts/hermes-version.sh', 'scripts/install-windows-hermes.ps1', 'scripts/build-hermes-windows.ps1', 'scripts/apply-hermes-patches.sh', 'patches/hermes/**') }}
 
+      - name: Run focused startup and package-principal evidence
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'startup' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $directory = Join-Path $PWD "target\capsec-focused-windows"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          $catalog = Join-Path $directory "executable-recipes.json"
+          bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target x86_64-pc-windows-msvc --output $catalog
+          if ($LASTEXITCODE -ne 0) { throw "focused recipe generation failed" }
+          $env:IBEX_CAPSEC_RECIPE_CATALOG = $catalog
+          $env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT = Join-Path $directory "startup-environment-evidence.json"
+          cargo test --bin ibex --features capsec-conformance-observer,openssl-crypto capsec_public_startup_environment_batch -- --test-threads=1 --nocapture 2>&1 |
+            Tee-Object -FilePath (Join-Path $directory "startup-environment.log")
+          if ($LASTEXITCODE -ne 0) { throw "focused startup-environment batch failed" }
+          cargo test --bin ibex --features capsec-conformance-observer,openssl-crypto capsec_callback_invariant_mechanisms_smoke -- --test-threads=1 --nocapture 2>&1 |
+            Tee-Object -FilePath (Join-Path $directory "wrapper-and-callback-principal.log")
+          if ($LASTEXITCODE -ne 0) { throw "focused wrapper/callback principal smoke failed" }
+
       - name: Run the complete CapSec matrix and bind evidence
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
         shell: pwsh
         run: >-
           bun run verify:capsec-conformance --
@@ -263,5 +291,6 @@ jobs:
             target/capsec-executions.json
             target/capsec-conformance-report.json
             target/capsec-suite-evidence-*/**
+            target/capsec-focused-windows/**
           if-no-files-found: error
           retention-days: 14

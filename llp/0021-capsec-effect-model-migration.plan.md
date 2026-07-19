@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 retains the failed physical Windows write-only Domain bind as refusal evidence, makes binding/readback fail closed, and adds focused wrapper-versus-exported-callback evidence before another full matrix)
 **Revised:** 2026-07-18 (ENG-24933 makes the trusted CommonJS Domain binder stamp package attribution together with its compartment after physical Windows source-bootstrap evidence exposed a root-principal fallback)
 **Revised:** 2026-07-18 (ENG-24933 authenticates Windows package inventories and source bytes through pinned NT root-relative handles, with reparse refusal and exact two-pass comparison)
 **Revised:** 2026-07-18 (ENG-24933 source-binds the installed Windows fsync/fdatasync globals and keeps their legacy-gated branches residual instead of falsely proving target absence)
@@ -1886,9 +1887,16 @@ passes. The following physical attempt passed that traversal and reached the
 package's public environment read, then exposed that Windows source bootstrap
 left the dynamically compiled CommonJS Domain on root principal `0` even though
 the authenticated package compartment was bound. The trusted, boot-sealed
-compartment binder now stamps the registered package principal directly on the
-same retained function Domain after compilation; the creation-time pending
-label remains in place for eval inheritance and defense in depth. The nine Apple
+compartment binder's first write-only repair then built successfully as an exact
+no-debugger Release DLL and all 434 Windows native fixtures passed, but the same
+startup callback still reported root principal `0`. That refusal disproves the
+write-only convergence claim. The binder now validates all inputs and retained
+engine state, stamps the registered package principal, returns the Domain's
+post-bind ID, and the loader rejects any mismatch before executing package code.
+A focused smoke separately observes the CommonJS wrapper's initialization and
+the function it exports; both must retain the package principal before another
+complete matrix is authoritative. The creation-time pending label remains in
+place for eval inheritance and defense in depth. The nine Apple
 startup-environment recipes and all 2,698 Apple callback-invariant fixtures pass
 with the shared identity binding; Windows must still repeat the physical batches
 before either repair can contribute evidence.

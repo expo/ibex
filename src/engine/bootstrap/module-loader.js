@@ -274,7 +274,10 @@
       // Domain invariant after compilation. The pending label remains the
       // creation-time path; this retained-function bind makes source and HBC
       // bootstrap profiles converge. @ref LLP 0013#mechanism-3
-      __privSetCompartmentFor(fn, compartment, packagePrincipal);
+      var boundPrincipal = __privSetCompartmentFor(fn, compartment, packagePrincipal);
+      if (boundPrincipal !== packagePrincipal) {
+        throw new Error('Package Domain principal readback mismatch');
+      }
     }
     return fn;
   }

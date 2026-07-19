@@ -489,7 +489,9 @@ fn object_identity(path: &std::path::Path) -> serde_json::Value {
     .expect("serialize callback package identity")
 }
 
-fn prepare_package_fixture() -> PackageFixture {
+fn prepare_package_fixture_with_initialization_read(
+    initialization_read: bool,
+) -> PackageFixture {
     let directory = tempfile::tempdir().expect("create callback package fixture");
     let root = std::fs::canonicalize(directory.path()).expect("canonicalize callback fixture root");
     let package_root = root.join("node_modules/image-lib");
@@ -501,8 +503,28 @@ fn prepare_package_fixture() -> PackageFixture {
         r#"{"name":"image-lib","version":"2.4.1","main":"index.js"}"#,
     )
     .expect("write callback package manifest");
-    std::fs::write(
-        package_root.join("index.js"),
+    let source = if initialization_read {
+        r#"var __initializationRead = typeof process.env.PATH === 'string';
+module.exports = function(sink, observer, env) {
+  var sloppyThis = (function() { return this; })();
+  var result = {
+    context: observer(),
+    globals: {
+      processType: typeof process,
+      ibexType: typeof Ibex,
+      functionType: typeof Function,
+      evalType: typeof eval,
+      sloppyThisProcessType: sloppyThis == null ? 'nullish' : typeof sloppyThis.process
+    }
+  };
+  try {
+    result.value = __initializationRead && typeof env.PATH === 'string';
+  }
+  catch (error) { result.threw = String(error && error.message || error); }
+  sink(result);
+};
+"#
+    } else {
         r#"module.exports = function(sink, observer, env) {
   var sloppyThis = (function() { return this; })();
   var result = {
@@ -521,8 +543,9 @@ fn prepare_package_fixture() -> PackageFixture {
   catch (error) { result.threw = String(error && error.message || error); }
   sink(result);
 };
-"#,
-    )
+"#
+    };
+    std::fs::write(package_root.join("index.js"), source)
     .expect("write callback package source");
     let integrity = crate::module_loader::package_tree_integrity(&package_root)
         .expect("digest callback package tree");
@@ -541,6 +564,10 @@ fn prepare_package_fixture() -> PackageFixture {
         principal_value,
         principal,
     }
+}
+
+fn prepare_package_fixture() -> PackageFixture {
+    prepare_package_fixture_with_initialization_read(false)
 }
 
 fn artifact_content_digest(bytes: &[u8]) -> capsec_semantics::model::Digest {
@@ -2210,6 +2237,49 @@ fn smoke_recipe(scenario: &str) -> Recipe {
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_callback_invariant_mechanisms_smoke() {
     let _lock = hermes_engine_test_lock().lock().await;
+    // @ref LLP 0013#mechanism-3 — source bootstrap must preserve the defining
+    // package principal both while the CommonJS wrapper initializes and later
+    // when a function created by that wrapper is called from root code. This
+    // distinguishes the two Domain lifecycle points that HBC can collapse.
+    {
+        let binding_package = prepare_package_fixture_with_initialization_read(true);
+        let (host, digest) =
+            build_callback_host(Some(&binding_package), Some("environment"), false, None);
+        let _reset = install_armed_host(&host);
+        let engine = armed_engine(&digest).await;
+        let initialization_session = "callback-smoke:package-wrapper-initialization";
+        begin_observation(initialization_session);
+        assert_eq!(
+            engine
+                .eval_immediate("require('image-lib'); 'ready'")
+                .await
+                .expect("initialize source-profile package wrapper")
+                .as_deref(),
+            Some("ready")
+        );
+        let initialization_decisions = finish_observation(initialization_session);
+        assert_typed_decisions(
+            &initialization_decisions,
+            &binding_package.principal,
+            &["requested", "commit"],
+            &["allow", "allow"],
+            &["static-floor", "static-floor"],
+            ENV_AUXILIARY_EDGE_ID,
+            "env:read",
+        );
+        let callback_session = "callback-smoke:package-exported-callback";
+        let callback = invoke_package_environment_read(&engine, callback_session).await;
+        assert_context_principal(&callback.result, &host, &binding_package.principal);
+        assert_typed_decisions(
+            &callback.typed_decisions,
+            &binding_package.principal,
+            &["requested", "commit"],
+            &["allow", "allow"],
+            &["static-floor", "static-floor"],
+            ENV_AUXILIARY_EDGE_ID,
+            "env:read",
+        );
+    }
     let package = prepare_package_fixture();
     for scenario in [
         "attribution-missing-deny",
