@@ -17,6 +17,7 @@
     "schema/implementation-manifest.schema.json",
     "schema/legacy-reconciliation.schema.json",
     "schema/policy-rules.schema.json",
+    "schema/restricted-exact-artifact.schema.json",
     "schema/restricted-profile-advertisements.schema.json",
     "schema/restricted-profile-definition.schema.json",
     "schema/restricted-profile-projection.schema.json",

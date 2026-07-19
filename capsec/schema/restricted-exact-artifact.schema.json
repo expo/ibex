@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/restricted-exact-artifact.schema.json",
+  "title": "Restricted Exact embedder activation artifact",
+  "type": "object",
+  "required": [
+    "artifactSchema",
+    "profile",
+    "fullProfile",
+    "status",
+    "semanticCore",
+    "vocabDigest",
+    "registryDigest",
+    "sourceEdgeSetDigest",
+    "restrictedSurfaceClosureDigest",
+    "profileDefinitionRawContentDigest",
+    "projectionRawContentDigest",
+    "advertisementsRawContentDigest",
+    "target",
+    "features",
+    "engine",
+    "operationManifest",
+    "bundle",
+    "packageGraphDigest",
+    "runNonce",
+    "artifactDigest"
+  ],
+  "properties": {
+    "artifactSchema": { "const": "ibex/restricted-exact-artifact/1" },
+    "profile": { "const": "ibex/exact-embedder-contract/1" },
+    "fullProfile": { "const": "ibex/capsec/1" },
+    "status": { "const": "candidate-unadvertised" },
+    "semanticCore": { "type": "string", "minLength": 1 },
+    "vocabDigest": { "$ref": "#/$defs/digest" },
+    "registryDigest": { "$ref": "#/$defs/digest" },
+    "sourceEdgeSetDigest": { "$ref": "#/$defs/digest" },
+    "restrictedSurfaceClosureDigest": { "$ref": "#/$defs/digest" },
+    "profileDefinitionRawContentDigest": { "$ref": "#/$defs/digest" },
+    "projectionRawContentDigest": { "$ref": "#/$defs/digest" },
+    "advertisementsRawContentDigest": { "$ref": "#/$defs/digest" },
+    "target": { "type": "string", "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$" },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "engine": {
+      "type": "object",
+      "required": ["binaryDigest", "bytecodeVersion", "object"],
+      "properties": {
+        "binaryDigest": { "$ref": "#/$defs/digest" },
+        "bytecodeVersion": { "type": "integer", "minimum": 1 },
+        "object": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "operationManifest": { "$ref": "#/$defs/protectedArtifact" },
+    "bundle": {
+      "allOf": [
+        { "$ref": "#/$defs/protectedArtifact" },
+        {
+          "type": "object",
+          "required": ["format", "byteLength", "rootSetDigest", "contractIrDigest", "moduleGraphDigest", "buildIdentityDigest"],
+          "properties": {
+            "format": { "enum": ["source-utf8", "hbc-v1"] },
+            "byteLength": { "type": "integer", "minimum": 1 },
+            "rootSetDigest": { "$ref": "#/$defs/digest" },
+            "contractIrDigest": { "$ref": "#/$defs/digest" },
+            "moduleGraphDigest": { "$ref": "#/$defs/digest" },
+            "buildIdentityDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "packageGraphDigest": { "$ref": "#/$defs/digest" },
+    "runNonce": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22}$" },
+    "artifactDigest": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "logicalPath": {
+      "type": "object",
+      "required": ["root", "components", "hostBound"],
+      "properties": {
+        "root": { "const": "absolute" },
+        "components": { "type": "array", "minItems": 1 },
+        "hostBound": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "protectedArtifact": {
+      "type": "object",
+      "required": ["hostPath", "object", "contentDigest"],
+      "properties": {
+        "hostPath": { "$ref": "#/$defs/logicalPath" },
+        "object": { "type": "object" },
+        "contentDigest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

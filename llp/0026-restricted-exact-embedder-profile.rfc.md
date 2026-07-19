@@ -5,7 +5,11 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r2 — implements the Phase 0 additive schemas,
+**Revised:** 2026-07-19 (r3 — adds the strict restricted-activation artifact
+schema and target-local candidate builder binding the profile authorities,
+full registry identities, mapped engine, immutable operation manifest and
+single Contract bundle, graph/root/build digests, and fresh nonce without
+installing a Host or consuming an advertisement; r2 — implements the Phase 0 additive schemas,
 full-edge-set-pinned 7,110-row projection, empty advertisement authority,
 implementation-manifest binding, and mutation-sensitive drift gate; all 7,110
 rows remain evidence-pending and no target is advertised)
@@ -309,7 +313,15 @@ digest tampering. The four
 existing generic artifact/install/create edges are deliberately *not* trusted
 restricted control-plane rows: profile-distinct replacements must first enter
 the full registry and then be explicitly admitted. Advertisements remain
-empty and `promotionReady` remains false.
+empty and `promotionReady` remains false. A strict activation-artifact schema
+and internal target-local candidate builder now additionally bind the raw
+profile definition, projection, and advertisement authorities; checked full
+vocabulary/registry/source-edge identities; mapped Hermes binary, object, and
+bytecode version; protected Exact operation manifest; protected single-use
+Contract bundle; root-set, Contract-IR, module-graph, build, and empty package-
+graph digests; and a construction-fresh nonce. The builder validates source vs
+HBC format/version confusion and produces only `candidate-unadvertised`; it
+does not install a Host, create Hermes, or bypass the empty advertisement gate.
 
 ### Phase 1 — Apple vertical slice
 

@@ -61,6 +61,19 @@ struct ExactOperationEndowments {
     ui_worklet: Vec<u32>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedContractBundleBinding {
+    binding_schema: String,
+    format: String,
+    root_set_digest: Digest,
+    contract_ir_digest: Digest,
+    module_graph_digest: Digest,
+    build_identity_digest: Digest,
+    #[serde(default)]
+    engine_bytecode_version: Option<u32>,
+}
+
 struct MaterializedArtifact {
     host_path: LogicalPath,
     object: capsec_semantics::model::ObjectIdentity,
@@ -418,6 +431,180 @@ fn freshen_document(document: &mut serde_json::Value, nonce: String) -> Result<D
     let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, document)?;
     document["armedSnapshotDigest"] = serde_json::Value::String(digest.clone());
     Digest::new(digest).map_err(anyhow::Error::msg)
+}
+
+fn raw_content_digest(bytes: &[u8]) -> Result<Digest> {
+    Digest::new(format!(
+        "sha256-{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+    ))
+    .map_err(anyhow::Error::msg)
+}
+
+/// Construct one immutable, target-local candidate artifact for the restricted
+/// Exact profile. This operation deliberately does not install a Host or claim
+/// target support: the generated advertisement family remains the sole
+/// promotion authority and is empty until conformance completes.
+///
+/// @ref LLP 0026#4-profile-identity-and-anti-confusion-rules — bind the exact
+/// profile, engine, registries, operation manifest, Contract bundle, and nonce.
+/// @ref LLP 0026#6-authenticated-contract-code-ingress — admit one graph-closed
+/// bundle and no path, URL, cwd, or ambient module-loader fallback.
+pub fn build_restricted_exact_embedder_artifact(
+    operation_manifest_bytes: &[u8],
+    bundle_bytes: &[u8],
+    bundle_binding_bytes: &[u8],
+) -> Result<serde_json::Value> {
+    super::reject_closed_startup_environment()?;
+    anyhow::ensure!(
+        !bundle_bytes.is_empty(),
+        "restricted Contract bundle is empty"
+    );
+    let operation_binding = parse_exact_operation_manifest(operation_manifest_bytes)?;
+    let binding_text = std::str::from_utf8(bundle_binding_bytes)
+        .context("restricted Contract bundle binding is not UTF-8")?;
+    let binding_value = capsec_semantics::strict_json::parse_strict(binding_text)
+        .context("restricted Contract bundle binding is not strict JSON")?;
+    let binding: RestrictedContractBundleBinding = serde_json::from_value(binding_value)
+        .context("invalid restricted Contract bundle binding")?;
+    anyhow::ensure!(
+        binding.binding_schema == "exact/restricted-contract-bundle-binding/1",
+        "restricted Contract bundle binding has an unsupported schema"
+    );
+
+    let bytecode_version =
+        crate::engine::loaded_engine_bytecode_version().map_err(anyhow::Error::msg)?;
+    match binding.format.as_str() {
+        "source-utf8" => {
+            anyhow::ensure!(
+                binding.engine_bytecode_version.is_none(),
+                "source bundle must not claim a Hermes bytecode version"
+            );
+            let source = std::str::from_utf8(bundle_bytes)
+                .context("restricted source bundle is not UTF-8")?;
+            anyhow::ensure!(
+                !source.as_bytes().contains(&0),
+                "restricted source bundle contains NUL"
+            );
+        }
+        "hbc-v1" => anyhow::ensure!(
+            binding.engine_bytecode_version == Some(bytecode_version),
+            "restricted HBC bundle version does not match the loaded Hermes engine"
+        ),
+        _ => anyhow::bail!("restricted Contract bundle format is unsupported"),
+    }
+
+    let definition_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/registry/restricted-exact-profile-definition.json"
+    ));
+    let projection_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-profile-projection.json"
+    ));
+    let advertisements_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-target-advertisements.json"
+    ));
+    let definition: serde_json::Value = serde_json::from_slice(definition_bytes)?;
+    let projection: serde_json::Value = serde_json::from_slice(projection_bytes)?;
+    let advertisements: serde_json::Value = serde_json::from_slice(advertisements_bytes)?;
+    anyhow::ensure!(
+        definition["profile"] == "ibex/exact-embedder-contract/1"
+            && projection["profile"] == definition["profile"]
+            && advertisements["profile"] == definition["profile"],
+        "restricted profile authority identity mismatch"
+    );
+    anyhow::ensure!(
+        advertisements["advertisements"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "candidate artifact builder must be reviewed before consuming a promoted advertisement"
+    );
+
+    let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
+    let target = runtime_target_triple();
+    anyhow::ensure!(
+        definition["candidateTargets"]
+            .as_array()
+            .is_some_and(|targets| targets.iter().any(|row| {
+                row["triple"] == target
+                    && row["features"] == serde_json::json!(engine.structural_features)
+            })),
+        "loaded engine target/features are not a restricted profile candidate"
+    );
+    let (vocab_digest, registry_digest) = checked_identity_digests()?;
+    let source_edge_set_digest = Digest::new(
+        definition["sourceEdgeSet"]["digest"]
+            .as_str()
+            .context("restricted profile definition lacks its source-edge-set digest")?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    let restricted_surface_closure_digest = raw_content_digest(projection_bytes)?;
+
+    let manifest_artifact = materialize_protected_artifact(
+        "restricted-exact-operation-manifest",
+        operation_manifest_bytes,
+        &operation_binding.operation_manifest_digest,
+    )?;
+    let bundle_digest = raw_content_digest(bundle_bytes)?;
+    let bundle_artifact =
+        materialize_protected_artifact("restricted-contract-bundle", bundle_bytes, &bundle_digest)?;
+    let empty_graph = serde_json::json!({"nodes": [], "importEdges": []});
+    let package_graph_digest = Digest::new(compute_domain_digest(
+        "ibex:capsec:package-graph:1",
+        &empty_graph,
+        &[],
+    )?)
+    .map_err(anyhow::Error::msg)?;
+
+    let mut artifact = serde_json::json!({
+        "artifactSchema": "ibex/restricted-exact-artifact/1",
+        "profile": "ibex/exact-embedder-contract/1",
+        "fullProfile": crate::capsec_registry_generated::CAPSEC_PROFILE,
+        "status": "candidate-unadvertised",
+        "semanticCore": crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE,
+        "vocabDigest": vocab_digest,
+        "registryDigest": registry_digest,
+        "sourceEdgeSetDigest": source_edge_set_digest,
+        "restrictedSurfaceClosureDigest": restricted_surface_closure_digest,
+        "profileDefinitionRawContentDigest": raw_content_digest(definition_bytes)?,
+        "projectionRawContentDigest": raw_content_digest(projection_bytes)?,
+        "advertisementsRawContentDigest": raw_content_digest(advertisements_bytes)?,
+        "target": target,
+        "features": engine.structural_features,
+        "engine": {
+            "binaryDigest": engine.binary_digest,
+            "bytecodeVersion": bytecode_version,
+            "object": engine.object,
+        },
+        "operationManifest": {
+            "hostPath": manifest_artifact.host_path,
+            "object": manifest_artifact.object,
+            "contentDigest": manifest_artifact.content_digest,
+        },
+        "bundle": {
+            "hostPath": bundle_artifact.host_path,
+            "object": bundle_artifact.object,
+            "contentDigest": bundle_artifact.content_digest,
+            "format": binding.format,
+            "byteLength": bundle_bytes.len(),
+            "rootSetDigest": binding.root_set_digest,
+            "contractIrDigest": binding.contract_ir_digest,
+            "moduleGraphDigest": binding.module_graph_digest,
+            "buildIdentityDigest": binding.build_identity_digest,
+        },
+        "packageGraphDigest": package_graph_digest,
+        "runNonce": fresh_production_nonce()?,
+        "artifactDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    });
+    let digest = compute_domain_digest(
+        "ibex:restricted-exact-artifact:1",
+        &artifact,
+        &["artifactDigest".to_owned()],
+    )?;
+    artifact["artifactDigest"] = serde_json::json!(digest);
+    Ok(artifact)
 }
 
 /// Authenticate, bind, and freshen one embedder artifact pair.
@@ -1013,6 +1200,20 @@ mod tests {
         .to_vec()
     }
 
+    fn restricted_bundle_binding(format: &str, engine_bytecode_version: Option<u32>) -> Vec<u8> {
+        let digest = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        serde_json::to_vec(&serde_json::json!({
+            "bindingSchema": "exact/restricted-contract-bundle-binding/1",
+            "format": format,
+            "rootSetDigest": digest,
+            "contractIrDigest": digest,
+            "moduleGraphDigest": digest,
+            "buildIdentityDigest": digest,
+            "engineBytecodeVersion": engine_bytecode_version,
+        }))
+        .unwrap()
+    }
+
     fn prepare_exact_through_abi(fixture: &RealEmbedderFixture) -> serde_json::Value {
         let manifest = exact_manifest();
         let output = unsafe {
@@ -1251,6 +1452,74 @@ mod tests {
             &expected,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn restricted_exact_builder_binds_one_immutable_candidate_bundle() {
+        let _guard = crate::host::abi::host_test_lock();
+        let bundle = b"globalThis.__restrictedContractLoaded = true;";
+        let result = build_restricted_exact_embedder_artifact(
+            &exact_manifest(),
+            bundle,
+            &restricted_bundle_binding("source-utf8", None),
+        );
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("not a restricted profile candidate"));
+            return;
+        }
+        let artifact = result.unwrap();
+        assert_eq!(artifact["profile"], "ibex/exact-embedder-contract/1");
+        assert_eq!(artifact["status"], "candidate-unadvertised");
+        assert_eq!(artifact["bundle"]["format"], "source-utf8");
+        assert_eq!(artifact["bundle"]["byteLength"], bundle.len());
+        assert_eq!(
+            artifact["bundle"]["contentDigest"],
+            serde_json::to_value(raw_content_digest(bundle).unwrap()).unwrap()
+        );
+        assert_ne!(
+            artifact["artifactDigest"],
+            "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+        assert_ne!(artifact["runNonce"], CONTRACT_FIXTURE_RUN_NONCE);
+    }
+
+    #[test]
+    fn restricted_exact_builder_rejects_format_and_engine_confusion() {
+        let _guard = crate::host::abi::host_test_lock();
+        let manifest = exact_manifest();
+        assert!(build_restricted_exact_embedder_artifact(
+            &manifest,
+            b"source",
+            &restricted_bundle_binding("source-utf8", Some(1)),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("must not claim"));
+        assert!(build_restricted_exact_embedder_artifact(
+            &manifest,
+            &[0xff],
+            &restricted_bundle_binding("source-utf8", None),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("not UTF-8"));
+        assert!(build_restricted_exact_embedder_artifact(
+            &manifest,
+            b"hbc",
+            &restricted_bundle_binding("hbc-v1", Some(u32::MAX)),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("does not match"));
     }
 
     #[test]
