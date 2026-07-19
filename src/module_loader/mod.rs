@@ -1080,6 +1080,16 @@ impl ModuleLoader {
         };
 
         let full_path = resolution.full_path().to_path_buf();
+        // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution —
+        // Oxc resolves an ordinary Windows spelling; restore the canonical
+        // object identity before authentication and authorization consume it.
+        #[cfg(windows)]
+        let full_path = full_path.canonicalize().with_context(|| {
+            format!(
+                "Failed to canonicalize resolved Windows module {}",
+                full_path.display()
+            )
+        })?;
         // Oxc reports addon/Wasm candidates inconsistently across direct-file
         // and package resolution (a direct `.node` file can arrive as
         // CommonJS). The filename is therefore an independent fail-closed

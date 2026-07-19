@@ -130967,12 +130967,15 @@
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-16",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:cfg:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-3",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_deref:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:canonicalize:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:display:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:eq_ignore_ascii_case:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-3",
@@ -130993,7 +130996,7 @@
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:version:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-3",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Path::new:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_transpile:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
@@ -131726,12 +131729,15 @@
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-16",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:cfg:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-3",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_deref:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:canonicalize:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:display:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:eq_ignore_ascii_case:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-3",
@@ -131752,7 +131758,7 @@
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:version:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-3",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Path::new:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_transpile:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
@@ -132492,12 +132498,15 @@
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-16",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:cfg:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-3",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_deref:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:canonicalize:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:display:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:eq_ignore_ascii_case:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-3",
@@ -132518,7 +132527,7 @@
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:version:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-2",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-3",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Path::new:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_transpile:count-1",
         "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
@@ -141886,7 +141895,7 @@
       "edgeId": "surface.loader.operation.resolution.canonicalize.1w8qp63",
       "observedKey": "loader:operation:resolution:canonicalize",
       "branchId": "surface.loader.operation.resolution.canonicalize.1w8qp63.main",
-      "enforcementBranchId": "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0itx52j",
+      "enforcementBranchId": "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0wqptrv",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -141894,11 +141903,13 @@
         ],
         "proofSourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_override_identity:operation:qualified:std::fs::canonicalize",
-          "src/module_loader/mod.rs#module_cache_key:operation:qualified:std::fs::canonicalize"
+          "src/module_loader/mod.rs#module_cache_key:operation:qualified:std::fs::canonicalize",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:operation:method:canonicalize"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_override_identity:operation:qualified:std::fs::canonicalize",
-          "src/module_loader/mod.rs#module_cache_key:operation:qualified:std::fs::canonicalize"
+          "src/module_loader/mod.rs#module_cache_key:operation:qualified:std::fs::canonicalize",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:operation:method:canonicalize"
         ],
         "terminalObservedKey": "loader:operation:resolution:canonicalize"
       },
@@ -141909,15 +141920,16 @@
       },
       "sourceRefs": [
         "src/module_loader/mod.rs#compute_transpile_override_identity:operation:qualified:std::fs::canonicalize",
-        "src/module_loader/mod.rs#module_cache_key:operation:qualified:std::fs::canonicalize"
+        "src/module_loader/mod.rs#module_cache_key:operation:qualified:std::fs::canonicalize",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:operation:method:canonicalize"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0itx52j.allow",
-        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0itx52j.deny",
-        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0itx52j.malformed",
-        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0itx52j.missing-attribution",
-        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0itx52j.wrong-principal"
+        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0wqptrv.allow",
+        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0wqptrv.deny",
+        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0wqptrv.malformed",
+        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0wqptrv.missing-attribution",
+        "enforcement.nspile.override.identity.operation.qualified.std.fs.canonicalize.0wqptrv.wrong-principal"
       ]
     },
     {
@@ -268398,12 +268410,12 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-Glo6GM43XQWoZKYjQqx8E4hUc3KieNMrwa2Mq8EYfYM"
+      "rawContentDigest": "sha256-cMQ9RFUHlpBr4RSGw4zGqtMd4nJ85ccOYldwULzBQhk"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Ee9WxirfmqXeLa0RR-7e7tkyf22OvQJdMmLj-Hpy4kQ"
+      "rawContentDigest": "sha256-DVvAIqBN_v8U6G9GD3IqS7bpbWu0ljFssC7-oxXRFF4"
     },
     {
       "kind": "registry",
@@ -268413,26 +268425,26 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-LjoExU2_KLCKDGSXZrzGpsBupCE5qu5ddELHh2vg6RY"
+      "rawContentDigest": "sha256-coOz_nBqTpVqNMsNuLrFAbyH4gbFx52uDHAf15wQqGY"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-Ni-Ws71gXdBd9d2XPQHySWKUUHnfqCkFbmX-6Qg2SwQ"
+      "rawContentDigest": "sha256-yKOiGhglVAXXH0z78byF9fhke-muA3NdKzgPFIZxDhg"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-6HiBT6a1NSHSSV9-PG6oa4Se4UrJpK8HreFTw3Rnm74"
+      "rawContentDigest": "sha256-qEM1R_iEgfsE7zAaz-N1jr-XLK7qLq9LONP8kKQcG7I"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-jFuevwAMmDXi391JE1zVZ5fOrbmYXCBTKhprWd1Vx44"
+      "rawContentDigest": "sha256-PR4z_Ngn7WHfN4hRfxNWo2Us-wrFhiwPv18dgWMY7nw"
     }
   ],
   "counts": {
-    "observedReferences": 13050,
+    "observedReferences": 13054,
     "logicalSurfaces": 7207,
     "enforcementBranches": 7406,
     "coverageEdges": 7207,

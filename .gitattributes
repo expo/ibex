@@ -13,6 +13,11 @@ src/module_loader/transform_config_generated.rs text eol=lf
 config/oxc-retirement-manifest.json text eol=lf
 vendored-generated/** text eol=lf
 
+# Rust golden tests hash these fixture bytes and compare canonical JSON text.
+# Keep their sources and expected artifacts identical on Windows checkouts.
+tests/fixtures/computed-candidates-v1.golden.json text eol=lf
+tests/fixtures/module-runner-spike/** text eol=lf
+
 # Checked example policies authenticate their complete source trees and compare
 # the rendered artifact byte-for-byte. Keep those portable-v1 authorities
 # canonical across Git checkout platforms.

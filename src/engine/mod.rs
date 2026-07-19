@@ -2748,8 +2748,8 @@ mod tests {
 
         impl RuntimeGuard {
             fn new() -> Self {
+                crate::host::abi::install_host(crate::host::Host::default_legacy());
                 unsafe {
-                    ex_host_install();
                     let runtime = ex_hermes_create_diagnostic();
                     assert!(!runtime.is_null());
                     Self(runtime)
@@ -2777,14 +2777,14 @@ mod tests {
             runtime: *mut HermesRuntimeOpaque,
             source: &str,
         ) -> Option<String> {
-            unsafe { ex_host_install() };
+            crate::host::abi::install_host(crate::host::Host::default_legacy());
             let (mut status, mut value) = eval(runtime, source);
             if status != 0
                 && value
                     .as_deref()
                     .is_some_and(|message| message.contains("Permission denied"))
             {
-                unsafe { ex_host_install() };
+                crate::host::abi::install_host(crate::host::Host::default_legacy());
                 (status, value) = eval(runtime, source);
             }
             assert_eq!(status, 0, "eval failed: {value:?}");

@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (Windows module resolution restores canonical object
+identity after the Oxc compatibility projection, and byte-authenticated Rust
+fixtures use checkout-stable LF authorities)
 **Revised:** 2026-07-18 (the Windows full-matrix Rust product gate preserves
 the fail-on-zero wrapper while binding Cargo to the configured MSVC linker and
 vendored OpenSSL to native Perl before Git Bash can shadow those tools)
@@ -1224,8 +1227,12 @@ fragment stripping likewise begins after the Windows verbatim namespace prefix
 (`\\?\`), so the prefix's question mark cannot truncate an authenticated entry
 path before resolution. At the Oxc resolver boundary only, canonical verbatim
 drive and UNC spellings are projected to their ordinary Windows equivalents;
+the resolved file is canonicalized immediately after Oxc returns, so
 authenticated paths and identities remain canonical and unchanged outside that
-compatibility boundary.
+compatibility boundary. Checked-in module-runner and computed-candidate
+fixtures whose bytes or canonical JSON text are authenticated are explicitly
+LF-normalized by Git, keeping those authority and golden comparisons identical
+on Windows and Unix checkouts.
 
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.
