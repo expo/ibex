@@ -2074,6 +2074,7 @@ try {
 		return this;
 	};
 }
+var _ChildProcessStream = require("stream");
 function ChildProcess(handle, pid, stdioModes) {
 	_EventEmitter.call(this);
 	if (_EventEmitter.prototype) {
@@ -2118,7 +2119,7 @@ function ChildProcess(handle, pid, stdioModes) {
 		null
 	];
 	if (!modes) return;
-	var Stream = require("stream");
+	var Stream = _ChildProcessStream;
 	var self = this;
 	if (modes.stdout === "pipe") {
 		this.stdout = new Stream.Readable();
@@ -2495,7 +2496,7 @@ ChildProcess.prototype.spawn = function(options) {
 		fd: 3,
 		connected: true
 	} : null;
-	var Stream = require("stream");
+	var Stream = _ChildProcessStream;
 	var self2 = this;
 	if (stdioCfg.stdout === "pipe") {
 		this.stdout = new Stream.Readable();

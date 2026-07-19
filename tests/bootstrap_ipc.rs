@@ -26,13 +26,26 @@
 use std::io::{Read, Write};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
+// These are deadlock bounds, not startup-performance assertions. Authenticated
+// fork fixtures perform a second cold child startup after the audit parent is
+// ready, and the high-volume probes then have to drain their IPC queues.
+const DIAGNOSTIC_AUDIT_TIMEOUT: Duration = Duration::from_secs(120);
+const IPC_BACKPRESSURE_HARNESS_TIMEOUT: Duration = Duration::from_secs(150);
+static AUDIT_RUN_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serialize_audit_run() -> std::sync::MutexGuard<'static, ()> {
+    AUDIT_RUN_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 struct AppRun {
     stdout: String,
@@ -56,11 +69,75 @@ fn write_text(path: &Path, contents: &str) {
     std::fs::write(path, contents).expect("write test file");
 }
 
+fn isolate_process_group(cmd: &mut Command) {
+    // Fork fixtures inherit the audit process's output pipes. A separate
+    // process group lets the harness close every descendant before joining
+    // the pipe readers, including when the fixture's parent wedges or exits
+    // without reaping its child.
+    cmd.process_group(0);
+}
+
+fn kill_process_group(child: &mut Child) {
+    let Ok(group) = i32::try_from(child.id()) else {
+        let _ = child.kill();
+        return;
+    };
+    // SAFETY: `isolate_process_group` makes the spawned child's pid its pgid;
+    // a negative pid targets only that group. ESRCH means it is already empty.
+    let _ = unsafe { libc::kill(-group, libc::SIGKILL) };
+    let _ = child.kill();
+}
+
+fn capture_bounded_output(child: &mut Child, timeout: Duration) -> AppRun {
+    let mut out = child.stdout.take().expect("stdout pipe");
+    let mut err = child.stderr.take().expect("stderr pipe");
+    let out_thread = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = out.read_to_string(&mut s);
+        s
+    });
+    let err_thread = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = err.read_to_string(&mut s);
+        s
+    });
+
+    let deadline = Instant::now() + timeout;
+    let mut timed_out = false;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                kill_process_group(child);
+                break;
+            }
+            Ok(None) if Instant::now() >= deadline => {
+                kill_process_group(child);
+                let _ = child.wait();
+                timed_out = true;
+                break;
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(20)),
+            Err(_) => {
+                kill_process_group(child);
+                let _ = child.wait();
+                break;
+            }
+        }
+    }
+
+    AppRun {
+        stdout: out_thread.join().unwrap_or_default(),
+        stderr: err_thread.join().unwrap_or_default(),
+        timed_out,
+    }
+}
+
 /// Run `ibex capsec audit app.js` with a wall-clock timeout. These compatibility
 /// checks intentionally need the diagnostic runtime: production execution must
 /// refuse an unadvertised target before observing project code. Extra env vars
 /// are applied to the parent (and inherited by forked children).
 fn run_app_env(tag: &str, app: &str, env: &[(&str, &str)], timeout: Duration) -> AppRun {
+    let _audit_run = serialize_audit_run();
     let dir = unique_dir(tag);
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
@@ -75,44 +152,9 @@ fn run_app_env(tag: &str, app: &str, env: &[(&str, &str)], timeout: Duration) ->
     for (k, v) in env {
         cmd.env(k, v);
     }
+    isolate_process_group(&mut cmd);
     let mut child = cmd.spawn().expect("spawn ibex binary");
-
-    let mut out = child.stdout.take().expect("stdout pipe");
-    let mut err = child.stderr.take().expect("stderr pipe");
-    let out_thread = thread::spawn(move || {
-        let mut s = String::new();
-        let _ = out.read_to_string(&mut s);
-        s
-    });
-    let err_thread = thread::spawn(move || {
-        let mut s = String::new();
-        let _ = err.read_to_string(&mut s);
-        s
-    });
-
-    let deadline = Instant::now() + timeout;
-    let mut timed_out = false;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    timed_out = true;
-                    break;
-                }
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(_) => break,
-        }
-    }
-
-    AppRun {
-        stdout: out_thread.join().unwrap_or_default(),
-        stderr: err_thread.join().unwrap_or_default(),
-        timed_out,
-    }
+    capture_bounded_output(&mut child, timeout)
 }
 
 fn run_app_env_stdin(
@@ -122,6 +164,7 @@ fn run_app_env_stdin(
     env: &[(&str, &str)],
     timeout: Duration,
 ) -> AppRun {
+    let _audit_run = serialize_audit_run();
     let dir = unique_dir(tag);
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
@@ -136,49 +179,16 @@ fn run_app_env_stdin(
     for (k, v) in env {
         cmd.env(k, v);
     }
+    isolate_process_group(&mut cmd);
     let mut child = cmd.spawn().expect("spawn ibex binary");
 
     let mut child_stdin = child.stdin.take().expect("stdin pipe");
     let writer = thread::spawn(move || {
         let _ = child_stdin.write_all(&stdin_bytes);
     });
-    let mut out = child.stdout.take().expect("stdout pipe");
-    let mut err = child.stderr.take().expect("stderr pipe");
-    let out_thread = thread::spawn(move || {
-        let mut s = String::new();
-        let _ = out.read_to_string(&mut s);
-        s
-    });
-    let err_thread = thread::spawn(move || {
-        let mut s = String::new();
-        let _ = err.read_to_string(&mut s);
-        s
-    });
-
-    let deadline = Instant::now() + timeout;
-    let mut timed_out = false;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    timed_out = true;
-                    break;
-                }
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(_) => break,
-        }
-    }
+    let run = capture_bounded_output(&mut child, timeout);
     let _ = writer.join();
-
-    AppRun {
-        stdout: out_thread.join().unwrap_or_default(),
-        stderr: err_thread.join().unwrap_or_default(),
-        timed_out,
-    }
+    run
 }
 
 fn result_line(run: &AppRun) -> &str {
@@ -228,7 +238,7 @@ setTimeout(() => {
   console.log(`RESULT|timeout|seq=${count}|bad=${bad}|gotBig=${gotBig}`);
   child.kill();
   process.exit(1);
-}, 45000);
+}, 120000);
 "#;
 
 const BURST_CHILD: &str = r#"
@@ -242,6 +252,7 @@ process.on('message', () => {
 "#;
 
 fn assert_burst_delivered(tag: &str, env: &[(&str, &str)]) {
+    let _audit_run = serialize_audit_run();
     let dir = unique_dir(tag);
     write_text(&dir.join("child.js"), BURST_CHILD);
     write_text(&dir.join("app.js"), BURST_PARENT);
@@ -257,54 +268,28 @@ fn assert_burst_delivered(tag: &str, env: &[(&str, &str)]) {
     for (k, v) in env {
         cmd.env(k, v);
     }
-    let output = {
-        let mut child = cmd.spawn().expect("spawn ibex");
-        let mut out = child.stdout.take().expect("stdout pipe");
-        let mut err = child.stderr.take().expect("stderr pipe");
-        let out_thread = thread::spawn(move || {
-            let mut s = String::new();
-            let _ = out.read_to_string(&mut s);
-            s
-        });
-        let err_thread = thread::spawn(move || {
-            let mut s = String::new();
-            let _ = err.read_to_string(&mut s);
-            s
-        });
-        let deadline = Instant::now() + Duration::from_secs(60);
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) => {
-                    if Instant::now() >= deadline {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(20));
-                }
-                Err(_) => break,
-            }
-        }
-        (
-            out_thread.join().unwrap_or_default(),
-            err_thread.join().unwrap_or_default(),
-        )
-    };
-    let line = output
-        .0
+    isolate_process_group(&mut cmd);
+    let mut child = cmd.spawn().expect("spawn ibex");
+    let run = capture_bounded_output(&mut child, IPC_BACKPRESSURE_HARNESS_TIMEOUT);
+    assert!(
+        !run.timed_out,
+        "burst fixture timed out\nstdout:\n{}\nstderr:\n{}",
+        run.stdout, run.stderr
+    );
+    let line = run
+        .stdout
         .lines()
         .find(|l| l.starts_with("RESULT|"))
         .unwrap_or_else(|| {
             panic!(
                 "no RESULT line\nstdout:\n{}\nstderr:\n{}",
-                output.0, output.1
+                run.stdout, run.stderr
             )
         });
     assert_eq!(
         line, "RESULT|seq=300|bad=0|gotBig=true|bigOk=true",
         "burst was corrupted or truncated\nstdout:\n{}\nstderr:\n{}",
-        output.0, output.1
+        run.stdout, run.stderr
     );
 }
 
@@ -324,6 +309,7 @@ fn run_parent_child(
     env: &[(&str, &str)],
     timeout: Duration,
 ) -> (String, String) {
+    let _audit_run = serialize_audit_run();
     let dir = unique_dir(tag);
     write_text(&dir.join("child.js"), child_src);
     write_text(&dir.join("app.js"), parent_src);
@@ -339,38 +325,15 @@ fn run_parent_child(
     for (k, v) in env {
         cmd.env(k, v);
     }
+    isolate_process_group(&mut cmd);
     let mut child = cmd.spawn().expect("spawn ibex");
-    let mut out = child.stdout.take().expect("stdout pipe");
-    let mut err = child.stderr.take().expect("stderr pipe");
-    let out_thread = thread::spawn(move || {
-        let mut s = String::new();
-        let _ = out.read_to_string(&mut s);
-        s
-    });
-    let err_thread = thread::spawn(move || {
-        let mut s = String::new();
-        let _ = err.read_to_string(&mut s);
-        s
-    });
-    let deadline = Instant::now() + timeout;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break;
-                }
-                thread::sleep(Duration::from_millis(20));
-            }
-            Err(_) => break,
-        }
-    }
-    (
-        out_thread.join().unwrap_or_default(),
-        err_thread.join().unwrap_or_default(),
-    )
+    let run = capture_bounded_output(&mut child, timeout);
+    assert!(
+        !run.timed_out,
+        "parent/child fixture timed out\nstdout:\n{}\nstderr:\n{}",
+        run.stdout, run.stderr
+    );
+    (run.stdout, run.stderr)
 }
 
 /// A single parent→child message whose framed packet (~300KB, multibyte)
@@ -400,7 +363,7 @@ setTimeout(() => {
   console.log('RESULT|timeout');
   child.kill();
   process.exit(1);
-}, 30000);
+}, 120000);
 "#;
 
 const SINGLE_BIG_CHILD: &str = r#"
@@ -416,7 +379,7 @@ fn assert_parent_single_big_delivered(tag: &str, env: &[(&str, &str)]) {
         SINGLE_BIG_PARENT,
         SINGLE_BIG_CHILD,
         env,
-        Duration::from_secs(60),
+        IPC_BACKPRESSURE_HARNESS_TIMEOUT,
     );
     let line = stdout
         .lines()
@@ -458,7 +421,7 @@ setTimeout(() => {
   console.log(`RESULT|timeout|cbFired=${cbFired}|cbErrs=${cbErrs}`);
   child.kill();
   process.exit(1);
-}, 45000);
+}, 120000);
 "#;
 
 const PARENT_BURST_CHILD: &str = r#"
@@ -486,7 +449,7 @@ fn assert_parent_burst_delivered(tag: &str, env: &[(&str, &str)]) {
         PARENT_BURST_PARENT,
         PARENT_BURST_CHILD,
         env,
-        Duration::from_secs(60),
+        IPC_BACKPRESSURE_HARNESS_TIMEOUT,
     );
     let line = stdout
         .lines()
@@ -512,21 +475,32 @@ const THROWING_LISTENER_PARENT: &str = r#"
 const { fork } = require('child_process');
 const child = fork(__dirname + '/child.js');
 let got = [];
+let semanticTimeout = null;
+const startupTimeout = setTimeout(() => {
+  console.log('RESULT|startup-timeout|' + JSON.stringify(got));
+  child.kill();
+  process.exit(1);
+}, 60000);
 child.on('message', (m) => {
+  if (m === 'listener-ready') {
+    clearTimeout(startupTimeout);
+    child.send('first');
+    semanticTimeout = setTimeout(() => {
+      console.log('RESULT|timeout|' + JSON.stringify(got));
+      child.kill();
+      process.exit(1);
+    }, 20000);
+    return;
+  }
   got.push(m);
+  if (m === 'caught:listener-boom') child.send('second');
   if (m === 'second-received') {
+    clearTimeout(semanticTimeout);
     console.log('RESULT|' + JSON.stringify(got));
     child.kill();
     process.exit(0);
   }
 });
-child.send('first');
-setTimeout(() => child.send('second'), 400);
-setTimeout(() => {
-  console.log('RESULT|timeout|' + JSON.stringify(got));
-  child.kill();
-  process.exit(1);
-}, 20000);
 "#;
 
 const THROWING_LISTENER_CHILD: &str = r#"
@@ -537,9 +511,13 @@ process.on('message', (m) => {
   if (m === 'first') throw new Error('listener-boom');
   if (m === 'second') process.send('second-received');
 });
+// Start the semantic deadline only after the cold authenticated child has
+// installed both listeners.
+process.send('listener-ready');
 "#;
 
 fn assert_channel_survives_throwing_listener(tag: &str, env: &[(&str, &str)]) {
+    let _audit_run = serialize_audit_run();
     let dir = unique_dir(tag);
     write_text(&dir.join("child.js"), THROWING_LISTENER_CHILD);
     let app = THROWING_LISTENER_PARENT;
@@ -556,23 +534,29 @@ fn assert_channel_survives_throwing_listener(tag: &str, env: &[(&str, &str)]) {
     for (k, v) in env {
         cmd.env(k, v);
     }
-    let output = cmd.output().expect("run ibex");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout
+    isolate_process_group(&mut cmd);
+    let mut child = cmd.spawn().expect("run ibex");
+    let run = capture_bounded_output(&mut child, DIAGNOSTIC_AUDIT_TIMEOUT);
+    assert!(
+        !run.timed_out,
+        "throwing-listener fixture timed out\nstdout:\n{}\nstderr:\n{}",
+        run.stdout, run.stderr
+    );
+    let line = run
+        .stdout
         .lines()
         .find(|l| l.starts_with("RESULT|"))
         .unwrap_or_else(|| {
             panic!(
                 "no RESULT line\nstdout:\n{}\nstderr:\n{}",
-                stdout,
-                String::from_utf8_lossy(&output.stderr)
+                run.stdout, run.stderr
             )
         });
     assert!(
         line.contains("caught:listener-boom") && line.contains("second-received"),
         "channel went deaf after a throwing listener: {}\nstderr:\n{}",
         line,
-        String::from_utf8_lossy(&output.stderr)
+        run.stderr
     );
 }
 
@@ -601,6 +585,7 @@ process.on('message', (m) => {
 /// (0xCF 0x80). With a fresh TextDecoder per chunk both halves decoded to
 /// U+FFFD; the persistent streaming decoder reassembles them.
 fn assert_split_multibyte_decodes(tag: &str, env: &[(&str, &str)]) {
+    let _audit_run = serialize_audit_run();
     let dir = unique_dir(tag);
     write_text(&dir.join("child.js"), DECODE_CHILD);
 
@@ -621,7 +606,6 @@ fn assert_split_multibyte_decodes(tag: &str, env: &[(&str, &str)]) {
         cmd.env(k, v);
     }
     unsafe {
-        use std::os::unix::process::CommandExt;
         cmd.pre_exec(move || {
             // dup2 clears CLOEXEC on the destination fd.
             if libc::dup2(child_fd, 3) < 0 {
@@ -630,6 +614,7 @@ fn assert_split_multibyte_decodes(tag: &str, env: &[(&str, &str)]) {
             Ok(())
         });
     }
+    isolate_process_group(&mut cmd);
     let mut child = cmd.spawn().expect("spawn ibex child");
     drop(child_sock);
 
@@ -650,7 +635,7 @@ fn assert_split_multibyte_decodes(tag: &str, env: &[(&str, &str)]) {
 
     let mut writer = parent_sock.try_clone().expect("clone socket");
     writer
-        .set_write_timeout(Some(Duration::from_secs(30)))
+        .set_write_timeout(Some(DIAGNOSTIC_AUDIT_TIMEOUT))
         .expect("set write timeout");
     writer.write_all(&bytes[..split]).expect("write first half");
     writer.flush().ok();
@@ -667,7 +652,7 @@ fn assert_split_multibyte_decodes(tag: &str, env: &[(&str, &str)]) {
         .set_read_timeout(Some(Duration::from_millis(500)))
         .expect("set read timeout");
     let mut acc = Vec::new();
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + DIAGNOSTIC_AUDIT_TIMEOUT;
     let verdict = loop {
         if Instant::now() >= deadline {
             break None;
@@ -692,7 +677,7 @@ fn assert_split_multibyte_decodes(tag: &str, env: &[(&str, &str)]) {
         }
     };
 
-    let _ = child.kill();
+    kill_process_group(&mut child);
     let mut child_out = String::new();
     if let Some(mut out) = child.stdout.take() {
         let _ = out.read_to_string(&mut child_out);
@@ -770,6 +755,7 @@ process.send('removed-nothing:count=' + process.listenerCount('message'));
 /// were never delivered, and listenerCount answered from the drifted count.
 #[test]
 fn remove_listener_of_unregistered_fn_does_not_stop_delivery() {
+    let _audit_run = serialize_audit_run();
     let dir = unique_dir("remove-miscount");
     write_text(&dir.join("child.js"), REMOVE_MISCOUNT_CHILD);
     write_text(&dir.join("app.js"), REMOVE_MISCOUNT_PARENT);
@@ -782,16 +768,22 @@ fn remove_listener_of_unregistered_fn_does_not_stop_delivery() {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = cmd.output().expect("run ibex");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout
+    isolate_process_group(&mut cmd);
+    let mut child = cmd.spawn().expect("run ibex");
+    let run = capture_bounded_output(&mut child, DIAGNOSTIC_AUDIT_TIMEOUT);
+    assert!(
+        !run.timed_out,
+        "remove-listener fixture timed out\nstdout:\n{}\nstderr:\n{}",
+        run.stdout, run.stderr
+    );
+    let line = run
+        .stdout
         .lines()
         .find(|l| l.starts_with("RESULT|"))
         .unwrap_or_else(|| {
             panic!(
                 "no RESULT line\nstdout:\n{}\nstderr:\n{}",
-                stdout,
-                String::from_utf8_lossy(&output.stderr)
+                run.stdout, run.stderr
             )
         });
     assert!(
@@ -799,7 +791,7 @@ fn remove_listener_of_unregistered_fn_does_not_stop_delivery() {
         "delivery stopped (or listenerCount drifted) after removing a \
          never-registered listener: {}\nstderr:\n{}",
         line,
-        String::from_utf8_lossy(&output.stderr)
+        run.stderr
     );
 }
 
@@ -845,7 +837,7 @@ fn web_crypto_preserves_hmac_params_and_binary_hashes() {
   process.exit(1);
 });
 "#;
-    let run = run_app_env("web-crypto", app, DIAGNOSTIC_ENV, Duration::from_secs(30));
+    let run = run_app_env("web-crypto", app, DIAGNOSTIC_ENV, DIAGNOSTIC_AUDIT_TIMEOUT);
     assert_eq!(
         result_line(&run),
         "RESULT|1b28450642394cac2cd61bbfb2b88c6325ac0c94944091bfd1ffdd8fad6571f9|32a877ecf1da16c451665baf2bae55e3792573b48f3c9d6d4df704c53dcc5f85|SHA-256|32|SHA-512|1024",
@@ -866,7 +858,7 @@ localStorage.setItem('k', 'Ģ and π');
 console.log('RESULT|write|' + localStorage.length);
 process.exit(0);
 "#;
-    let write_run = run_app_env("storage-write", writer, &env, Duration::from_secs(30));
+    let write_run = run_app_env("storage-write", writer, &env, DIAGNOSTIC_AUDIT_TIMEOUT);
     assert_eq!(
         result_line(&write_run),
         "RESULT|write|1",
@@ -879,7 +871,7 @@ process.exit(0);
 console.log('RESULT|read|' + localStorage.length + '|' + localStorage.getItem('k'));
 process.exit(0);
 "#;
-    let read_run = run_app_env("storage-read", reader, &env, Duration::from_secs(30));
+    let read_run = run_app_env("storage-read", reader, &env, DIAGNOSTIC_AUDIT_TIMEOUT);
     assert_eq!(
         result_line(&read_run),
         "RESULT|read|1|Ģ and π",
@@ -911,7 +903,7 @@ process.stdin.resume();
         app,
         vec![0x80, 0xff, 0x61],
         DIAGNOSTIC_ENV,
-        Duration::from_secs(30),
+        DIAGNOSTIC_AUDIT_TIMEOUT,
     );
     assert_eq!(
         result_line(&run),
@@ -944,7 +936,7 @@ process.stdin.resume();
         app,
         input,
         DIAGNOSTIC_ENV,
-        Duration::from_secs(30),
+        DIAGNOSTIC_AUDIT_TIMEOUT,
     );
     assert_eq!(
         result_line(&run),
@@ -968,7 +960,7 @@ console.log('RESULT|' + [
 ].join('|'));
 process.exit(0);
 "#;
-    let run = run_app_env("web-streams-polyfill", app, &env, Duration::from_secs(30));
+    let run = run_app_env("web-streams-polyfill", app, &env, DIAGNOSTIC_AUDIT_TIMEOUT);
     assert_eq!(
         result_line(&run),
         "RESULT|object|function|function|function|function",

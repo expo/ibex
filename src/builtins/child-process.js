@@ -2679,6 +2679,10 @@ try { _EventEmitter = require('events'); } catch(e) {
   _EventEmitter.prototype.removeListener = function(ev, fn) { if (!this._events) this._events = {}; var l = this._events[ev]; if (l) { var n = []; for (var i = 0; i < l.length; i++) { if (l[i] !== fn) n.push(l[i]); } this._events[ev] = n; } return this; };
   _EventEmitter.prototype.removeAllListeners = function(ev) { if (!this._events) this._events = {}; if (ev) delete this._events[ev]; else this._events = {}; return this; };
 }
+// ChildProcess methods retain the stream module value, not the builtin
+// wrapper's require closure, after synchronous manifest evaluation ends.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+var _ChildProcessStream = require('stream');
 
 function ChildProcess(handle, pid, stdioModes) {
   _EventEmitter.call(this);
@@ -2728,7 +2732,7 @@ function ChildProcess(handle, pid, stdioModes) {
   if (!modes) return;
 
   // Create stdout as a Readable stream
-  var Stream = require('stream');
+  var Stream = _ChildProcessStream;
   var self = this;
 
   if (modes.stdout === 'pipe') {
@@ -3242,7 +3246,7 @@ ChildProcess.prototype.spawn = function(options) {
   this.connected = this._ipcMode;
   this.channel = this._ipcMode ? { fd: 3, connected: true } : null;
 
-  var Stream = require('stream');
+  var Stream = _ChildProcessStream;
   var self2 = this;
   if (stdioCfg.stdout === 'pipe') {
     this.stdout = new Stream.Readable();
