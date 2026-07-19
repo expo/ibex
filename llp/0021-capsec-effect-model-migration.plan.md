@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (target-local protected-artifact publication fsyncs
+the parent directory on Unix and flushes the pinned linked file on Windows,
+where opening a directory through `std::fs::File` is refused)
 **Revised:** 2026-07-18 (Windows builtin recipes keep callable Brotli exports
 residual because the target installs deflate/inflate but not the native Brotli
 codec globals those exports require)
@@ -689,9 +692,15 @@ Apple and Windows consumers use this seam. The normal target-local producer now
 builds the complete pair directly from the installed app root, loaded engine,
 checked registry, canonical empty package policy/graph, and strict Exact
 manifest; it therefore does not package stale filesystem identities. Exact's
-bundled-root producer is complete, while package-bearing policy input remains a
-separate future contract. Apple/Windows conformance reports and target
-advertisements remain incomplete. The refreshed per-target catalogs each have
+protected-artifact publisher uses the target's real durability boundary after
+the content-addressed hard link is installed: Unix syncs the parent directory,
+while Windows re-flushes the still-pinned file object because Rust's ordinary
+file API cannot open a directory for `sync_all`. Both paths validate the
+read-only file and its exact bytes before publication; this portability split
+does not relax artifact identity or immutability.
+The bundled-root producer is complete, while package-bearing policy input
+remains a separate future contract. Apple/Windows conformance reports and
+target advertisements remain incomplete. The refreshed per-target catalogs each have
 22,938 required fixtures: Apple has 5,129 fully executable recipes and 17,809
 unresolved fixtures, while Windows has 5,011 executable and 17,927 unresolved.
 The Windows difference is explicit target applicability: 102 Apple

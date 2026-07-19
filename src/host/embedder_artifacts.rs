@@ -214,6 +214,28 @@ fn absolute_artifact_path(path: &Path) -> Result<LogicalPath> {
     })
 }
 
+// @ref LLP 0021#default-and-target-claim — artifact publication uses each
+// target's supported durability boundary without weakening byte/object checks.
+fn sync_published_artifact(directory: &Path, _artifact: &std::fs::File) -> Result<()> {
+    #[cfg(unix)]
+    {
+        std::fs::File::open(directory)?
+            .sync_all()
+            .context("failed to sync protected artifact directory")?;
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows does not let `std::fs::File` open a directory for `sync_all`.
+        // The hard link names this same file object, so flush that pinned object
+        // again after publication instead of treating the directory as a file.
+        let _ = directory;
+        _artifact
+            .sync_all()
+            .context("failed to sync published protected artifact")?;
+    }
+    Ok(())
+}
+
 fn materialize_protected_artifact(
     role: &str,
     bytes: &[u8],
@@ -303,7 +325,7 @@ fn materialize_protected_artifact(
             staged.sync_all()?;
             validate(&mut staged)?;
             match std::fs::hard_link(&temporary, &path) {
-                Ok(()) => std::fs::File::open(&directory)?.sync_all()?,
+                Ok(()) => sync_published_artifact(&directory, &staged)?,
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     let mut existing = open_existing()?;
                     validate(&mut existing)?;
@@ -1343,6 +1365,18 @@ mod tests {
                 .unwrap()["contentDigest"],
             digest
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_publishes_a_new_protected_artifact_without_opening_its_directory() {
+        let mut bytes = [0_u8; 32];
+        getrandom::getrandom(&mut bytes).unwrap();
+        let digest = content_digest(&bytes);
+        let artifact =
+            materialize_protected_artifact("windows-directory-sync-regression", &bytes, &digest)
+                .unwrap();
+        assert_eq!(artifact.content_digest, digest);
     }
 
     #[test]
