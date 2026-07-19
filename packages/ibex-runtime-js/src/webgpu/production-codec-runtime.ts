@@ -5020,9 +5020,8 @@ function convertConstants(
     convertedEntries.set(convertedKey, convertedValue);
   }
   const result: Record<string, number> = {};
-  const canonicalEntries = [...convertedEntries].sort(([left], [right]) => (
-    left < right ? -1 : left > right ? 1 : 0
-  ));
+  const canonicalEntries = [...convertedEntries].sort(([left], [right]) =>
+    compareCanonicalUtf8(left, right));
   for (const [key, converted] of canonicalEntries) {
     // CreateDataProperty semantics preserve legal record keys such as
     // "__proto__" instead of invoking Object.prototype's legacy setter.

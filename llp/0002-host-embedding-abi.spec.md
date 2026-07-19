@@ -554,9 +554,9 @@ optional `constants`, optional `entryPoint`, then required `module`, with each
 conversion immediately following its Get. A constants record gets its own keys
 once, then interleaves each descriptor check, USVString key conversion, value
 Get, and `double` conversion before sorting only the owned converted snapshot
-for canonical transport. The `{}` default applies only to an absent or
-`undefined` member; explicit `null` rejects before later stage members are
-observed. Enumerable Symbols reject, lone surrogates normalize
+by canonical unsigned UTF-8 bytes for transport. The `{}` default applies only
+to an absent or `undefined` member; explicit `null` rejects before later stage
+members are observed. Enumerable Symbols reject, lone surrogates normalize
 and may collapse duplicate keys, and legal names such as `__proto__` remain own
 data properties. Its `double` conversion uses `ToNumber`, so BigInt throws
 synchronously. Explicit layouts and shader modules retain complete

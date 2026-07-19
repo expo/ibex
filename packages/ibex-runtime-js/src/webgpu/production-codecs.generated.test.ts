@@ -92,7 +92,7 @@ interface ComputePipelineFixtureRow {
     | 'typegpu-jelly-slider';
   readonly label: string;
   readonly layoutKind: 'explicit';
-  readonly constantsPresence: 'omitted';
+  readonly sourceConstantsPresence: 'omitted';
   readonly entryPointPresence: 'omitted';
   readonly shaderSourceSha256: string;
 }
@@ -1440,8 +1440,16 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(renderPipelineConversionFixtures.schema).toBe(
       'ibex/webgpu-render-pipeline-conversion-fixtures/1',
     );
-    expect(renderPipelineConversionFixtures.source.exactCohortSha256).toBe(
-      '3a4f9df11b928d03097e994fcc6aa005c3bbde589aca2bb0fa49772587249d3d',
+    expect(renderPipelineConversionFixtures.source.exactSemanticJoinSha256).toBe(
+      '3a4f9df11b928d03097e994fcc6aa005c3bbde5898aca2bb0fa49772587249d3',
+    );
+    expect(renderPipelineConversionFixtures.source.projectionCanonicalization).toBe(
+      'recursive-key-sorted-json-utf8',
+    );
+    expect(createHash('sha256')
+      .update(canonicalJson(renderPipelineFixtureRows))
+      .digest('hex')).toBe(
+      renderPipelineConversionFixtures.source.projectionSha256,
     );
     expect(renderPipelineFixtureRows.map((row) => row.workload)).toEqual([
       'GeneticTextureUtility',
@@ -1537,8 +1545,11 @@ describe('generated injection-only WebGPU executable codecs', () => {
     );
     expect(computePipelineConversionFixtures.source).toEqual({
       typegpuVersion: '0.11.9',
-      exactCohortSha256:
+      exactSemanticJoinSha256:
         '3a4f9df11b928d03097e994fcc6aa005c3bbde5898aca2bb0fa49772587249d3',
+      projectionSha256:
+        'ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe',
+      projectionCanonicalization: 'recursive-key-sorted-json-utf8',
       disposition:
         'authenticated-workload-cohort-conversion-only-no-native-or-install-claim',
     });
@@ -1552,6 +1563,11 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(new Set(computePipelineFixtureRows.map(
       (row) => row.shaderSourceSha256,
     )).size).toBe(7);
+    expect(createHash('sha256')
+      .update(canonicalJson(computePipelineFixtureRows))
+      .digest('hex')).toBe(
+      computePipelineConversionFixtures.source.projectionSha256,
+    );
 
     for (const row of computePipelineFixtureRows) {
       const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
@@ -1574,7 +1590,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         },
       });
       expect(row.layoutKind).toBe('explicit');
-      expect(row.constantsPresence).toBe('omitted');
+      expect(row.sourceConstantsPresence).toBe('omitted');
       expect(row.entryPointPresence).toBe('omitted');
       expect(Object.hasOwn(compute, 'constants')).toBe(true);
       expect(Object.hasOwn(compute, 'entryPoint')).toBe(false);
@@ -1813,6 +1829,23 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'get:alpha',
     ]);
     expect(Object.keys(convertedConstants)).toEqual(['alpha', 'zeta']);
+
+    const unicodeOrder = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createComputePipeline',
+        [{
+          layout: 'auto',
+          compute: {
+            constants: { '\u{10000}': 1, '\ue000': 2 },
+            module: shaderModule,
+          },
+        }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+    const unicodeConstants = (
+      unicodeOrder.compute as Readonly<Record<string, unknown>>
+    ).constants as Readonly<Record<string, number>>;
+    expect(Object.keys(unicodeConstants)).toEqual(['\ue000', '\u{10000}']);
 
     const special = Object.create(null) as Record<PropertyKey, unknown>;
     Object.defineProperty(special, '__proto__', {
