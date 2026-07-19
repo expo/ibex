@@ -5,6 +5,9 @@
 **Systems:** Build, Module Loader, Runtime, Security
 **Author:** Charlie Cheever / Claude Fable
 **Date:** 2026-07-17
+**Revised:** 2026-07-18 (the compiled environment profile classifies the Win32
+process-block flag lookup as typed internal dispatch, keeping Rust and the
+Hermes DLL on one pre-construction runtime configuration value)
 **Revised:** 2026-07-18 (platform decision: LLP 0031 keeps the v1 SFE matrix at
 macOS arm64 and Linux x64, defers Windows/macOS x64, and holds release until
 both exact tuples have verified CapSec advertisements); 2026-07-18 (Snapback 0.2 decision: computed dynamic imports are
@@ -802,6 +805,10 @@ configuration.**
    and authorized enumeration use that immutable base while the existing JS
    proxy supplies the mutable overlay; the real environment stays sanitized.
    Typed privileged-control migration and isolation fixtures remain.
+   The Windows Hermes flag lookup is explicitly classified as
+   `typed-internal-dispatch`: it reads the named process-block value selected by
+   trusted runtime construction rather than capturing or brokering the whole
+   ambient environment.
 
 No REPL, no `eval`, no `.env` loading in compiled mode.
 

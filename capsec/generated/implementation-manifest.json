@@ -154630,7 +154630,7 @@
         ],
         "terminalObservedKey": "native-op:__exactBytesToUtf8String"
       },
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -154642,6 +154642,41 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.exactbytestoutf8string.17y16zr.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactbytestoutf8string.17y16zr",
+      "observedKey": "native-op:__exactBytesToUtf8String",
+      "branchId": "surface.native.op.exactbytestoutf8string.17y16zr.windows",
+      "enforcementBranchId": "surface.native.op.exactbytestoutf8string.17y16zr.windows",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactBytesToUtf8String"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactBytesToUtf8String",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactBytesToUtf8String"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_crypto_windows.cc#__exactBytesToUtf8String",
+          "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactBytesToUtf8String"
+        ],
+        "terminalObservedKey": "native-op:__exactBytesToUtf8String"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_crypto_windows.cc#__exactBytesToUtf8String",
+        "src/engine/hermes_runtime_crypto_windows.cc#jsi-global:__exactBytesToUtf8String"
+      ],
+      "implementationOwner": "WP1",
+      "fixtureObligations": [
+        "surface.native.op.exactbytestoutf8string.17y16zr.windows.non-capability"
       ]
     },
     {
@@ -254641,6 +254676,41 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "observedKey": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+      "branchId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main",
+      "enforcementBranchId": "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "startup:env:<dynamic>:cpp:GetEnvironmentVariableA"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read"
+        ],
+        "terminalObservedKey": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.allow",
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.deny",
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.malformed",
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.missing-attribution",
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "observedKey": "startup:env:<dynamic>:cpp:_NSGetEnviron",
       "branchId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke.main",
@@ -260231,37 +260301,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5",
-      "observedKey": "startup:evaluation:defined:13e9rgh:promise-unwrap",
-      "branchId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main",
-      "enforcementBranchId": "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main",
-      "enforcementRoute": {
-        "kind": "surface-branch",
-        "proofPaths": [
-          "startup:evaluation:defined:13e9rgh:promise-unwrap"
-        ],
-        "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#defined:13e9rgh:evaluateJavaScript:<promise-unwrap>"
-        ],
-        "sourceRefs": [
-          "src/engine/hermes_runtime.cc#defined:13e9rgh:evaluateJavaScript:<promise-unwrap>"
-        ],
-        "terminalObservedKey": "startup:evaluation:defined:13e9rgh:promise-unwrap"
-      },
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#defined:13e9rgh:evaluateJavaScript:<promise-unwrap>"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.evaluation.defined.13e9rgh.promise.unwrap.0x213h5.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2",
       "observedKey": "startup:evaluation:ex_hermes_debugger_eval:cdp",
       "branchId": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2.main",
@@ -260290,6 +260329,37 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2.main.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50",
+      "observedKey": "startup:evaluation:ex_hermes_eval:promise-unwrap",
+      "branchId": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50.main",
+      "enforcementBranchId": "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:evaluation:ex_hermes_eval:promise-unwrap"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_eval:evaluateJavaScript:<promise-unwrap>"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_eval:evaluateJavaScript:<promise-unwrap>"
+        ],
+        "terminalObservedKey": "startup:evaluation:ex_hermes_eval:promise-unwrap"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_eval:evaluateJavaScript:<promise-unwrap>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.ex.hermes.eval.promise.unwrap.0rbkv50.main.non-capability"
       ]
     },
     {
@@ -264385,6 +264455,7 @@
         "surface.startup.env.dynamic.cpp.environ.1o5nbvk",
         "surface.startup.env.dynamic.cpp.getenv.1kddphg",
         "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9",
+        "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
         "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
         "surface.startup.env.dynamic.javascript.process.0zq1e6e",
         "surface.startup.env.dynamic.javascript.process.binding.flow.0sy2re1",
@@ -264443,7 +264514,7 @@
         "surface.startup.env.userprofile.1sxunkp",
         "surface.startup.env.wpt.server.url.1y5rfd8"
       ],
-      "rationale": "Covered by 212 observed effect edges."
+      "rationale": "Covered by 213 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -268410,44 +268481,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-cMQ9RFUHlpBr4RSGw4zGqtMd4nJ85ccOYldwULzBQhk"
+      "rawContentDigest": "sha256-A5egPiKE7Z_4sL2-nhKvmICNHmNhInFEnQ_zGqmKnX4"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-DVvAIqBN_v8U6G9GD3IqS7bpbWu0ljFssC7-oxXRFF4"
+      "rawContentDigest": "sha256-TBfLo0C3yYiGB5dc-0F_6fCR9xFbntYYK7KGaljhJro"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-CMhsSDtqDoenNwbwu1TVsbakN9jNF3FZlx7yogPvW2o"
+      "rawContentDigest": "sha256-iIZ6jFk9ECsJdeSfl-dziGYhKd0jPGZ2yy07t9jGK88"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-coOz_nBqTpVqNMsNuLrFAbyH4gbFx52uDHAf15wQqGY"
+      "rawContentDigest": "sha256-89MvndYR-ms8LN5mVI9y7_ZNwQpiASJYd_xjfTRAeQE"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-yKOiGhglVAXXH0z78byF9fhke-muA3NdKzgPFIZxDhg"
+      "rawContentDigest": "sha256-S9LxVH9ohqKFM0i5ZttxWkqJU99nfAylYZFt_vhHl-o"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-qEM1R_iEgfsE7zAaz-N1jr-XLK7qLq9LONP8kKQcG7I"
+      "rawContentDigest": "sha256-iy5IP1_g4pgSWWnzY5U1__oBvVXc5qmu0f1FgSij730"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-PR4z_Ngn7WHfN4hRfxNWo2Us-wrFhiwPv18dgWMY7nw"
+      "rawContentDigest": "sha256-Z4q2vH46TAGEdVT-oH5g5ghbFhYhK4tiGr1qLhX0sa4"
     }
   ],
   "counts": {
-    "observedReferences": 13054,
-    "logicalSurfaces": 7207,
-    "enforcementBranches": 7406,
-    "coverageEdges": 7207,
-    "targetCells": 14414
+    "observedReferences": 13057,
+    "logicalSurfaces": 7208,
+    "enforcementBranches": 7408,
+    "coverageEdges": 7208,
+    "targetCells": 14416
   }
 }

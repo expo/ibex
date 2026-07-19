@@ -244,7 +244,18 @@ bool env_flag_enabled(const char* env_name) {
   // all work), everything else (0/false/no/off/empty/unset) disables. The Rust
   // `env_flag_enabled` (src/bin/ibex/main.rs) mirrors this so the bundler driver
   // and the engine never disagree about whether compartments are on. (ENG-22634)
+#if defined(_WIN32)
+  // @ref LLP 0003#how-hermes-is-driven — the DLL's CRT environment can be a
+  // separate snapshot from Rust's process environment; query the process block
+  // so pre-construction runtime configuration is shared across that boundary.
+  DWORD required = GetEnvironmentVariableA(env_name, nullptr, 0);
+  if (required == 0) return false;
+  std::string value(required, '\0');
+  DWORD copied = GetEnvironmentVariableA(env_name, value.data(), required);
+  const char* val = copied > 0 && copied < required ? value.c_str() : nullptr;
+#else
   const char* val = std::getenv(env_name);
+#endif
   return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y' ||
                  val[0] == 't' || val[0] == 'T');
 }
@@ -4279,11 +4290,11 @@ extern "C" int ex_hermes_eval(
 #endif
 
     // If the result is a thenable/Promise, resolve it before returning.
-    // This makes top-level await work in the REPL and eval contexts.
-    // Windows Hermes currently does not support async function syntax in this
-    // eval path, and the CLI already drives the event loop after file/eval
-    // execution, so skip the JS unwrap shim there.
-#if !defined(_WIN32)
+    // This makes top-level await work in the REPL and eval contexts. The
+    // shipping Windows Hermes accepts the same generated async wrappers, so
+    // keep result and rejection handling target-independent.
+    // @ref LLP 0024#engine-premises — authoritative target tests verify the
+    // async-wrapper premise before the legacy seam is offered on that target.
     if (result.isObject()) {
       auto& rt = *runtime->runtime;
       // Stash the result as a temp global so JS can inspect it
@@ -4404,8 +4415,6 @@ extern "C" int ex_hermes_eval(
         }
       }
     }
-#endif
-
     if (out_value) {
       if (result.isUndefined()) {
         *out_value = nullptr;

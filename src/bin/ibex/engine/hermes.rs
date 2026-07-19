@@ -8113,7 +8113,11 @@ cp \"$input\" \"$out\"\n";
                     body.len(),
                     body
                 );
-                stream.write_all(response.as_bytes()).unwrap();
+                // Cancelling the owning fetch may reset its TCP connection
+                // before the held server is released. That is the expected
+                // terminal state for the cancelled runtime; the other
+                // runtime's response is asserted independently below.
+                let _ = stream.write_all(response.as_bytes());
             });
             HeldServer {
                 url: format!("http://127.0.0.1:{port}/"),

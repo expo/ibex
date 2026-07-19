@@ -5,6 +5,9 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-18 (Windows runtime configuration reads the shared process
+environment rather than a DLL-private CRT snapshot, and legacy eval now settles
+its generated async wrappers consistently on every supported host)
 **Revised:** 2026-07-18 (the Windows native smoke consumes the installed TCP
 bridge after structural lockdown has eagerly run and sealed its private lazy
 installer); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
@@ -40,6 +43,20 @@ named diagnostic constructor is not a project-execution API. Armed creation:
 `ex_hermes_eval()` evaluates UTF-8 source or Hermes bytecode (`is_bytecode`
 flag) and returns a result string `[observed]`
 (`src/engine/hermes_runtime.cc:1464`).
+
+The current legacy eval seam drains microtasks and assimilates a returned
+Promise before producing that string on every host. Authoritative Windows
+product tests now prove that the shipping engine accepts the same generated
+async wrappers as the other targets and observes both fulfillment and
+rejection. LLP 0024 replaces this convenience seam with structured,
+non-assimilating settlement; target consistency here does not claim that future
+contract early.
+
+Windows runtime-construction flags are read from the Win32 process environment,
+not `std::getenv`. Rust may set a flag immediately before lazy native runtime
+creation, while a separately linked DLL CRT can retain its own environment
+snapshot; the process query keeps the native bootstrap on the same value Rust
+set without widening which variables are consulted.
 
 Frame attribution is runtime-handle scoped, not merely thread scoped. A thread
 may drive multiple runtimes or re-enter `ex_hermes_eval()` for a nested runtime
@@ -439,8 +456,10 @@ Crypto is split between the non-Windows crypto shim and a Windows-specific file:
 - **Windows:** `build.rs` compiles `hermes_runtime_crypto_windows.cc` and
   defines `EXACT_NO_OPENSSL` `[observed]` (`build.rs:729-765`). That file
   registers Windows BCrypt-backed hash/hashRaw/HMAC functions plus stdin/signal
-  noops; it does not register the non-Windows asymmetric throwing stubs
-  `[observed]` (`src/engine/hermes_runtime_crypto_windows.cc:1-8, 141-221`).
+  noops. It also installs the common bounds-checked byte-view-to-UTF-8 boundary;
+  platform selection must not turn a forged view into a missing-global error.
+  It does not register the non-Windows asymmetric throwing stubs `[observed]`
+  (`src/engine/hermes_runtime_crypto_windows.cc`).
 
 The crypto profile axis and the platform matrix are owned by
 [LLP 0001](./0001-target-platforms-and-ci-matrix.rfc.md); this section only maps

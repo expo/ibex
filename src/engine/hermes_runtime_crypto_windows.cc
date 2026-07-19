@@ -463,6 +463,43 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactStdinRead", std::move(stdinReadFn));
 
+  // @ref LLP 0003#crypto-is-platform-dependent-the-fragile-axis — byte-view
+  // validation is a platform-neutral runtime boundary even though the crypto
+  // implementation translation unit is selected per target.
+  auto bytesToUtf8StringFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactBytesToUtf8String"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactBytesToUtf8String: bytes required");
+        }
+        if (args[0].isString()) {
+          return facebook::jsi::Value(args[0].getString(runtime));
+        }
+        if (!args[0].isObject()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactBytesToUtf8String: expected ArrayBuffer or TypedArray");
+        }
+
+        const uint8_t* data = nullptr;
+        size_t length = 0;
+        auto object = args[0].asObject(runtime);
+        if (!extractArrayBufferView(runtime, object, data, length)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactBytesToUtf8String: expected ArrayBuffer-backed view");
+        }
+        return facebook::jsi::String::createFromUtf8(runtime, data, length);
+      });
+  rt.global().setProperty(
+      rt, "__exactBytesToUtf8String", std::move(bytesToUtf8StringFn));
+
   auto noopSignalFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactResetSignal"),

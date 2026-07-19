@@ -5,6 +5,10 @@
 **Systems:** Runtime, Engine, Module Loader, REPL
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
+**Revised:** 2026-07-18 (authoritative Windows product tests prove the shipping
+Hermes accepts the generated async-wrapper syntax; the legacy Promise-settlement
+shim is now target-consistent while this spec's non-assimilating replacement
+remains future work)
 **Revised:** 2026-07-17 (LLP 0028 migration seam: pinned Oxc 0.140.0 as the
 post-retirement parser authority; proved the hybrid Script-plus-static-import-plus-TLA
 adapter by Module syntax parsing followed by Script semantic validation; defined
@@ -207,9 +211,8 @@ those constraints are load-bearing rather than incidental. Verified against the
 bundled Hermes (`tools/hermes/hermes`) at the revision of this document. **The
 premises are per advertised target** (LLP 0001), not per engine family: an
 implementation claims conformance on a target only where they have been
-re-verified there. One is already known to differ — the Windows eval path is
-recorded as not supporting async function syntax, which is the shape the entry-TLA
-lowering emits (open question 7).
+re-verified there. The Windows async-wrapper premise was re-verified by the
+authoritative product matrix on 2026-07-18 (open question 7).
 
 | Premise | Observed |
 | --- | --- |
@@ -924,8 +927,9 @@ continuations, calls no `then`, and performs no coercion in order to produce a
 result — regardless of whether some other part of the input used `await`. The
 input `await 0; ({ then() { sideEffect() } })` yields a thenable as its value
 and never calls `then`. The current native unwrapping, which assimilates any
-object with a callable `then` and waits on it, is retired. (It is also compiled
-out on Windows today, so the platforms do not even agree with each other.)
+object with a callable `then` and waits on it, is retired. Before the Windows
+premise was re-verified on 2026-07-18, that legacy shim was compiled out there;
+it is now target-consistent but still semantically superseded by this contract.
 
 **Settlement and delivery are separate channels.** An input containing top-level
 `await` evaluates as one asynchronous unit; the caller awaits *that unit's*
@@ -2333,11 +2337,12 @@ say which is testing nothing.
 6. Should a startup-only strict profile exist for consumers that want module-like
    semantics in script inputs, given §3 fixes sloppy as the default? (Shared with
    LLP 0022 OQ 3.)
-7. **Do the engine premises hold per advertised target?** The Windows eval path is
-   recorded as not supporting async function syntax, which is the shape the entry-TLA
-   lowering emits — and which `await using` at a module entry also depends on. Either
-   that comment is stale, or entry TLA needs a different lowering on Windows, or Windows
-   does not advertise it. This must be settled before AC8 can be claimed there.
+7. **Resolved for the current Windows candidate:** the authoritative 2026-07-18
+   product run executed generated async wrappers and returned their Promise
+   objects, proving the old “async function syntax unsupported” comment stale.
+   The cross-target legacy settlement shim now observes fulfillment/rejection;
+   AC8 still requires this spec's structured, non-assimilating implementation
+   and its full per-surface target matrix.
 8. The **one versioned constants annex** is normatively pinned by LLP 0025 §12 (renderer
    depth/breadth/payload/truncation, and **maximum input size = 1 MiB** inline), but the
    digest-bound **file** `session-constants.json` **does not exist yet** and is owed

@@ -177,11 +177,6 @@ throw new Error('source-map-line');
 `,
     },
     oracle: [`${marker}line=5`],
-    currentIbex: {
-      outcome: 'error',
-      stderrIncludes: 'Invalid expression encountered',
-      note: 'The current dynamic-import/TLA shim fails before the original-line observation can be produced.',
-    },
   },
   {
     id: 'scanner-eng-22514-comments',

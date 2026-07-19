@@ -3169,6 +3169,31 @@ fn materialize_protected_artifact(
         serde_json::to_value(identity).context("serializing protected artifact identity")
     }
 
+    // @ref LLP 0021#default-and-target-claim — artifact publication uses each
+    // target's supported durability boundary without weakening byte/object checks.
+    fn sync_published_artifact(
+        directory: &std::path::Path,
+        _artifact: &std::fs::File,
+    ) -> Result<()> {
+        #[cfg(unix)]
+        {
+            std::fs::File::open(directory)?
+                .sync_all()
+                .context("failed to sync protected artifact directory")?;
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows does not let `std::fs::File` open a directory for
+            // `sync_all`. The hard link names this same file object, so flush
+            // that pinned object again after publication.
+            let _ = directory;
+            _artifact
+                .sync_all()
+                .context("failed to sync published protected artifact")?;
+        }
+        Ok(())
+    }
+
     let directory = cache_root.join("capsec-artifacts");
     std::fs::create_dir_all(&directory)?;
     let directory_metadata = std::fs::symlink_metadata(&directory)?;
@@ -3231,7 +3256,7 @@ fn materialize_protected_artifact(
 
             match std::fs::hard_link(&temporary, &path) {
                 Ok(()) => {
-                    std::fs::File::open(&directory)?.sync_all()?;
+                    sync_published_artifact(&directory, &staged)?;
                     Ok(identity)
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -4406,15 +4431,25 @@ fn normalize_hashbang_for_eval(source: &str) -> Cow<'_, str> {
     Cow::Owned(normalized)
 }
 
+#[cfg(any(windows, test))]
+fn normalize_windows_tool_path_text(value: &str) -> Cow<'_, str> {
+    // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — external tools receive ordinary Windows drive/UNC spellings while authenticated identities remain canonical.
+    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        return Cow::Owned(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = value.strip_prefix(r"\\?\") {
+        return Cow::Borrowed(rest);
+    }
+    Cow::Borrowed(value)
+}
+
 fn normalize_windows_tool_path(path: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
         let value = path.to_string_lossy();
-        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{rest}"));
-        }
-        if let Some(rest) = value.strip_prefix(r"\\?\") {
-            return PathBuf::from(rest);
+        let normalized = normalize_windows_tool_path_text(&value);
+        if normalized != value {
+            return PathBuf::from(normalized.as_ref());
         }
     }
     path
@@ -5371,8 +5406,8 @@ async fn run_bundler(
     verify_bundler_toolchain_identity(&toolchain)?;
     let runner = toolchain.runner.clone();
     let runner_name = toolchain.runner_name;
-    let script = bundler_script_path()?;
-    let working_dir = bundler_working_dir()?;
+    let script = normalize_windows_tool_path(bundler_script_path()?);
+    let working_dir = normalize_windows_tool_path(bundler_working_dir()?);
     let timeout = timeout_from_env("EXACT_BUNDLER_TIMEOUT_MS", DEFAULT_BUNDLER_TIMEOUT_MS);
 
     tokio::fs::create_dir_all(artifact_root)
@@ -5383,14 +5418,16 @@ async fn run_bundler(
         .await
         .with_context(|| format!("Failed to create bundle stage {}", stage_dir.display()))?;
     let output = bundle_entry_path(&stage_dir, bundle_format);
+    let tool_entry = normalize_windows_tool_path(entry.to_path_buf());
+    let tool_output = normalize_windows_tool_path(output.clone());
 
     let mut command = tokio::process::Command::new(&runner);
     command
         .arg(&script)
         .arg("--entry")
-        .arg(entry)
+        .arg(&tool_entry)
         .arg("--out")
-        .arg(&output)
+        .arg(&tool_output)
         .arg("--format")
         .arg(bundle_format.as_str())
         .arg("--sourcemap")
@@ -5543,10 +5580,10 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
     use crate::cli::PolicyCommands;
 
     let root = repo_root()?;
-    let script = authenticated_repo_file(
+    let script = normalize_windows_tool_path(authenticated_repo_file(
         &root,
         Path::new("packages/ibex-devtools/src/scripts/generate-policy.mjs"),
-    )?;
+    )?);
     let (runner, _runner_name) = find_js_runner()?;
 
     let mut cmd = tokio::process::Command::new(&runner);
@@ -5961,6 +5998,22 @@ mod tests {
         assert_eq!(
             authenticated_project_root(&explicit, explicit.file.as_deref()).unwrap(),
             std::fs::canonicalize(manifestless.path()).unwrap()
+        );
+    }
+
+    #[test]
+    fn external_tool_paths_project_windows_verbatim_spellings_only() {
+        assert_eq!(
+            normalize_windows_tool_path_text(r"\\?\D:\ibex\tool.mjs"),
+            r"D:\ibex\tool.mjs"
+        );
+        assert_eq!(
+            normalize_windows_tool_path_text(r"\\?\UNC\server\share\tool.mjs"),
+            r"\\server\share\tool.mjs"
+        );
+        assert_eq!(
+            normalize_windows_tool_path_text(r"D:\ibex\tool.mjs"),
+            r"D:\ibex\tool.mjs"
         );
     }
 

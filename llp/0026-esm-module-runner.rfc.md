@@ -5,6 +5,9 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
+**Revised:** 2026-07-18 (the Phase-0 compatibility baseline now records the
+post-native-switch namespace/CommonJS observations and successful dynamic-import
+source-map line recovery instead of retaining the superseded shim failure)
 **Revised:** 2026-07-18 (Snapback's 0.2 requirement activates native computed dynamic imports through generation-bound, site-specific candidate tables; the author resolved computed CommonJS `require` as a guarded reached-site invocation failure for 0.2, preserving dead branches and argument evaluation without runtime resolution)
 **Revised:** 2026-07-17 (LLP 0029 supersedes the carrier wire with v2 tagged engine bindings and inspected HBC metadata without changing module semantics); 2026-07-15 (ENG-25060 made frame-attribution feature detection inspect the exact linked macOS framework or Linux library, keeping every advertised engine build fail-closed); 2026-07-15 (ENG-25060 added non-root frame-attribution fixtures for cold and repeated source factories plus prepared source and HBC carriers); 2026-07-15 (ENG-25066 set measured checked-cell and cold `require(ESM)` envelopes and added exact-host micro-performance evidence); 2026-07-15 (ENG-25061 added a fail-loud, no-execution graph/effect-trace shadow between checked authenticated producer artifacts and the exact legacy scanner, including all three historical scanner-repair families); 2026-07-15 (ENG-25066 made the native target advertisement exact and non-empty for macOS arm64 and Linux x64, with Windows explicitly compatibility-only pending a patched Hermes artifact); 2026-07-15 (ENG-25066 narrowed legacy admission to typed unsupported producer shapes and retained fatal behavior for authorization, syntax, integrity, and linkage failures); 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
 handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
@@ -1216,6 +1219,14 @@ token operations, and LLP 0005 when chunk and HBC carriers change the prepared
 pipeline.
 
 ### Phase 0: Baseline the current contract
+
+**Implementation state (2026-07-18).** The exact Node/current-Ibex baseline is
+regenerated from the real native-default binary. It deliberately records the
+current namespace and CommonJS-adapter shapes as compatibility observations,
+not normative target behavior. The dynamic-import source-map fixture now
+settles and reports original line 5 on both Node and Ibex, replacing the prior
+legacy-shim parse failure; keeping that stale expected failure would make an
+actual semantic improvement fail the authoritative macOS gate.
 
 - Promote existing loader regressions and representative ecosystem packages
   into an implementation-neutral module-semantics corpus.

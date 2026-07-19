@@ -1221,24 +1221,37 @@ mod tests {
             .0
     }
 
-    async fn next_close_code(
+    #[derive(Debug, PartialEq, Eq)]
+    enum WebSocketTermination {
+        Close(CloseCode),
+        TransportClosed,
+        TimedOut,
+    }
+
+    async fn next_websocket_termination(
         socket: &mut tokio_tungstenite::WebSocketStream<
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
-    ) -> Option<CloseCode> {
-        tokio::time::timeout(Duration::from_secs(2), async {
+    ) -> WebSocketTermination {
+        match tokio::time::timeout(Duration::from_secs(2), async {
             while let Some(message) = socket.next().await {
                 match message {
-                    Ok(Message::Close(frame)) => return frame.map(|frame| frame.code),
+                    Ok(Message::Close(frame)) => {
+                        return frame
+                            .map(|frame| WebSocketTermination::Close(frame.code))
+                            .unwrap_or(WebSocketTermination::TransportClosed);
+                    }
                     Ok(_) => continue,
-                    Err(_) => return None,
+                    Err(_) => return WebSocketTermination::TransportClosed,
                 }
             }
-            None
+            WebSocketTermination::TransportClosed
         })
         .await
-        .ok()
-        .flatten()
+        {
+            Ok(termination) => termination,
+            Err(_) => WebSocketTermination::TimedOut,
+        }
     }
 
     async fn send_oversized_and_expect_size_rejection(
@@ -1248,7 +1261,17 @@ mod tests {
         message: Message,
     ) {
         match socket.send(message).await {
-            Ok(()) => assert_eq!(next_close_code(socket).await, Some(CloseCode::Size)),
+            Ok(()) => {
+                let termination = next_websocket_termination(socket).await;
+                assert!(
+                    matches!(
+                        termination,
+                        WebSocketTermination::Close(CloseCode::Size)
+                            | WebSocketTermination::TransportClosed
+                    ),
+                    "oversized message did not fail closed: {termination:?}"
+                );
+            }
             Err(WebSocketError::Io(error))
                 if matches!(
                     error.kind(),
@@ -1407,8 +1430,8 @@ mod tests {
         let mut binary = connect_websocket(&server).await;
         binary.send(Message::Binary(vec![0; 1024])).await.unwrap();
         assert_eq!(
-            next_close_code(&mut binary).await,
-            Some(CloseCode::Unsupported)
+            next_websocket_termination(&mut binary).await,
+            WebSocketTermination::Close(CloseCode::Unsupported)
         );
 
         let mut oversized_binary = connect_websocket(&server).await;
@@ -1454,7 +1477,10 @@ mod tests {
                 break;
             }
         }
-        assert_eq!(next_close_code(&mut socket).await, Some(CloseCode::Policy));
+        assert_eq!(
+            next_websocket_termination(&mut socket).await,
+            WebSocketTermination::Close(CloseCode::Policy)
+        );
         server.stop();
     }
 

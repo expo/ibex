@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (CLI protected-artifact publication now uses the
+target durability boundary, and external JavaScript tools receive ordinary
+Windows path spellings only after authenticated canonical selection)
 **Revised:** 2026-07-18 (Windows module resolution restores canonical object
 identity after the Oxc compatibility projection, and byte-authenticated Rust
 fixtures use checkout-stable LF authorities)
@@ -1225,11 +1228,12 @@ pushing the prefix into an already separator-rooted `PathBuf` collapses the
 drive and leaves module resolution rooted at `\\`. Module-specifier query and
 fragment stripping likewise begins after the Windows verbatim namespace prefix
 (`\\?\`), so the prefix's question mark cannot truncate an authenticated entry
-path before resolution. At the Oxc resolver boundary only, canonical verbatim
-drive and UNC spellings are projected to their ordinary Windows equivalents;
-the resolved file is canonicalized immediately after Oxc returns, so
-authenticated paths and identities remain canonical and unchanged outside that
-compatibility boundary. Checked-in module-runner and computed-candidate
+path before resolution. At Oxc and external JavaScript-tool compatibility
+boundaries only, canonical verbatim drive and UNC spellings are projected to
+their ordinary Windows equivalents. Oxc results are canonicalized immediately
+after resolution, and tool scripts are selected and authenticated before
+projection, so authenticated paths and identities remain canonical and
+unchanged outside those compatibility boundaries. Checked-in module-runner and computed-candidate
 fixtures whose bytes or canonical JSON text are authenticated are explicitly
 LF-normalized by Git, keeping those authority and golden comparisons identical
 on Windows and Unix checkouts.

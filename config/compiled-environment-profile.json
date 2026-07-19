@@ -22,6 +22,7 @@
   "dynamicConsumerDispositions": {
     "startup:env:<dynamic>:cpp:::environ": "capture-primitive",
     "startup:env:<dynamic>:cpp:GetEnvironmentStringsW": "capture-primitive",
+    "startup:env:<dynamic>:cpp:GetEnvironmentVariableA": "typed-internal-dispatch",
     "startup:env:<dynamic>:cpp:_NSGetEnviron": "capture-primitive",
     "startup:env:<dynamic>:cpp:getenv": "typed-internal-dispatch",
     "startup:env:<dynamic>:javascript:process-binding-flow": "application-broker",
