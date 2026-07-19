@@ -524,19 +524,23 @@ first, then `depthStencil`, `fragment`, `multisample`, `primitive`, and required
 single observable Get. `layout` is either the exact `"auto"` enum or a fully
 authenticated `GPUPipelineLayout` reference; a same-realm reference from a
 different logical device retains that lineage for the semantic relationship
-check, while wrong-kind and foreign-realm brands fail synchronously. Optional
-programmable constants and entry points, vertex buffers, primitive,
-depth-stencil, multisample, blend, strip index format, and color write mask
-remain absent in the converted dictionary when omitted instead of being
-materialized as defaults. A present dictionary still receives its WebIDL
-member defaults. Vertex-buffer, vertex-attribute, and color-target sequences
-use the authenticated transport bound and convert each member before advancing
-the iterator. Present depth-stencil state carries the complete pinned format,
-depth, bias, and stencil-face vocabulary with signed/u32 and finite-f32 bounds.
-The checked-in four-row TypeGPU fixture distinguishes Genetic Racing's texture
-utility, track, and car shapes from Jelly Slider, including omitted versus
-present-empty buffers, omitted versus defaulted primitive state, and omitted
-constants, multisample, depth-stencil, and write masks. This checkpoint adds
+check, while wrong-kind and foreign-realm brands fail synchronously.
+Post-WebIDL defaults are materialized: programmable constants become an empty
+record, vertex buffers become an empty sequence, primitive and multisample
+become their fully defaulted dictionaries, and a color target's write mask
+becomes `GPUColorWrite.ALL` (`0xF`). Truly optional members without IDL defaults
+remain absent when omitted: programmable entry points, fragment,
+depth-stencil, blend, and strip index format; within a present depth-stencil
+dictionary, `depthCompare` and `depthWriteEnabled` are likewise optional.
+Vertex-buffer, vertex-attribute, and color-target sequences use the
+authenticated transport bound and convert each member before advancing the
+iterator. Present depth-stencil state carries the complete pinned format,
+depth, bias, and stencil-face vocabulary with
+signed/u32 and finite-f32 bounds. The checked-in four-row TypeGPU fixture
+distinguishes Genetic Racing's texture utility, track, and car source shapes
+from Jelly Slider, while pinning their normalized empty/default constants,
+buffers, primitive, multisample, and write masks after WebIDL conversion. This
+checkpoint adds
 no payload-codegen program, native decoder, semantic-service route, CapSec
 issuer, public installation, or WebGPU support claim.
 

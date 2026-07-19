@@ -3,23 +3,28 @@
   "source": {
     "typegpuVersion": "0.11.9",
     "exactCohortSha256": "20b31013e1f679cd4d6a8acdc5808683d5920ebf6aefbc47ae4fb83babe67e01",
-    "purpose": "Post-WebIDL presence fixtures for the four authenticated Exact TypeGPU render-pipeline cohorts"
+    "purpose": "Source-shape and materialized post-WebIDL default fixtures for the four authenticated Exact TypeGPU render-pipeline cohorts"
   },
-  "sharedOmissions": [
+  "materializedDefaults": [
     "vertex.constants",
-    "vertex.entryPoint",
+    "vertex.buffers",
     "fragment.constants",
+    "multisample",
+    "primitive",
+    "fragment.targets[0].writeMask"
+  ],
+  "sharedOmissions": [
+    "vertex.entryPoint",
     "fragment.entryPoint",
     "depthStencil",
-    "multisample",
-    "fragment.targets[0].writeMask"
+    "primitive.stripIndexFormat"
   ],
   "rows": [
     {
       "workload": "GeneticTextureUtility",
       "label": "",
-      "vertexBuffersPresence": "omitted",
-      "primitivePresence": "present",
+      "sourceVertexBuffersPresence": "omitted",
+      "sourcePrimitivePresence": "present",
       "primitive": {
         "topology": "triangle-list"
       },
@@ -28,15 +33,15 @@
     {
       "workload": "GeneticTrack",
       "label": "trackPipeline",
-      "vertexBuffersPresence": "present",
+      "sourceVertexBuffersPresence": "present",
       "vertexBuffers": [],
-      "primitivePresence": "omitted",
+      "sourcePrimitivePresence": "omitted",
       "targetFormat": "bgra8unorm"
     },
     {
       "workload": "GeneticCar",
       "label": "carPipeline",
-      "vertexBuffersPresence": "present",
+      "sourceVertexBuffersPresence": "present",
       "vertexBuffers": [
         {
           "arrayStride": 40,
@@ -65,7 +70,7 @@
           "stepMode": "instance"
         }
       ],
-      "primitivePresence": "present",
+      "sourcePrimitivePresence": "present",
       "primitive": {
         "topology": "triangle-strip"
       },
@@ -86,9 +91,9 @@
     {
       "workload": "JellySlider",
       "label": "pipeline",
-      "vertexBuffersPresence": "present",
+      "sourceVertexBuffersPresence": "present",
       "vertexBuffers": [],
-      "primitivePresence": "omitted",
+      "sourcePrimitivePresence": "omitted",
       "targetFormat": "bgra8unorm"
     }
   ]

@@ -5930,9 +5930,7 @@ function convertProgrammableStage(
   const source = dictionary(value, label);
   const result: Record<string, unknown> = {};
   const constantsValue = source.constants;
-  if (constantsValue !== undefined) {
-    result.constants = convertConstants(constantsValue, `${label}.constants`);
-  }
+  result.constants = convertConstants(constantsValue, `${label}.constants`);
   const entryPointValue = source.entryPoint;
   if (entryPointValue !== undefined) {
     result.entryPoint = webIdlString(entryPointValue, `${label}.entryPoint`);
@@ -6008,9 +6006,11 @@ function convertColorTargetState(
     'GPUColorTargetState.format',
   );
   const writeMaskValue = source.writeMask;
-  if (writeMaskValue !== undefined) {
-    result.writeMask = u32(writeMaskValue, 'GPUColorTargetState.writeMask');
-  }
+  result.writeMask = u32(
+    writeMaskValue,
+    'GPUColorTargetState.writeMask',
+    0x0f,
+  );
   return frozenRecord(result);
 }
 
@@ -6134,13 +6134,16 @@ function convertDepthStencilState(
     );
   const depthCompareValue = source.depthCompare;
   const depthCompare = depthCompareValue === undefined
-    ? 'always'
+    ? undefined
     : enumValue(
       depthCompareValue,
       COMPARE_FUNCTIONS,
       'GPUDepthStencilState.depthCompare',
     );
-  const depthWriteEnabled = Boolean(source.depthWriteEnabled);
+  const depthWriteEnabledValue = source.depthWriteEnabled;
+  const depthWriteEnabled = depthWriteEnabledValue === undefined
+    ? undefined
+    : Boolean(depthWriteEnabledValue);
   const formatValue = source.format;
   if (formatValue === undefined) {
     throw new TypeError('GPUDepthStencilState.format is required');
@@ -6174,8 +6177,8 @@ function convertDepthStencilState(
     depthBias,
     depthBiasClamp,
     depthBiasSlopeScale,
-    depthCompare,
-    depthWriteEnabled,
+    ...(depthCompare === undefined ? {} : { depthCompare }),
+    ...(depthWriteEnabled === undefined ? {} : { depthWriteEnabled }),
     format,
     stencilBack,
     stencilFront,
@@ -6192,9 +6195,10 @@ function convertVertexState(
   const source = dictionary(value, 'GPUVertexState');
   const vertex = convertProgrammableStage(source, 'GPUVertexState', wrappers);
   const buffersValue = source.buffers;
-  if (buffersValue !== undefined) {
-    vertex.buffers = convertVertexBuffers(buffersValue, maximum);
-  }
+  vertex.buffers = convertVertexBuffers(
+    buffersValue === undefined ? [] : buffersValue,
+    maximum,
+  );
   return frozenRecord(vertex);
 }
 
@@ -6236,13 +6240,9 @@ function convertRenderPipelineDescriptor(
     );
   }
   const multisampleValue = source.multisample;
-  if (multisampleValue !== undefined) {
-    result.multisample = convertMultisampleState(multisampleValue);
-  }
+  result.multisample = convertMultisampleState(multisampleValue);
   const primitiveValue = source.primitive;
-  if (primitiveValue !== undefined) {
-    result.primitive = convertPrimitiveState(primitiveValue);
-  }
+  result.primitive = convertPrimitiveState(primitiveValue);
   const vertexValue = source.vertex;
   if (vertexValue === undefined) {
     throw new TypeError('GPURenderPipelineDescriptor.vertex is required');

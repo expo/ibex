@@ -86,7 +86,7 @@ interface RenderPipelineFixtureBlendComponent {
 interface RenderPipelineFixtureRow {
   readonly workload: string;
   readonly label: string;
-  readonly vertexBuffersPresence: 'omitted' | 'present';
+  readonly sourceVertexBuffersPresence: 'omitted' | 'present';
   readonly vertexBuffers?: readonly Readonly<{
     arrayStride: number;
     attributes: readonly Readonly<{
@@ -96,7 +96,7 @@ interface RenderPipelineFixtureRow {
     }>[];
     stepMode?: string;
   }>[];
-  readonly primitivePresence: 'omitted' | 'present';
+  readonly sourcePrimitivePresence: 'omitted' | 'present';
   readonly primitive?: Readonly<{ topology?: string }>;
   readonly targetFormat: string;
   readonly blend?: Readonly<{
@@ -1375,7 +1375,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
   });
 
-  test('preserves all four authenticated TypeGPU render cohort presences', () => {
+  test('materializes WebIDL defaults for all four authenticated TypeGPU render cohorts', () => {
     expect(renderPipelineConversionFixtures.schema).toBe(
       'ibex/webgpu-render-pipeline-conversion-fixtures/1',
     );
@@ -1391,7 +1391,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
 
     for (const row of renderPipelineFixtureRows) {
       const vertex: Record<string, unknown> = { module: shaderModule };
-      if (row.vertexBuffersPresence === 'present') {
+      if (row.sourceVertexBuffersPresence === 'present') {
         vertex.buffers = row.vertexBuffers ?? [];
       }
       const colorTarget: Record<string, unknown> = { format: row.targetFormat };
@@ -1402,7 +1402,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         fragment: { module: shaderModule, targets: [colorTarget] },
         vertex,
       };
-      if (row.primitivePresence === 'present') {
+      if (row.sourcePrimitivePresence === 'present') {
         descriptor.primitive = row.primitive ?? {};
       }
 
@@ -1422,48 +1422,48 @@ describe('generated injection-only WebGPU executable codecs', () => {
         label: row.label,
         layout: reference('GPUPipelineLayout'),
         fragment: {
+          constants: {},
           module: reference('GPUShaderModule'),
           targets: [{
             ...(row.blend === undefined ? {} : { blend: row.blend }),
             format: row.targetFormat,
+            writeMask: 0x0f,
           }],
         },
-        ...(row.primitivePresence === 'present'
-          ? {
-              primitive: {
-                cullMode: 'none',
-                frontFace: 'ccw',
-                topology: row.primitive?.topology ?? 'triangle-list',
-                unclippedDepth: false,
-              },
-            }
-          : {}),
+        multisample: {
+          alphaToCoverageEnabled: false,
+          count: 1,
+          mask: 0xffff_ffff,
+        },
+        primitive: {
+          cullMode: 'none',
+          frontFace: 'ccw',
+          topology: row.primitive?.topology ?? 'triangle-list',
+          unclippedDepth: false,
+        },
         vertex: {
+          constants: {},
           module: reference('GPUShaderModule'),
-          ...(row.vertexBuffersPresence === 'present'
-            ? {
-                buffers: (row.vertexBuffers ?? []).map((buffer) => ({
-                  arrayStride: buffer.arrayStride,
-                  attributes: buffer.attributes.map((attribute) => ({ ...attribute })),
-                  stepMode: buffer.stepMode ?? 'vertex',
-                })),
-              }
-            : {}),
+          buffers: (row.vertexBuffers ?? []).map((buffer) => ({
+            arrayStride: buffer.arrayStride,
+            attributes: buffer.attributes.map((attribute) => ({ ...attribute })),
+            stepMode: buffer.stepMode ?? 'vertex',
+          })),
         },
       });
       expect(Object.hasOwn(converted, 'depthStencil')).toBe(false);
-      expect(Object.hasOwn(converted, 'multisample')).toBe(false);
-      expect(Object.hasOwn(converted, 'primitive')).toBe(
-        row.primitivePresence === 'present',
-      );
-      expect(Object.hasOwn(convertedVertex, 'buffers')).toBe(
-        row.vertexBuffersPresence === 'present',
-      );
-      expect(Object.hasOwn(convertedVertex, 'constants')).toBe(false);
+      expect(Object.hasOwn(converted, 'multisample')).toBe(true);
+      expect(Object.hasOwn(converted, 'primitive')).toBe(true);
+      expect(Object.hasOwn(convertedVertex, 'buffers')).toBe(true);
+      expect(Object.hasOwn(convertedVertex, 'constants')).toBe(true);
       expect(Object.hasOwn(convertedVertex, 'entryPoint')).toBe(false);
-      expect(Object.hasOwn(convertedFragment, 'constants')).toBe(false);
+      expect(Object.hasOwn(convertedFragment, 'constants')).toBe(true);
       expect(Object.hasOwn(convertedFragment, 'entryPoint')).toBe(false);
-      expect(Object.hasOwn(convertedTargets[0], 'writeMask')).toBe(false);
+      expect(Object.hasOwn(convertedTargets[0], 'writeMask')).toBe(true);
+      expect(Object.hasOwn(
+        converted.primitive as Readonly<Record<string, unknown>>,
+        'stripIndexFormat',
+      )).toBe(false);
       expect(Object.isFrozen(converted)).toBe(true);
       expect(Object.isFrozen(convertedVertex)).toBe(true);
       expect(Object.isFrozen(convertedTargets)).toBe(true);
@@ -1568,6 +1568,29 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(Object.keys(
       (converted.vertex as Readonly<Record<string, unknown>>).constants as object,
     )).toEqual(['alpha', 'beta']);
+
+    const omittedOptionals = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createRenderPipeline',
+        [{
+          layout: 'auto',
+          depthStencil: { format: 'depth24plus' },
+          vertex: { module: shaderModule },
+        }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+    const omittedDepth = omittedOptionals.depthStencil as Readonly<
+      Record<string, unknown>
+    >;
+    expect(Object.hasOwn(omittedDepth, 'depthCompare')).toBe(false);
+    expect(Object.hasOwn(omittedDepth, 'depthWriteEnabled')).toBe(false);
+    expect(omittedDepth).toMatchObject({
+      depthBias: 0,
+      depthBiasClamp: 0,
+      depthBiasSlopeScale: 0,
+      stencilReadMask: 0xffff_ffff,
+      stencilWriteMask: 0xffff_ffff,
+    });
   });
 
   test('orders render WebIDL conversion and fails brands or bounds synchronously', () => {
@@ -1641,6 +1664,11 @@ describe('generated injection-only WebGPU executable codecs', () => {
       [{ ...base, vertex: { module: pipelineLayout } }],
       wrappers,
     )).toThrow('wrong WebGPU object brand');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{ ...base, vertex: { module: shaderModule, buffers: null } }],
+      wrappers,
+    )).toThrow('GPUVertexState.buffers must be iterable');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
       'GPUDevice.createRenderPipeline',
       [{ ...base, vertex: { module: shaderModule, buffers: Array(1025).fill(null) } }],
