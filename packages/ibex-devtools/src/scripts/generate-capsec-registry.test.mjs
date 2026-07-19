@@ -242,7 +242,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       const catalogSuffixes = generatedRegistryOutputCatalog
         .map((row) => row.path)
         .sort();
-      expect(renderedPaths).toHaveLength(11);
+      expect(renderedPaths).toHaveLength(12);
       expect(
         renderedPaths.map((filePath) =>
           catalogSuffixes.find((suffix) => filePath.endsWith(`/${suffix}`)),

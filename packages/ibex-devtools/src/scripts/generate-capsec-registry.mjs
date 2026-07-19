@@ -46,6 +46,9 @@ import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
 } from "./generated-output-io.mjs";
+import {
+  buildWebGpuPrivateOperationRegistry,
+} from "./capsec-webgpu-operation-registry.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -61,6 +64,11 @@ export const generatedRegistryPaths = Object.freeze({
     capsecRoot,
     "generated",
     "implementation-manifest.json",
+  ),
+  webgpuOperations: path.join(
+    capsecRoot,
+    "generated",
+    "webgpu-private-operation-registry.json",
   ),
   idsSchema: path.join(
     capsecRoot,
@@ -100,6 +108,11 @@ export const generatedRegistryOutputCatalog = Object.freeze([
   Object.freeze({
     path: "capsec/generated/implementation-manifest.json",
     kind: "implementation-manifest",
+    digestBound: false,
+  }),
+  Object.freeze({
+    path: "capsec/generated/webgpu-private-operation-registry.json",
+    kind: "webgpu-private-operation-registry",
     digestBound: false,
   }),
   Object.freeze({
@@ -1165,6 +1178,18 @@ export async function renderCapsecRegistry() {
   rendered.set(
     generatedRegistryPaths.targetDocs,
     renderTargetDocs(targetCells, coverage, targetAdvertisements),
+  );
+  rendered.set(
+    generatedRegistryPaths.webgpuOperations,
+    prettyJson(
+      buildWebGpuPrivateOperationRegistry({
+        authenticated: inventory.authenticatedWebGpuProductionPlan,
+        coverage,
+        implementationRows,
+        targetCells,
+        targetAdvertisements,
+      }),
+    ),
   );
   rendered.set(
     generatedRegistryPaths.implementationManifest,

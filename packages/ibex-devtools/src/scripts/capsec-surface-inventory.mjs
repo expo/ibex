@@ -21,6 +21,10 @@ import {
 } from "./capsec-android-bridge-inventory.mjs";
 import { normalizeComposedInstallationBranches } from "./capsec-installation-branches.mjs";
 import { discoverNativeNetworkingBackendSurfaces } from "./capsec-native-network-backend-inventory.mjs";
+import {
+  buildWebGpuOperationSurfaces,
+  loadAuthenticatedWebGpuProductionPlan,
+} from "./capsec-webgpu-operation-registry.mjs";
 
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -17014,11 +17018,14 @@ export async function discoverRepositorySurfaces(repoRoot) {
     globalRows,
     "bootstrap global API inventory",
   );
+  const authenticatedWebGpuProductionPlan =
+    loadAuthenticatedWebGpuProductionPlan(repoRoot);
   const nativeOps = mergeSurfaceEvidence(
     [
       ...globals,
       ...mergePrivateNativeRows(nativeRows),
       ...discoverNativeNetworkingBackendSurfaces(repoRoot),
+      ...buildWebGpuOperationSurfaces(authenticatedWebGpuProductionPlan),
     ],
     "native and global operation inventory",
   );
@@ -17195,6 +17202,7 @@ export async function discoverRepositorySurfaces(repoRoot) {
   return {
     ...categories,
     commands: cli,
+    authenticatedWebGpuProductionPlan,
     surfaces,
   };
 }

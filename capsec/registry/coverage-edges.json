@@ -194057,6 +194057,456 @@
       "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
     },
     {
+      "id": "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPU.getPreferredCanvasFormat"
+      },
+      "rationaleId": "pure-in-memory-compute",
+      "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPU.requestAdapter"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpuadapter.features.0zmvzzv",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUAdapter.features"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpuadapter.requestdevice.0jbwy7n",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUAdapter.requestDevice"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUBuffer.destroy"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUBuffer.getMappedRange"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpubuffer.mapasync.1ljjxvf",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUBuffer.mapAsync"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpubuffer.mapstate.0rjd9le",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUBuffer.mapState"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpubuffer.size.09wsi98",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUBuffer.size"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUBuffer.unmap"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpubuffer.usage.1a63xy0",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUBuffer.usage"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUCanvasContext.configure"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpucanvascontext.getconfiguration.0d41y66",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUCanvasContext.getConfiguration"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpucanvascontext.getcurrenttexture.1no46hs",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUCanvasContext.getCurrentTexture"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpucanvascontext.unconfigure.12gdr9h",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUCanvasContext.unconfigure"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUCommandEncoder.beginRenderPass"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUCommandEncoder.finish"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createbindgroup.0z8qxfd",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createBindGroup"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createbindgrouplayout.0ng298j",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createBindGroupLayout"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createbuffer.08g1gvn",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createBuffer"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createCommandEncoder"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createPipelineLayout"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createRenderPipeline"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createSampler"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createShaderModule"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createtexture.1vc5dzg",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.createTexture"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.destroy.0eh76at",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.destroy"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.features.0o65siy",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.features"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.limits.1u2lztx",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.limits"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.lost.1p4gowr",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.lost"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.poperrorscope.01d29wy",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.popErrorScope"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.pusherrorscope.1jnohqv",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.pushErrorScope"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.queue.03ii42g",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUDevice.queue"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUQueue.submit"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUQueue.writeBuffer"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPURenderPassEncoder.draw"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPURenderPassEncoder.end"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPURenderPassEncoder.setPipeline"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gputexture.createview.1uepitt",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUTexture.createView"
+      },
+      "cap": "ipc:channel",
+      "rationale": "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gputexture.depthorarraylayers.0f86y2f",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUTexture.depthOrArrayLayers"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gputexture.destroy.12degrq",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUTexture.destroy"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gputexture.dimension.1qty760",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUTexture.dimension"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gputexture.format.0tdul1j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUTexture.format"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gputexture.height.0rwa46f",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUTexture.height"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:webgpu:GPUTexture.width"
+      },
+      "rationaleId": "retained-object-wrapper",
+      "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+    },
+    {
       "id": "surface.native.op.dirname.11h8rni",
       "classification": "non-capability",
       "surface": {

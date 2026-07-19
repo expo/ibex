@@ -13,6 +13,9 @@
 
 import { fixtureObligationsForBranch } from "./capsec-fixture-obligations.mjs";
 import { targetApplicabilityForVariant } from "./capsec-target-branches.mjs";
+import {
+  webGpuOperationSemantics,
+} from "./capsec-webgpu-operation-registry.mjs";
 
 const PROFILE = "ibex/capsec/1";
 const COVERAGE_SCHEMA = "ibex/capsec-coverage/1";
@@ -12306,6 +12309,51 @@ function classifyConcreteSurface(surface) {
     throw new Error(
       `${surface.observedKey}: source metadata cannot override semantic coverage classification`,
     );
+  }
+  if (
+    surface.kind === "native-op" &&
+    surface.metadata?.evidenceType ===
+      "authenticated-webgpu-production-route"
+  ) {
+    const metadata = surface.metadata;
+    const route = metadata.routeIdentity;
+    const semantics = webGpuOperationSemantics(route);
+    const authenticatedDigestKeys = Object.keys(
+      metadata.authenticatedDigests ?? {},
+    ).sort(utf8Compare);
+    if (
+      metadata.surfaceType !== "webgpu-production-operation" ||
+      metadata.operationId !== route.operationId ||
+      metadata.wireId !== route.wireId ||
+      surface.name !==
+        `construction-private:webgpu:${route.operationId}` ||
+      metadata.publicInstallDisposition !== "absent" ||
+      metadata.embeddedExecutableCodecDisposition !== "absent" ||
+      metadata.platformSupportClaim !== "none" ||
+      metadata.positiveAuthority !== semantics.positiveAuthority ||
+      metadata.providerBridge !== semantics.providerBridge ||
+      JSON.stringify(authenticatedDigestKeys) !==
+        JSON.stringify([
+          "operationSet",
+          "projection",
+          "runtimeRouting",
+          "semanticProgramSet",
+          "webgpuCVocabulary",
+        ]) ||
+      Object.values(metadata.authenticatedDigests).some(
+        (digest) => !/^[a-f0-9]{64}$/u.test(digest),
+      )
+    ) {
+      return null;
+    }
+    if (semantics.classification === "closed") {
+      return closedSpec(
+        semantics.cap,
+        "WP4",
+        "This authenticated construction-private WebGPU operation can reach the private GPU service channel, but positive authority and public installation remain closed.",
+      );
+    }
+    return nonCapabilitySpec(semantics.rationaleId, "WP4");
   }
   if (surface.kind === "builtin") return builtinClassification(surface);
   if (surface.kind === "callback") {

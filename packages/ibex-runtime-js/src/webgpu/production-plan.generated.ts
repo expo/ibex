@@ -337,7 +337,8 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUDevice.createBindGroup",
       "GPUTexture.createView",
       "GPUTexture.destroy"
-    ]
+    ],
+    "capsecDisposition": "construction-private-source-derived-cells-public-closed"
   },
   "stagedWorkloadClosure": {
     "scopeId": "typegpu-workloads-native-staging-v1",
@@ -608,7 +609,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     ],
     "publicInstallDisposition": "absent",
     "embeddedCodecDisposition": "absent",
-    "capsecDisposition": "unsupported-no-registry-edge"
+    "capsecDisposition": "construction-private-source-derived-cells-public-closed"
   },
   "routes": [
     {

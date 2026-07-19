@@ -149760,6 +149760,1538 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst",
+      "observedKey": "native-op:construction-private:webgpu:GPU.getPreferredCanvasFormat",
+      "branchId": "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst.authenticated.production.route.04nqedm",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst.authenticated.production.route.04nqedm",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPU.getPreferredCanvasFormat"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.getPreferredCanvasFormat:1287763171",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.getPreferredCanvasFormat:1287763171"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.getPreferredCanvasFormat:1287763171",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.getPreferredCanvasFormat:1287763171"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPU.getPreferredCanvasFormat"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.getPreferredCanvasFormat:1287763171",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.getPreferredCanvasFormat:1287763171"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst.authenticated.production.route.04nqedm.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz",
+      "observedKey": "native-op:construction-private:webgpu:GPU.requestAdapter",
+      "branchId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.1w7f0i7",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.1w7f0i7",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPU.requestAdapter"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1660448199",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1660448199"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1660448199",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1660448199"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPU.requestAdapter"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPU.requestAdapter:1660448199",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPU.requestAdapter:1660448199"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz.authenticated.production.route.1w7f0i7.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuadapter.features.0zmvzzv",
+      "observedKey": "native-op:construction-private:webgpu:GPUAdapter.features",
+      "branchId": "surface.native.op.construction.private.webgpu.gpuadapter.features.0zmvzzv.authenticated.production.route.1h6exx5",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpuadapter.features.0zmvzzv.authenticated.production.route.1h6exx5",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUAdapter.features"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUAdapter.features:1829554013",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUAdapter.features:1829554013"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUAdapter.features:1829554013",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUAdapter.features:1829554013"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUAdapter.features"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUAdapter.features:1829554013",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUAdapter.features:1829554013"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpuadapter.features.0zmvzzv.authenticated.production.route.1h6exx5.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuadapter.requestdevice.0jbwy7n",
+      "observedKey": "native-op:construction-private:webgpu:GPUAdapter.requestDevice",
+      "branchId": "surface.native.op.construction.private.webgpu.gpuadapter.requestdevice.0jbwy7n.authenticated.production.route.1obgpon",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpuadapter.requestdevice.0jbwy7n.authenticated.production.route.1obgpon",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUAdapter.requestDevice"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUAdapter.requestDevice:194635792",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUAdapter.requestDevice:194635792"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUAdapter.requestDevice:194635792",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUAdapter.requestDevice:194635792"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUAdapter.requestDevice"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUAdapter.requestDevice:194635792",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUAdapter.requestDevice:194635792"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpuadapter.requestdevice.0jbwy7n.authenticated.production.route.1obgpon.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph",
+      "observedKey": "native-op:construction-private:webgpu:GPUBuffer.destroy",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.0xx385h",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.0xx385h",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUBuffer.destroy"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:3314731466",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:3314731466"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:3314731466",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:3314731466"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.destroy"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.destroy:3314731466",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.destroy:3314731466"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpubuffer.destroy.1686eph.authenticated.production.route.0xx385h.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp",
+      "observedKey": "native-op:construction-private:webgpu:GPUBuffer.getMappedRange",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.0up8q1a",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.0up8q1a",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUBuffer.getMappedRange"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:2816646327",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:2816646327"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:2816646327",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:2816646327"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.getMappedRange"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.getMappedRange:2816646327",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.getMappedRange:2816646327"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpubuffer.getmappedrange.1xssoqp.authenticated.production.route.0up8q1a.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.mapasync.1ljjxvf",
+      "observedKey": "native-op:construction-private:webgpu:GPUBuffer.mapAsync",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.mapasync.1ljjxvf.authenticated.production.route.0tdfoko",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.mapasync.1ljjxvf.authenticated.production.route.0tdfoko",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUBuffer.mapAsync"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.mapAsync:1760273919",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.mapAsync:1760273919"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.mapAsync:1760273919",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.mapAsync:1760273919"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.mapAsync"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.mapAsync:1760273919",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.mapAsync:1760273919"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpubuffer.mapasync.1ljjxvf.authenticated.production.route.0tdfoko.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.mapstate.0rjd9le",
+      "observedKey": "native-op:construction-private:webgpu:GPUBuffer.mapState",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.mapstate.0rjd9le.authenticated.production.route.0kqj54u",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.mapstate.0rjd9le.authenticated.production.route.0kqj54u",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUBuffer.mapState"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.mapState:2040228619",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.mapState:2040228619"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.mapState:2040228619",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.mapState:2040228619"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.mapState"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.mapState:2040228619",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.mapState:2040228619"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpubuffer.mapstate.0rjd9le.authenticated.production.route.0kqj54u.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.size.09wsi98",
+      "observedKey": "native-op:construction-private:webgpu:GPUBuffer.size",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.size.09wsi98.authenticated.production.route.0f7rioe",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.size.09wsi98.authenticated.production.route.0f7rioe",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUBuffer.size"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.size:2239053141",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.size:2239053141"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.size:2239053141",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.size:2239053141"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.size"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.size:2239053141",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.size:2239053141"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpubuffer.size.09wsi98.authenticated.production.route.0f7rioe.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44",
+      "observedKey": "native-op:construction-private:webgpu:GPUBuffer.unmap",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.1ezc0qn",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.1ezc0qn",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUBuffer.unmap"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:1228615721",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:1228615721"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:1228615721",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:1228615721"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.unmap"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.unmap:1228615721",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.unmap:1228615721"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpubuffer.unmap.1so0y44.authenticated.production.route.1ezc0qn.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpubuffer.usage.1a63xy0",
+      "observedKey": "native-op:construction-private:webgpu:GPUBuffer.usage",
+      "branchId": "surface.native.op.construction.private.webgpu.gpubuffer.usage.1a63xy0.authenticated.production.route.0680qri",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpubuffer.usage.1a63xy0.authenticated.production.route.0680qri",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUBuffer.usage"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.usage:1925415872",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.usage:1925415872"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.usage:1925415872",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.usage:1925415872"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUBuffer.usage"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUBuffer.usage:1925415872",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUBuffer.usage:1925415872"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpubuffer.usage.1a63xy0.authenticated.production.route.0680qri.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630",
+      "observedKey": "native-op:construction-private:webgpu:GPUCanvasContext.configure",
+      "branchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0rvlyic",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0rvlyic",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUCanvasContext.configure"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:3865035710",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:3865035710"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:3865035710",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:3865035710"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUCanvasContext.configure"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.configure:3865035710",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.configure:3865035710"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630.authenticated.production.route.0rvlyic.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucanvascontext.getconfiguration.0d41y66",
+      "observedKey": "native-op:construction-private:webgpu:GPUCanvasContext.getConfiguration",
+      "branchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.getconfiguration.0d41y66.authenticated.production.route.0413m5b",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.getconfiguration.0d41y66.authenticated.production.route.0413m5b",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUCanvasContext.getConfiguration"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.getConfiguration:3293775739",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.getConfiguration:3293775739"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.getConfiguration:3293775739",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.getConfiguration:3293775739"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUCanvasContext.getConfiguration"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.getConfiguration:3293775739",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.getConfiguration:3293775739"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.getconfiguration.0d41y66.authenticated.production.route.0413m5b.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucanvascontext.getcurrenttexture.1no46hs",
+      "observedKey": "native-op:construction-private:webgpu:GPUCanvasContext.getCurrentTexture",
+      "branchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.getcurrenttexture.1no46hs.authenticated.production.route.10pjbu8",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.getcurrenttexture.1no46hs.authenticated.production.route.10pjbu8",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUCanvasContext.getCurrentTexture"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.getCurrentTexture:3157634281",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.getCurrentTexture:3157634281"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.getCurrentTexture:3157634281",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.getCurrentTexture:3157634281"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUCanvasContext.getCurrentTexture"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.getCurrentTexture:3157634281",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.getCurrentTexture:3157634281"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.getcurrenttexture.1no46hs.authenticated.production.route.10pjbu8.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucanvascontext.unconfigure.12gdr9h",
+      "observedKey": "native-op:construction-private:webgpu:GPUCanvasContext.unconfigure",
+      "branchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.unconfigure.12gdr9h.authenticated.production.route.16sc6b1",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucanvascontext.unconfigure.12gdr9h.authenticated.production.route.16sc6b1",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUCanvasContext.unconfigure"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.unconfigure:935342475",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.unconfigure:935342475"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.unconfigure:935342475",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.unconfigure:935342475"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUCanvasContext.unconfigure"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCanvasContext.unconfigure:935342475",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCanvasContext.unconfigure:935342475"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.unconfigure.12gdr9h.authenticated.production.route.16sc6b1.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am",
+      "observedKey": "native-op:construction-private:webgpu:GPUCommandEncoder.beginRenderPass",
+      "branchId": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am.authenticated.production.route.03qck6c",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am.authenticated.production.route.03qck6c",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUCommandEncoder.beginRenderPass"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.beginRenderPass:1908549907",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.beginRenderPass:1908549907"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.beginRenderPass:1908549907",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.beginRenderPass:1908549907"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUCommandEncoder.beginRenderPass"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.beginRenderPass:1908549907",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.beginRenderPass:1908549907"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpucommandencoder.beginrenderpass.152g8am.authenticated.production.route.03qck6c.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d",
+      "observedKey": "native-op:construction-private:webgpu:GPUCommandEncoder.finish",
+      "branchId": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d.authenticated.production.route.1s7gyn1",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d.authenticated.production.route.1s7gyn1",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUCommandEncoder.finish"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.finish:2481184390",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.finish:2481184390"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.finish:2481184390",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.finish:2481184390"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUCommandEncoder.finish"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUCommandEncoder.finish:2481184390",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUCommandEncoder.finish:2481184390"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpucommandencoder.finish.0k90p0d.authenticated.production.route.1s7gyn1.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createbindgroup.0z8qxfd",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createBindGroup",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createbindgroup.0z8qxfd.authenticated.production.route.1clsvkv",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createbindgroup.0z8qxfd.authenticated.production.route.1clsvkv",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createBindGroup"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBindGroup:1199806466",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBindGroup:1199806466"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBindGroup:1199806466",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBindGroup:1199806466"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createBindGroup"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBindGroup:1199806466",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBindGroup:1199806466"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createbindgroup.0z8qxfd.authenticated.production.route.1clsvkv.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createbindgrouplayout.0ng298j",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createBindGroupLayout",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createbindgrouplayout.0ng298j.authenticated.production.route.1k8l7uy",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createbindgrouplayout.0ng298j.authenticated.production.route.1k8l7uy",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createBindGroupLayout"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBindGroupLayout:2544948076",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBindGroupLayout:2544948076"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBindGroupLayout:2544948076",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBindGroupLayout:2544948076"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createBindGroupLayout"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBindGroupLayout:2544948076",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBindGroupLayout:2544948076"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createbindgrouplayout.0ng298j.authenticated.production.route.1k8l7uy.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createbuffer.08g1gvn",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createBuffer",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createbuffer.08g1gvn.authenticated.production.route.1gxfd7m",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createbuffer.08g1gvn.authenticated.production.route.1gxfd7m",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createBuffer"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBuffer:1869756926",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBuffer:1869756926"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBuffer:1869756926",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBuffer:1869756926"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createBuffer"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createBuffer:1869756926",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createBuffer:1869756926"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createbuffer.08g1gvn.authenticated.production.route.1gxfd7m.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createCommandEncoder",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i.authenticated.production.route.1wj5kwl",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i.authenticated.production.route.1wj5kwl",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createCommandEncoder"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createCommandEncoder:4055478657",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createCommandEncoder:4055478657"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createCommandEncoder:4055478657",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createCommandEncoder:4055478657"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createCommandEncoder"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createCommandEncoder:4055478657",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createCommandEncoder:4055478657"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i.authenticated.production.route.1wj5kwl.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createPipelineLayout",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1.authenticated.production.route.1dw8sab",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1.authenticated.production.route.1dw8sab",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createPipelineLayout"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createPipelineLayout:3373402978",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createPipelineLayout:3373402978"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createPipelineLayout:3373402978",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createPipelineLayout:3373402978"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createPipelineLayout"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createPipelineLayout:3373402978",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createPipelineLayout:3373402978"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1.authenticated.production.route.1dw8sab.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createRenderPipeline",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn.authenticated.production.route.0fr45gm",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn.authenticated.production.route.0fr45gm",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createRenderPipeline"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createRenderPipeline:2407151159",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createRenderPipeline:2407151159"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createRenderPipeline:2407151159",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createRenderPipeline:2407151159"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createRenderPipeline"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createRenderPipeline:2407151159",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createRenderPipeline:2407151159"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn.authenticated.production.route.0fr45gm.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createSampler",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7.authenticated.production.route.0toouan",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7.authenticated.production.route.0toouan",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createSampler"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createSampler:3285037552",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createSampler:3285037552"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createSampler:3285037552",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createSampler:3285037552"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createSampler"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createSampler:3285037552",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createSampler:3285037552"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7.authenticated.production.route.0toouan.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createShaderModule",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w.authenticated.production.route.1qzzxvb",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w.authenticated.production.route.1qzzxvb",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createShaderModule"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createShaderModule:599085487",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createShaderModule:599085487"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createShaderModule:599085487",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createShaderModule:599085487"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createShaderModule"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createShaderModule:599085487",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createShaderModule:599085487"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w.authenticated.production.route.1qzzxvb.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createtexture.1vc5dzg",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createTexture",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createtexture.1vc5dzg.authenticated.production.route.0mddgwa",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createtexture.1vc5dzg.authenticated.production.route.0mddgwa",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createTexture"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createTexture:4177957718",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createTexture:4177957718"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createTexture:4177957718",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createTexture:4177957718"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createTexture"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createTexture:4177957718",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createTexture:4177957718"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createtexture.1vc5dzg.authenticated.production.route.0mddgwa.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.destroy.0eh76at",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.destroy",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.destroy.0eh76at.authenticated.production.route.092sqbf",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.destroy.0eh76at.authenticated.production.route.092sqbf",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.destroy"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.destroy:206890944",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.destroy:206890944"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.destroy:206890944",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.destroy:206890944"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.destroy"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.destroy:206890944",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.destroy:206890944"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.destroy.0eh76at.authenticated.production.route.092sqbf.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.features.0o65siy",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.features",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.features.0o65siy.authenticated.production.route.0r8kq5d",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.features.0o65siy.authenticated.production.route.0r8kq5d",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.features"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.features:3810427763",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.features:3810427763"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.features:3810427763",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.features:3810427763"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.features"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.features:3810427763",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.features:3810427763"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.features.0o65siy.authenticated.production.route.0r8kq5d.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.limits.1u2lztx",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.limits",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.limits.1u2lztx.authenticated.production.route.1faaia4",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.limits.1u2lztx.authenticated.production.route.1faaia4",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.limits"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.limits:1914447212",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.limits:1914447212"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.limits:1914447212",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.limits:1914447212"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.limits"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.limits:1914447212",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.limits:1914447212"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.limits.1u2lztx.authenticated.production.route.1faaia4.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.lost.1p4gowr",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.lost",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.lost.1p4gowr.authenticated.production.route.1490tdm",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.lost.1p4gowr.authenticated.production.route.1490tdm",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.lost"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.lost:892795326",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.lost:892795326"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.lost:892795326",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.lost:892795326"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.lost"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.lost:892795326",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.lost:892795326"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.lost.1p4gowr.authenticated.production.route.1490tdm.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.poperrorscope.01d29wy",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.popErrorScope",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.poperrorscope.01d29wy.authenticated.production.route.00pdegr",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.poperrorscope.01d29wy.authenticated.production.route.00pdegr",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.popErrorScope"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.popErrorScope:2687703037",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.popErrorScope:2687703037"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.popErrorScope:2687703037",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.popErrorScope:2687703037"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.popErrorScope"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.popErrorScope:2687703037",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.popErrorScope:2687703037"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.poperrorscope.01d29wy.authenticated.production.route.00pdegr.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.pusherrorscope.1jnohqv",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.pushErrorScope",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.pusherrorscope.1jnohqv.authenticated.production.route.1k5no2j",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.pusherrorscope.1jnohqv.authenticated.production.route.1k5no2j",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.pushErrorScope"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.pushErrorScope:1311136574",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.pushErrorScope:1311136574"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.pushErrorScope:1311136574",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.pushErrorScope:1311136574"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.pushErrorScope"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.pushErrorScope:1311136574",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.pushErrorScope:1311136574"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.pusherrorscope.1jnohqv.authenticated.production.route.1k5no2j.cannot-widen-authority",
+        "surface.native.op.construction.private.webgpu.gpudevice.pusherrorscope.1jnohqv.authenticated.production.route.1k5no2j.non-capability",
+        "surface.native.op.construction.private.webgpu.gpudevice.pusherrorscope.1jnohqv.authenticated.production.route.1k5no2j.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.queue.03ii42g",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.queue",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.queue.03ii42g.authenticated.production.route.116wtef",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.queue.03ii42g.authenticated.production.route.116wtef",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.queue"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.queue:1949537636",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.queue:1949537636"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.queue:1949537636",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.queue:1949537636"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.queue"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.queue:1949537636",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.queue:1949537636"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.queue.03ii42g.authenticated.production.route.116wtef.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg",
+      "observedKey": "native-op:construction-private:webgpu:GPUQueue.submit",
+      "branchId": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg.authenticated.production.route.19m1phk",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg.authenticated.production.route.19m1phk",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUQueue.submit"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.submit:308839175",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.submit:308839175"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.submit:308839175",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.submit:308839175"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUQueue.submit"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.submit:308839175",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.submit:308839175"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg.authenticated.production.route.19m1phk.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l",
+      "observedKey": "native-op:construction-private:webgpu:GPUQueue.writeBuffer",
+      "branchId": "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l.authenticated.production.route.0cl5k1b",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l.authenticated.production.route.0cl5k1b",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUQueue.writeBuffer"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.writeBuffer:404589710",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.writeBuffer:404589710"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.writeBuffer:404589710",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.writeBuffer:404589710"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUQueue.writeBuffer"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUQueue.writeBuffer:404589710",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUQueue.writeBuffer:404589710"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l.authenticated.production.route.0cl5k1b.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju",
+      "observedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.draw",
+      "branchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju.authenticated.production.route.1xjfmw4",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju.authenticated.production.route.1xjfmw4",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPURenderPassEncoder.draw"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.draw:3054695767",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.draw:3054695767"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.draw:3054695767",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.draw:3054695767"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.draw"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.draw:3054695767",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.draw:3054695767"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.draw.1v1coju.authenticated.production.route.1xjfmw4.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t",
+      "observedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.end",
+      "branchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t.authenticated.production.route.04x88yr",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t.authenticated.production.route.04x88yr",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPURenderPassEncoder.end"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.end:1724778411",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.end:1724778411"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.end:1724778411",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.end:1724778411"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.end"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.end:1724778411",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.end:1724778411"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.end.1tvn90t.authenticated.production.route.04x88yr.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty",
+      "observedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.setPipeline",
+      "branchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty.authenticated.production.route.16hqawg",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty.authenticated.production.route.16hqawg",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPURenderPassEncoder.setPipeline"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setPipeline:551383281",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setPipeline:551383281"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setPipeline:551383281",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setPipeline:551383281"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPURenderPassEncoder.setPipeline"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPURenderPassEncoder.setPipeline:551383281",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPURenderPassEncoder.setPipeline:551383281"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpurenderpassencoder.setpipeline.1hzqdty.authenticated.production.route.16hqawg.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gputexture.createview.1uepitt",
+      "observedKey": "native-op:construction-private:webgpu:GPUTexture.createView",
+      "branchId": "surface.native.op.construction.private.webgpu.gputexture.createview.1uepitt.authenticated.production.route.0dtxfzg",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gputexture.createview.1uepitt.authenticated.production.route.0dtxfzg",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUTexture.createView"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.createView:1853125118",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.createView:1853125118"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.createView:1853125118",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.createView:1853125118"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUTexture.createView"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.createView:1853125118",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.createView:1853125118"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gputexture.createview.1uepitt.authenticated.production.route.0dtxfzg.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gputexture.depthorarraylayers.0f86y2f",
+      "observedKey": "native-op:construction-private:webgpu:GPUTexture.depthOrArrayLayers",
+      "branchId": "surface.native.op.construction.private.webgpu.gputexture.depthorarraylayers.0f86y2f.authenticated.production.route.1ava8hy",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gputexture.depthorarraylayers.0f86y2f.authenticated.production.route.1ava8hy",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUTexture.depthOrArrayLayers"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.depthOrArrayLayers:31670442",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.depthOrArrayLayers:31670442"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.depthOrArrayLayers:31670442",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.depthOrArrayLayers:31670442"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUTexture.depthOrArrayLayers"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.depthOrArrayLayers:31670442",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.depthOrArrayLayers:31670442"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gputexture.depthorarraylayers.0f86y2f.authenticated.production.route.1ava8hy.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gputexture.destroy.12degrq",
+      "observedKey": "native-op:construction-private:webgpu:GPUTexture.destroy",
+      "branchId": "surface.native.op.construction.private.webgpu.gputexture.destroy.12degrq.authenticated.production.route.052qdck",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gputexture.destroy.12degrq.authenticated.production.route.052qdck",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUTexture.destroy"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.destroy:2933046788",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.destroy:2933046788"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.destroy:2933046788",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.destroy:2933046788"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUTexture.destroy"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.destroy:2933046788",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.destroy:2933046788"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gputexture.destroy.12degrq.authenticated.production.route.052qdck.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gputexture.dimension.1qty760",
+      "observedKey": "native-op:construction-private:webgpu:GPUTexture.dimension",
+      "branchId": "surface.native.op.construction.private.webgpu.gputexture.dimension.1qty760.authenticated.production.route.0ckv8s7",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gputexture.dimension.1qty760.authenticated.production.route.0ckv8s7",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUTexture.dimension"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.dimension:1277060789",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.dimension:1277060789"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.dimension:1277060789",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.dimension:1277060789"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUTexture.dimension"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.dimension:1277060789",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.dimension:1277060789"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gputexture.dimension.1qty760.authenticated.production.route.0ckv8s7.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gputexture.format.0tdul1j",
+      "observedKey": "native-op:construction-private:webgpu:GPUTexture.format",
+      "branchId": "surface.native.op.construction.private.webgpu.gputexture.format.0tdul1j.authenticated.production.route.1qy5rm9",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gputexture.format.0tdul1j.authenticated.production.route.1qy5rm9",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUTexture.format"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.format:4094543821",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.format:4094543821"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.format:4094543821",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.format:4094543821"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUTexture.format"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.format:4094543821",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.format:4094543821"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gputexture.format.0tdul1j.authenticated.production.route.1qy5rm9.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gputexture.height.0rwa46f",
+      "observedKey": "native-op:construction-private:webgpu:GPUTexture.height",
+      "branchId": "surface.native.op.construction.private.webgpu.gputexture.height.0rwa46f.authenticated.production.route.09w7nus",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gputexture.height.0rwa46f.authenticated.production.route.09w7nus",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUTexture.height"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.height:1899341095",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.height:1899341095"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.height:1899341095",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.height:1899341095"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUTexture.height"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.height:1899341095",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.height:1899341095"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gputexture.height.0rwa46f.authenticated.production.route.09w7nus.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg",
+      "observedKey": "native-op:construction-private:webgpu:GPUTexture.width",
+      "branchId": "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg.authenticated.production.route.19wexfa",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg.authenticated.production.route.19wexfa",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUTexture.width"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.width:3310230093",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.width:3310230093"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.width:3310230093",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.width:3310230093"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUTexture.width"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUTexture.width:3310230093",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUTexture.width:3310230093"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg.authenticated.production.route.19wexfa.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.dirname.11h8rni",
       "observedKey": "native-op:__dirname",
       "branchId": "surface.native.op.dirname.11h8rni.default",
@@ -262975,6 +264507,24 @@
         "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
         "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
         "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
+        "surface.native.op.construction.private.webgpu.gpu.requestadapter.0zednrz",
+        "surface.native.op.construction.private.webgpu.gpuadapter.requestdevice.0jbwy7n",
+        "surface.native.op.construction.private.webgpu.gpubuffer.mapasync.1ljjxvf",
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.configure.0ktf630",
+        "surface.native.op.construction.private.webgpu.gpucanvascontext.getcurrenttexture.1no46hs",
+        "surface.native.op.construction.private.webgpu.gpudevice.createbindgroup.0z8qxfd",
+        "surface.native.op.construction.private.webgpu.gpudevice.createbindgrouplayout.0ng298j",
+        "surface.native.op.construction.private.webgpu.gpudevice.createbuffer.08g1gvn",
+        "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i",
+        "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1",
+        "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn",
+        "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7",
+        "surface.native.op.construction.private.webgpu.gpudevice.createshadermodule.1tnit2w",
+        "surface.native.op.construction.private.webgpu.gpudevice.createtexture.1vc5dzg",
+        "surface.native.op.construction.private.webgpu.gpudevice.poperrorscope.01d29wy",
+        "surface.native.op.construction.private.webgpu.gpuqueue.submit.0sm1jlg",
+        "surface.native.op.construction.private.webgpu.gpuqueue.writebuffer.09drr9l",
+        "surface.native.op.construction.private.webgpu.gputexture.createview.1uepitt",
         "surface.native.op.exactaccessibilitysnapshot.0cpctmz",
         "surface.native.op.exactaccessibilitysnapshot.colorscheme.08wrj05",
         "surface.native.op.exactaccessibilitysnapshot.dynamictypesize.1s9wxzp",
@@ -263134,7 +264684,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 234 observed surface edges."
+      "rationale": "Closed by 252 observed surface edges."
     },
     {
       "definitionId": "network:connect",
@@ -265646,44 +267196,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-VAaBhPwJGWurVz1MhBGRgE9423URqPiAcBacPvjGCDw"
+      "rawContentDigest": "sha256-qkET0RqtIeLX3hGnL-JY6H6hkBou7_UQMOa7-yI_8OA"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-FquqfH6wlJEanpVcjtI3DhpB1AxxNS9wQp2XT5XTPHw"
+      "rawContentDigest": "sha256-H4w-FPdK4RS418aiwYuX3qt9HxA3h3QC9S1akhHinHo"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-oUoFjm4vMd33x-p8cFyDwkkqtktwHc_4PvWeVh0iW54"
+      "rawContentDigest": "sha256-GwMQUvhW4rQJFqaM7xXAM6VEwyNTvxfET2K-cH_mbKA"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-2sTduLfXf4cW9VjU2dGr6zW30h0XdlG9hmu_FTQ06MQ"
+      "rawContentDigest": "sha256-ZMyhqVeT2uOlZeRTjWkSLqYm7jbuk2RLGDc40M4XVus"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-5T0tdu0aKtvpnmS7-2akDDR3FwB-nqla_R9RIydu1Gw"
+      "rawContentDigest": "sha256-iMy38xiTG0OY5580lopxbrFwqtZNhDCzi7q2U1wIbSQ"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-UXUNcw3SFh7CdFhZtw4z791JmW8ctgEswLCK3B3_J0s"
+      "rawContentDigest": "sha256-lrFLsIHAEqwPNUxYnV8370bsn6Lc-BkfOgEus5_KMS8"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-H5-MGbB--5mMXHC_uv3851bwfQ5KQDn_eqJ1Eb5JpnI"
+      "rawContentDigest": "sha256-cAagtMTnchNIz1AXTUR_uzu87uuLrQqdUWXepcZrojE"
     }
   ],
   "counts": {
-    "observedReferences": 12820,
-    "logicalSurfaces": 7136,
-    "enforcementBranches": 7335,
-    "coverageEdges": 7136,
-    "targetCells": 14272
+    "observedReferences": 12910,
+    "logicalSurfaces": 7181,
+    "enforcementBranches": 7380,
+    "coverageEdges": 7181,
+    "targetCells": 14362
   }
 }
