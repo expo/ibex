@@ -204,8 +204,23 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_116);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_149);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_967);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_015);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_101);
+    const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
+        recipe.residualReasons.includes(
+          "public-surface-filesystem-not-typed-on-target",
+        ),
+    );
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(134);
+    expect(
+      unsupportedWindowsFilesystemRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null,
+      ),
+    ).toBe(true);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -1292,46 +1307,56 @@ describe("exact-target CapSec executable recipes", () => {
       ["__exactFsFsyncSync", "target/ibex-capsec-fsync"],
       ["__exactFsFdatasyncSync", "target/ibex-capsec-fdatasync"],
     ]) {
-      for (const catalog of [recipes, windowsRecipes]) {
-        const rows = catalog.recipes.filter(
-          (recipe) =>
-            recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      const rows = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(rows).toHaveLength(4);
+      for (const recipe of rows) {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          { kind: "harness-fs-file-descriptor" },
+        ]);
+        expect(invocation.setup).toHaveLength(1);
+        expect(invocation.setup[0]).toMatchObject({
+          kind: "fs-write-file",
+          globalName: "__exactFsOpen",
+          path,
+        });
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(
+          invocation.requiredFloor.map((selector) => selector.cap),
+        ).toEqual(["fs:list", "fs:write"]);
+        expect(invocation.expectedActionIds).toEqual(["fs:write"]);
+        expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+        expect(invocation.expectedTypedDecisionCount).toBe(1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor-removed-owned-file",
         );
-        expect(rows).toHaveLength(4);
-        for (const recipe of rows) {
-          const invocation = recipe.publicSurfaceProbe.invocation;
-          expect(invocation.arguments).toEqual([
-            { kind: "harness-fs-file-descriptor" },
-          ]);
-          expect(invocation.setup).toHaveLength(1);
-          expect(invocation.setup[0]).toMatchObject({
-            kind: "fs-write-file",
-            globalName: "__exactFsOpen",
-            path,
-          });
-          expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
-          expect(
-            invocation.requiredFloor.map((selector) => selector.cap),
-          ).toEqual(["fs:list", "fs:write"]);
-          expect(invocation.expectedActionIds).toEqual(["fs:write"]);
-          expect(invocation.expectedTypedStages).toEqual(["repeat"]);
-          expect(invocation.expectedTypedDecisionCount).toBe(1);
-          expect(invocation.expectedCleanup).toBe(
-            "closed-fs-file-descriptor-removed-owned-file",
-          );
-          expect(recipe.residualReasons).toEqual([]);
-          expect(recipe.status).toBe("fully-executable");
-        }
-        const denied = catalog.recipes.find(
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+      const denied = recipes.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey === `native-op:${globalName}` &&
+          recipe.scenario === "deny",
+      );
+      expect(denied.publicSurfaceProbe).toBeNull();
+      expect(denied.residualReasons).toContain(
+        "native-public-deny-scenario-not-authored",
+      );
+      const windowsRows = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(windowsRows).toHaveLength(0);
+      expect(
+        windowsRecipes.recipes.find(
           (recipe) =>
             recipe.terminalObservedKey === `native-op:${globalName}` &&
-            recipe.scenario === "deny",
-        );
-        expect(denied.publicSurfaceProbe).toBeNull();
-        expect(denied.residualReasons).toContain(
-          "native-public-deny-scenario-not-authored",
-        );
-      }
+            recipe.scenario === "allow",
+        ).residualReasons,
+      ).toContain("public-surface-filesystem-not-typed-on-target");
     }
   });
 

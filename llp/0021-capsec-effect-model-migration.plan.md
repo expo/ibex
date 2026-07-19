@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (Windows recipe generation keeps all 134 filesystem
+public probes residual while the backend still lacks the non-Unix typed
+retained-object adapter)
 **Revised:** 2026-07-18 (Windows evaluator review canonicalizes CRLF to LF
 for checked-in PowerShell authorities while release manifests continue to
 attest the platform-native builder bytes exactly)
@@ -1116,6 +1119,17 @@ parity now use worker-backed paths. Windows preserves distinct errno values and
 implements recursive-mkdir results, exclusive copy, truncate, utimes, and
 statfs through the portable host ABI.
 
+The Windows host ABI still returns unsupported for non-requested stages of the
+typed retained-object filesystem adapter, while its installed filesystem
+globals and `node:fs` exports use the legacy path oracle. Exact-target recipe
+generation therefore must not schedule those callable surfaces as typed public
+evidence merely because their source registrations exist. The Windows catalog
+keeps all 134 affected public recipes (119 native and 15 builtin) residual
+under `public-surface-filesystem-not-typed-on-target`; Apple retains the typed
+recipes. This is an evidence-boundary correction, not Windows filesystem
+promotion: the obligations become executable only after the backend supplies
+the same retained-object decisions.
+
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.
 Every authority stratum uses that principal's projection, so two packages with
@@ -1658,10 +1672,12 @@ exact file under `target/` and opens an append descriptor through the
 source-bound native surface under joint `fs:list` and `fs:write` floors. Each
 durability invocation must emit one typed `fs:write` repeat decision, preserve
 the fixture bytes, and then close the descriptor and remove the owned file
-outside the decision window. The same typed implementations and recipes apply
-to Windows, pending physical Windows evidence. Denial remains residual on both
-targets because denying the descriptor's required `fs:write` authority would
-also prevent the prerequisite writable descriptor from being opened.
+outside the decision window. The Windows implementation still performs the
+legacy capability check for descriptor durability, so its four recipes per
+surface remain residual until a typed retained-object gate exists. Denial also
+remains residual because denying the descriptor's required `fs:write`
+authority would prevent the prerequisite writable descriptor from being
+opened.
 The same owned-descriptor harness now physically executes
 `__exactFsFtruncateSync` on Apple. Four recipes require one typed `fs:write`
 repeat decision, then independently verify the exact two-byte length before

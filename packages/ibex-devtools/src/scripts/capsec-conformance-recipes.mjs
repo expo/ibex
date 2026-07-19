@@ -3793,6 +3793,20 @@ function summarize(recipes) {
   };
 }
 
+function publicProbeIsUnsupportedWindowsFilesystemEffect({
+  plan,
+  publicSurfaceProbe,
+  target,
+}) {
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces still use the legacy path oracle, so they cannot furnish typed public execution evidence.
+  return (
+    target.triple === "x86_64-pc-windows-msvc" &&
+    plan.classification === "effects" &&
+    plan.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
+    (publicSurfaceProbe?.invocation?.expectedTypedDecisionCount ?? 0) > 0
+  );
+}
+
 export function buildConformanceRecipeCatalog({
   catalog,
   coverage,
@@ -3934,14 +3948,25 @@ export function buildConformanceRecipeCatalog({
         `${plan.fixtureId}: multiple public probe authors claimed one fixture`,
       );
     }
-    const publicSurfaceProbe = authoredPublicSurfaceProbes[0] ?? null;
+    let publicSurfaceProbe = authoredPublicSurfaceProbes[0] ?? null;
+    const unsupportedWindowsFilesystemEffect =
+      publicProbeIsUnsupportedWindowsFilesystemEffect({
+        plan,
+        publicSurfaceProbe,
+        target,
+      });
+    if (unsupportedWindowsFilesystemEffect) {
+      publicSurfaceProbe = null;
+    }
     const publicSurfaceUnavailableReason = publicSurfaceProbe
       ? null
-      : (nonCapabilityBuiltinProbeResidualReason({
-          route,
-          liveByObservedKey,
-          target,
-        }) ?? nativePublicSurface.unavailableReason);
+      : unsupportedWindowsFilesystemEffect
+        ? "public-surface-filesystem-not-typed-on-target"
+        : (nonCapabilityBuiltinProbeResidualReason({
+            route,
+            liveByObservedKey,
+            target,
+          }) ?? nativePublicSurface.unavailableReason);
     const residual = residualReasons({
       plan,
       scenario,
