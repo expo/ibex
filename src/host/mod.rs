@@ -3623,7 +3623,151 @@ fn authenticated_source_beneath_binding(
         unreachable!("nonempty authenticated source path returns on its final component")
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::io::Read as _;
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        use std::os::windows::io::{AsRawHandle, FromRawHandle};
+        use std::ptr::{null, null_mut};
+        use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
+        use windows_sys::Wdk::Storage::FileSystem::{
+            NtCreateFile, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN,
+            FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
+        };
+        use windows_sys::Win32::Foundation::{
+            HANDLE, INVALID_HANDLE_VALUE, OBJ_CASE_INSENSITIVE, UNICODE_STRING,
+        };
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, SYNCHRONIZE,
+        };
+        use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
+
+        // @ref LLP 0021#module-initialization-and-trusted-source-acquisition — trusted source bytes are opened one component at a time beneath the authenticated root handle without following reparse points.
+        let mut options = std::fs::OpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS);
+        let mut current = options
+            .open(&root)
+            .with_context(|| format!("cannot open authenticated root {}", root.display()))?;
+        let root_metadata = current.metadata()?;
+        if !root_metadata.is_dir()
+            || root_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        {
+            anyhow::bail!(
+                "authenticated root is not a regular directory: {}",
+                root.display()
+            );
+        }
+        let actual_root = object_identity_for_open_file(&current)?;
+        if actual_root != binding.object {
+            anyhow::bail!(
+                "authenticated root object changed before module source read: {}",
+                root.display()
+            );
+        }
+
+        for (index, component) in components.iter().enumerate() {
+            let mut wide = component.encode_wide().collect::<Vec<_>>();
+            if wide.contains(&0) {
+                anyhow::bail!("module source contains a NUL path component");
+            }
+            let byte_length = wide
+                .len()
+                .checked_mul(std::mem::size_of::<u16>())
+                .and_then(|length| u16::try_from(length).ok())
+                .ok_or_else(|| anyhow::anyhow!("module source path component is too long"))?;
+            let name = UNICODE_STRING {
+                Length: byte_length,
+                MaximumLength: byte_length,
+                Buffer: wide.as_mut_ptr(),
+            };
+            let attributes = OBJECT_ATTRIBUTES {
+                Length: std::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+                RootDirectory: current.as_raw_handle(),
+                ObjectName: &name,
+                Attributes: OBJ_CASE_INSENSITIVE,
+                SecurityDescriptor: null(),
+                SecurityQualityOfService: null(),
+            };
+            let last = index + 1 == components.len();
+            let desired_access = FILE_READ_ATTRIBUTES
+                | SYNCHRONIZE
+                | if last {
+                    FILE_READ_DATA
+                } else {
+                    FILE_LIST_DIRECTORY | FILE_TRAVERSE
+                };
+            let create_options = FILE_OPEN_REPARSE_POINT
+                | FILE_SYNCHRONOUS_IO_NONALERT
+                | if last {
+                    FILE_NON_DIRECTORY_FILE
+                } else {
+                    FILE_DIRECTORY_FILE
+                };
+            let mut handle: HANDLE = INVALID_HANDLE_VALUE;
+            let mut io_status = IO_STATUS_BLOCK::default();
+            let status = unsafe {
+                NtCreateFile(
+                    &mut handle,
+                    desired_access,
+                    &attributes,
+                    &mut io_status,
+                    null(),
+                    0,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    FILE_OPEN,
+                    create_options,
+                    null_mut(),
+                    0,
+                )
+            };
+            if status < 0 || handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                anyhow::bail!(
+                    "cannot open authenticated module source {} relative to its root (NTSTATUS {status:#010x})",
+                    source_path.display()
+                );
+            }
+            let opened = unsafe { std::fs::File::from_raw_handle(handle) };
+            let metadata = opened.metadata()?;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                anyhow::bail!(
+                    "authenticated module source traverses a reparse point: {}",
+                    source_path.display()
+                );
+            }
+            if last {
+                if !metadata.is_file() {
+                    anyhow::bail!(
+                        "authenticated module source is not a regular file: {}",
+                        source_path.display()
+                    );
+                }
+                let mut bytes = Vec::new();
+                let mut opened = opened;
+                opened.read_to_end(&mut bytes).with_context(|| {
+                    format!(
+                        "cannot read authenticated module source {}",
+                        source_path.display()
+                    )
+                })?;
+                return Ok(bytes);
+            }
+            if !metadata.is_dir() {
+                anyhow::bail!(
+                    "authenticated module source parent is not a directory: {}",
+                    source_path.display()
+                );
+            }
+            current = opened;
+        }
+        unreachable!("nonempty authenticated source path returns on its final component")
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (binding, source_path);
         anyhow::bail!(
@@ -4004,7 +4148,7 @@ mod tests {
         assert!(!fd_descends_from_object(substituted_parent.as_raw_fd(), &expected).unwrap());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn first_party_source_read_rejects_root_swap_at_open() {
         let temp = tempfile::tempdir().unwrap();

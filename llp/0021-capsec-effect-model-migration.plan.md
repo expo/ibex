@@ -316,6 +316,14 @@ must use this classification before the ModuleRunner security integration can
 claim conformance; denial, no-probe, cache-hit, prepared-carrier, and
 wrong-principal fixtures are mandatory.
 
+First-party source reads pin the authenticated root directory object and open
+every descendant component relative to the retained parent without following
+links. Unix uses descriptor-relative `openat`; Windows uses `NtCreateFile` with
+the retained directory handle as `RootDirectory` and
+`FILE_OPEN_REPARSE_POINT` at every step. Both paths validate the armed root
+object before accepting source bytes, so a path rename or reparse substitution
+cannot redirect trusted-loader acquisition.
+
 ENG-25062 implements that boundary as a typed `GraphDecisionSet` over the
 exact requesting and target `SourceId`, resolution kind, conditions,
 attributes, actor, effect owner, schedule-time identity, canonical constrained
