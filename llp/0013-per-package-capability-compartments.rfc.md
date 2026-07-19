@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-19 (ENG-24933 extends exact retained-function Domain binding/readback to the shared runtime bundle and non-compartmented builtin deputies after physical Windows proved the package wrapper and callback correct but the immediately following process.env deputy call root-attributed)
 **Revised:** 2026-07-19 (ENG-24933 makes the CommonJS Domain binder fail closed and requires an exact post-bind package-principal readback after physical Windows evidence disproved the original write-only convergence claim)
 **Revised:** 2026-07-18 (ENG-24933 added the first direct CommonJS Domain principal bind; subsequent physical Windows evidence showed that write-only binding was insufficient)
 **Revised:** 2026-07-15 (ENG-25066 made ordinary ESM use authenticated per-principal native records; the legacy chunk path remains only for unsupported interop during the 0.1 window)
@@ -1319,11 +1320,17 @@ currently compatibility routing and defense in depth on top of it:
   each package's Domain compartment via the native `__exactSetCompartmentFor`
   (captured privately, sealed at end-of-bootstrap). Patch 0009 makes that same
   retained-function binder validate, stamp, and read back the authenticated
-  numeric package principal directly on the Domain after compilation. Invalid
-  functions, compartments, principals, and missing RuntimeModule/Domain state
-  refuse package execution; the loader also requires the returned ID to match.
-  Physical Windows source-profile evidence is still required before claiming
-  that callback attribution converges with HBC. This closes channel #2
+  numeric principal directly on the Domain after compilation. Package modules
+  supply their compartment; root and runtime-deputy units bind without one.
+  Invalid functions, supplied compartments, principals, and missing
+  RuntimeModule/Domain state refuse execution; every caller requires the
+  returned ID to match. Focused physical Windows source-profile evidence proved
+  the CommonJS wrapper and its exported callback both carried the package
+  principal, but the immediately following `process.env` deputy call observed
+  root. The shared runtime bundle is therefore post-bound through a retained
+  `process.cwd` function and lazy builtin functions go through the same exact
+  binder; this revision still requires a physical rerun before convergence can
+  be claimed. This closes channel #2
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
   rewrite never touches. Tested by
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.
@@ -1357,8 +1364,9 @@ pending/default package id on `Runtime` consumed in `runBytecode`,
 `IHermes::getVMRuntimeUnsafe()`. The module loader assigns and registers a
 principal per package and stamps each module's Domain: first through the
 creation-time pending principal, then through the private post-compile binder
-(patch 0009), whose exact readback is checked before package execution. Builtins get the runtime
-principal `0xFFFFFFFF`, transparent to the walk; `checkCapability` reads the
+(patch 0009), whose exact readback is checked before execution. The shared
+runtime bundle and lazy builtins are bound and read back as runtime principal
+`0xFFFFFFFF`, transparent to the walk; `checkCapability` reads the
 frame principal via `currentPrincipalId()` behind the `EXACT_HAVE_FRAME_ATTRIBUTION`
 build probe (unpatched engines fall back to the thread-local). The
 thread-local, `__exactSetActiveModuleId`, and `__exactGrantCapability` are still

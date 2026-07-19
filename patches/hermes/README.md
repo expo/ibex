@@ -28,7 +28,7 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0006 | `0006-eval-binding-and-native-deep-freeze.patch` | B (+1 A export) | `eval`/`Function` compartment binding + native deep-freeze (Phase 3). `evalInEnvironment` captures the caller's principal + compartment (frame still current there) into a GC-rooted `Runtime::pendingCompartment_`; `runBytecode` stamps both onto the minted Domain, so eval/`new Function` code inherits the caller's compartment and cannot escape it. Adds `clearPendingPackageId()` / `ex_hermes_vm_clear_pending_package_id` (clearing ≠ pinning 0). Adds `__exactDeepFreeze(obj)` — a native SES-style transitive freeze that walks descriptors (getters/setters read without invoking) + prototype via an iterative worklist with an explicit visited set (GC-safe; distinct from the frozen bit; no recursion-depth cap) — for a native boot-time lockdown (`IBEX_NATIVE_LOCKDOWN`). |
 | 0007 | `0007-fail-closed-async-deputy-attribution.patch` | B | Fails closed on the async/deputy attribution boundary. `getCurrentPackageId` now returns a distinct `kNoUserPrincipal` (`0xFFFFFFFE`) when the walk finds NO user frame (vs. the old `0`, which the host trusts as first-party root) — so a package cannot launder a deputy op detached from its own frame (`Promise.resolve(x).then(fs.readFileSync)`) into trusted root. And the internal bytecode (Hermes's JS Promise impl) is stamped with the runtime principal at load, so its reaction trampoline (`tryCallOne`) is skipped as a deputy instead of appearing as packageId 0 on every microtask. |
 | 0008 | `0008-schedule-time-principal-capture.patch` | B | Completes 0007 for the deputy-class case (ENG-22631). 0007 fails closed only when the detached callback is *native* (empty stack); a detached JS deputy method (`Promise.resolve(x).then(deputy.readFor)` under `deputyClasses`) drains with the deputy's own frame live, so `collectStackPackageIds` returns `[deputy]` (len 1) and the stack-AND is skipped. This patch captures the SCHEDULING principal at `enqueueJob` (the scheduler's frame is still live there), carries it in a `jobSchedulerQueue_` kept in lockstep with `jobQueue_`, restores it as ambient `Runtime` state across `drainJobs`, and has `collectStackPackageIds` APPEND it — so the detached read collects `[deputy, scheduler]` and the AND denies for an ungranted scheduler while a granted package's own continuation (scheduler == running principal) collapses and is not false-denied. Ibex arms capture whenever the patched engine is present because deputy classes may be configured after engine creation and native-resolved continuations may otherwise report `kNoUserPrincipal`; the host consumes the captured scheduler for live deputy stacks and that no-user fallback. |
-| 0009 | `0009-bind-package-principal-with-compartment.patch` | B | Extends the trusted, boot-sealed `__exactSetCompartmentFor` binder to validate, stamp, and read back the authenticated numeric package principal on the same freshly compiled Domain after `new Function`. Invalid functions, compartments, principals, or missing RuntimeModule/Domain state throw; the loader requires the returned ID to equal the registered package principal. The pending label remains the creation-time/eval inheritance path. |
+| 0009 | `0009-bind-package-principal-with-compartment.patch` | B | Extends the trusted, boot-sealed `__exactSetCompartmentFor` binder to validate, stamp, and read back an authenticated numeric principal on a retained compiled function's Domain after `new Function`. Package modules also supply their compartment; root/runtime deputies bind without one. Invalid functions, supplied compartments, principals, or missing RuntimeModule/Domain state throw, and every caller requires the returned ID to match. The pending label remains the creation-time/eval inheritance path. |
 
 All nine apply clean from pristine (`scripts/apply-hermes-patches.sh`) against
 the pinned checkout (`ac8c6e6c80ec…`, HEAD of
@@ -37,8 +37,12 @@ the pinned checkout (`ac8c6e6c80ec…`, HEAD of
 (`current_package_id`, `set_pending_package_id`, `clear_pending_package_id`,
 `set_default_package_id`, `collect_package_ids`, `set_job_scheduler_capture`).
 Patch 0009's original write-only form built on physical Windows but did not fix
-source-profile callback attribution. Its fail-closed readback revision is
-pending a focused physical Windows rerun.
+source-profile callback attribution. A focused physical Windows run of the
+fail-closed package readback proved both the CommonJS wrapper and its exported
+callback carried the package principal, while the immediately following
+`process.env` deputy call observed root. The retained-function bind therefore
+also covers the shared runtime bundle and non-compartmented builtin deputies;
+that revision is pending its focused physical Windows rerun.
 
 ### Phase 2 integration — DONE
 
@@ -49,7 +53,9 @@ pending a focused physical Windows rerun.
    `new Function(body)` (`compileModuleBody`), then binds the authenticated
    principal and compartment together through the private
    `__exactSetCompartmentFor` bridge after compilation. Builtin modules
-   (`node:fs`, …) get the runtime principal `0xFFFFFFFF` so they are transparent
+   (`node:fs`, …) use that same bridge without a compartment and get the runtime
+   principal `0xFFFFFFFF`; the shared runtime bundle binds that principal through
+   its retained `process.cwd` function. Both classes are therefore transparent
    deputies. The bootstrap default principal is set to `0xFFFFFFFF` during boot
    and reset to 0 before user code runs (`src/engine/hermes_runtime.cc`).
 2. **Read the principal.** `checkCapability` (`hermes_runtime_internal.h`) calls
@@ -63,10 +69,9 @@ pending a focused physical Windows rerun.
    *Deputy caveat (RFC Open-Q3).* Ibex's high-level host surfaces are JS modules
    layered over the native `__exact*` functions. Attribution reaches through them
    only because those deputy Domains carry the runtime principal (skipped by the
-   walk). `process.env` is an eager snapshot (never capability-checked), and
-   `fs.writeFileSync` fires an `fs:read` but not an `fs:write` check in the
-   current runtime — the conformance test therefore discriminates on
-   `fs.readFileSync`.
+   walk). `process.env` is a capability-checked Proxy whose handler lives in the
+   shared runtime Domain, which is why the bundle's exact post-bind readback is
+   part of the attribution boundary.
 
 ### Phase 5 integration — DONE
 

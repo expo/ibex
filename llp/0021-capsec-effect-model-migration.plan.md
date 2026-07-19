@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 post-binds and reads back the shared runtime and lazy-builtin Domain principals after focused Windows evidence proved the package wrapper/callback correct and isolated root drift to the process.env deputy boundary)
 **Revised:** 2026-07-19 (ENG-24933 retains the failed physical Windows write-only Domain bind as refusal evidence, makes binding/readback fail closed, and adds focused wrapper-versus-exported-callback evidence before another full matrix)
 **Revised:** 2026-07-18 (ENG-24933 makes the trusted CommonJS Domain binder stamp package attribution together with its compartment after physical Windows source-bootstrap evidence exposed a root-principal fallback)
 **Revised:** 2026-07-18 (ENG-24933 authenticates Windows package inventories and source bytes through pinned NT root-relative handles, with reparse refusal and exact two-pass comparison)
@@ -1893,13 +1894,20 @@ startup callback still reported root principal `0`. That refusal disproves the
 write-only convergence claim. The binder now validates all inputs and retained
 engine state, stamps the registered package principal, returns the Domain's
 post-bind ID, and the loader rejects any mismatch before executing package code.
-A focused smoke separately observes the CommonJS wrapper's initialization and
-the function it exports; both must retain the package principal before another
-complete matrix is authoritative. The creation-time pending label remains in
-place for eval inheritance and defense in depth. The nine Apple
+A focused physical smoke then proved that both the CommonJS wrapper's
+initialization and the function it exports retain the package principal. The
+same callback's immediately following `process.env` read nevertheless recorded
+root as the decision actor, isolating the remaining drift to the trusted deputy
+Domain rather than package compilation or closure lifetime. The private binder
+now permits principal-only binding for non-compartmented units: shared-runtime
+bootstrap binds and reads back its Domain through the retained `process.cwd`
+function, while the module loader binds and reads back lazy builtin functions as
+runtime principal `0xFFFFFFFF`. Package modules still supply their authenticated
+compartment. The creation-time pending label remains in place for eval
+inheritance and defense in depth. The nine Apple
 startup-environment recipes and all 2,698 Apple callback-invariant fixtures pass
-with the shared identity binding; Windows must still repeat the physical batches
-before either repair can contribute evidence.
+with the shared identity binding; Windows must still repeat the focused physical
+probe and complete batches before this deputy repair can contribute evidence.
 A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not

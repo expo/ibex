@@ -4,18 +4,19 @@
 #
 # The trusted CommonJS loader already binds each freshly compiled package
 # function's Domain to its authenticated compartment after `new Function`.
-# Extend that same private, boot-sealed binder to stamp and read back the package
-# principal directly on the Domain, refusing invalid functions, compartments,
-# principals, or missing RuntimeModule/Domain state. The existing pending path
-# remains the creation-time mechanism and the eval/Function inheritance
-# substrate, while this post-compile binding makes the module invariant explicit
-# on source and HBC bootstrap profiles alike: compartment and principal describe
-# the same authenticated package Domain.
+# Extend that same private, boot-sealed binder to stamp and read back the
+# authenticated principal directly on the Domain, refusing invalid functions,
+# principals, or missing RuntimeModule/Domain state. A compartment object is
+# required by the trusted loader for package modules but optional for root and
+# runtime-deputy units, whose Domains still need exact post-compile principal
+# binding on source profiles. The existing pending path remains the creation-time
+# mechanism and the eval/Function inheritance substrate, while this retained-
+# function bind makes the module invariant explicit on source and HBC profiles.
 diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
-index 792a8df67..c911e7fab 100644
+index 792a8df67..6852f0367 100644
 --- a/lib/VM/JSLib/GlobalObject.cpp
 +++ b/lib/VM/JSLib/GlobalObject.cpp
-@@ -35,27 +35,47 @@ namespace hermes {
+@@ -35,27 +35,52 @@ namespace hermes {
  namespace vm {
  
  /// @ref LLP 0013#mechanism-2 — (Phase 3) — bind a compartment global to a
@@ -25,12 +26,13 @@ index 792a8df67..c911e7fab 100644
 -/// package's code (and any function it defines, which shares the Domain) resolve
 -/// through `obj` instead of the real global. A no-op for native callees (no
 -/// CodeBlock) — the loader only ever passes a freshly compiled JSFunction.
-+/// compiled function's Domain. __exactSetCompartmentFor(fn, obj, packageId):
-+/// after the loader compiles a package's module body (`new Function(...)`), it
-+/// calls this to bind that Domain's compartment global and package principal as
-+/// one invariant. Invalid functions, compartments, principals, or missing
-+/// RuntimeModule/Domain state fail closed. The returned numeric id is the
-+/// post-bind readback the loader must verify. @ref LLP 0013#mechanism-3
++/// compiled function's Domain. __exactSetCompartmentFor(fn, objOrNull,
++/// packageId): after trusted bootstrap compiles a retained function, it calls
++/// this to bind that Domain's authenticated principal and, for package modules,
++/// its compartment global as one invariant. Invalid functions, supplied
++/// compartments, principals, or missing RuntimeModule/Domain state fail closed.
++/// The returned numeric id is the post-bind readback the caller must verify.
++/// @ref LLP 0013#mechanism-3
  CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime) {
    NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
    JSFunction *fn = dyn_vmcast<JSFunction>(args.getArg(0));
@@ -50,37 +52,41 @@ index 792a8df67..c911e7fab 100644
 +  if (!fn)
 +    return runtime.raiseTypeError(
 +        "Package Domain binding requires a compiled JS function");
-+  if (!obj)
++  if (!args.getArg(1).isNull() && !args.getArg(1).isUndefined() && !obj)
 +    return runtime.raiseTypeError(
-+        "Package Domain binding requires a compartment object");
++        "Domain binding compartment must be an object or null");
 +  if (!packageId.isNumber())
 +    return runtime.raiseTypeError(
-+        "Package Domain binding requires a numeric principal");
++        "Domain binding requires a numeric principal");
 +  double value = packageId.getNumber();
 +  if (value != value || value < 0.0 || value > 4294967295.0 ||
 +      static_cast<double>(static_cast<uint32_t>(value)) != value)
 +    return runtime.raiseTypeError(
-+        "Package Domain binding principal must be a uint32");
++        "Domain binding principal must be a uint32");
 +  RuntimeModule *rm = fn->getRuntimeModule();
 +  if (!rm)
 +    return runtime.raiseTypeError(
-+        "Package Domain binding requires a RuntimeModule");
++        "Domain binding requires a RuntimeModule");
 +  Domain *domain = rm->getDomainUnsafe(runtime);
 +  if (!domain)
 +    return runtime.raiseTypeError(
-+        "Package Domain binding requires a live Domain");
++        "Domain binding requires a live Domain");
 +  uint32_t id = static_cast<uint32_t>(value);
-+  domain->setCompartmentGlobal(runtime, obj);
++  if (obj) {
++    domain->setCompartmentGlobal(runtime, obj);
++    // Arm the interpreter's compartment fast-path guard only when a package
++    // compartment was actually supplied. Root/runtime deputies need principal
++    // binding without acquiring a compartment global.
++    runtime.markCompartmentActive();
++  }
 +  domain->setPackageId(id);
-+  // Arm the interpreter's compartment fast-path guard.
-+  runtime.markCompartmentActive();
 +  if (domain->getPackageId() != id)
-+    return runtime.raiseTypeError("Package Domain principal readback failed");
++    return runtime.raiseTypeError("Domain principal readback failed");
 +  return HermesValue::encodeTrustedNumberValue(domain->getPackageId());
  }
  
  /// @ref LLP 0013#mechanism-1 — (Phase 3) — native shallow freeze primitive.
-@@ -892,7 +912,7 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
+@@ -892,7 +917,7 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
        runtime.getIdentifierTable().registerLazyIdentifier(
            runtime, createASCIIRef("__exactSetCompartmentFor")),
        exactSetCompartmentFor,

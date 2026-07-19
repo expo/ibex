@@ -147,6 +147,51 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
     return false;
   }
 
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // @ref LLP 0013#mechanism-3 — the shared bundle's process.env Proxy and
+  // builtin wrappers are trusted deputies, so their Domain must be transparent
+  // to frame attribution. Bind and read back the retained Process::cwd method's
+  // RuntimeModule after evaluation; every function compiled in the bundle
+  // shares that Domain. This closes the Windows source-profile gap where the
+  // creation-time pending label reported success but deputy host calls still
+  // observed root. The binder remains private bootstrap authority and is sealed
+  // before user code can run.
+  try {
+    auto binderValue = rt.global().getProperty(rt, "__exactSetCompartmentFor");
+    auto processValue = rt.global().getProperty(rt, "process");
+    if (!binderValue.isObject() ||
+        !binderValue.asObject(rt).isFunction(rt) ||
+        !processValue.isObject()) {
+      reportStartupFailure(
+          handle, "Shared runtime bundle", "Domain binder or process anchor is unavailable");
+      return false;
+    }
+    auto anchorValue = processValue.asObject(rt).getProperty(rt, "cwd");
+    if (!anchorValue.isObject() || !anchorValue.asObject(rt).isFunction(rt)) {
+      reportStartupFailure(
+          handle, "Shared runtime bundle", "process.cwd Domain anchor is unavailable");
+      return false;
+    }
+    auto bound = binderValue.asObject(rt).asFunction(rt).call(
+        rt,
+        anchorValue.asObject(rt).asFunction(rt),
+        facebook::jsi::Value::null(),
+        facebook::jsi::Value(static_cast<double>(kRuntimePrincipalId)));
+    if (!bound.isNumber() ||
+        bound.asNumber() != static_cast<double>(kRuntimePrincipalId)) {
+      reportStartupFailure(
+          handle, "Shared runtime bundle", "runtime-principal Domain readback mismatch");
+      return false;
+    }
+  } catch (const facebook::jsi::JSError& err) {
+    reportStartupFailure(handle, "Shared runtime bundle Domain binding", err.getMessage());
+    return false;
+  } catch (const std::exception& err) {
+    reportStartupFailure(handle, "Shared runtime bundle Domain binding", err.what());
+    return false;
+  }
+#endif
+
   try {
     auto loaded = rt.global().getProperty(rt, "__exactRuntimeLoaded");
     bool installed = loaded.isBool() && loaded.getBool();

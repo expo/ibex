@@ -263,20 +263,22 @@
         __privSetPendingPackageId(-1);
       }
     }
-    // @ref LLP 0013#mechanism-2 — (Phase 3) — bind this package's compartment to
-    // the fresh Domain the compile created, so its bare-global references
-    // resolve natively through the compartment. No-op for root/builtins.
-    if (compartment) {
-      if (!__privSetCompartmentFor) {
-        throw new Error('Cannot bind package Domain without the native compartment binder');
-      }
-      // Bind the authenticated package principal and its compartment as one
-      // Domain invariant after compilation. The pending label remains the
-      // creation-time path; this retained-function bind makes source and HBC
-      // bootstrap profiles converge. @ref LLP 0013#mechanism-3
-      var boundPrincipal = __privSetCompartmentFor(fn, compartment, packagePrincipal);
+    // @ref LLP 0013#mechanism-2 — (Phase 3) — bind a package compartment to the
+    // fresh Domain so its bare globals resolve through that compartment. A
+    // present compartment makes the native binder mandatory.
+    if (compartment && !__privSetCompartmentFor) {
+      throw new Error('Cannot bind package Domain without the native compartment binder');
+    }
+    if (__privSetCompartmentFor) {
+      // Bind and read back every retained module function's authenticated
+      // principal, including non-compartmented runtime/builtin deputies. The
+      // pending label remains the creation-time path; the exact post-compile
+      // bind keeps source and HBC profiles convergent even when a source-profile
+      // Domain consumed or inherited the wrong pending label.
+      // @ref LLP 0013#mechanism-3
+      var boundPrincipal = __privSetCompartmentFor(fn, compartment || null, packagePrincipal);
       if (boundPrincipal !== packagePrincipal) {
-        throw new Error('Package Domain principal readback mismatch');
+        throw new Error('Module Domain principal readback mismatch');
       }
     }
     return fn;
