@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_116);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_010);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_106);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_973);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_143);
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
@@ -213,7 +213,7 @@ describe("exact-target CapSec executable recipes", () => {
           "public-surface-filesystem-not-typed-on-target",
         ),
     );
-    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(134);
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(129);
     expect(
       unsupportedWindowsFilesystemRecipes.every(
         (recipe) =>
@@ -251,6 +251,73 @@ describe("exact-target CapSec executable recipes", () => {
           "__exactTcpConnect",
       ),
     ).toHaveLength(0);
+    const windowsExcludedDefaultGlobals = new Set([
+      "__exactAesCbcDecrypt",
+      "__exactAesCbcEncrypt",
+      "__exactAesCtrEncrypt",
+      "__exactAesGcmDecrypt",
+      "__exactAesGcmEncrypt",
+      "__exactBrotliCompressSync",
+      "__exactBrotliDecompressSync",
+      "__exactBytesToUtf8String",
+      "__exactEcdhDeriveBits",
+      "__exactEcdsaSign",
+      "__exactEcdsaVerify",
+      "__exactEd25519Sign",
+      "__exactEd25519Verify",
+      "__exactEvpCipherDecrypt",
+      "__exactEvpCipherEncrypt",
+      "__exactExportKeyPkcs8",
+      "__exactExportKeySpki",
+      "__exactFsCloseAsync",
+      "__exactGenerateKeyPairSync",
+      "__exactGetProcessRSS",
+      "__exactHkdf",
+      "__exactImportKeyPkcs8",
+      "__exactImportKeySpki",
+      "__exactPbkdf2",
+      "__exactPerformanceNow",
+      "__exactPerformanceTimeOrigin",
+      "__exactRsaOaepDecrypt",
+      "__exactRsaOaepEncrypt",
+      "__exactScryptSync",
+      "__exactSignSync",
+      "__exactSignalNumbers",
+      "__exactVerifySync",
+      "__exactX25519DeriveBits",
+    ]);
+    const windowsExcludedDefaultRecipes = windowsRecipes.recipes.filter(
+      (recipe) => {
+        const globalName = recipe.terminalObservedKey.replace(
+          "native-op:",
+          "",
+        );
+        return (
+          windowsExcludedDefaultGlobals.has(globalName) &&
+          (globalName === "__exactGetProcessRSS"
+            ? [
+                "allow",
+                "deny",
+                "malformed",
+                "missing-attribution",
+                "wrong-principal",
+              ].includes(recipe.scenario)
+            : recipe.scenario === "non-capability")
+        );
+      },
+    );
+    expect(windowsExcludedDefaultGlobals.size).toBe(33);
+    expect(windowsExcludedDefaultRecipes).toHaveLength(37);
+    expect(
+      windowsExcludedDefaultRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            "native-public-operation-not-installed-on-target",
+          ),
+      ),
+    ).toBe(true);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );

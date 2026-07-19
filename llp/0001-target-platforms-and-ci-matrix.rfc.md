@@ -10,6 +10,7 @@
 execution to evidence-gated macOS arm64 and Linux x64; this RFC's broader
 matrix remains the product ambition and build-visibility plan, not a 0.2
 execution advertisement)
+**Revised:** 2026-07-18 (exact-target recipe generation now intersects source-discovered native registrations with the Windows translation units selected by `build.rs`)
 **Revised:** 2026-07-17 (ENG-24933 adds a pinned patched no-debugger Windows Hermes source build/release bundle pipeline and independent loaded-DLL volume/file identity; Windows remains compatibility-only pending remote artifact and conformance evidence)
 **Revised:** 2026-07-15 (ENG-25066 advertises the native module runner on exact macOS arm64 and Linux x64 targets while retaining Windows as an explicit compatibility-only row until a matching patched Hermes artifact exists); 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
@@ -81,6 +82,16 @@ and platform-version globals for the JS runtime `[observed]` (`build.rs`;
 `src/engine/native_android_networking.cc`;
 `src/engine/hermes_runtime_android.cc`;
 `platform/android/java/dev/ibex/runtime/IbexNetworking.java`).
+
+The Windows build substitutes its filesystem, crypto, DNS, process, network,
+OS-info, debugger, and process-setup translation units for the corresponding
+default backend files `[observed]` (`build.rs`). Source discovery intentionally
+retains registrations from every implementation, but exact-target recipe
+generation must intersect those registrations with this build selection. A
+global found only in an excluded default translation unit is not callable
+Windows evidence; the current intersection keeps 37 recipes spanning 33 such
+globals residual under `native-public-operation-not-installed-on-target`.
+Globals with an actual Windows installation branch remain eligible.
 
 ## 2. The axes that matter beyond OS
 

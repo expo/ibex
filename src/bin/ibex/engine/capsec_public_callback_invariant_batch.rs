@@ -2303,7 +2303,15 @@ async fn capsec_public_callback_invariant_batch() {
         "x86_64-pc-windows-msvc" => 507,
         target => panic!("callback invariant batch has no reviewed target shape for {target}"),
     };
-    assert_eq!(recipes.len(), target_wide_scenario_count * 4 + 682);
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — keep the runtime evidence batch pinned to the same exact source-derived scenario shape as the recipe generator.
+    let authority_scenario_count = 382;
+    let non_capability_scenario_count = 8;
+    assert_eq!(
+        recipes.len(),
+        target_wide_scenario_count * 4
+            + authority_scenario_count * 2
+            + non_capability_scenario_count
+    );
     assert_eq!(
         by_scenario.get("attribution-missing-deny"),
         Some(&target_wide_scenario_count)
@@ -2320,9 +2328,18 @@ async fn capsec_public_callback_invariant_batch() {
         by_scenario.get("snapshot-mismatch-deny"),
         Some(&target_wide_scenario_count)
     );
-    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&337));
-    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&337));
-    assert_eq!(by_scenario.get("non-capability"), Some(&8));
+    assert_eq!(
+        by_scenario.get("cannot-widen-authority"),
+        Some(&authority_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("post-lockdown-invariant"),
+        Some(&authority_scenario_count)
+    );
+    assert_eq!(
+        by_scenario.get("non-capability"),
+        Some(&non_capability_scenario_count)
+    );
     let (branches, edges) = checked_registry_rows();
     for recipe in &recipes {
         validate_recipe_source_binding(recipe, &branches, &edges);

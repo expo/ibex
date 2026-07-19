@@ -35,6 +35,40 @@ const taggedDigest = (value) =>
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
+// @ref LLP 0001#current-buildrs-support-honest-status — Windows replaces these default backend translation units with target-specialized implementations, so a default-only registration is not installed on that target.
+const WINDOWS_EXCLUDED_NATIVE_IMPLEMENTATION_SOURCES = new Set([
+  "src/engine/hermes_runtime_crypto.cc",
+  "src/engine/hermes_runtime_debugger.cc",
+  "src/engine/hermes_runtime_dns.cc",
+  "src/engine/hermes_runtime_fs.cc",
+  "src/engine/hermes_runtime_net.cc",
+  "src/engine/hermes_runtime_osinfo.cc",
+  "src/engine/hermes_runtime_process.cc",
+  "src/engine/hermes_runtime_process_setup.cc",
+]);
+
+function nativePublicOperationIsExcludedOnWindows({ live, target }) {
+  if (target.triple !== "x86_64-pc-windows-msvc") return false;
+  if (live?.metadata?.publicInvocation?.kind !== "native-global-function") {
+    return false;
+  }
+  const installationBranches = live?.metadata?.installationBranches;
+  return (
+    Array.isArray(installationBranches) &&
+    installationBranches.length > 0 &&
+    installationBranches.every(
+      (branch) =>
+        Array.isArray(branch.sourceRefs) &&
+        branch.sourceRefs.length > 0 &&
+        branch.sourceRefs.every((sourceRef) =>
+          WINDOWS_EXCLUDED_NATIVE_IMPLEMENTATION_SOURCES.has(
+            sourceRef.split("#", 1)[0],
+          ),
+        ),
+    )
+  );
+}
+
 const FIXTURE_SCENARIOS = [
   "attribution-missing-deny",
   "malformed-branch-facts",
@@ -3150,6 +3184,15 @@ function nativePublicProbeForPlan({
     return { probe: null, unavailableReason: null };
   }
   const live = liveByObservedKey.get(surfaceObservedKey);
+  if (
+    !targetAbsence &&
+    nativePublicOperationIsExcludedOnWindows({ live, target })
+  ) {
+    return {
+      probe: null,
+      unavailableReason: "native-public-operation-not-installed-on-target",
+    };
+  }
   const invocation = live?.metadata?.publicInvocation;
   const readDescriptor = targetAbsence
     ? null
