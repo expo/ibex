@@ -478,7 +478,8 @@ function validateProductSemanticExtension(routes) {
     operationIds: [...PRODUCT_SELECTED_METADATA_OPERATION_IDS],
     publicInstallDisposition: "absent",
     embeddedCodecDisposition: "absent",
-    capsecDisposition: "unsupported-no-registry-edge",
+    capsecDisposition:
+      "construction-private-source-derived-cells-public-closed",
   });
 }
 
@@ -540,6 +541,8 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
       scopeId: payload.scopeId,
       operationCount: routes.length,
       operationIds: routeIds,
+      capsecDisposition:
+        "construction-private-source-derived-cells-public-closed",
     },
     stagedWorkloadClosure,
     productSemanticExtension,
