@@ -22,6 +22,10 @@ import { WEBGPU_OBJECT_KIND_TAGS } from './production-codecs.generated';
 import { EventTarget } from '../events/EventTarget';
 
 type ProductionRoute = (typeof WEBGPU_PRODUCTION_PLAN.routes)[number];
+type ProductionGpuAllocatedWrapperKind = Exclude<
+  ProductionGpuWrapperKind,
+  'GPUExternalTexture'
+>;
 
 type ServiceSubmissionFailureKind =
   | 'bridge-threw'
@@ -34,7 +38,9 @@ const ROUTES_BY_WIRE = new Map<number, ProductionRoute>(
   WEBGPU_PRODUCTION_PLAN.routes.map((route) => [route.wireId, route]),
 );
 
-const OBJECT_KINDS: Readonly<Record<ProductionGpuWrapperKind, number>> =
+const OBJECT_KINDS: Readonly<
+  Record<ProductionGpuAllocatedWrapperKind, number>
+> =
   WEBGPU_OBJECT_KIND_TAGS;
 
 // Capture trusted realm intrinsics before app code can replace the writable
@@ -89,7 +95,7 @@ type CanvasContextLifecycle =
 
 interface WrapperState {
   readonly realm: RealmState;
-  readonly kind: ProductionGpuWrapperKind;
+  readonly kind: ProductionGpuAllocatedWrapperKind;
   readonly objectId: string;
   readonly objectGeneration: string;
   readonly wrapper: object;
@@ -149,7 +155,9 @@ interface PendingPromiseCall {
 interface RealmState {
   readonly bridge: NativeGpuBridgeV2;
   readonly codecs: ExecutableWebGpuCodecBundle;
-  readonly prototypes: Readonly<Record<ProductionGpuWrapperKind, object>>;
+  readonly prototypes: Readonly<
+    Record<ProductionGpuAllocatedWrapperKind, object>
+  >;
   readonly wrappers: WeakMap<object, WrapperState>;
   readonly devices: Map<string, DeviceState>;
   readonly hostCanvasContextsByIdentity: Map<string, WrapperState>;
@@ -591,10 +599,14 @@ function createReadonlyFeatureSet(
   return Object.freeze(result);
 }
 
-function createPrototypeTable(): Record<ProductionGpuWrapperKind, object> {
+function createPrototypeTable(): Record<
+  ProductionGpuAllocatedWrapperKind,
+  object
+> {
   return {
     GPU: Object.create(null),
     GPUAdapter: Object.create(null),
+    GPUBindGroup: Object.create(null),
     GPUBindGroupLayout: Object.create(null),
     GPUBuffer: Object.create(null),
     GPUPipelineLayout: Object.create(null),
@@ -1035,7 +1047,7 @@ export function createProductionWebGpuPrivateBinding(
   };
 
   const allocateWrapper = (
-    kind: ProductionGpuWrapperKind,
+    kind: ProductionGpuAllocatedWrapperKind,
     device: DeviceState | undefined,
     identity?: Readonly<{ objectId: string; objectGeneration: string }>,
   ): WrapperState => {
@@ -1645,7 +1657,7 @@ export function createProductionWebGpuPrivateBinding(
 
   const materializeObject = (
     decoded: ProductionGpuDecodedResult,
-    expectedKind: ProductionGpuWrapperKind,
+    expectedKind: ProductionGpuAllocatedWrapperKind,
     nullable: boolean,
   ): object | null | unknown => {
     if (decoded.kind === 'null') {
@@ -1679,14 +1691,14 @@ export function createProductionWebGpuPrivateBinding(
           'GPUAdapter result lacks authenticated exposed features',
         );
       }
+      const knownFeatureNames: readonly string[] =
+        WEBGPU_PRODUCTION_PLAN.webIdlVocabulary.gpuFeatureNames;
       const adapterFeatureNames = normalizeFeatureNames(identity.features);
       if (
         identity.features.some(
           (feature, index) =>
             typeof feature !== 'string' ||
-            !WEBGPU_PRODUCTION_PLAN.webIdlVocabulary.gpuFeatureNames.includes(
-              feature,
-            ) ||
+            !knownFeatureNames.includes(feature) ||
             adapterFeatureNames[index] !== feature,
         ) ||
         adapterFeatureNames.length !== identity.features.length
@@ -1772,7 +1784,7 @@ export function createProductionWebGpuPrivateBinding(
   const decodePromiseObject = (
     operationId: string,
     promise: Promise<ProductionGpuDecodedResult>,
-    expectedKind: ProductionGpuWrapperKind,
+    expectedKind: ProductionGpuAllocatedWrapperKind,
     nullable = false,
   ): Promise<unknown> =>
     promise.then((decoded) => materializeObject(decoded, expectedKind, nullable));
