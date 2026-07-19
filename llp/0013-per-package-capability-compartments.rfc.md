@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-19 (ENG-24933 traces the physical Windows deputy stack to `0,1,0`, identifies the Windows-only second disk evaluation that replaced the authenticated native-bootstrap bundle as root, and makes every platform reuse a successfully installed native bundle)
 **Revised:** 2026-07-19 (ENG-24933 materializes the exact process.env deputy call chain with an inaccessible no-I/O sentinel before binding after physical Windows accepted every retained anchor readback but still replaced or bypassed those pre-execution Domains on first use)
 **Revised:** 2026-07-19 (ENG-24933 replaces the insufficient single process.cwd shared-runtime anchor with a bootstrap-only exact process.env deputy-function list after physical Windows proved source bootstrap creates multiple lazy Domains inside the bundle)
 **Revised:** 2026-07-19 (ENG-24933 extends exact retained-function Domain binding/readback to the shared runtime bundle and non-compartmented builtin deputies after physical Windows proved the package wrapper and callback correct but the immediately following process.env deputy call root-attributed)
@@ -1330,20 +1331,24 @@ currently compatibility routing and defense in depth on top of it:
   the CommonJS wrapper and its exported callback both carried the package
   principal, but the immediately following `process.env` deputy call observed
   root. A second physical Windows run accepted a retained `process.cwd` Domain
-  bind/readback but still root-attributed the environment decision, proving that
-  source bootstrap creates multiple lazy Domains inside the bundle. The bundle
+  bind/readback but still root-attributed the environment decision. The bundle
   therefore publishes the exact `process.env` Proxy trap and helper functions to
   the already-reviewed private shared-runtime marker as a bootstrap-only anchor
   list; native startup binds and reads back every listed Domain, then restores
   the marker to its ordinary boolean before package code runs. Lazy builtin
   functions go through the same exact binder. A third physical Windows run
   accepted the non-empty exact anchor list and all readbacks but still observed
-  root on first package use, showing that retained pre-execution function state
-  is not sufficient for source-lazy Domains. `createEnvProxy` now drives the
-  exact get/resolve/native-helper chain once with an inaccessible local `Symbol`
-  sentinel that returns before any native environment call; native startup then
-  binds the materialized Domains. This revision still
-  requires a physical rerun before convergence can be claimed. This closes channel #2
+  root on first package use. A conformance-only native stack trace then recorded
+  `0,1,0` for the failing Windows call versus `1,0` for the same source-profile
+  call locally, while naming the inner helpers from the disk-loaded vendored
+  bundle. The cause was above Hermes: after native bootstrap had installed and
+  authenticated the source bundle, `HermesEngine::load_runtime` hard-coded the
+  Windows installed probe to false and evaluated that disk bundle a second time
+  as root, replacing `process.env` and its retained helpers. Windows now runs the
+  same installed-bundle probe as every other platform and reuses the native
+  bundle; the speculative no-I/O materialization warmup was removed. This
+  revision still requires a physical rerun before convergence can be claimed.
+  This closes channel #2
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
   rewrite never touches. Tested by
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.

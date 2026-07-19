@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 captures the physical Windows environment stack as `0,1,0`, identifies the Windows-only root-attributed second disk evaluation that replaced the authenticated native-bootstrap bundle, and makes Windows reuse the installed native bundle)
 **Revised:** 2026-07-19 (ENG-24933 materializes the exact process.env deputy call chain with an inaccessible no-I/O sentinel before Domain binding after physical Windows accepted every retained anchor readback but still root-attributed first use)
 **Revised:** 2026-07-19 (ENG-24933 replaces the insufficient single process.cwd shared-runtime anchor with exact bootstrap-only process.env deputy anchors after physical Windows proved multiple lazy source Domains)
 **Revised:** 2026-07-19 (ENG-24933 post-binds and reads back the shared runtime and lazy-builtin Domain principals after focused Windows evidence proved the package wrapper/callback correct and isolated root drift to the process.env deputy boundary)
@@ -1915,12 +1916,17 @@ bootstrap-only anchor list; native startup binds and reads back each Domain as
 runtime principal, then restores the marker to its ordinary boolean before
 package code can run. A third focused physical Windows run accepted the
 non-empty anchor list and every exact readback yet still root-attributed both
-environment probes on first use. The remaining difference is therefore after
-retention but before execution; source-lazy function materialization can replace
-or bypass the retained pre-execution Domain. `createEnvProxy` now executes the
-exact get/resolve/native-helper chain once with an inaccessible local `Symbol`
-sentinel that returns before any native environment call, and native startup
-binds the resulting materialized Domains. The creation-time pending label remains in place for eval
+environment probes on first use. A conformance-only native trace recorded the
+failing Windows call as principals `0,1,0` through
+`getNativeValue`/`resolveValue`/the Proxy `get` trap, while the same physical
+source-profile call locally was `1,0`. Its stack URL named the disk-loaded
+vendored bundle rather than the native-bootstrap source unit. Inspection then
+found the exact overwrite: `HermesEngine::load_runtime` hard-coded
+`already_installed` to false on Windows, so it evaluated the vendored bundle a
+second time as root after native startup had already installed and authenticated
+the first copy. Windows now runs the existing installed-bundle probe and reuses
+the native copy, matching every other platform; the disproven materialization
+warmup was removed. The creation-time pending label remains in place for eval
 inheritance and defense in depth. The nine Apple
 startup-environment recipes and all 2,698 Apple callback-invariant fixtures pass
 with the shared identity binding; Windows must still repeat the focused physical

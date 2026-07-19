@@ -2121,21 +2121,20 @@ impl Engine for HermesEngine {
         self.maybe_enable_debugger().await?;
         self.ensure_runtime().await?;
 
-        let already_installed = if cfg!(windows) {
-            false
-        } else {
-            if trace_startup {
-                eprintln!("[startup] runtime_bundle_installed_probe_start");
-            }
-            let already_installed = self.runtime_bundle_installed().await?;
-            if trace_startup {
-                eprintln!(
-                    "[startup] runtime_bundle_installed_probe_end installed={}",
-                    already_installed
-                );
-            }
-            already_installed
-        };
+        // @ref LLP 0013#mechanism-3 — native bootstrap owns the authenticated
+        // runtime-deputy Domains on every platform. In particular, Windows
+        // must reuse that installed source bundle rather than evaluating the
+        // disk fallback a second time as root and replacing process.env.
+        if trace_startup {
+            eprintln!("[startup] runtime_bundle_installed_probe_start");
+        }
+        let already_installed = self.runtime_bundle_installed().await?;
+        if trace_startup {
+            eprintln!(
+                "[startup] runtime_bundle_installed_probe_end installed={}",
+                already_installed
+            );
+        }
         if already_installed {
             self.seal_armed_shared_runtime_globals().await?;
             finalize_compartment_baseline(self).await?;
