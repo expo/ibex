@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 authenticates Windows package inventories and source bytes through pinned NT root-relative handles, with reparse refusal and exact two-pass comparison)
 **Revised:** 2026-07-18 (ENG-24933 source-binds the installed Windows fsync/fdatasync globals and keeps their legacy-gated branches residual instead of falsely proving target absence)
 **Revised:** 2026-07-18 (ENG-24933 binds callback-invariant batch cardinality to each target's build-filtered source surface instead of retaining the pre-filter shared count)
 **Revised:** 2026-07-18 (ENG-24933 keeps target-absence evidence free of callable-only argument setup, worker, and cleanup terminals)
@@ -1874,9 +1875,16 @@ because that harness still armed a synthetic Windows volume/file identity while
 module traversal revalidated the real NTFS directory. Startup-environment and
 callback-invariant package fixtures now derive their identities through the
 same production cross-platform object-identity function used by arming and
-traversal. The nine Apple startup-environment recipes and all 2,698 Apple
-callback-invariant fixtures pass with that binding; Windows must still repeat
-the physical batches before the result can contribute evidence.
+traversal. The next Windows attempt again completed all 434 native fixtures and
+accepted that real root identity, exposing the next honest portability gap:
+armed package reauthentication had descriptor-relative traversal only on Unix.
+Windows now pins the authenticated NTFS root, opens each inventory component
+relative to its retained parent handle with reparse traversal disabled, reads
+source bytes from that same retained object, and requires two exact inventory
+passes. The nine Apple startup-environment recipes and all 2,698 Apple
+callback-invariant fixtures pass with the shared identity binding; Windows must
+still repeat the physical batches before the new traversal can contribute
+evidence.
 A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not

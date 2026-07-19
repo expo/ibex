@@ -3577,7 +3577,7 @@ fn authenticated_source_beneath_binding(
 }
 
 #[cfg(windows)]
-fn windows_handle_is_reparse_point(file: &std::fs::File) -> anyhow::Result<bool> {
+pub(crate) fn windows_handle_is_reparse_point(file: &std::fs::File) -> anyhow::Result<bool> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         FileAttributeTagInfo, GetFileInformationByHandleEx, FILE_ATTRIBUTE_REPARSE_POINT,
@@ -3601,7 +3601,7 @@ fn windows_handle_is_reparse_point(file: &std::fs::File) -> anyhow::Result<bool>
 }
 
 #[cfg(windows)]
-fn open_windows_component_beneath(
+pub(crate) fn open_windows_component_beneath(
     parent: &std::fs::File,
     component: &std::ffi::OsStr,
     final_file: bool,
