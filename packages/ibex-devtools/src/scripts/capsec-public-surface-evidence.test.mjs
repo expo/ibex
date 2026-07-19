@@ -925,7 +925,9 @@ function completeClosedSqliteCrSqliteCatalog() {
   return catalog;
 }
 
-function completeClosedDebuggerAbiCatalog() {
+function completeClosedDebuggerAbiCatalog({
+  targetTriple = "aarch64-apple-darwin",
+} = {}) {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
   const functionName = "ex_hermes_debugger_eval";
@@ -937,8 +939,10 @@ function completeClosedDebuggerAbiCatalog() {
     kind: "closed-debugger-abi",
     surfaceObservedKey: `host-abi:${functionName}`,
     functionName,
-    selectedSourceRef: defaultSourceRef,
-    targetTriple: "aarch64-apple-darwin",
+    selectedSourceRef: targetTriple.includes("-windows-")
+      ? windowsSourceRef
+      : defaultSourceRef,
+    targetTriple,
     sourceRefs: [defaultSourceRef, windowsSourceRef],
     sourceMetadata: {
       alternatives: [
@@ -1018,6 +1022,7 @@ function completeClosedDebuggerAbiCatalog() {
 
 function completeClosedSharedRuntimeGlobalCatalog({
   sharedRuntime = false,
+  targetTriple = "aarch64-apple-darwin",
 } = {}) {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -1036,7 +1041,7 @@ function completeClosedSharedRuntimeGlobalCatalog({
     surfaceObservedKey: `native-op:${surfaceName}`,
     globalName,
     ...(memberName === null ? {} : { memberName }),
-    targetTriple: "aarch64-apple-darwin",
+    targetTriple,
     sourceRefs: [sourceRef],
     sourceMetadata: {
       branches: [
@@ -1096,6 +1101,7 @@ function completeClosedArmedNativeGlobalCatalog({
   arity = 1,
   targetVariant = "default",
   sourcePath = "src/engine/hermes_runtime.cc",
+  targetTriple = "aarch64-apple-darwin",
 } = {}) {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -1110,7 +1116,7 @@ function completeClosedArmedNativeGlobalCatalog({
     kind: "closed-armed-native-global-absence",
     surfaceObservedKey: `native-op:${globalName}`,
     globalName,
-    targetTriple: "aarch64-apple-darwin",
+    targetTriple,
     sourceRefs,
     sourceMetadata: {
       exportName: globalName,
@@ -1159,6 +1165,7 @@ function completeClosedArmedWorkletGlobalCatalog({
   globalName,
   memberName = null,
   sourceKey,
+  targetTriple = "aarch64-apple-darwin",
 } = {}) {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
@@ -1200,7 +1207,7 @@ function completeClosedArmedWorkletGlobalCatalog({
     surfaceObservedKey: `native-op:${surfaceName}`,
     globalName,
     ...(memberName === null ? {} : { memberName }),
-    targetTriple: "aarch64-apple-darwin",
+    targetTriple,
     sourceRefs,
     sourceMetadata,
   };
@@ -2713,6 +2720,19 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).not.toThrow();
 
+    const windowsCatalog = completeClosedDebuggerAbiCatalog({
+      targetTriple: "x86_64-pc-windows-msvc",
+    });
+    const windowsRecipe = windowsCatalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: windowsRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(windowsRecipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
     const wrongTarget = structuredClone(recipe);
     wrongTarget.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple =
       "x86_64-pc-windows-msvc";
@@ -2778,6 +2798,24 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).not.toThrow();
 
+    const windowsSharedRuntimeCatalog =
+      completeClosedSharedRuntimeGlobalCatalog({
+        sharedRuntime: true,
+        targetTriple: "x86_64-pc-windows-msvc",
+      });
+    const windowsSharedRuntimeRecipe =
+      windowsSharedRuntimeCatalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: windowsSharedRuntimeRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(
+          windowsSharedRuntimeRecipe,
+        ),
+        coverage,
+      }),
+    ).not.toThrow();
+
     const wrongRoute = structuredClone(recipe);
     wrongRoute.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches[0].route =
       "shared-runtime";
@@ -2814,6 +2852,19 @@ describe("CapSec public-surface promotion evidence", () => {
         recipe,
         engineBinaryDigest: engine.binaryDigest,
         runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const windowsCatalog = completeClosedArmedNativeGlobalCatalog({
+      targetTriple: "x86_64-pc-windows-msvc",
+    });
+    const windowsRecipe = windowsCatalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: windowsRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(windowsRecipe),
         coverage,
       }),
     ).not.toThrow();

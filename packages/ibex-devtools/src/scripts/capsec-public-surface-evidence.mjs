@@ -45,6 +45,10 @@ const NORMAL_RETURN_DISPATCH_KINDS = new Map([
   ["stream-owner", "prototype-call"],
   ["zlib-owner", "prototype-call"],
 ]);
+const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]);
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
 // dispatcher remains the public surface, while typed evidence must select its
 // exact source-chosen worker or retained-object gate rather than any allowed
@@ -1519,6 +1523,9 @@ function validateRuntimeInvocation(observation, recipe) {
         `src/engine/hermes_runtime_debugger.cc#${functionName}`;
       const windowsSourceRef =
         `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+      const selectedSourceRef = descriptor.targetTriple.includes("-windows-")
+        ? windowsSourceRef
+        : defaultSourceRef;
       const expectedSurfaceName =
         authored.surfaceKind === "host-abi"
           ? functionName
@@ -1568,8 +1575,8 @@ function validateRuntimeInvocation(observation, recipe) {
         descriptor.kind !== "closed-debugger-abi" ||
         descriptor.surfaceObservedKey !== recipe.terminalObservedKey ||
         descriptor.functionName !== functionName ||
-        descriptor.selectedSourceRef !== defaultSourceRef ||
-        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        descriptor.selectedSourceRef !== selectedSourceRef ||
+        !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(descriptor.targetTriple) ||
         canonicalJson(descriptor.sourceRefs) !==
           canonicalJson([defaultSourceRef, windowsSourceRef]) ||
         canonicalJson(descriptor.sourceMetadata) !==
@@ -1727,7 +1734,7 @@ function validateRuntimeInvocation(observation, recipe) {
         recipe.terminalObservedKey !== descriptor.surfaceObservedKey ||
         descriptor.globalName !== authored.operation.globalName ||
         (descriptor.memberName ?? null) !== memberName ||
-        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(descriptor.targetTriple) ||
         !Array.isArray(descriptor.sourceRefs) ||
         descriptor.sourceRefs.length === 0 ||
         metadata?.surfaceType !== "global-api" ||
@@ -1856,7 +1863,7 @@ function validateRuntimeInvocation(observation, recipe) {
         recipe.terminalObservedKey !== descriptor.surfaceObservedKey ||
         descriptor.globalName !== authored.operation.globalName ||
         (descriptor.memberName ?? null) !== memberName ||
-        descriptor.targetTriple !== "aarch64-apple-darwin" ||
+        !EXACT_RUNTIME_CANDIDATE_TRIPLES.has(descriptor.targetTriple) ||
         !Array.isArray(descriptor.sourceRefs) ||
         descriptor.sourceRefs.length === 0 ||
         metadata?.surfaceType !== "global-api" ||

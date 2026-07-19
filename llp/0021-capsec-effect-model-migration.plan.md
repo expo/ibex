@@ -1813,6 +1813,10 @@ forms (direct JSI globals and the evaluated `kPrelude` namespace) and the
 reviewed shared-runtime root families. Their single installation branch must
 retain its exact source set and worklet, shared-runtime, composed, or legacy
 route; a recipe label alone cannot turn another global into closure evidence.
+Debugger closure similarly selects the source definition for the authenticated
+target: Apple binds the Release debugger implementation compiled out of the
+artifact, while Windows binds the explicit no-debugger platform stub. Merely
+changing the target triple without changing that selected source is rejected.
 Retained public-surface evidence also preserves the authored probe's exact JSON
 shape. In particular, an omitted optional native-global member stays omitted
 rather than being reserialized as `null`; aggregation rejects either shape if
