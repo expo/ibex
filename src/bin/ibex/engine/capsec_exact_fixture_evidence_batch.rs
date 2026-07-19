@@ -1,5 +1,6 @@
 use super::*;
 use base64::Engine as _;
+#[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
 const FIXTURE_COMMAND: [&str; 10] = [

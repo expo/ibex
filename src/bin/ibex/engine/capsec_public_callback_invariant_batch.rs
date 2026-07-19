@@ -281,6 +281,11 @@ fn load_catalog(path: &std::path::Path) -> RecipeCatalog {
         catalog.recipe_catalog_schema,
         "ibex/capsec-executable-recipes/1"
     );
+    assert_eq!(
+        catalog.target.triple,
+        embedder_runtime_target_triple(),
+        "recipe catalog target triple does not describe this binary"
+    );
     assert!(
         catalog
             .recipes
