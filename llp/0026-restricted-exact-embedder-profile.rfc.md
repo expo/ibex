@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19
+**Revised:** 2026-07-19 (r2 — implements the Phase 0 additive schemas,
+full-edge-set-pinned 7,110-row projection, empty advertisement authority,
+implementation-manifest binding, and mutation-sensitive drift gate; all 7,110
+rows remain evidence-pending and no target is advertised)
 **Related:** LLP 0002 (host embedding ABI); LLP 0013 (per-package capability compartments); LLP 0021 (capability-security effect model); Exact LLP 0373 (pooled server-resident Contract sessions, cross-repository consumer)
 
 ## 1. Summary
@@ -290,6 +293,23 @@ cell-isolation gate. No Apple result is transferable to Linux containment.
 Exit: all generators are deterministic, the projection is total, mutation
 fixtures prove omissions/confusions are detected, and advertisements remain
 empty.
+
+Implementation status (2026-07-19): the additive definition, projection, and
+advertisement schemas and their non-writing drift gate are implemented. The
+authored definition pins the exact 7,110-edge full-registry set and binds each
+of 20 candidate reachable and nine existing trusted-control-plane rows to its
+source-derived kind and name; the remaining 7,081 rows are candidate
+structural absences whose source-install and live-reachability evidence is
+explicitly pending. The projection also binds the raw definition, coverage,
+implementation-manifest, and three profile-schema byte digests. Six mutation
+tests reject edge-set addition/removal/duplication, implementation-manifest
+divergence, disposition overlap, bound-identity drift, ordering drift,
+raw-byte/object mismatch, advertisement attempts, projection omission, and
+digest tampering. The four
+existing generic artifact/install/create edges are deliberately *not* trusted
+restricted control-plane rows: profile-distinct replacements must first enter
+the full registry and then be explicitly admitted. Advertisements remain
+empty and `promotionReady` remains false.
 
 ### Phase 1 — Apple vertical slice
 

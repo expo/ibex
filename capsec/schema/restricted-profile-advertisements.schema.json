@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/restricted-profile-advertisements.schema.json",
+  "title": "Restricted Exact embedder target advertisements",
+  "type": "object",
+  "required": ["advertisementSchema", "profile", "projectionRawContentDigest", "advertisements"],
+  "properties": {
+    "advertisementSchema": { "const": "ibex/restricted-profile-advertisements/1" },
+    "profile": { "const": "ibex/exact-embedder-contract/1" },
+    "projectionRawContentDigest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "advertisements": { "type": "array", "maxItems": 0 }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,212 @@
+{
+  "definitionSchema": "ibex/restricted-profile-definition/1",
+  "profile": "ibex/exact-embedder-contract/1",
+  "fullProfile": "ibex/capsec/1",
+  "status": "draft-unadvertised",
+  "sourceEdgeSet": {
+    "count": 7110,
+    "digest": "sha256-RYYFqCa4cm0mexsBPvk7KbX2X-i50xB6X3t0zem-1KQ"
+  },
+  "candidateTargets": [
+    {
+      "triple": "aarch64-apple-darwin",
+      "features": [
+        "hermes-frame-attribution",
+        "native-compartments",
+        "native-lockdown"
+      ]
+    },
+    {
+      "triple": "x86_64-unknown-linux-gnu",
+      "features": [
+        "hermes-frame-attribution",
+        "native-compartments",
+        "native-lockdown"
+      ]
+    }
+  ],
+  "reachable": [
+    {
+      "edgeId": "surface.callback.exact.host.call.async.resolve.0f9z2o3",
+      "surfaceKind": "callback",
+      "surfaceName": "exact-host-call-async-resolve",
+      "reason": "single-use binary Exact completion is observable by the endowed Contract runtime"
+    },
+    {
+      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x",
+      "surfaceKind": "callback",
+      "surfaceName": "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
+      "reason": "runtime-generation-scoped completion delivery is part of the endowed Contract path"
+    },
+    {
+      "edgeId": "surface.native.op.exact.1rhm1r5",
+      "surfaceKind": "native-op",
+      "surfaceName": "__exact",
+      "reason": "bootstrap-owned stable Exact object identity precedes immutable method publication"
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.invokehostasync.0b92itq",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:exact.invokeHostAsync",
+      "reason": "the dedicated binary Exact endowment is the only JavaScript-to-native channel"
+    },
+    {
+      "edgeId": "surface.startup.capability.hardening.seal.1bkrr89",
+      "surfaceKind": "startup",
+      "surfaceName": "capability-hardening-seal",
+      "reason": "restricted bootstrap must close capability hatches before Contract code"
+    },
+    {
+      "edgeId": "surface.startup.compartment.registry.install.08lgw3i",
+      "surfaceKind": "startup",
+      "surfaceName": "compartment-registry-install",
+      "reason": "root/runtime attribution remains structural in the restricted profile"
+    },
+    {
+      "edgeId": "surface.startup.eager.native.seal.1497c3q",
+      "surfaceKind": "startup",
+      "surfaceName": "eager-native-seal",
+      "reason": "the restricted profile seals all admitted native installation before code ingress"
+    },
+    {
+      "edgeId": "surface.startup.freeze.seal.0oexesv",
+      "surfaceKind": "startup",
+      "surfaceName": "freeze-seal",
+      "reason": "post-bootstrap native replacement remains forbidden"
+    },
+    {
+      "edgeId": "surface.startup.install.route.ex.hermes.create.impl.installcompartmentregistry.0jtli1z",
+      "surfaceKind": "startup",
+      "surfaceName": "install-route:ex_hermes_create_impl:installCompartmentRegistry",
+      "reason": "restricted runtime creation retains the compartment installation route"
+    },
+    {
+      "edgeId": "surface.startup.install.route.installglobals.installtimerglobals.0mv2yas",
+      "surfaceKind": "startup",
+      "surfaceName": "install-route:installGlobals:installTimerGlobals",
+      "reason": "the hibernation-safe Contract task profile requires bounded timer primitives"
+    },
+    {
+      "edgeId": "surface.startup.installer.installcompartmentregistry.1yo7iho",
+      "surfaceKind": "startup",
+      "surfaceName": "installer:installCompartmentRegistry",
+      "reason": "the restricted runtime installs the source-attribution compartment registry"
+    },
+    {
+      "edgeId": "surface.startup.installer.installtimerglobals.1qth84q",
+      "surfaceKind": "startup",
+      "surfaceName": "installer:installTimerGlobals",
+      "reason": "bounded timer globals are explicit reachable primitives rather than ambient compatibility"
+    },
+    {
+      "edgeId": "surface.startup.lockdown.install.16xl161",
+      "surfaceKind": "startup",
+      "surfaceName": "lockdown-install",
+      "reason": "native lockdown is a required structural target feature"
+    },
+    {
+      "edgeId": "surface.startup.runtime.create.09gd22j",
+      "surfaceKind": "startup",
+      "surfaceName": "runtime-create",
+      "reason": "the profile constructs one fresh armed Hermes runtime per activation"
+    },
+    {
+      "edgeId": "surface.startup.script.capability.hardening.1rurhty",
+      "surfaceKind": "startup",
+      "surfaceName": "script:capability-hardening",
+      "reason": "the restricted bootstrap retains the reviewed capability hardening script"
+    },
+    {
+      "edgeId": "surface.startup.script.compartment.registry.02997a7",
+      "surfaceKind": "startup",
+      "surfaceName": "script:compartment-registry",
+      "reason": "the restricted bootstrap retains only the compartment registry script"
+    },
+    {
+      "edgeId": "surface.startup.script.eager.install.seal.1xgqqwv",
+      "surfaceKind": "startup",
+      "surfaceName": "script:eager-install-seal",
+      "reason": "the restricted bootstrap seals eager installers before authenticated ingress"
+    },
+    {
+      "edgeId": "surface.startup.script.exact.global.11wdhva",
+      "surfaceKind": "startup",
+      "surfaceName": "script:exact-global",
+      "reason": "the stable lowercase Exact endowment object is installed by reviewed bootstrap code"
+    },
+    {
+      "edgeId": "surface.startup.script.freeze.seal.06nnraq",
+      "surfaceKind": "startup",
+      "surfaceName": "script:freeze-seal",
+      "reason": "the restricted bootstrap closes its final native freeze hatch"
+    },
+    {
+      "edgeId": "surface.startup.script.lockdown.1lhmuc0",
+      "surfaceKind": "startup",
+      "surfaceName": "script:lockdown",
+      "reason": "the restricted bootstrap runs the reviewed lockdown script"
+    }
+  ],
+  "trustedControlPlane": [
+    {
+      "edgeId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_destroy",
+      "reason": "trusted embedder destroys and fences the runtime generation"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_has_pending_tasks",
+      "reason": "trusted supervisor observes bounded event-loop quiescence"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.next.timer.0ae38c4",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_next_timer",
+      "reason": "trusted supervisor schedules bounded timer polling"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.notify.callback.1l1b7ho",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_notify_callback",
+      "reason": "trusted supervisor wakes the owner runtime for authenticated completion"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.poll.02ylspu",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_poll",
+      "reason": "trusted supervisor drives one bounded owner-thread poll"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_resolve_exact_host_call",
+      "reason": "trusted broker resolves one runtime-generation-scoped binary call"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_set_dispatch_callback",
+      "reason": "trusted embedder installs the runtime-scoped protocol sink"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_set_exact_host_call_async",
+      "reason": "trusted embedder installs the complete authenticated Exact operation set"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_host_authorize_exact_endowment",
+      "reason": "trusted construction verifies the exact context and complete endowment set"
+    }
+  ],
+  "structuralAbsencePolicy": {
+    "complementDisposition": "structurally-absent",
+    "evidence": "pending-source-install-and-live-reachability",
+    "newEdgeRule": "fail-until-source-edge-set-digest-is-explicitly-reviewed"
+  },
+  "advertisements": []
+}

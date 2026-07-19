@@ -31,6 +31,7 @@ stale=()
 # registry freshness and its downstream contract digests are required.
 bun run check:capsec-registry
 bun run check:capsec-contract
+bun run check:restricted-exact-profile
 if ! bun run generate:capability-bits --check >/dev/null 2>&1; then
   stale+=("packages/ibex-runtime-js/src/security/capability-bits.generated.ts")
 fi
