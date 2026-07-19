@@ -3148,6 +3148,10 @@ impl TerminalLifecycle for UnixTerminalLifecycle {
         unsafe {
             libc::cfmakeraw(&mut raw);
         }
+        // The editor needs raw input, not raw output. Preserve the operator's
+        // captured output processing so LF keeps its configured terminal
+        // semantics without rewriting brokered program payloads or framing.
+        raw.c_oflag = original.c_oflag;
         raw.c_lflag &= !(libc::ISIG as libc::tcflag_t);
         // TCSANOW preserves pending input; flushing would silently discard
         // typeahead during the transition to the session-owned reader.
@@ -17306,6 +17310,13 @@ mod tests {
             // SAFETY: tcgetattr succeeded.
             unsafe { value.assume_init() }
         };
+        let mut configured = read_termios(slave.as_raw_fd());
+        configured.c_oflag |= (libc::OPOST | libc::ONLCR) as libc::tcflag_t;
+        // SAFETY: configured is an initialized snapshot for the live PTY.
+        assert_eq!(
+            unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &configured) },
+            0
+        );
         let before = read_termios(slave.as_raw_fd());
         let mut terminal = UnixTerminalLifecycle::new(slave.as_raw_fd(), slave.as_raw_fd());
         terminal
@@ -17315,6 +17326,10 @@ mod tests {
         let raw = read_termios(slave.as_raw_fd());
         let editor_flags = (libc::ICANON | libc::ECHO | libc::ISIG) as libc::tcflag_t;
         assert_eq!(raw.c_lflag & editor_flags, 0);
+        assert_eq!(
+            raw.c_oflag, before.c_oflag,
+            "PTY output processing changed while editor input was raw"
+        );
 
         terminal.restore_session().unwrap();
         assert!(!terminal.is_active());
@@ -17324,9 +17339,77 @@ mod tests {
             before.c_lflag & editor_flags
         );
         assert_eq!(
+            restored.c_oflag, before.c_oflag,
+            "PTY output processing was not restored"
+        );
+        assert_eq!(
             SIGNAL_RESTORE_STATE.state.load(Ordering::Acquire),
             SIGNAL_RESTORE_DISARMED
         );
+    }
+
+    /// Manually exercises the authenticated observer fixture through the exact
+    /// production terminal/editor adapter without promoting a public target
+    /// advertisement. This is intentionally an ignored unit-test fixture: the
+    /// production CLI gains no raw developer harness.
+    /// @ref LLP 0021#default-and-target-claim
+    /// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+    /// @ref LLP 0025#acceptance-criteria
+    #[cfg(all(test, unix, feature = "capsec-conformance-observer"))]
+    #[tokio::test(flavor = "current_thread")]
+    #[ignore = "manual only: synthetic target cells; not production/conformance evidence"]
+    async fn manual_authenticated_interactive_repl() -> anyhow::Result<()> {
+        use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+
+        let terminal_facts = NativeTerminalFacts::capture();
+        anyhow::ensure!(
+            terminal_facts.stdin_is_tty && terminal_facts.stdout_is_tty,
+            "manual authenticated REPL requires terminal stdin/stdout; run it directly with cargo and --nocapture"
+        );
+
+        eprintln!(
+            "\nTEST ONLY: authenticated observer REPL with a synthetic fixture snapshot and complete target cells.\n\
+             This is not production support or conformance evidence and cannot promote a target.\n\
+             Do not evaluate untrusted code.\n\
+             Persistent history is disabled; use .exit or Ctrl+D to exit.\n"
+        );
+
+        let project = tempfile::tempdir()?;
+        std::fs::write(
+            project.path().join("package.json"),
+            "{\"name\":\"manual-authenticated-repl\",\"private\":true,\"type\":\"module\"}\n",
+        )?;
+
+        let (_host, engine, ingress) =
+            crate::runtime::tests::session_conformance_repl_parts_for_mode(
+                project.path(),
+                ArmedExecutionMode::Interactive,
+            )?;
+        engine.load_runtime().await?;
+        let plan = SessionIoPlan {
+            route: SelectedExecutionRoute {
+                entry_kind: ArmedEntryKind::Repl,
+                mode: ArmedExecutionMode::Interactive,
+            },
+            terminal_facts,
+            presentation: ingress.presentation(),
+        };
+        let session = crate::repl::ReplEvaluationSession::Local { engine, ingress };
+        let driver = crate::repl::session::ReplDriver::new(ArmedExecutionMode::Interactive)?;
+        let history = crate::history::HistorySession::open(
+            crate::history::HistoryPlatformCapture::capture(
+                crate::cli::HistoryMode::Off,
+                terminal_facts.stdin_is_tty,
+                terminal_facts.stdout_is_tty,
+            )
+            .bind_authenticated_project_root(None),
+        );
+
+        let status = run_repl_execution_adapter(plan, session, driver, history).await?;
+        eprintln!(
+            "manual authenticated REPL exited with session status {status}; test PASS only means adapter cleanup returned without error"
+        );
+        Ok(())
     }
 
     /// Adapter-level PTY conformance while production target advertisement is
@@ -17432,7 +17515,7 @@ mod tests {
         let master = unsafe { OwnedFd::from_raw_fd(master) };
         // SAFETY: openpty returned fresh owned descriptors.
         let slave = unsafe { OwnedFd::from_raw_fd(slave) };
-        let before = read_pty_termios(slave.as_raw_fd());
+        let before = configure_pty_output_processing(slave.as_raw_fd());
 
         let duplicate_slave = || {
             // SAFETY: the live PTY slave can be duplicated for one child stdio
@@ -17481,6 +17564,8 @@ mod tests {
             PROMPT_DEFAULT_TEXT.as_bytes(),
             Duration::from_secs(60),
         );
+        assert_pty_line_uses_crlf(&output, b"Ibex v");
+        assert_pty_line_uses_crlf(&output, b"Type .help");
         if let Some(status) = child.try_wait().expect("probe PTY child after prompt") {
             drain_pty(master.as_raw_fd(), &mut output);
             panic!(
@@ -17505,6 +17590,10 @@ mod tests {
             raw.c_lflag & editor_flags,
             0,
             "PTY was not raw with ISIG off"
+        );
+        assert_eq!(
+            raw.c_oflag, before.c_oflag,
+            "PTY output processing changed while editor input was raw"
         );
 
         send_pty_interrupt(stimulus, &child, master.as_raw_fd());
@@ -17606,6 +17695,18 @@ mod tests {
         );
         // SAFETY: tcgetattr succeeded.
         unsafe { value.assume_init() }
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn configure_pty_output_processing(descriptor: i32) -> libc::termios {
+        let mut configured = read_pty_termios(descriptor);
+        configured.c_oflag |= (libc::OPOST | libc::ONLCR) as libc::tcflag_t;
+        // SAFETY: configured is an initialized snapshot for the live PTY.
+        assert_eq!(
+            unsafe { libc::tcsetattr(descriptor, libc::TCSANOW, &configured) },
+            0
+        );
+        read_pty_termios(descriptor)
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
@@ -17719,6 +17820,27 @@ mod tests {
         haystack
             .windows(needle.len())
             .position(|window| window == needle)
+    }
+
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
+    fn assert_pty_line_uses_crlf(output: &[u8], marker: &[u8]) {
+        let marker_start = find_bytes(output, marker).unwrap_or_else(|| {
+            panic!(
+                "PTY output omitted line marker {:?}: {}",
+                String::from_utf8_lossy(marker),
+                String::from_utf8_lossy(output)
+            )
+        });
+        let suffix = &output[marker_start + marker.len()..];
+        let newline = suffix
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .expect("PTY line marker had no terminating newline");
+        assert!(
+            newline > 0 && suffix[newline - 1] == b'\r',
+            "raw-mode PTY line did not return to column zero before newline: {}",
+            String::from_utf8_lossy(output)
+        );
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
@@ -18757,7 +18879,7 @@ mod tests {
     #[test]
     fn every_prompt_wrapped_event_has_one_erase_payload_and_redraw() {
         let mut program = prompted_broker();
-        let program_bytes = b"raw\0\x1b";
+        let program_bytes = b"raw\n\r\0\x1b";
         let receipts = program
             .receive_program(ProgramStream::Stderr, program_bytes)
             .unwrap();
