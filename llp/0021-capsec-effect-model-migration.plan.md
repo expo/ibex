@@ -1165,7 +1165,10 @@ object identity only on Unix; on Windows that dropped the drive prefix from a
 canonical temporary project root, so authenticated module-graph capture could
 not match the bound logical root. Reusing the production encoding preserves the
 Windows prefix and pinned file identity without introducing a test-only path
-model.
+model. Conversely, reconstruction of a Windows host-bound logical path seeds
+the native path from that volume or namespace prefix plus its root separator;
+pushing the prefix into an already separator-rooted `PathBuf` collapses the
+drive and leaves module resolution rooted at `\\`.
 
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.

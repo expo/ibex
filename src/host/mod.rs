@@ -3253,15 +3253,22 @@ fn host_path_from_logical_path(
             "{label} is not an absolute host binding"
         )));
     }
-    let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
-    for component in &host_path.components {
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            path.push(std::ffi::OsStr::from_bytes(component.bytes()));
-        }
-        #[cfg(not(unix))]
-        {
+
+    #[cfg(windows)]
+    {
+        let mut components = host_path.components.iter();
+        let prefix = components.next().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "{label} lacks a Windows volume or namespace prefix"
+            ))
+        })?;
+        let prefix = std::str::from_utf8(prefix.bytes()).map_err(|_| {
+            capsec_semantics::Error::ArmRefused(
+                "non-Unicode armed root cannot be represented on this target".into(),
+            )
+        })?;
+        let mut path = std::path::PathBuf::from(format!("{prefix}{}", std::path::MAIN_SEPARATOR));
+        for component in components {
             let text = std::str::from_utf8(component.bytes()).map_err(|_| {
                 capsec_semantics::Error::ArmRefused(
                     "non-Unicode armed root cannot be represented on this target".into(),
@@ -3269,8 +3276,32 @@ fn host_path_from_logical_path(
             })?;
             path.push(text);
         }
+        return Ok(path);
     }
-    Ok(path)
+
+    #[cfg(unix)]
+    {
+        let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+        for component in &host_path.components {
+            use std::os::unix::ffi::OsStrExt;
+            path.push(std::ffi::OsStr::from_bytes(component.bytes()));
+        }
+        return Ok(path);
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+        for component in &host_path.components {
+            let text = std::str::from_utf8(component.bytes()).map_err(|_| {
+                capsec_semantics::Error::ArmRefused(
+                    "non-Unicode armed root cannot be represented on this target".into(),
+                )
+            })?;
+            path.push(text);
+        }
+        Ok(path)
+    }
 }
 
 fn host_path_from_binding(
@@ -3923,13 +3954,22 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn host_path_components_preserve_windows_drive_prefix() {
+    fn host_path_round_trips_windows_drive_prefix() {
         let components = host_path_components(std::path::Path::new(r"C:\ibex\project")).unwrap();
-        let components = components
+        let component_text = components
             .iter()
             .map(|component| std::str::from_utf8(component.bytes()).unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(components, ["C:", "ibex", "project"]);
+        assert_eq!(component_text, ["C:", "ibex", "project"]);
+        let logical = capsec_semantics::model::LogicalPath {
+            root: capsec_semantics::model::LogicalRoot::Absolute,
+            components,
+            host_bound: Some(true),
+        };
+        assert_eq!(
+            host_path_from_logical_path(&logical, "test path").unwrap(),
+            std::path::PathBuf::from(r"C:\ibex\project")
+        );
     }
 
     #[cfg(unix)]
