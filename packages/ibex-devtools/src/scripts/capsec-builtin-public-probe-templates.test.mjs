@@ -546,6 +546,18 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
+  test("does not bind Windows crypto probes to the replaced default source", () => {
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "createHash",
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        target: "x86_64-pc-windows-msvc",
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+  });
+
   test("authors pure IP, module, clock, URL, and version helpers", () => {
     expect(
       probeFor({

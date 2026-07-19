@@ -204,8 +204,25 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_161);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_967);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_194);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_908);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_253);
+    const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.residualReasons.includes(
+          "builtin-export-source-replaced-on-target",
+        ),
+    );
+    expect(replacedWindowsCryptoRecipes).toHaveLength(201);
+    expect(
+      replacedWindowsCryptoRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.terminalObservedKey.startsWith(
+            "builtin:export:exact_crypto:",
+          ),
+      ),
+    ).toBe(true);
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&

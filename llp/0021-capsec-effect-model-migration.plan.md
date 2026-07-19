@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (Windows source-bound builtin recipes keep the default
+`src/builtins/crypto.js` implementation residual because the target installs a
+reduced bootstrap-local `node:crypto` replacement)
 **Revised:** 2026-07-18 (Windows package-source authentication inventories
 the integrity tree twice and opens every object relative to the pinned package
 root handle while refusing reparse traversal)
@@ -1676,6 +1679,16 @@ are now installed as explicit writable/configurable own properties without
 weakening primordial lockdown. Source inventory also preserves own prototype
 overrides when an inherited member of the same name was propagated into a
 concrete constructor.
+
+Windows installs a reduced `node:crypto` implementation directly from the
+bootstrap module loader instead of loading `src/builtins/crypto.js`. Exact
+target generation therefore keeps every public recipe whose source descriptor
+names that default file residual under
+`builtin-export-source-replaced-on-target`, including overlapping export names:
+executing a same-named replacement function is not evidence that the
+source-bound default implementation ran. Those recipes become executable on
+Windows only after inventory and recipe generation bind the replacement's own
+source surface (or the target stops replacing the module).
 
 Closed and conditional evidence remains branch-executed rather than
 classification-derived. A closed CLI facet is executable only when the harness
