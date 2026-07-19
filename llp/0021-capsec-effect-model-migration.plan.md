@@ -1158,6 +1158,15 @@ in the same batch. Duplicated globals with a real Windows installation branch
 remain scheduled. These residuals are neither target-absence passes nor
 evidence for an uncompiled enforcement branch.
 
+Exact-target conformance snapshots now derive test root-binding components and
+object identity through the production host helpers on every platform. The
+previous test helper retained only `Normal` path components and refreshed
+object identity only on Unix; on Windows that dropped the drive prefix from a
+canonical temporary project root, so authenticated module-graph capture could
+not match the bound logical root. Reusing the production encoding preserves the
+Windows prefix and pinned file identity without introducing a test-only path
+model.
+
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.
 Every authority stratum uses that principal's projection, so two packages with

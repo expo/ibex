@@ -3971,35 +3971,19 @@ cp \"$input\" \"$out\"\n";
             value["protectedObjects"] = serde_json::Value::Array(protected_objects);
         }
         if let Some(project_root) = project_root {
-            let components = project_root
-                .components()
-                .filter_map(|component| match component {
-                    std::path::Component::Normal(value) => Some(serde_json::json!({
-                        "encoding": "utf8",
-                        "value": value.to_str().expect("test path must be UTF-8"),
-                    })),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
+            // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — conformance snapshots must encode the same drive/prefix components and pinned root identity as production authorization on every target.
+            let components = ibex_runtime::host::host_path_components(project_root)
+                .expect("encode production-equivalent test project path");
             value["rootBindings"][1]["hostPath"] = serde_json::json!({
                 "root": "absolute",
                 "components": components,
                 "hostBound": true,
             });
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::MetadataExt;
-                let metadata = std::fs::metadata(project_root).unwrap();
-                value["rootBindings"][1]["object"] = serde_json::json!({
-                    "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                        "apple"
-                    } else {
-                        "unix"
-                    },
-                    "volume": format!("dev:{}", metadata.dev()),
-                    "file": format!("ino:{}", metadata.ino()),
-                });
-            }
+            value["rootBindings"][1]["object"] = serde_json::to_value(
+                ibex_runtime::host::object_identity_for_host_path(project_root)
+                    .expect("pin production-equivalent test project root"),
+            )
+            .expect("serialize test project root identity");
             let mut floor = Vec::new();
             let mut denials = Vec::new();
             if allow_list {

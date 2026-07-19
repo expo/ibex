@@ -3009,7 +3009,9 @@ fn absolute_host_path_components(
     host_path_components(&path)
 }
 
-fn host_path_components(
+/// Encode a host path using the platform-aware component model consumed by
+/// authenticated root bindings.
+pub fn host_path_components(
     path: &std::path::Path,
 ) -> capsec_semantics::Result<Vec<capsec_semantics::model::PathComponent>> {
     use std::path::Component;
@@ -3918,6 +3920,17 @@ pub(crate) fn module_runner_attribution_test_host() -> Host {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn host_path_components_preserve_windows_drive_prefix() {
+        let components = host_path_components(std::path::Path::new(r"C:\ibex\project")).unwrap();
+        let components = components
+            .iter()
+            .map(|component| std::str::from_utf8(component.bytes()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(components, ["C:", "ibex", "project"]);
+    }
 
     #[cfg(unix)]
     #[test]
