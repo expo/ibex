@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (Windows package-source authentication inventories
+the integrity tree twice and opens every object relative to the pinned package
+root handle while refusing reparse traversal)
 **Revised:** 2026-07-18 (Windows recipe generation keeps all 134 filesystem
 public probes residual while the backend still lacks the non-Unix typed
 retained-object adapter)
@@ -316,11 +319,13 @@ must use this classification before the ModuleRunner security integration can
 claim conformance; denial, no-probe, cache-hit, prepared-carrier, and
 wrong-principal fixtures are mandatory.
 
-First-party source reads pin the authenticated root directory object and open
-every descendant component relative to the retained parent without following
-links. Unix uses descriptor-relative `openat`; Windows uses `NtCreateFile` with
-the retained directory handle as `RootDirectory` and
-`FILE_OPEN_REPARSE_POINT` at every step. Both paths validate the armed root
+First-party and package source reads pin the authenticated root directory
+object and open every descendant component relative to the retained parent
+without following links. Unix uses descriptor-relative `openat`; Windows uses
+`NtCreateFile` with the retained directory handle as `RootDirectory` and
+`FILE_OPEN_REPARSE_POINT` at every step. Package reads additionally compare two
+complete integrity inventories and retain source bytes from the same opened
+handle that supplied their digest record. Both paths validate the armed root
 object before accepting source bytes, so a path rename or reparse substitution
 cannot redirect trusted-loader acquisition.
 
