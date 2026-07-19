@@ -11,7 +11,7 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "semanticProjectionSha256": "4d8860b84f07b50c785f8ab716a3df93ff2ba8107838a28d0f358810524294ea",
+    "semanticProjectionSha256": "34a4836b8ca73db9f5bda1cdd746c989ca707d6f0b750ada8333f1ddeb43225e",
     "fakeClientDataSha256": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
   },
   "semanticProjection": {
@@ -3435,6 +3435,92 @@
         ]
       },
       {
+        "operationId": "GPUDevice.createBindGroup",
+        "facts": [
+          "webidlValid",
+          "providerPredicatesValid"
+        ],
+        "precedence": [
+          "webidlValid",
+          "providerPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "conditions": {
+              "webidlValid": false
+            },
+            "branchPath": [
+              "webidl"
+            ],
+            "terminalOutcome": "throw during synchronous Web IDL conversion",
+            "errorTiming": "synchronous-webidl",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "throw",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "webidl"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "providerPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "service-provider"
+            ],
+            "terminalOutcome": "return an invalid GPUBindGroup and report the device-timeline error before provider admission",
+            "errorTiming": "device-timeline",
+            "resultDisposition": "return-invalid-object-and-report-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "service-provider"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "conditions": {
+              "webidlValid": true,
+              "providerPredicatesValid": true
+            },
+            "branchPath": [
+              "webidl",
+              "service-provider"
+            ],
+            "terminalOutcome": "return one GPUBindGroup and enqueue its authenticated TypeGPU device initialization",
+            "errorTiming": "none",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "resultDisposition": "return-object",
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "webidlValid",
+            "kind": "branch-predicates",
+            "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "providerPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "service-provider",
+            "passWhen": true
+          }
+        ]
+      },
+      {
         "operationId": "GPUDevice.createBindGroupLayout",
         "facts": [
           "webidlValid",
@@ -4728,6 +4814,173 @@
         ]
       }
     ],
+    "typeGpuBindGroupWorkloadEvidence": {
+      "callCount": 18,
+      "distinctLayoutCount": 16,
+      "entryCount": 47,
+      "resourceKindCounts": {
+        "GPUBufferBinding": 36,
+        "GPUSampler": 5,
+        "GPUTextureView": 6
+      },
+      "maximumEntriesPerDescriptor": 5,
+      "maximumLabelUtf8Bytes": 57,
+      "workloadCallCounts": {
+        "typegpu-genetic-racing": 16,
+        "typegpu-jelly-slider": 2
+      },
+      "workloadDigests": {
+        "typegpu-genetic-racing": "698df535ed2fbd7bba9d409166a1dd411d852699931d4ddeefa3804827cc864f",
+        "typegpu-jelly-slider": "b00bcc931d28046404c52a2b80cc96bfdc0b9d5f914237e760abbf03170b8f0c"
+      },
+      "corpusSha256": "c3d9c86c2c0c57fbaf11c7575419b54968a16cf56b24adaec266cd82bf26280e",
+      "acceptedSignatures": [
+        {
+          "id": "typegpu-genetic-racing:25",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 25,
+          "evidenceSha256": "d874d5495f7173cec41462aa8e2628fca37b65d6449fefadb530e15478e2d433",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"layout\":{\"binding\":0,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":2},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"height\":128,\"label\":\"\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":22,\"viewFormats\":[],\"width\":64},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"label\":\"\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":1,\"isComparison\":false,\"isFiltering\":true,\"layout\":{\"binding\":1,\"sampler\":{\"type\":\"filtering\"},\"visibility\":2},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"linear\",\"maxAnisotropy\":1,\"minFilter\":\"linear\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":2},{\"binding\":1,\"sampler\":{\"type\":\"filtering\"},\"visibility\":2}],\"label\":\"\"}}",
+          "signatureSha256": "42ecf08dc2825784e91bcf2852d1c77e296ee8b45cdde82a26131d3d3d87fb12"
+        },
+        {
+          "id": "typegpu-genetic-racing:76",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 76,
+          "evidenceSha256": "ffe76e11004dc0941ef1d4afba7a819356bf4fd97eef4c1c7a86c7d20a353e0e",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"initPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"initPipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "8ca6d0b7a17dbea5e4c7d92f902906987515100d511b24503573d5bf05873a16"
+        },
+        {
+          "id": "typegpu-genetic-racing:80",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 80,
+          "evidenceSha256": "56beed125209f25f0fced9e92973e55fee92f58aeacf10644219f374ea4a280d",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"initLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6}],\"label\":\"initLayout\"}}",
+          "signatureSha256": "47cebbfcc83f52916ec67c3086a94297ecc659489c0d67821d362b55ae2e56b4"
+        },
+        {
+          "id": "typegpu-genetic-racing:97",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 97,
+          "evidenceSha256": "1a5508c8ba218f85e5268e411078782c86ec8a0cc3e1bc36c5ba3052484d19e0",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"initLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6}],\"label\":\"initLayout\"}}",
+          "signatureSha256": "47cebbfcc83f52916ec67c3086a94297ecc659489c0d67821d362b55ae2e56b4"
+        },
+        {
+          "id": "typegpu-genetic-racing:130",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 130,
+          "evidenceSha256": "f2cb4922d15177a09d19976f428cfa903c7f7fa20bdc056fc1d707b4e00baa94",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":2,\"layout\":{\"binding\":2,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"height\":512,\"label\":\"trackTexture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":23,\"viewFormats\":[],\"width\":512},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"label\":\"trackView\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":3,\"isComparison\":false,\"isFiltering\":false,\"layout\":{\"binding\":3,\"sampler\":{\"type\":\"non-filtering\"},\"visibility\":7},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"nearestSampler\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"nearest\",\"maxAnisotropy\":1,\"minFilter\":\"nearest\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"simulatePipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":2,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},{\"binding\":3,\"sampler\":{\"type\":\"non-filtering\"},\"visibility\":7}],\"label\":\"simulatePipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "679366f3cff0ba72424d559a8e600153ad18d3332f4bba227c0ed18f382f6141"
+        },
+        {
+          "id": "typegpu-genetic-racing:132",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 132,
+          "evidenceSha256": "f3e92ff3cf6c0d3f0de43be22c82413f0445862c8ff1a863948de5b1531b0d51",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"simLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7}],\"label\":\"simLayout\"}}",
+          "signatureSha256": "c04b90230ad318eb18d4c50116ed09d06799b52c8238887e8797687c60f394ca"
+        },
+        {
+          "id": "typegpu-genetic-racing:205",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 205,
+          "evidenceSha256": "a8c96801f0346701691e476b5700de3f007e25d5e5f96306bf4b7da098a6a17f",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"layout\":{\"binding\":1,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"height\":512,\"label\":\"trackTexture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":23,\"viewFormats\":[],\"width\":512},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"label\":\"trackView\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":2,\"isComparison\":false,\"isFiltering\":true,\"layout\":{\"binding\":2,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"linearSampler\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"linear\",\"maxAnisotropy\":1,\"minFilter\":\"linear\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"trackPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},{\"binding\":2,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7}],\"label\":\"trackPipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "3d9409739fc128daab56f492b7e44b69449167b02f3d67bb4843278aee226576"
+        },
+        {
+          "id": "typegpu-genetic-racing:229",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 229,
+          "evidenceSha256": "ee4fd55811b4fb0c8b449df12799b1c0aba992b5dfd099844e8fef2313f4faba",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"layout\":{\"binding\":1,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"height\":64,\"label\":\"texture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":23,\"viewFormats\":[],\"width\":32},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"label\":\"carSpriteView\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":2,\"isComparison\":false,\"isFiltering\":true,\"layout\":{\"binding\":2,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"linearSampler\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"linear\",\"maxAnisotropy\":1,\"minFilter\":\"linear\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"carPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},{\"binding\":2,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7}],\"label\":\"carPipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "3f65b8b93532bb99504eb3bd01cff487cd09ff419dd25debcc88b167670b02df"
+        },
+        {
+          "id": "typegpu-genetic-racing:867",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 867,
+          "evidenceSha256": "86a0e79d213585f5a1c859ebbbd05188fe551048a3edda148b9015323550f046",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"fitPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"fitPipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "c3dcc45861b46e957bcb3c6376b4df94b00895a2224d567eedad8943dbf769b7"
+        },
+        {
+          "id": "typegpu-genetic-racing:870",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 870,
+          "evidenceSha256": "e36d09e2b39e29fa6ccf94e4058e5f6df56d34bcb09b96d0080189ae7f4e90c5",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"fitnessBuffer\",\"mappedAtCreation\":false,\"size\":262144,\"usage\":140},\"effectiveSize\":262144,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"fitLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6}],\"label\":\"fitLayout\"}}",
+          "signatureSha256": "d9854506c8a21cdea46d1ec67a477eb3c52c7325380d69d88dd5138a34aa057e"
+        },
+        {
+          "id": "typegpu-genetic-racing:897",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 897,
+          "evidenceSha256": "c299dcd37b68b5cf613cd91ecff31881fdfffb4ea5c92a2a4546774c0d2208ef",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"reductionPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"reductionPipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "c6a02bf22035a8bc71d548718145b48802df131db7e9090bf839e97b395862e5"
+        },
+        {
+          "id": "typegpu-genetic-racing:901",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 901,
+          "evidenceSha256": "4e4ede09dad3ad01c8252d4f0d6a113302db1f090493aacc7e43e06bcd4dd477",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"fitnessBuffer\",\"mappedAtCreation\":false,\"size\":262144,\"usage\":140},\"effectiveSize\":262144,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":2,\"bufferDescriptor\":{\"label\":\"reductionPackedBuffer\",\"mappedAtCreation\":false,\"size\":4,\"usage\":140},\"effectiveSize\":4,\"layout\":{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":3,\"bufferDescriptor\":{\"label\":\"bestIdxBuffer\",\"mappedAtCreation\":false,\"size\":4,\"usage\":140},\"effectiveSize\":4,\"layout\":{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":4,\"bufferDescriptor\":{\"label\":\"bestFitnessBuffer\",\"mappedAtCreation\":false,\"size\":4,\"usage\":140},\"effectiveSize\":4,\"layout\":{\"binding\":4,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"reductionLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":4,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6}],\"label\":\"reductionLayout\"}}",
+          "signatureSha256": "101204404789ac9436219210eded117b9de562a7303bd437bfadf247a6b33f81"
+        },
+        {
+          "id": "typegpu-genetic-racing:921",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 921,
+          "evidenceSha256": "80479c12416df42eb5349948633639f55dac8fd84c16c6e6979c9067305761de",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"finalizeReductionPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"finalizeReductionPipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "fec0fc442da01d08b6e20e5109b83c65a51a28994aee3e5f9ce553e6594981b2"
+        },
+        {
+          "id": "typegpu-genetic-racing:984",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 984,
+          "evidenceSha256": "d5d60da0abaf585e6f22ad14c094ee6147afb68667d672bbffb060dc28f11ad7",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"evolvePipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"evolvePipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "67f2499900fd05848ca134d810cd018b3eed31443bfc04abe0d3649015efd713"
+        },
+        {
+          "id": "typegpu-genetic-racing:986",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 986,
+          "evidenceSha256": "c5610eb63d445eccdf41649cfca3783c23778d3597a74c6c6c9ce10c7ee52b30",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"fitnessBuffer\",\"mappedAtCreation\":false,\"size\":262144,\"usage\":140},\"effectiveSize\":262144,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":2,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":3,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":4,\"bufferDescriptor\":{\"label\":\"bestIdxBuffer\",\"mappedAtCreation\":false,\"size\":4,\"usage\":140},\"effectiveSize\":4,\"layout\":{\"binding\":4,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"evolveLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":4,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7}],\"label\":\"evolveLayout\"}}",
+          "signatureSha256": "d90e31096001d39cfb8d2446864c77ab5d313a7224c8fa7243a9c5fea7b76c1c"
+        },
+        {
+          "id": "typegpu-genetic-racing:1007",
+          "workloadId": "typegpu-genetic-racing",
+          "evidenceSequence": 1007,
+          "evidenceSha256": "fa3cd5a4ee7ce4cad59304af7768c5dccc2b5f82cb1bbb59ff205f6821020cfe",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"simLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7}],\"label\":\"simLayout\"}}",
+          "signatureSha256": "c04b90230ad318eb18d4c50116ed09d06799b52c8238887e8797687c60f394ca"
+        },
+        {
+          "id": "typegpu-jelly-slider:56",
+          "workloadId": "typegpu-jelly-slider",
+          "evidenceSequence": 56,
+          "evidenceSha256": "f86d33a553ee74a0766200c8101328b3a4ea2dba41e08508a2f82712566246c1",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"layout\":{\"binding\":1,\"storageTexture\":{\"access\":\"write-only\",\"format\":\"rgba16float\",\"viewDimension\":\"2d\"},\"visibility\":6},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba16float\",\"height\":128,\"label\":\"bezierTexture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":31,\"viewFormats\":[],\"width\":256},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba16float\",\"label\":\"bezierWriteView\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":2,\"bufferDescriptor\":{\"label\":\"pointsBuffer\",\"mappedAtCreation\":true,\"size\":136,\"usage\":140},\"effectiveSize\":136,\"layout\":{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":3,\"bufferDescriptor\":{\"label\":\"controlPointsBuffer\",\"mappedAtCreation\":true,\"size\":128,\"usage\":140},\"effectiveSize\":128,\"layout\":{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"computeBezierPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"storageTexture\":{\"access\":\"write-only\",\"format\":\"rgba16float\",\"viewDimension\":\"2d\"},\"visibility\":6},{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7}],\"label\":\"computeBezierPipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "801ba0a398b97cbb12378c1a0cd63c4b9ba5a44bce359c3ec8c433b6d774bb0e"
+        },
+        {
+          "id": "typegpu-jelly-slider:75",
+          "workloadId": "typegpu-jelly-slider",
+          "evidenceSequence": 75,
+          "evidenceSha256": "f711deca3239ce169ba8249659d06142b8f07b77ab1fc9ec61395098ce73eb3a",
+          "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"layout\":{\"binding\":0,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba16float\",\"height\":128,\"label\":\"bezierTexture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":31,\"viewFormats\":[],\"width\":256},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba16float\",\"label\":\"bezierTexture\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":1,\"isComparison\":false,\"isFiltering\":true,\"layout\":{\"binding\":1,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"sampler\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"linear\",\"maxAnisotropy\":1,\"minFilter\":\"linear\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"pipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},{\"binding\":1,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7}],\"label\":\"pipeline - Automatic Bind Group & Layout\"}}",
+          "signatureSha256": "a6f21caa488dd6e911351b79ebad4e2cc426367b0957ccde58868ad97c6664ba"
+        }
+      ]
+    },
     "requestDeviceProviderDescriptor": {
       "policy": "generated-logical-limits-plus-versioned-service-internal-requirements-only",
       "projectionRule": "start-from-feature-level-defaults-apply-only-better-nonundefined-requests-then-run-pinned-storage-limit-normalization",

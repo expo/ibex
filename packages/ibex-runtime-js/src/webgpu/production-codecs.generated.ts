@@ -32,10 +32,10 @@ export const WEBGPU_OBJECT_KIND_TAGS = {
 
 export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   "schema": "ibex/webgpu-executable-codec-manifest/2",
-  "disposition": "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
+  "disposition": "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
-  "operationCount": 44,
+  "operationCount": 45,
   "operationIds": [
     "GPU.getPreferredCanvasFormat",
     "GPU.requestAdapter",
@@ -79,6 +79,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "GPUTexture.format",
     "GPUTexture.height",
     "GPUTexture.width",
+    "GPUDevice.createBindGroup",
     "GPUTexture.createView",
     "GPUTexture.destroy"
   ],
@@ -95,11 +96,11 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "ff6ed033ada7f75dc66847ccb7f9c6f68d5852700697de7a5140c4a50810a81a",
-    "semanticProgramSet": "491150aa5ebe5c4cbc6147bc2956d12d0cebd0e4e14ced92ef8884cf0c146b4f",
-    "runtimeRouting": "da16a415ca0e90066fdb19d3c86f9c4332cae19ebd3b5c207737edc039729d2f",
-    "webgpuCVocabulary": "992010a238538843ab1043c165b45c122a19ee123d075c4046b98166e723cf1f",
-    "projection": "2e86ec7fc83f5898378775e6603ebe85ff6e0ce06787156b15560622a4adfca0"
+    "operationSet": "406e88e1ae91405cbeae7dfb2bdd171d4b0eeec9c435a09325a8747c0f635ccb",
+    "semanticProgramSet": "8a27284f7b69747250d58f5e1993c4617bb8f6009e10d648f20a633ab9a92eaf",
+    "runtimeRouting": "f35f70dffe809582735e68736dfad2be98cc6397a6dafbdc50cb62a11a6cd851",
+    "webgpuCVocabulary": "365db3c1bb7db56690bad5c5ea0b365a883adf17e259473ad67f97464751978e",
+    "projection": "5c49adc6ec3284ba330eb2d83fdd2c0cb812bac35d12b93c1b673a5d76ffe6b1"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -130,7 +131,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   },
   "nativeCodecPrograms": {
     "schema": "ibex/webgpu-native-codec-programs/2",
-    "disposition": "request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+    "disposition": "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "dispatch": {
       "carrierPath": "ExactGpuSemanticCallV2.operation_id",
       "payloadOperationWireIdRole": "constant-and-equality-check-only-never-dispatch",
@@ -1321,6 +1322,116 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             }
           }
         ]
+      },
+      "bindGroupDescriptorV1": {
+        "kind": "closed-dictionary",
+        "encodingType": "canonicalValueV1",
+        "trust": "untrusted-webidl-converted-semantic-service-ingress-only",
+        "providerBoundary": "forbidden-raw-descriptor-must-not-reach-provider",
+        "unknownFields": "reject",
+        "fields": [
+          {
+            "name": "label",
+            "required": true,
+            "value": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "entries",
+            "required": true,
+            "value": {
+              "kind": "sequence",
+              "minCount": 0,
+              "maxCountFrom": "codecLayout.sequenceMaxCount",
+              "element": {
+                "kind": "closed-dictionary",
+                "unknownFields": "reject",
+                "fields": [
+                  {
+                    "name": "binding",
+                    "required": true,
+                    "value": {
+                      "kind": "u32"
+                    }
+                  },
+                  {
+                    "name": "resource",
+                    "required": true,
+                    "value": {
+                      "kind": "closed-dictionary",
+                      "unknownFields": "reject",
+                      "fields": [
+                        {
+                          "name": "resourceKind",
+                          "required": true,
+                          "value": {
+                            "kind": "string-enum",
+                            "values": [
+                              "GPUBufferBinding",
+                              "GPUSampler",
+                              "GPUTextureView",
+                              "GPUBuffer",
+                              "GPUTexture",
+                              "GPUExternalTexture"
+                            ]
+                          }
+                        },
+                        {
+                          "name": "buffer",
+                          "required": false,
+                          "value": {
+                            "kind": "full-object-reference",
+                            "referenceType": "objectReferenceV1",
+                            "requiredObjectKind": "GPUBuffer"
+                          }
+                        },
+                        {
+                          "name": "offset",
+                          "required": false,
+                          "value": {
+                            "kind": "u64"
+                          }
+                        },
+                        {
+                          "name": "size",
+                          "required": false,
+                          "value": {
+                            "kind": "u64"
+                          }
+                        },
+                        {
+                          "name": "reference",
+                          "required": false,
+                          "value": {
+                            "kind": "full-object-reference",
+                            "referenceType": "objectReferenceV1",
+                            "permittedObjectKinds": [
+                              "GPUSampler",
+                              "GPUTextureView",
+                              "GPUBuffer",
+                              "GPUTexture",
+                              "GPUExternalTexture"
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "name": "layout",
+            "required": true,
+            "value": {
+              "kind": "full-object-reference",
+              "referenceType": "objectReferenceV1",
+              "requiredObjectKind": "GPUBindGroupLayout"
+            }
+          }
+        ]
       }
     },
     "routes": [
@@ -2205,6 +2316,435 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                 {
                   "payloadPath": "body.diagnosticMessage",
                   "operator": "native-semantic-service-owned-stable-utf8-within-reviewed-bound"
+                }
+              ]
+            }
+          ],
+          "noTrailingBytes": true
+        }
+      },
+      {
+        "operationId": "GPUDevice.createBindGroup",
+        "wireId": 900410509,
+        "request": {
+          "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
+          "catalog": {
+            "name": "serviceArguments",
+            "tag": "gpu-create-bind-group-service-request-v1",
+            "wireTag": 24
+          },
+          "payload": {
+            "kind": "struct",
+            "fields": [
+              {
+                "name": "header",
+                "type": "headerV1",
+                "constants": {
+                  "magic": "IBGQ",
+                  "version": 1,
+                  "codecTag": 24,
+                  "operationWireId": 900410509
+                }
+              },
+              {
+                "name": "receiver",
+                "type": "objectReferenceV1"
+              },
+              {
+                "name": "target",
+                "type": "optionalReferenceV1"
+              },
+              {
+                "name": "capturedScopeId",
+                "type": "u64le"
+              },
+              {
+                "name": "adapterOrdinal",
+                "type": "u64le"
+              },
+              {
+                "name": "deviceIngressOrdinal",
+                "type": "u64le"
+              },
+              {
+                "name": "queueIngressOrdinal",
+                "type": "u64le"
+              },
+              {
+                "name": "sealedLocalTimeline",
+                "type": "canonicalValueV1"
+              },
+              {
+                "name": "convertedArguments",
+                "type": "canonicalValueV1",
+                "constraintType": "bindGroupDescriptorV1"
+              }
+            ]
+          },
+          "carrierJoins": [
+            {
+              "payloadPath": "header.operationWireId",
+              "carrierPath": "operation_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.kind",
+              "carrierPath": "receiver.kind",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.objectId",
+              "carrierPath": "receiver.object_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.objectGeneration",
+              "carrierPath": "receiver.object_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.logicalDeviceId",
+              "carrierPath": "ingress_device.logical_device_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.logicalDeviceGeneration",
+              "carrierPath": "ingress_device.logical_device_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.providerGeneration",
+              "carrierPath": "ingress_device.provider_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.providerGeneration",
+              "carrierPath": "provider_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.kind",
+              "carrierPath": "target.kind",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.objectId",
+              "carrierPath": "target.object_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.objectGeneration",
+              "carrierPath": "target.object_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.logicalDeviceId",
+              "carrierPath": "ingress_device.logical_device_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.logicalDeviceGeneration",
+              "carrierPath": "ingress_device.logical_device_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.providerGeneration",
+              "carrierPath": "ingress_device.provider_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.providerGeneration",
+              "carrierPath": "provider_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "capturedScopeId",
+              "carrierPath": "captured_scope_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "adapterOrdinal",
+              "carrierPath": "adapter_ordinal",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "deviceIngressOrdinal",
+              "carrierPath": "device_ingress_ordinal",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "queueIngressOrdinal",
+              "carrierPath": "queue_ingress_ordinal",
+              "operator": "equal"
+            }
+          ],
+          "carrierConstraints": [
+            {
+              "carrierPath": "operation_id",
+              "operator": "equal",
+              "value": 900410509
+            },
+            {
+              "carrierPath": "flags",
+              "operator": "equal",
+              "value": 0
+            },
+            {
+              "carrierPath": "topology_id",
+              "operator": "equal",
+              "valueFrom": "constants.providerTopologyId"
+            },
+            {
+              "carrierPath": "ingress_device",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "provider_generation",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "operation_instance_id",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "promise_id",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "receiver.kind",
+              "operator": "equal",
+              "valueFrom": "objectKindTags.GPUDevice"
+            },
+            {
+              "carrierPath": "receiver.flags",
+              "operator": "equal",
+              "value": 0
+            },
+            {
+              "carrierPath": "receiver.object_id",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "receiver.object_generation",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "target.kind",
+              "operator": "equal",
+              "valueFrom": "objectKindTags.GPUBindGroup"
+            },
+            {
+              "carrierPath": "target.flags",
+              "operator": "equal",
+              "value": 0
+            },
+            {
+              "carrierPath": "target.object_id",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "target.object_generation",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "adapter_ordinal",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "device_ingress_ordinal",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "queue_ingress_ordinal",
+              "operator": "equal",
+              "value": "0"
+            }
+          ],
+          "valueConstraints": [
+            {
+              "payloadPath": "sealedLocalTimeline",
+              "operator": "canonical-sequence-within-layout-bounds"
+            },
+            {
+              "payloadPath": "sealedLocalTimeline",
+              "operator": "untrusted-wrapper-record-prefix-join-only-never-authority"
+            },
+            {
+              "payloadPath": "convertedArguments",
+              "operator": "conforms-to-type",
+              "type": "bindGroupDescriptorV1"
+            }
+          ],
+          "semanticServiceBoundary": {
+            "stateAuthority": "authenticated-device-object-account-coverage-and-reservation-tables",
+            "payloadRole": "comparison-input-only-never-authority",
+            "requiredAfterDecode": [
+              "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+              "authenticate-contiguous-sealed-local-timeline-prefix",
+              "validate-current-live-device-generation",
+              "validate-operation-coverage",
+              "validate-authorized-live-account-and-aggregate-envelope",
+              "validate-exact-generated-typegpu-bind-group-workload-signature",
+              "authenticate-current-same-device-bind-group-layout-full-reference-and-joined-descriptor",
+              "validate-bind-group-entry-layout-cardinality-and-exact-binding-join",
+              "authenticate-current-same-device-resource-full-references-and-creator-order",
+              "validate-buffer-sampler-texture-view-and-external-resource-compatibility",
+              "authenticate-wrapper-allocated-bind-group-target-provenance",
+              "validate-wrapper-allocated-bind-group-target-generation",
+              "reserve-bind-group-table-and-dual-ledger-capacity",
+              "reserve-bind-group-provider-request-completion-and-physical-sequence",
+              "validate-bind-group-label-under-reviewed-workload"
+            ],
+            "completionEncodingRequires": [
+              "authenticated-retained-call",
+              "service-owned-operation-result"
+            ]
+          },
+          "executablePrerequisites": [],
+          "noTrailingBytes": true
+        },
+        "completion": {
+          "payloadRole": "service-completion-payload-codec-plus-operation-specific-event-joins",
+          "catalog": {
+            "name": "serviceCompletions",
+            "tag": "terminal-receipt-service-completion-v1",
+            "wireTag": 2
+          },
+          "commonCarrierConstraints": [
+            {
+              "carrierPath": "kind",
+              "operator": "equal",
+              "value": 1,
+              "symbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2"
+            },
+            {
+              "carrierPath": "record.operation_result.status",
+              "operator": "equal",
+              "value": 0
+            },
+            {
+              "carrierPath": "record.operation_result.operation.operation_id",
+              "operator": "equal",
+              "value": 900410509
+            },
+            {
+              "carrierPath": "record.operation_result.operation.device_transition",
+              "operator": "equal",
+              "value": 0,
+              "symbol": "EXACT_GPU_DEVICE_UNCHANGED_V2"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.ingress_device",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.result_device",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.provider_generation",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.promise_id",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.receiver.kind",
+              "operator": "equal",
+              "valueFrom": "objectKindTags.GPUDevice"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.target.kind",
+              "operator": "equal",
+              "valueFrom": "objectKindTags.GPUBindGroup"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.adapter_ordinal",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.device_ingress_ordinal",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.queue_ingress_ordinal",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "record.operation_result.result_kind",
+              "operator": "equal",
+              "value": 0,
+              "symbol": "EXACT_GPU_RESULT_NONE_V2"
+            }
+          ],
+          "payload": {
+            "kind": "empty",
+            "exactLengthBytes": 0
+          },
+          "semanticTerminalMapping": {
+            "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createBindGroup]",
+            "terminals": [
+              {
+                "terminalId": "webidl-rejection",
+                "errorTiming": "synchronous-webidl",
+                "resultDisposition": "throw",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "no-service-call",
+                  "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+                }
+              },
+              {
+                "terminalId": "later-predicate-rejection",
+                "errorTiming": "device-timeline",
+                "resultDisposition": "return-invalid-object-and-report-error",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "device-error",
+                  "kindValue": 2,
+                  "kindSymbol": "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+                  "completionPayloadEncoderEligibility": "excluded-not-an-operation-result"
+                }
+              },
+              {
+                "terminalId": "operation-success",
+                "errorTiming": "none",
+                "resultDisposition": "return-object",
+                "providerTokenCount": 1,
+                "physicalSequenceCount": 1,
+                "event": {
+                  "kind": "operation-result",
+                  "kindValue": 1,
+                  "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+                  "resultKind": 0,
+                  "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+                  "status": 0,
+                  "completionVariant": "operation-success"
+                }
+              }
+            ]
+          },
+          "variants": [
+            {
+              "name": "operation-success",
+              "carrierConstraints": [
+                {
+                  "carrierPath": "record.operation_result.operation.provider_admission",
+                  "operator": "equal",
+                  "value": 1,
+                  "symbol": "EXACT_GPU_PROVIDER_ADMITTED_V2"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.physical_sequence",
+                  "operator": "positive"
                 }
               ]
             }
@@ -6487,6 +7027,12 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       "tag": "gpu-queue-write-buffer-arguments-v1",
       "wireShape": "generation-fenced GPUBuffer reference, safe-u64 destination offset, converted AllowSharedBufferSource view, and optional safe-u64 source element offset and size; content processing snapshots the selected full byte range before service projection",
       "ownership": "wrapper-source-view-plus-one-owned-selected-byte-snapshot"
+    },
+    {
+      "wireTag": 23,
+      "tag": "gpu-bind-group-descriptor-v1",
+      "wireShape": "complete pinned GPUBindGroupDescriptor structural vocabulary after Web IDL conversion: owned label, bounded entry sequence, full generation-fenced layout reference, and complete GPUBindingResource union with buffer offset plus optional-size presence; the exact 18-call TypeGPU join is a later private service predicate",
+      "ownership": "owned-copy-with-full-generation-fenced-handle-references"
     }
   ],
   "serviceArguments": [
@@ -6842,6 +7388,15 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       "nativeProgramPrerequisitesRepresented": true,
       "executableFromCurrentAuthenticatedInputs": true,
       "unavailableSemanticFields": []
+    },
+    {
+      "wireTag": 24,
+      "tag": "gpu-create-bind-group-service-request-v1",
+      "wireShape": "source-affine device receiver plus wrapper-allocated bind-group target, complete converted structural descriptor, and full generation-qualified layout/resource references; exact TypeGPU signature and compatibility checks occur after native decode",
+      "ownership": "owned-copy-plus-full-references",
+      "nativeProgramPrerequisitesRepresented": true,
+      "executableFromCurrentAuthenticatedInputs": true,
+      "unavailableSemanticFields": []
     }
   ],
   "serviceCompletions": [
@@ -6925,7 +7480,174 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "maxComputeWorkgroupSizeZ",
     "maxComputeWorkgroupsPerDimension",
     "maxImmediateSize"
-  ]
+  ],
+  "typeGpuBindGroupWorkloadEvidence": {
+    "callCount": 18,
+    "distinctLayoutCount": 16,
+    "entryCount": 47,
+    "resourceKindCounts": {
+      "GPUBufferBinding": 36,
+      "GPUSampler": 5,
+      "GPUTextureView": 6
+    },
+    "maximumEntriesPerDescriptor": 5,
+    "maximumLabelUtf8Bytes": 57,
+    "workloadCallCounts": {
+      "typegpu-genetic-racing": 16,
+      "typegpu-jelly-slider": 2
+    },
+    "workloadDigests": {
+      "typegpu-genetic-racing": "698df535ed2fbd7bba9d409166a1dd411d852699931d4ddeefa3804827cc864f",
+      "typegpu-jelly-slider": "b00bcc931d28046404c52a2b80cc96bfdc0b9d5f914237e760abbf03170b8f0c"
+    },
+    "corpusSha256": "c3d9c86c2c0c57fbaf11c7575419b54968a16cf56b24adaec266cd82bf26280e",
+    "acceptedSignatures": [
+      {
+        "id": "typegpu-genetic-racing:25",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 25,
+        "evidenceSha256": "d874d5495f7173cec41462aa8e2628fca37b65d6449fefadb530e15478e2d433",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"layout\":{\"binding\":0,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":2},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"height\":128,\"label\":\"\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":22,\"viewFormats\":[],\"width\":64},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"label\":\"\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":1,\"isComparison\":false,\"isFiltering\":true,\"layout\":{\"binding\":1,\"sampler\":{\"type\":\"filtering\"},\"visibility\":2},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"linear\",\"maxAnisotropy\":1,\"minFilter\":\"linear\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":2},{\"binding\":1,\"sampler\":{\"type\":\"filtering\"},\"visibility\":2}],\"label\":\"\"}}",
+        "signatureSha256": "42ecf08dc2825784e91bcf2852d1c77e296ee8b45cdde82a26131d3d3d87fb12"
+      },
+      {
+        "id": "typegpu-genetic-racing:76",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 76,
+        "evidenceSha256": "ffe76e11004dc0941ef1d4afba7a819356bf4fd97eef4c1c7a86c7d20a353e0e",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"initPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"initPipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "8ca6d0b7a17dbea5e4c7d92f902906987515100d511b24503573d5bf05873a16"
+      },
+      {
+        "id": "typegpu-genetic-racing:80",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 80,
+        "evidenceSha256": "56beed125209f25f0fced9e92973e55fee92f58aeacf10644219f374ea4a280d",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"initLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6}],\"label\":\"initLayout\"}}",
+        "signatureSha256": "47cebbfcc83f52916ec67c3086a94297ecc659489c0d67821d362b55ae2e56b4"
+      },
+      {
+        "id": "typegpu-genetic-racing:97",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 97,
+        "evidenceSha256": "1a5508c8ba218f85e5268e411078782c86ec8a0cc3e1bc36c5ba3052484d19e0",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"initLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6}],\"label\":\"initLayout\"}}",
+        "signatureSha256": "47cebbfcc83f52916ec67c3086a94297ecc659489c0d67821d362b55ae2e56b4"
+      },
+      {
+        "id": "typegpu-genetic-racing:130",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 130,
+        "evidenceSha256": "f2cb4922d15177a09d19976f428cfa903c7f7fa20bdc056fc1d707b4e00baa94",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":2,\"layout\":{\"binding\":2,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"height\":512,\"label\":\"trackTexture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":23,\"viewFormats\":[],\"width\":512},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"label\":\"trackView\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":3,\"isComparison\":false,\"isFiltering\":false,\"layout\":{\"binding\":3,\"sampler\":{\"type\":\"non-filtering\"},\"visibility\":7},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"nearestSampler\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"nearest\",\"maxAnisotropy\":1,\"minFilter\":\"nearest\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"simulatePipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":2,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},{\"binding\":3,\"sampler\":{\"type\":\"non-filtering\"},\"visibility\":7}],\"label\":\"simulatePipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "679366f3cff0ba72424d559a8e600153ad18d3332f4bba227c0ed18f382f6141"
+      },
+      {
+        "id": "typegpu-genetic-racing:132",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 132,
+        "evidenceSha256": "f3e92ff3cf6c0d3f0de43be22c82413f0445862c8ff1a863948de5b1531b0d51",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"simLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7}],\"label\":\"simLayout\"}}",
+        "signatureSha256": "c04b90230ad318eb18d4c50116ed09d06799b52c8238887e8797687c60f394ca"
+      },
+      {
+        "id": "typegpu-genetic-racing:205",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 205,
+        "evidenceSha256": "a8c96801f0346701691e476b5700de3f007e25d5e5f96306bf4b7da098a6a17f",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"layout\":{\"binding\":1,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"height\":512,\"label\":\"trackTexture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":23,\"viewFormats\":[],\"width\":512},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"label\":\"trackView\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":2,\"isComparison\":false,\"isFiltering\":true,\"layout\":{\"binding\":2,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"linearSampler\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"linear\",\"maxAnisotropy\":1,\"minFilter\":\"linear\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"trackPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},{\"binding\":2,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7}],\"label\":\"trackPipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "3d9409739fc128daab56f492b7e44b69449167b02f3d67bb4843278aee226576"
+      },
+      {
+        "id": "typegpu-genetic-racing:229",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 229,
+        "evidenceSha256": "ee4fd55811b4fb0c8b449df12799b1c0aba992b5dfd099844e8fef2313f4faba",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"layout\":{\"binding\":1,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"height\":64,\"label\":\"texture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":23,\"viewFormats\":[],\"width\":32},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba8unorm\",\"label\":\"carSpriteView\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":2,\"isComparison\":false,\"isFiltering\":true,\"layout\":{\"binding\":2,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"linearSampler\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"linear\",\"maxAnisotropy\":1,\"minFilter\":\"linear\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"carPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},{\"binding\":2,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7}],\"label\":\"carPipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "3f65b8b93532bb99504eb3bd01cff487cd09ff419dd25debcc88b167670b02df"
+      },
+      {
+        "id": "typegpu-genetic-racing:867",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 867,
+        "evidenceSha256": "86a0e79d213585f5a1c859ebbbd05188fe551048a3edda148b9015323550f046",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"fitPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"fitPipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "c3dcc45861b46e957bcb3c6376b4df94b00895a2224d567eedad8943dbf769b7"
+      },
+      {
+        "id": "typegpu-genetic-racing:870",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 870,
+        "evidenceSha256": "e36d09e2b39e29fa6ccf94e4058e5f6df56d34bcb09b96d0080189ae7f4e90c5",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"fitnessBuffer\",\"mappedAtCreation\":false,\"size\":262144,\"usage\":140},\"effectiveSize\":262144,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"fitLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6}],\"label\":\"fitLayout\"}}",
+        "signatureSha256": "d9854506c8a21cdea46d1ec67a477eb3c52c7325380d69d88dd5138a34aa057e"
+      },
+      {
+        "id": "typegpu-genetic-racing:897",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 897,
+        "evidenceSha256": "c299dcd37b68b5cf613cd91ecff31881fdfffb4ea5c92a2a4546774c0d2208ef",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"reductionPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"reductionPipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "c6a02bf22035a8bc71d548718145b48802df131db7e9090bf839e97b395862e5"
+      },
+      {
+        "id": "typegpu-genetic-racing:901",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 901,
+        "evidenceSha256": "4e4ede09dad3ad01c8252d4f0d6a113302db1f090493aacc7e43e06bcd4dd477",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"fitnessBuffer\",\"mappedAtCreation\":false,\"size\":262144,\"usage\":140},\"effectiveSize\":262144,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":2,\"bufferDescriptor\":{\"label\":\"reductionPackedBuffer\",\"mappedAtCreation\":false,\"size\":4,\"usage\":140},\"effectiveSize\":4,\"layout\":{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":3,\"bufferDescriptor\":{\"label\":\"bestIdxBuffer\",\"mappedAtCreation\":false,\"size\":4,\"usage\":140},\"effectiveSize\":4,\"layout\":{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":4,\"bufferDescriptor\":{\"label\":\"bestFitnessBuffer\",\"mappedAtCreation\":false,\"size\":4,\"usage\":140},\"effectiveSize\":4,\"layout\":{\"binding\":4,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"reductionLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":4,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6}],\"label\":\"reductionLayout\"}}",
+        "signatureSha256": "101204404789ac9436219210eded117b9de562a7303bd437bfadf247a6b33f81"
+      },
+      {
+        "id": "typegpu-genetic-racing:921",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 921,
+        "evidenceSha256": "80479c12416df42eb5349948633639f55dac8fd84c16c6e6979c9067305761de",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"finalizeReductionPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"finalizeReductionPipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "fec0fc442da01d08b6e20e5109b83c65a51a28994aee3e5f9ce553e6594981b2"
+      },
+      {
+        "id": "typegpu-genetic-racing:984",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 984,
+        "evidenceSha256": "d5d60da0abaf585e6f22ad14c094ee6147afb68667d672bbffb060dc28f11ad7",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"params\",\"mappedAtCreation\":true,\"size\":72,\"usage\":76},\"effectiveSize\":72,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"evolvePipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7}],\"label\":\"evolvePipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "67f2499900fd05848ca134d810cd018b3eed31443bfc04abe0d3649015efd713"
+      },
+      {
+        "id": "typegpu-genetic-racing:986",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 986,
+        "evidenceSha256": "c5610eb63d445eccdf41649cfca3783c23778d3597a74c6c6c9ce10c7ee52b30",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"fitnessBuffer\",\"mappedAtCreation\":false,\"size\":262144,\"usage\":140},\"effectiveSize\":262144,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":2,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":3,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":4,\"bufferDescriptor\":{\"label\":\"bestIdxBuffer\",\"mappedAtCreation\":false,\"size\":4,\"usage\":140},\"effectiveSize\":4,\"layout\":{\"binding\":4,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"evolveLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":4,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7}],\"label\":\"evolveLayout\"}}",
+        "signatureSha256": "d90e31096001d39cfb8d2446864c77ab5d313a7224c8fa7243a9c5fea7b76c1c"
+      },
+      {
+        "id": "typegpu-genetic-racing:1007",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 1007,
+        "evidenceSha256": "fa3cd5a4ee7ce4cad59304af7768c5dccc2b5f82cb1bbb59ff205f6821020cfe",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":2621440,\"usage\":172},\"effectiveSize\":2621440,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":22020096,\"usage\":140},\"effectiveSize\":22020096,\"layout\":{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"simLayout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"storage\"},\"visibility\":6},{\"binding\":1,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7}],\"label\":\"simLayout\"}}",
+        "signatureSha256": "c04b90230ad318eb18d4c50116ed09d06799b52c8238887e8797687c60f394ca"
+      },
+      {
+        "id": "typegpu-jelly-slider:56",
+        "workloadId": "typegpu-jelly-slider",
+        "evidenceSequence": 56,
+        "evidenceSha256": "f86d33a553ee74a0766200c8101328b3a4ea2dba41e08508a2f82712566246c1",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"bufferDescriptor\":{\"label\":\"<unnamed>\",\"mappedAtCreation\":false,\"size\":12,\"usage\":76},\"effectiveSize\":12,\"layout\":{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":1,\"layout\":{\"binding\":1,\"storageTexture\":{\"access\":\"write-only\",\"format\":\"rgba16float\",\"viewDimension\":\"2d\"},\"visibility\":6},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba16float\",\"height\":128,\"label\":\"bezierTexture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":31,\"viewFormats\":[],\"width\":256},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba16float\",\"label\":\"bezierWriteView\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":2,\"bufferDescriptor\":{\"label\":\"pointsBuffer\",\"mappedAtCreation\":true,\"size\":136,\"usage\":140},\"effectiveSize\":136,\"layout\":{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"},{\"binding\":3,\"bufferDescriptor\":{\"label\":\"controlPointsBuffer\",\"mappedAtCreation\":true,\"size\":128,\"usage\":140},\"effectiveSize\":128,\"layout\":{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},\"offset\":0,\"resourceKind\":\"GPUBufferBinding\"}],\"label\":\"computeBezierPipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"uniform\"},\"visibility\":7},{\"binding\":1,\"storageTexture\":{\"access\":\"write-only\",\"format\":\"rgba16float\",\"viewDimension\":\"2d\"},\"visibility\":6},{\"binding\":2,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7},{\"binding\":3,\"buffer\":{\"hasDynamicOffset\":false,\"minBindingSize\":0,\"type\":\"read-only-storage\"},\"visibility\":7}],\"label\":\"computeBezierPipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "801ba0a398b97cbb12378c1a0cd63c4b9ba5a44bce359c3ec8c433b6d774bb0e"
+      },
+      {
+        "id": "typegpu-jelly-slider:75",
+        "workloadId": "typegpu-jelly-slider",
+        "evidenceSequence": 75,
+        "evidenceSha256": "f711deca3239ce169ba8249659d06142b8f07b77ab1fc9ec61395098ce73eb3a",
+        "signatureCanonicalJson": "{\"entries\":[{\"binding\":0,\"layout\":{\"binding\":0,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},\"parentTexture\":{\"depthOrArrayLayers\":1,\"dimension\":\"2d\",\"format\":\"rgba16float\",\"height\":128,\"label\":\"bezierTexture\",\"mipLevelCount\":1,\"sampleCount\":1,\"usage\":31,\"viewFormats\":[],\"width\":256},\"resourceKind\":\"GPUTextureView\",\"textureOriginClass\":\"device-created\",\"viewDescriptor\":{\"aspect\":\"all\",\"baseArrayLayer\":0,\"baseMipLevel\":0,\"dimension\":\"2d\",\"format\":\"rgba16float\",\"label\":\"bezierTexture\",\"swizzle\":\"rgba\",\"usage\":0}},{\"binding\":1,\"isComparison\":false,\"isFiltering\":true,\"layout\":{\"binding\":1,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7},\"resourceKind\":\"GPUSampler\",\"samplerDescriptor\":{\"addressModeU\":\"clamp-to-edge\",\"addressModeV\":\"clamp-to-edge\",\"addressModeW\":\"clamp-to-edge\",\"label\":\"sampler\",\"lodMaxClamp\":32,\"lodMinClamp\":0,\"magFilter\":\"linear\",\"maxAnisotropy\":1,\"minFilter\":\"linear\",\"mipmapFilter\":\"nearest\"}}],\"label\":\"pipeline - Automatic Bind Group & Layout\",\"layoutDescriptor\":{\"entries\":[{\"binding\":0,\"texture\":{\"multisampled\":false,\"sampleType\":\"float\",\"viewDimension\":\"2d\"},\"visibility\":7},{\"binding\":1,\"sampler\":{\"type\":\"filtering\"},\"visibility\":7}],\"label\":\"pipeline - Automatic Bind Group & Layout\"}}",
+        "signatureSha256": "a6f21caa488dd6e911351b79ebad4e2cc426367b0957ccde58868ad97c6664ba"
+      }
+    ]
+  }
 } as const;
 
 const generated = createExecutableWebGpuCodecs(

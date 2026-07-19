@@ -2,14 +2,14 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "2e86ec7fc83f5898378775e6603ebe85ff6e0ce06787156b15560622a4adfca0",
-  "operationSet": "ff6ed033ada7f75dc66847ccb7f9c6f68d5852700697de7a5140c4a50810a81a",
-  "semanticProgramSet": "491150aa5ebe5c4cbc6147bc2956d12d0cebd0e4e14ced92ef8884cf0c146b4f",
-  "runtimeRouting": "da16a415ca0e90066fdb19d3c86f9c4332cae19ebd3b5c207737edc039729d2f",
-  "webgpuCVocabulary": "992010a238538843ab1043c165b45c122a19ee123d075c4046b98166e723cf1f"
+  "projection": "5c49adc6ec3284ba330eb2d83fdd2c0cb812bac35d12b93c1b673a5d76ffe6b1",
+  "operationSet": "406e88e1ae91405cbeae7dfb2bdd171d4b0eeec9c435a09325a8747c0f635ccb",
+  "semanticProgramSet": "8a27284f7b69747250d58f5e1993c4617bb8f6009e10d648f20a633ab9a92eaf",
+  "runtimeRouting": "f35f70dffe809582735e68736dfad2be98cc6397a6dafbdc50cb62a11a6cd851",
+  "webgpuCVocabulary": "365db3c1bb7db56690bad5c5ea0b365a883adf17e259473ad67f97464751978e"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
-  "semanticProjection": "4d8860b84f07b50c785f8ab716a3df93ff2ba8107838a28d0f358810524294ea",
+  "semanticProjection": "34a4836b8ca73db9f5bda1cdd746c989ca707d6f0b750ada8333f1ddeb43225e",
   "fakeClientData": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
 });
 export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
@@ -266,6 +266,12 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "property"
   ],
   [
+    "GPUDevice.createBindGroup",
+    "GPUDevice",
+    "createBindGroup",
+    "method"
+  ],
+  [
     "GPUTexture.createView",
     "GPUTexture",
     "createView",
@@ -281,6 +287,7 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
 export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPU.requestAdapter",
   "GPUAdapter.requestDevice",
+  "GPUDevice.createBindGroup",
   "GPUDevice.createBindGroupLayout",
   "GPUDevice.createBuffer",
   "GPUDevice.createPipelineLayout",
@@ -299,6 +306,7 @@ export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPUBuffer.unmap",
   "GPUCanvasContext.configure",
   "GPUCanvasContext.unconfigure",
+  "GPUDevice.createBindGroup",
   "GPUDevice.createBindGroupLayout",
   "GPUDevice.createBuffer",
   "GPUDevice.createCommandEncoder",
@@ -418,5 +426,5 @@ export const TEXTURE_FORMAT_REQUIRED_FEATURES = Object.freeze({
   "astc-12x12-unorm-srgb": "texture-compression-astc"
 });
 export const TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256 = "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04";
-export const WRAPPER_ROUTE_COUNT = 44;
-export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 21;
+export const WRAPPER_ROUTE_COUNT = 45;
+export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 22;

@@ -38,6 +38,7 @@ const outputPath =
   "tests/fixtures/webgpu-production-codec-corpus-v1.generated.json";
 const operationId = "GPU.requestAdapter";
 const requestDeviceOperationId = "GPUAdapter.requestDevice";
+const createBindGroupOperationId = "GPUDevice.createBindGroup";
 const createBindGroupLayoutOperationId = "GPUDevice.createBindGroupLayout";
 const createBufferOperationId = "GPUDevice.createBuffer";
 const createPipelineLayoutOperationId = "GPUDevice.createPipelineLayout";
@@ -762,6 +763,323 @@ function buildCorpus() {
       },
     },
   });
+
+  const createBindGroupRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === createBindGroupOperationId,
+  );
+  const createBindGroupRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) => candidate.tag === createBindGroupRoute?.serviceArgumentCodec,
+    );
+  const createBindGroupCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) => candidate.tag === createBindGroupRoute?.serviceCompletionCodec,
+    );
+  const createBindGroupNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === createBindGroupOperationId,
+    );
+  const bindGroupEvidence =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.typeGpuBindGroupWorkloadEvidence;
+  if (
+    !createBindGroupRoute ||
+    !createBindGroupRequestCodec?.executableFromCurrentAuthenticatedInputs ||
+    !createBindGroupRequestCodec.nativeProgramPrerequisitesRepresented ||
+    createBindGroupRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !createBindGroupCompletionCodec ||
+    !createBindGroupNativeRoute ||
+    createBindGroupNativeRoute.request.catalog.wireTag !==
+      createBindGroupRequestCodec.wireTag ||
+    createBindGroupNativeRoute.completion.catalog.wireTag !==
+      createBindGroupCompletionCodec.wireTag ||
+    bindGroupEvidence.callCount !== 18 ||
+    bindGroupEvidence.maximumEntriesPerDescriptor !== 5 ||
+    bindGroupEvidence.maximumLabelUtf8Bytes !== 57 ||
+    bindGroupEvidence.acceptedSignatures.length !== 18
+  ) {
+    fail(
+      "GPUDevice.createBindGroup native codegen program or authenticated signature evidence is incomplete",
+    );
+  }
+  const createBindGroupReceiver = Object.freeze({
+    kind: "GPUDevice",
+    objectId: "80",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const bindGroupBrands = new WeakMap();
+  const bindGroupReference = (kind, objectId) => Object.freeze({
+    kind,
+    objectId: String(objectId),
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const bindGroupBrand = (kind, objectId) => {
+    const object = {};
+    bindGroupBrands.set(object, bindGroupReference(kind, objectId));
+    return Object.freeze(object);
+  };
+  const bindGroupWrapperAccess = Object.freeze({
+    reference(value, expectedKind) {
+      const reference = value && typeof value === "object"
+        ? bindGroupBrands.get(value)
+        : undefined;
+      if (!reference || (expectedKind && reference.kind !== expectedKind)) {
+        throw new TypeError("wrong WebGPU object brand");
+      }
+      return reference;
+    },
+  });
+  const createBindGroupInput = (convertedArguments, target) => Object.freeze({
+    operationId: createBindGroupOperationId,
+    wireId: createBindGroupRoute.wireId,
+    convertedArguments,
+    receiver: createBindGroupReceiver,
+    target,
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "3",
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+  });
+  const createBindGroupWorkloadVectors = bindGroupEvidence.acceptedSignatures.map(
+    (signature, callIndex) => {
+      if (
+        sha256(Buffer.from(signature.signatureCanonicalJson, "utf8")) !==
+          signature.signatureSha256
+      ) {
+        fail(`${signature.id} bind-group signature digest drifted`);
+      }
+      const joinedSignature = JSON.parse(signature.signatureCanonicalJson);
+      const layoutObjectId = 1_000 + callIndex;
+      const target = bindGroupReference("GPUBindGroup", 2_000 + callIndex);
+      const layoutObject = bindGroupBrand("GPUBindGroupLayout", layoutObjectId);
+      const layoutReference = bindGroupReference(
+        "GPUBindGroupLayout",
+        layoutObjectId,
+      );
+      const expectedEntries = [];
+      const rawEntries = joinedSignature.entries.map((entry, entryIndex) => {
+        const objectId = 3_000 + callIndex * 10 + entryIndex;
+        if (entry.resourceKind === "GPUBufferBinding") {
+          const bufferObject = bindGroupBrand("GPUBuffer", objectId);
+          const bufferReference = bindGroupReference("GPUBuffer", objectId);
+          expectedEntries.push(Object.freeze({
+            binding: entry.binding,
+            resource: Object.freeze({
+              resourceKind: "GPUBufferBinding",
+              buffer: bufferReference,
+              offset: entry.offset,
+              size: entry.effectiveSize,
+            }),
+          }));
+          return Object.freeze({
+            binding: entry.binding,
+            resource: Object.freeze({
+              buffer: bufferObject,
+              offset: entry.offset,
+              size: entry.effectiveSize,
+            }),
+          });
+        }
+        const kind = entry.resourceKind;
+        const resourceObject = bindGroupBrand(kind, objectId);
+        expectedEntries.push(Object.freeze({
+          binding: entry.binding,
+          resource: Object.freeze({
+            resourceKind: kind,
+            reference: bindGroupReference(kind, objectId),
+          }),
+        }));
+        return Object.freeze({ binding: entry.binding, resource: resourceObject });
+      });
+      const rawDescriptor = Object.freeze({
+        label: joinedSignature.label,
+        entries: Object.freeze(rawEntries),
+        layout: layoutObject,
+      });
+      const expectedConvertedArguments = Object.freeze({
+        label: joinedSignature.label,
+        entries: Object.freeze(expectedEntries),
+        layout: layoutReference,
+      });
+      const convertedArguments =
+        WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+          createBindGroupOperationId,
+          [rawDescriptor],
+          bindGroupWrapperAccess,
+        );
+      if (
+        canonicalJson(convertedArguments) !==
+          canonicalJson(expectedConvertedArguments)
+      ) {
+        fail(`${signature.id} bind-group WebIDL conversion drifted`);
+      }
+      const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+        createBindGroupInput(convertedArguments, target),
+      );
+      const inspected = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        bytes,
+      );
+      if (
+        canonicalJson(inspected.convertedArguments) !==
+          canonicalJson(expectedConvertedArguments)
+      ) {
+        fail(`${signature.id} bind-group request did not round-trip`);
+      }
+      return Object.freeze({
+        id: `create-bind-group-workload-call-${String(callIndex + 1).padStart(2, "0")}`,
+        kind: "request",
+        operationId: createBindGroupOperationId,
+        bytesHex: toHex(bytes),
+        expected: Object.freeze({
+          receiver: createBindGroupReceiver,
+          target,
+          capturedScopeId: "2",
+          adapterOrdinal: "0",
+          deviceIngressOrdinal: "3",
+          queueIngressOrdinal: "0",
+          sealedLocalTimeline: Object.freeze([]),
+          convertedArguments: expectedConvertedArguments,
+        }),
+        workloadEvidence: Object.freeze({
+          id: signature.id,
+          workloadId: signature.workloadId,
+          evidenceSequence: signature.evidenceSequence,
+          evidenceSha256: signature.evidenceSha256,
+          signatureSha256: signature.signatureSha256,
+          joinedSignature,
+        }),
+      });
+    },
+  );
+  const createBindGroupCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createBindGroupOperationId,
+      { kind: "none" },
+    );
+  if (createBindGroupCompletion.byteLength !== 0) {
+    fail("GPUDevice.createBindGroup terminal receipt must have empty bytes");
+  }
+  const firstBindGroupVector = createBindGroupWorkloadVectors[0];
+  const firstBindGroupConverted = firstBindGroupVector.expected.convertedArguments;
+  const firstBindGroupTarget = firstBindGroupVector.expected.target;
+  const bindGroupStructuralRejection = (id, mutate, expectedErrorIncludes) => {
+    const converted = structuredClone(firstBindGroupConverted);
+    mutate(converted);
+    let errorMessage = "";
+    try {
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+        createBindGroupInput(converted, firstBindGroupTarget),
+      );
+    } catch (error) {
+      errorMessage = String(error?.message ?? error);
+    }
+    if (!errorMessage.includes(expectedErrorIncludes)) {
+      fail(`${id} did not reject at the structural boundary: ${errorMessage}`);
+    }
+    return Object.freeze({
+      id,
+      kind: "structural-rejection",
+      operationId: createBindGroupOperationId,
+      structuralBoundary: "generated-native-request-encoder-before-bytes",
+      expected: Object.freeze({
+        errorIncludes: expectedErrorIncludes,
+        encodedByteCount: 0,
+        providerTokenCount: 0,
+        physicalSequenceCount: 0,
+      }),
+    });
+  };
+  const createBindGroupStructuralRejections = Object.freeze([
+    bindGroupStructuralRejection(
+      "create-bind-group-missing-layout-structurally-rejected",
+      (descriptor) => { delete descriptor.layout; },
+      "canonical descriptor",
+    ),
+    bindGroupStructuralRejection(
+      "create-bind-group-unknown-member-structurally-rejected",
+      (descriptor) => { descriptor.unknown = true; },
+      "canonical descriptor",
+    ),
+    bindGroupStructuralRejection(
+      "create-bind-group-wrong-layout-kind-structurally-rejected",
+      (descriptor) => { descriptor.layout.kind = "GPUBuffer"; },
+      "layout has an invalid",
+    ),
+    bindGroupStructuralRejection(
+      "create-bind-group-entry-missing-resource-structurally-rejected",
+      (descriptor) => { delete descriptor.entries[0].resource; },
+      "closed dictionary",
+    ),
+    bindGroupStructuralRejection(
+      "create-bind-group-invalid-buffer-range-structurally-rejected",
+      (descriptor) => {
+        descriptor.entries = [{
+          binding: 0,
+          resource: {
+            resourceKind: "GPUBufferBinding",
+            buffer: bindGroupReference("GPUBuffer", 9_999),
+            offset: -1,
+          },
+        }];
+      },
+      "buffer entry",
+    ),
+    bindGroupStructuralRejection(
+      "create-bind-group-unknown-resource-kind-structurally-rejected",
+      (descriptor) => { descriptor.entries[0].resource.resourceKind = "GPUQuerySet"; },
+      "resource entry",
+    ),
+  ]);
+  const semanticBindGroupDescriptor = (id, convertedArguments, predicate) => {
+    const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      createBindGroupInput(convertedArguments, firstBindGroupTarget),
+    );
+    return Object.freeze({
+      id,
+      kind: "semantic-rejection",
+      operationId: createBindGroupOperationId,
+      semanticTerminalId: "later-predicate-rejection",
+      firstFailingPredicate: predicate,
+      providerTokenCount: 0,
+      physicalSequenceCount: 0,
+      bytesHex: toHex(bytes),
+      expected: Object.freeze({ convertedArguments }),
+    });
+  };
+  const createBindGroupSemanticRejections = Object.freeze([
+    semanticBindGroupDescriptor(
+      "create-bind-group-empty-entries-rejected",
+      Object.freeze({ ...firstBindGroupConverted, entries: Object.freeze([]) }),
+      "validate-bind-group-entry-layout-cardinality-and-exact-binding-join",
+    ),
+    semanticBindGroupDescriptor(
+      "create-bind-group-overlong-label-rejected",
+      Object.freeze({ ...firstBindGroupConverted, label: "x".repeat(58) }),
+      "validate-exact-generated-typegpu-bind-group-workload-signature",
+    ),
+    semanticBindGroupDescriptor(
+      "create-bind-group-unreviewed-range-rejected",
+      Object.freeze({
+        ...firstBindGroupConverted,
+        entries: Object.freeze(firstBindGroupConverted.entries.map(
+          (entry, index) => index === 0 &&
+              entry.resource.resourceKind === "GPUBufferBinding"
+            ? Object.freeze({
+              ...entry,
+              resource: Object.freeze({ ...entry.resource, offset: 4 }),
+            })
+            : entry,
+        )),
+      }),
+      "validate-exact-generated-typegpu-bind-group-workload-signature",
+    ),
+  ]);
 
   const createBindGroupLayoutRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === createBindGroupLayoutOperationId,
@@ -3851,7 +4169,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -3897,6 +4215,32 @@ function buildCorpus() {
         unavailableSemanticFields:
           requestDeviceRequestCodec.unavailableSemanticFields,
         testOnlyPayloadCodegenEvidence: true,
+      },
+      {
+        operationId: createBindGroupOperationId,
+        wireId: createBindGroupRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createBindGroupRequestCodec.tag,
+        requestCodecTag: createBindGroupRequestCodec.wireTag,
+        completionCodec: createBindGroupCompletionCodec.tag,
+        completionCodecTag: createBindGroupCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createBindGroupNativeRoute.completion.semanticTerminalMapping,
+        reviewedWorkloadEvidence: {
+          corpusSha256: bindGroupEvidence.corpusSha256,
+          callCount: bindGroupEvidence.callCount,
+          maximumEntriesPerDescriptor:
+            bindGroupEvidence.maximumEntriesPerDescriptor,
+          maximumLabelUtf8Bytes: bindGroupEvidence.maximumLabelUtf8Bytes,
+          acceptedSignatureSha256s:
+            bindGroupEvidence.acceptedSignatures.map(
+              (signature) => signature.signatureSha256,
+            ),
+          predicateRule:
+            "exact-generated-18-call-signature-set-after-broad-structural-decode-and-full-reference-joins",
+        },
       },
       {
         operationId: createBindGroupLayoutOperationId,
@@ -4285,6 +4629,17 @@ function buildCorpus() {
           rule: "unsigned-utf8-bytes-shorter-prefix-first",
         },
       },
+      ...createBindGroupWorkloadVectors,
+      {
+        id: "create-bind-group-operation-success-result",
+        kind: "result",
+        operationId: createBindGroupOperationId,
+        semanticTerminalId: "operation-success",
+        bytesHex: toHex(createBindGroupCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      ...createBindGroupStructuralRejections,
+      ...createBindGroupSemanticRejections,
       {
         id: "create-bind-group-layout-request",
         kind: "request",
@@ -4428,7 +4783,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/joined-signature/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
     );
     return;
   }

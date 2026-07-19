@@ -448,7 +448,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     webIdlVocabulary,
     activeRouteSubset: {
@@ -562,6 +562,23 @@ function exactGpuHeaderVocabulary() {
 function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const { payload, computed } = validateWebGpuWrapperAuthority(authority);
   const semantic = validateWebGpuWrapperSemantics(semantics);
+  const typeGpuBindGroupWorkloadEvidence =
+    semantic.semanticProjection.typeGpuBindGroupWorkloadEvidence;
+  if (
+    typeGpuBindGroupWorkloadEvidence?.callCount !== 18 ||
+    typeGpuBindGroupWorkloadEvidence.maximumEntriesPerDescriptor !== 5 ||
+    typeGpuBindGroupWorkloadEvidence.maximumLabelUtf8Bytes !== 57 ||
+    !/^[0-9a-f]{64}$/u.test(typeGpuBindGroupWorkloadEvidence.corpusSha256) ||
+    !Array.isArray(typeGpuBindGroupWorkloadEvidence.acceptedSignatures) ||
+    typeGpuBindGroupWorkloadEvidence.acceptedSignatures.length !== 18 ||
+    typeGpuBindGroupWorkloadEvidence.acceptedSignatures.some(
+      (signature) =>
+        typeof signature.signatureCanonicalJson !== "string" ||
+        !/^[0-9a-f]{64}$/u.test(signature.signatureSha256),
+    )
+  ) {
+    throw new Error("TypeGPU bind-group signature evidence is incomplete");
+  }
   const headerVocabulary = exactGpuHeaderVocabulary();
   const nativeCodecPrograms = payload.wireEnvelope.nativeCodecPrograms;
   const requestAdapterProgram = nativeCodecPrograms.routes.find(
@@ -569,6 +586,9 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   );
   const requestDeviceProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUAdapter.requestDevice",
+  );
+  const createBindGroupProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUDevice.createBindGroup",
   );
   const createBindGroupLayoutProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createBindGroupLayout",
@@ -609,6 +629,10 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createBindGroupLayout",
     );
+  const createBindGroupSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUDevice.createBindGroup",
+    );
   const createBufferSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createBuffer",
@@ -642,6 +666,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   if (
     !requestAdapterProgram ||
     !requestDeviceProgram ||
+    !createBindGroupProgram ||
     !createBindGroupLayoutProgram ||
     !createBufferProgram ||
     !createPipelineLayoutProgram ||
@@ -651,6 +676,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     !createCommandEncoderProgram ||
     !createShaderModuleProgram ||
     !deviceDestroyProgram ||
+    !createBindGroupSemanticProgram ||
     !createBindGroupLayoutSemanticProgram ||
     !createBufferSemanticProgram ||
     !createPipelineLayoutSemanticProgram ||
@@ -668,6 +694,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     headerVocabulary.tags.GPUTextureView !== 7 ||
     headerVocabulary.tags.GPUSampler !== 8 ||
     headerVocabulary.tags.GPUBindGroupLayout !== 9 ||
+    headerVocabulary.tags.GPUBindGroup !== 10 ||
     headerVocabulary.tags.GPUPipelineLayout !== 11 ||
     headerVocabulary.tags.GPUShaderModule !== 12 ||
     headerVocabulary.tags.GPUCommandEncoder !== 15 ||
@@ -684,6 +711,8 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
       deviceDestroyProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createCommandEncoderProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      createBindGroupProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createBindGroupLayoutProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
@@ -706,6 +735,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     headerVocabulary.carrierConstants.EXACT_GPU_BACKEND_NONE_V2 !== 0 ||
     requestDeviceProgram.request.executablePrerequisites.join(",") !==
       "generatedLogicalProviderDescriptor,authenticatedResultSelectionIdentity" ||
+    createBindGroupProgram.request.executablePrerequisites.length !== 0 ||
     createBindGroupLayoutProgram.request.executablePrerequisites.length !== 0 ||
     createBufferProgram.request.executablePrerequisites.length !== 0 ||
     createPipelineLayoutProgram.request.executablePrerequisites.length !== 0 ||
@@ -809,6 +839,29 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
       event: createCommandEncoderCompletionEvents[terminal.terminalId],
     })),
   };
+  const expectedCreateBindGroupTerminalMapping = {
+    authorityPath:
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createBindGroup]",
+    terminals: createBindGroupSemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+      event: createCommandEncoderCompletionEvents[terminal.terminalId],
+    })),
+  };
+  if (
+    canonicalJson(createBindGroupProgram.completion.semanticTerminalMapping) !==
+      canonicalJson(expectedCreateBindGroupTerminalMapping) ||
+    expectedCreateBindGroupTerminalMapping.terminals.some(
+      (terminal) => !terminal.event,
+    )
+  ) {
+    throw new Error(
+      "GPUDevice.createBindGroup native completion mapping differs from semantic terminals",
+    );
+  }
   if (
     canonicalJson(createBindGroupLayoutProgram.completion.semanticTerminalMapping) !==
       canonicalJson(expectedCreateBindGroupLayoutTerminalMapping) ||
@@ -966,7 +1019,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
@@ -1004,6 +1057,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     completeLimitNames: semantic.semanticProjection.limitPolicy.limits.map(
       (limit) => limit.name,
     ),
+    typeGpuBindGroupWorkloadEvidence,
   };
   if (
     manifest.operationCount === 0 ||

@@ -330,7 +330,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -425,6 +425,7 @@ function validateNativeCodecPrograms(payload) {
   assertCanonical(
     Object.keys(types || {}).sort(),
     [
+      "bindGroupDescriptorV1",
       "bindGroupLayoutDescriptorV1",
       "bufferDescriptorV1",
       "canonicalValueV1",
@@ -619,6 +620,100 @@ function validateNativeCodecPrograms(payload) {
       ],
     },
     "native requestDevice untrusted descriptor ingress type",
+  );
+  assertCanonical(
+    types.bindGroupDescriptorV1,
+    {
+      kind: "closed-dictionary",
+      encodingType: "canonicalValueV1",
+      trust: "untrusted-webidl-converted-semantic-service-ingress-only",
+      providerBoundary: "forbidden-raw-descriptor-must-not-reach-provider",
+      unknownFields: "reject",
+      fields: [
+        {
+          name: "label",
+          required: true,
+          value: { kind: "string" },
+        },
+        {
+          name: "entries",
+          required: true,
+          value: {
+            kind: "sequence",
+            minCount: 0,
+            maxCountFrom: "codecLayout.sequenceMaxCount",
+            element: {
+              kind: "closed-dictionary",
+              unknownFields: "reject",
+              fields: [
+                { name: "binding", required: true, value: { kind: "u32" } },
+                {
+                  name: "resource",
+                  required: true,
+                  value: {
+                    kind: "closed-dictionary",
+                    unknownFields: "reject",
+                    fields: [
+                      {
+                        name: "resourceKind",
+                        required: true,
+                        value: {
+                          kind: "string-enum",
+                          values: [
+                            "GPUBufferBinding",
+                            "GPUSampler",
+                            "GPUTextureView",
+                            "GPUBuffer",
+                            "GPUTexture",
+                            "GPUExternalTexture",
+                          ],
+                        },
+                      },
+                      {
+                        name: "buffer",
+                        required: false,
+                        value: {
+                          kind: "full-object-reference",
+                          referenceType: "objectReferenceV1",
+                          requiredObjectKind: "GPUBuffer",
+                        },
+                      },
+                      { name: "offset", required: false, value: { kind: "u64" } },
+                      { name: "size", required: false, value: { kind: "u64" } },
+                      {
+                        name: "reference",
+                        required: false,
+                        value: {
+                          kind: "full-object-reference",
+                          referenceType: "objectReferenceV1",
+                          permittedObjectKinds: [
+                            "GPUSampler",
+                            "GPUTextureView",
+                            "GPUBuffer",
+                            "GPUTexture",
+                            "GPUExternalTexture",
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          name: "layout",
+          required: true,
+          value: {
+            kind: "full-object-reference",
+            referenceType: "objectReferenceV1",
+            requiredObjectKind: "GPUBindGroupLayout",
+          },
+        },
+      ],
+    },
+    "native createBindGroup untrusted descriptor ingress type",
   );
   assertCanonical(
     types.bindGroupLayoutDescriptorV1,
@@ -2475,6 +2570,28 @@ function validateNativeCodecPrograms(payload) {
 
   for (const resource of [
     {
+      operationId: "GPUDevice.createBindGroup",
+      descriptorType: "bindGroupDescriptorV1",
+      targetKind: "GPUBindGroup",
+      semanticSteps: [
+        "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+        "authenticate-contiguous-sealed-local-timeline-prefix",
+        "validate-current-live-device-generation",
+        "validate-operation-coverage",
+        "validate-authorized-live-account-and-aggregate-envelope",
+        "validate-exact-generated-typegpu-bind-group-workload-signature",
+        "authenticate-current-same-device-bind-group-layout-full-reference-and-joined-descriptor",
+        "validate-bind-group-entry-layout-cardinality-and-exact-binding-join",
+        "authenticate-current-same-device-resource-full-references-and-creator-order",
+        "validate-buffer-sampler-texture-view-and-external-resource-compatibility",
+        "authenticate-wrapper-allocated-bind-group-target-provenance",
+        "validate-wrapper-allocated-bind-group-target-generation",
+        "reserve-bind-group-table-and-dual-ledger-capacity",
+        "reserve-bind-group-provider-request-completion-and-physical-sequence",
+        "validate-bind-group-label-under-reviewed-workload",
+      ],
+    },
+    {
       operationId: "GPUDevice.createSampler",
       descriptorType: "samplerDescriptorV1",
       targetKind: "GPUSampler",
@@ -2947,7 +3064,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

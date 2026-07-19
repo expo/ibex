@@ -1,20 +1,20 @@
 {
   "schema": "ibex/webgpu-production-codec-corpus/2",
-  "disposition": "generated-language-neutral-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+  "disposition": "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
   "supportClaim": "none",
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "24a1bf78cd691277bc4dbb4762e6c24217ed841644eb2d57926e27cd0b2eeb19"
+    "manifestSha256": "32b70bbef12f0f666267b2f2d92b6720ef003fb16da324104f3c0eeb02676d1a"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
   "digests": {
-    "operationSet": "ff6ed033ada7f75dc66847ccb7f9c6f68d5852700697de7a5140c4a50810a81a",
-    "semanticProgramSet": "491150aa5ebe5c4cbc6147bc2956d12d0cebd0e4e14ced92ef8884cf0c146b4f",
-    "runtimeRouting": "da16a415ca0e90066fdb19d3c86f9c4332cae19ebd3b5c207737edc039729d2f",
-    "webgpuCVocabulary": "992010a238538843ab1043c165b45c122a19ee123d075c4046b98166e723cf1f",
-    "projection": "2e86ec7fc83f5898378775e6603ebe85ff6e0ce06787156b15560622a4adfca0"
+    "operationSet": "406e88e1ae91405cbeae7dfb2bdd171d4b0eeec9c435a09325a8747c0f635ccb",
+    "semanticProgramSet": "8a27284f7b69747250d58f5e1993c4617bb8f6009e10d648f20a633ab9a92eaf",
+    "runtimeRouting": "f35f70dffe809582735e68736dfad2be98cc6397a6dafbdc50cb62a11a6cd851",
+    "webgpuCVocabulary": "365db3c1bb7db56690bad5c5ea0b365a883adf17e259473ad67f97464751978e",
+    "projection": "5c49adc6ec3284ba330eb2d83fdd2c0cb812bac35d12b93c1b673a5d76ffe6b1"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
@@ -50,6 +50,88 @@
         "authenticatedResultSelectionIdentity"
       ],
       "testOnlyPayloadCodegenEvidence": true
+    },
+    {
+      "operationId": "GPUDevice.createBindGroup",
+      "wireId": 900410509,
+      "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
+      "requestCodec": "gpu-create-bind-group-service-request-v1",
+      "requestCodecTag": 24,
+      "completionCodec": "terminal-receipt-service-completion-v1",
+      "completionCodecTag": 2,
+      "productionExecutableFromCurrentAuthenticatedInputs": true,
+      "semanticTerminalMapping": {
+        "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createBindGroup]",
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "errorTiming": "synchronous-webidl",
+            "resultDisposition": "throw",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "no-service-call",
+              "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "errorTiming": "device-timeline",
+            "resultDisposition": "return-invalid-object-and-report-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "device-error",
+              "kindValue": 2,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+              "completionPayloadEncoderEligibility": "excluded-not-an-operation-result"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "errorTiming": "none",
+            "resultDisposition": "return-object",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "operation-success"
+            }
+          }
+        ]
+      },
+      "reviewedWorkloadEvidence": {
+        "corpusSha256": "c3d9c86c2c0c57fbaf11c7575419b54968a16cf56b24adaec266cd82bf26280e",
+        "callCount": 18,
+        "maximumEntriesPerDescriptor": 5,
+        "maximumLabelUtf8Bytes": 57,
+        "acceptedSignatureSha256s": [
+          "42ecf08dc2825784e91bcf2852d1c77e296ee8b45cdde82a26131d3d3d87fb12",
+          "8ca6d0b7a17dbea5e4c7d92f902906987515100d511b24503573d5bf05873a16",
+          "47cebbfcc83f52916ec67c3086a94297ecc659489c0d67821d362b55ae2e56b4",
+          "47cebbfcc83f52916ec67c3086a94297ecc659489c0d67821d362b55ae2e56b4",
+          "679366f3cff0ba72424d559a8e600153ad18d3332f4bba227c0ed18f382f6141",
+          "c04b90230ad318eb18d4c50116ed09d06799b52c8238887e8797687c60f394ca",
+          "3d9409739fc128daab56f492b7e44b69449167b02f3d67bb4843278aee226576",
+          "3f65b8b93532bb99504eb3bd01cff487cd09ff419dd25debcc88b167670b02df",
+          "c3dcc45861b46e957bcb3c6376b4df94b00895a2224d567eedad8943dbf769b7",
+          "d9854506c8a21cdea46d1ec67a477eb3c52c7325380d69d88dd5138a34aa057e",
+          "c6a02bf22035a8bc71d548718145b48802df131db7e9090bf839e97b395862e5",
+          "101204404789ac9436219210eded117b9de562a7303bd437bfadf247a6b33f81",
+          "fec0fc442da01d08b6e20e5109b83c65a51a28994aee3e5f9ce553e6594981b2",
+          "67f2499900fd05848ca134d810cd018b3eed31443bfc04abe0d3649015efd713",
+          "d90e31096001d39cfb8d2446864c77ab5d313a7224c8fa7243a9c5fea7b76c1c",
+          "c04b90230ad318eb18d4c50116ed09d06799b52c8238887e8797687c60f394ca",
+          "801ba0a398b97cbb12378c1a0cd63c4b9ba5a44bce359c3ec8c433b6d774bb0e",
+          "a6f21caa488dd6e911351b79ebad4e2cc426367b0957ccde58868ad97c6664ba"
+        ],
+        "predicateRule": "exact-generated-18-call-signature-set-after-broad-structural-decode-and-full-reference-joins"
+      }
     },
     {
       "operationId": "GPUDevice.createBindGroupLayout",
@@ -1821,6 +1903,3519 @@
           "𐀀"
         ],
         "rule": "unsigned-utf8-bytes-shorter-prefix-first"
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-01",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad007000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050e0000004750555465787475726556696577170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333030301200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050e000000475055546578747572655669657707020000000700000062696e64696e670301000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050a00000047505553616d706c6572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333030311200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050a00000047505553616d706c6572050000006c6162656c0500000000060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030301200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2000",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUTextureView",
+                "reference": {
+                  "kind": "GPUTextureView",
+                  "objectId": "3000",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUSampler",
+                "reference": {
+                  "kind": "GPUSampler",
+                  "objectId": "3001",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1000",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:25",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 25,
+        "evidenceSha256": "d874d5495f7173cec41462aa8e2628fca37b65d6449fefadb530e15478e2d433",
+        "signatureSha256": "42ecf08dc2825784e91bcf2852d1c77e296ee8b45cdde82a26131d3d3d87fb12",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "layout": {
+                "binding": 0,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 2
+              },
+              "parentTexture": {
+                "depthOrArrayLayers": 1,
+                "dimension": "2d",
+                "format": "rgba8unorm",
+                "height": 128,
+                "label": "",
+                "mipLevelCount": 1,
+                "sampleCount": 1,
+                "usage": 22,
+                "viewFormats": [],
+                "width": 64
+              },
+              "resourceKind": "GPUTextureView",
+              "textureOriginClass": "device-created",
+              "viewDescriptor": {
+                "aspect": "all",
+                "baseArrayLayer": 0,
+                "baseMipLevel": 0,
+                "label": "",
+                "swizzle": "rgba",
+                "usage": 0
+              }
+            },
+            {
+              "binding": 1,
+              "isComparison": false,
+              "isFiltering": true,
+              "layout": {
+                "binding": 1,
+                "sampler": {
+                  "type": "filtering"
+                },
+                "visibility": 2
+              },
+              "resourceKind": "GPUSampler",
+              "samplerDescriptor": {
+                "addressModeU": "clamp-to-edge",
+                "addressModeV": "clamp-to-edge",
+                "addressModeW": "clamp-to-edge",
+                "label": "",
+                "lodMaxClamp": 32,
+                "lodMinClamp": 0,
+                "magFilter": "linear",
+                "maxAnisotropy": 1,
+                "minFilter": "linear",
+                "mipmapFilter": "nearest"
+              }
+            }
+          ],
+          "label": "",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 2
+              },
+              {
+                "binding": 1,
+                "sampler": {
+                  "type": "filtering"
+                },
+                "visibility": 2
+              }
+            ],
+            "label": ""
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-02",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad107000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333031301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030c00000007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333031311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650348000000050000006c6162656c052c000000696e6974506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030311200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2001",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "initPipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3010",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 12
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3011",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 72
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1001",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:76",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 76,
+        "evidenceSha256": "ffe76e11004dc0941ef1d4afba7a819356bf4fd97eef4c1c7a86c7d20a353e0e",
+        "signatureSha256": "8ca6d0b7a17dbea5e4c7d92f902906987515100d511b24503573d5bf05873a16",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 12,
+                "usage": 76
+              },
+              "effectiveSize": 12,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "params",
+                "mappedAtCreation": true,
+                "size": 72,
+                "usage": 76
+              },
+              "effectiveSize": 72,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "initPipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "initPipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-03",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad207000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333032301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000280007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333032311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650300005001050000006c6162656c050a000000696e69744c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030321200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2002",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "initLayout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3020",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 2621440
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3021",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 22020096
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1002",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:80",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 80,
+        "evidenceSha256": "56beed125209f25f0fced9e92973e55fee92f58aeacf10644219f374ea4a280d",
+        "signatureSha256": "47cebbfcc83f52916ec67c3086a94297ecc659489c0d67821d362b55ae2e56b4",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 2621440,
+                "usage": 172
+              },
+              "effectiveSize": 2621440,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 22020096,
+                "usage": 140
+              },
+              "effectiveSize": 22020096,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "initLayout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              }
+            ],
+            "label": "initLayout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-04",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad307000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333033301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000280007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333033311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650300005001050000006c6162656c050a000000696e69744c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030331200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2003",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "initLayout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3030",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 2621440
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3031",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 22020096
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1003",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:97",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 97,
+        "evidenceSha256": "1a5508c8ba218f85e5268e411078782c86ec8a0cc3e1bc36c5ba3052484d19e0",
+        "signatureSha256": "47cebbfcc83f52916ec67c3086a94297ecc659489c0d67821d362b55ae2e56b4",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 2621440,
+                "usage": 172
+              },
+              "effectiveSize": 2621440,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 22020096,
+                "usage": 140
+              },
+              "effectiveSize": 22020096,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "initLayout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              }
+            ],
+            "label": "initLayout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-05",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad407000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060400000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333034301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030c00000007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333034311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65034800000007020000000700000062696e64696e670302000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050e0000004750555465787475726556696577170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333034321200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050e000000475055546578747572655669657707020000000700000062696e64696e670303000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050a00000047505553616d706c6572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333034331200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050a00000047505553616d706c6572050000006c6162656c053000000073696d756c617465506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030341200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2004",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "simulatePipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3040",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 12
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3041",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 72
+              }
+            },
+            {
+              "binding": 2,
+              "resource": {
+                "resourceKind": "GPUTextureView",
+                "reference": {
+                  "kind": "GPUTextureView",
+                  "objectId": "3042",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            },
+            {
+              "binding": 3,
+              "resource": {
+                "resourceKind": "GPUSampler",
+                "reference": {
+                  "kind": "GPUSampler",
+                  "objectId": "3043",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1004",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:130",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 130,
+        "evidenceSha256": "f2cb4922d15177a09d19976f428cfa903c7f7fa20bdc056fc1d707b4e00baa94",
+        "signatureSha256": "679366f3cff0ba72424d559a8e600153ad18d3332f4bba227c0ed18f382f6141",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 12,
+                "usage": 76
+              },
+              "effectiveSize": 12,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "params",
+                "mappedAtCreation": true,
+                "size": 72,
+                "usage": 76
+              },
+              "effectiveSize": 72,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 2,
+              "layout": {
+                "binding": 2,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 7
+              },
+              "parentTexture": {
+                "depthOrArrayLayers": 1,
+                "dimension": "2d",
+                "format": "rgba8unorm",
+                "height": 512,
+                "label": "trackTexture",
+                "mipLevelCount": 1,
+                "sampleCount": 1,
+                "usage": 23,
+                "viewFormats": [],
+                "width": 512
+              },
+              "resourceKind": "GPUTextureView",
+              "textureOriginClass": "device-created",
+              "viewDescriptor": {
+                "aspect": "all",
+                "baseArrayLayer": 0,
+                "baseMipLevel": 0,
+                "dimension": "2d",
+                "format": "rgba8unorm",
+                "label": "trackView",
+                "swizzle": "rgba",
+                "usage": 0
+              }
+            },
+            {
+              "binding": 3,
+              "isComparison": false,
+              "isFiltering": false,
+              "layout": {
+                "binding": 3,
+                "sampler": {
+                  "type": "non-filtering"
+                },
+                "visibility": 7
+              },
+              "resourceKind": "GPUSampler",
+              "samplerDescriptor": {
+                "addressModeU": "clamp-to-edge",
+                "addressModeV": "clamp-to-edge",
+                "addressModeW": "clamp-to-edge",
+                "label": "nearestSampler",
+                "lodMaxClamp": 32,
+                "lodMinClamp": 0,
+                "magFilter": "nearest",
+                "maxAnisotropy": 1,
+                "minFilter": "nearest",
+                "mipmapFilter": "nearest"
+              }
+            }
+          ],
+          "label": "simulatePipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 2,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 3,
+                "sampler": {
+                  "type": "non-filtering"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "simulatePipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-06",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad507000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333035301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000280007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333035311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650300005001050000006c6162656c050900000073696d4c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030351200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2005",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "simLayout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3050",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 2621440
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3051",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 22020096
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1005",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:132",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 132,
+        "evidenceSha256": "f3e92ff3cf6c0d3f0de43be22c82413f0445862c8ff1a863948de5b1531b0d51",
+        "signatureSha256": "c04b90230ad318eb18d4c50116ed09d06799b52c8238887e8797687c60f394ca",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 2621440,
+                "usage": 172
+              },
+              "effectiveSize": 2621440,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 22020096,
+                "usage": 140
+              },
+              "effectiveSize": 22020096,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "simLayout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "simLayout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-07",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad607000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060300000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333036301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65034800000007020000000700000062696e64696e670301000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050e0000004750555465787475726556696577170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333036311200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050e000000475055546578747572655669657707020000000700000062696e64696e670302000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050a00000047505553616d706c6572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333036321200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050a00000047505553616d706c6572050000006c6162656c052d000000747261636b506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030361200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2006",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "trackPipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3060",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 72
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUTextureView",
+                "reference": {
+                  "kind": "GPUTextureView",
+                  "objectId": "3061",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            },
+            {
+              "binding": 2,
+              "resource": {
+                "resourceKind": "GPUSampler",
+                "reference": {
+                  "kind": "GPUSampler",
+                  "objectId": "3062",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1006",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:205",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 205,
+        "evidenceSha256": "a8c96801f0346701691e476b5700de3f007e25d5e5f96306bf4b7da098a6a17f",
+        "signatureSha256": "3d9409739fc128daab56f492b7e44b69449167b02f3d67bb4843278aee226576",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "params",
+                "mappedAtCreation": true,
+                "size": 72,
+                "usage": 76
+              },
+              "effectiveSize": 72,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "layout": {
+                "binding": 1,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 7
+              },
+              "parentTexture": {
+                "depthOrArrayLayers": 1,
+                "dimension": "2d",
+                "format": "rgba8unorm",
+                "height": 512,
+                "label": "trackTexture",
+                "mipLevelCount": 1,
+                "sampleCount": 1,
+                "usage": 23,
+                "viewFormats": [],
+                "width": 512
+              },
+              "resourceKind": "GPUTextureView",
+              "textureOriginClass": "device-created",
+              "viewDescriptor": {
+                "aspect": "all",
+                "baseArrayLayer": 0,
+                "baseMipLevel": 0,
+                "dimension": "2d",
+                "format": "rgba8unorm",
+                "label": "trackView",
+                "swizzle": "rgba",
+                "usage": 0
+              }
+            },
+            {
+              "binding": 2,
+              "isComparison": false,
+              "isFiltering": true,
+              "layout": {
+                "binding": 2,
+                "sampler": {
+                  "type": "filtering"
+                },
+                "visibility": 7
+              },
+              "resourceKind": "GPUSampler",
+              "samplerDescriptor": {
+                "addressModeU": "clamp-to-edge",
+                "addressModeV": "clamp-to-edge",
+                "addressModeW": "clamp-to-edge",
+                "label": "linearSampler",
+                "lodMaxClamp": 32,
+                "lodMinClamp": 0,
+                "magFilter": "linear",
+                "maxAnisotropy": 1,
+                "minFilter": "linear",
+                "mipmapFilter": "nearest"
+              }
+            }
+          ],
+          "label": "trackPipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 2,
+                "sampler": {
+                  "type": "filtering"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "trackPipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-08",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad707000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060300000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333037301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65034800000007020000000700000062696e64696e670301000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050e0000004750555465787475726556696577170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333037311200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050e000000475055546578747572655669657707020000000700000062696e64696e670302000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050a00000047505553616d706c6572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333037321200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050a00000047505553616d706c6572050000006c6162656c052b000000636172506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030371200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2007",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "carPipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3070",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 72
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUTextureView",
+                "reference": {
+                  "kind": "GPUTextureView",
+                  "objectId": "3071",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            },
+            {
+              "binding": 2,
+              "resource": {
+                "resourceKind": "GPUSampler",
+                "reference": {
+                  "kind": "GPUSampler",
+                  "objectId": "3072",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1007",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:229",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 229,
+        "evidenceSha256": "ee4fd55811b4fb0c8b449df12799b1c0aba992b5dfd099844e8fef2313f4faba",
+        "signatureSha256": "3f65b8b93532bb99504eb3bd01cff487cd09ff419dd25debcc88b167670b02df",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "params",
+                "mappedAtCreation": true,
+                "size": 72,
+                "usage": 76
+              },
+              "effectiveSize": 72,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "layout": {
+                "binding": 1,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 7
+              },
+              "parentTexture": {
+                "depthOrArrayLayers": 1,
+                "dimension": "2d",
+                "format": "rgba8unorm",
+                "height": 64,
+                "label": "texture",
+                "mipLevelCount": 1,
+                "sampleCount": 1,
+                "usage": 23,
+                "viewFormats": [],
+                "width": 32
+              },
+              "resourceKind": "GPUTextureView",
+              "textureOriginClass": "device-created",
+              "viewDescriptor": {
+                "aspect": "all",
+                "baseArrayLayer": 0,
+                "baseMipLevel": 0,
+                "dimension": "2d",
+                "format": "rgba8unorm",
+                "label": "carSpriteView",
+                "swizzle": "rgba",
+                "usage": 0
+              }
+            },
+            {
+              "binding": 2,
+              "isComparison": false,
+              "isFiltering": true,
+              "layout": {
+                "binding": 2,
+                "sampler": {
+                  "type": "filtering"
+                },
+                "visibility": 7
+              },
+              "resourceKind": "GPUSampler",
+              "samplerDescriptor": {
+                "addressModeU": "clamp-to-edge",
+                "addressModeV": "clamp-to-edge",
+                "addressModeW": "clamp-to-edge",
+                "label": "linearSampler",
+                "lodMaxClamp": 32,
+                "lodMinClamp": 0,
+                "magFilter": "linear",
+                "maxAnisotropy": 1,
+                "minFilter": "linear",
+                "mipmapFilter": "nearest"
+              }
+            }
+          ],
+          "label": "carPipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 2,
+                "sampler": {
+                  "type": "filtering"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "carPipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-09",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad807000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333038301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030c00000007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333038311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650348000000050000006c6162656c052b000000666974506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030381200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2008",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "fitPipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3080",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 12
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3081",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 72
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1008",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:867",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 867,
+        "evidenceSha256": "86a0e79d213585f5a1c859ebbbd05188fe551048a3edda148b9015323550f046",
+        "signatureSha256": "c3dcc45861b46e957bcb3c6376b4df94b00895a2224d567eedad8943dbf769b7",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 12,
+                "usage": 76
+              },
+              "effectiveSize": 12,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "params",
+                "mappedAtCreation": true,
+                "size": 72,
+                "usage": 76
+              },
+              "effectiveSize": 72,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "fitPipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "fitPipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-10",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad907000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333039301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000280007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333039311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650300000400050000006c6162656c05090000006669744c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030391200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2009",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "fitLayout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3090",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 2621440
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3091",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 262144
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1009",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:870",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 870,
+        "evidenceSha256": "e36d09e2b39e29fa6ccf94e4058e5f6df56d34bcb09b96d0080189ae7f4e90c5",
+        "signatureSha256": "d9854506c8a21cdea46d1ec67a477eb3c52c7325380d69d88dd5138a34aa057e",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 2621440,
+                "usage": 172
+              },
+              "effectiveSize": 2621440,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "fitnessBuffer",
+                "mappedAtCreation": false,
+                "size": 262144,
+                "usage": 140
+              },
+              "effectiveSize": 262144,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "fitLayout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              }
+            ],
+            "label": "fitLayout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-11",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ada07000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333130301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030c00000007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333130311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650348000000050000006c6162656c0531000000726564756374696f6e506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313031301200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2010",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "reductionPipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3100",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 12
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3101",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 72
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1010",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:897",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 897,
+        "evidenceSha256": "c299dcd37b68b5cf613cd91ecff31881fdfffb4ea5c92a2a4546774c0d2208ef",
+        "signatureSha256": "c6a02bf22035a8bc71d548718145b48802df131db7e9090bf839e97b395862e5",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 12,
+                "usage": 76
+              },
+              "effectiveSize": 12,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "params",
+                "mappedAtCreation": true,
+                "size": 72,
+                "usage": 76
+              },
+              "effectiveSize": 72,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "reductionPipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "reductionPipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-12",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010adb07000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060500000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333131301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000040007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333131311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000500107020000000700000062696e64696e670302000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333131321200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030400000007020000000700000062696e64696e670303000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333131331200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030400000007020000000700000062696e64696e670304000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333131341200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650304000000050000006c6162656c050f000000726564756374696f6e4c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313031311200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2011",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "reductionLayout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3110",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 262144
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3111",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 22020096
+              }
+            },
+            {
+              "binding": 2,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3112",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 4
+              }
+            },
+            {
+              "binding": 3,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3113",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 4
+              }
+            },
+            {
+              "binding": 4,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3114",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 4
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1011",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:901",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 901,
+        "evidenceSha256": "4e4ede09dad3ad01c8252d4f0d6a113302db1f090493aacc7e43e06bcd4dd477",
+        "signatureSha256": "101204404789ac9436219210eded117b9de562a7303bd437bfadf247a6b33f81",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "fitnessBuffer",
+                "mappedAtCreation": false,
+                "size": 262144,
+                "usage": 140
+              },
+              "effectiveSize": 262144,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 22020096,
+                "usage": 140
+              },
+              "effectiveSize": 22020096,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 2,
+              "bufferDescriptor": {
+                "label": "reductionPackedBuffer",
+                "mappedAtCreation": false,
+                "size": 4,
+                "usage": 140
+              },
+              "effectiveSize": 4,
+              "layout": {
+                "binding": 2,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 3,
+              "bufferDescriptor": {
+                "label": "bestIdxBuffer",
+                "mappedAtCreation": false,
+                "size": 4,
+                "usage": 140
+              },
+              "effectiveSize": 4,
+              "layout": {
+                "binding": 3,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 4,
+              "bufferDescriptor": {
+                "label": "bestFitnessBuffer",
+                "mappedAtCreation": false,
+                "size": 4,
+                "usage": 140
+              },
+              "effectiveSize": 4,
+              "layout": {
+                "binding": 4,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "reductionLayout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 2,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 3,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 4,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              }
+            ],
+            "label": "reductionLayout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-13",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010adc07000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060100000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333132301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030c000000050000006c6162656c053900000066696e616c697a65526564756374696f6e506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313031321200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2012",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "finalizeReductionPipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3120",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 12
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1012",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:921",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 921,
+        "evidenceSha256": "80479c12416df42eb5349948633639f55dac8fd84c16c6e6979c9067305761de",
+        "signatureSha256": "fec0fc442da01d08b6e20e5109b83c65a51a28994aee3e5f9ce553e6594981b2",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 12,
+                "usage": 76
+              },
+              "effectiveSize": 12,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "finalizeReductionPipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "finalizeReductionPipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-14",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010add07000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333133301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030c00000007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333133311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650348000000050000006c6162656c052e00000065766f6c7665506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313031331200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2013",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "evolvePipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3130",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 12
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3131",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 72
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1013",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:984",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 984,
+        "evidenceSha256": "d5d60da0abaf585e6f22ad14c094ee6147afb68667d672bbffb060dc28f11ad7",
+        "signatureSha256": "67f2499900fd05848ca134d810cd018b3eed31443bfc04abe0d3649015efd713",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 12,
+                "usage": 76
+              },
+              "effectiveSize": 12,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "params",
+                "mappedAtCreation": true,
+                "size": 72,
+                "usage": 76
+              },
+              "effectiveSize": 72,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "evolvePipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "evolvePipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-15",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ade07000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060500000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333134301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000040007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333134311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000500107020000000700000062696e64696e670302000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333134321200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000280007020000000700000062696e64696e670303000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333134331200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000500107020000000700000062696e64696e670304000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333134341200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650304000000050000006c6162656c050c00000065766f6c76654c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313031341200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2014",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "evolveLayout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3140",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 262144
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3141",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 22020096
+              }
+            },
+            {
+              "binding": 2,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3142",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 2621440
+              }
+            },
+            {
+              "binding": 3,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3143",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 22020096
+              }
+            },
+            {
+              "binding": 4,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3144",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 4
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1014",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:986",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 986,
+        "evidenceSha256": "c5610eb63d445eccdf41649cfca3783c23778d3597a74c6c6c9ce10c7ee52b30",
+        "signatureSha256": "d90e31096001d39cfb8d2446864c77ab5d313a7224c8fa7243a9c5fea7b76c1c",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "fitnessBuffer",
+                "mappedAtCreation": false,
+                "size": 262144,
+                "usage": 140
+              },
+              "effectiveSize": 262144,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 22020096,
+                "usage": 140
+              },
+              "effectiveSize": 22020096,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 2,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 2621440,
+                "usage": 172
+              },
+              "effectiveSize": 2621440,
+              "layout": {
+                "binding": 2,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 3,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 22020096,
+                "usage": 140
+              },
+              "effectiveSize": 22020096,
+              "layout": {
+                "binding": 3,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 4,
+              "bufferDescriptor": {
+                "label": "bestIdxBuffer",
+                "mappedAtCreation": false,
+                "size": 4,
+                "usage": 140
+              },
+              "effectiveSize": 4,
+              "layout": {
+                "binding": 4,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "evolveLayout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 2,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 3,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 4,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "evolveLayout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-16",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010adf07000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333135301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030000280007020000000700000062696e64696e670301000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333135311200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650300005001050000006c6162656c050900000073696d4c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313031351200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2015",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "simLayout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3150",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 2621440
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3151",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 22020096
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1015",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-genetic-racing:1007",
+        "workloadId": "typegpu-genetic-racing",
+        "evidenceSequence": 1007,
+        "evidenceSha256": "fa3cd5a4ee7ce4cad59304af7768c5dccc2b5f82cb1bbb59ff205f6821020cfe",
+        "signatureSha256": "c04b90230ad318eb18d4c50116ed09d06799b52c8238887e8797687c60f394ca",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 2621440,
+                "usage": 172
+              },
+              "effectiveSize": 2621440,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 22020096,
+                "usage": 140
+              },
+              "effectiveSize": 22020096,
+              "layout": {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "simLayout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "storage"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 1,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "simLayout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-17",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ae007000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060400000007020000000700000062696e64696e670300000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333136301200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65030c00000007020000000700000062696e64696e670301000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050e0000004750555465787475726556696577170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333136311200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050e000000475055546578747572655669657707020000000700000062696e64696e670302000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333136321200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a65038800000007020000000700000062696e64696e670303000000080000007265736f757263650704000000060000006275666665720706000000040000006b696e640509000000475055427566666572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333136331200000070726f766964657247656e65726174696f6e050100000039060000006f666673657403000000000c0000007265736f757263654b696e64051000000047505542756666657242696e64696e670400000073697a650380000000050000006c6162656c0535000000636f6d7075746542657a696572506970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313031361200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2016",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "computeBezierPipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3160",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 12
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUTextureView",
+                "reference": {
+                  "kind": "GPUTextureView",
+                  "objectId": "3161",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            },
+            {
+              "binding": 2,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3162",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 136
+              }
+            },
+            {
+              "binding": 3,
+              "resource": {
+                "resourceKind": "GPUBufferBinding",
+                "buffer": {
+                  "kind": "GPUBuffer",
+                  "objectId": "3163",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                },
+                "offset": 0,
+                "size": 128
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1016",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-jelly-slider:56",
+        "workloadId": "typegpu-jelly-slider",
+        "evidenceSequence": 56,
+        "evidenceSha256": "f86d33a553ee74a0766200c8101328b3a4ea2dba41e08508a2f82712566246c1",
+        "signatureSha256": "801ba0a398b97cbb12378c1a0cd63c4b9ba5a44bce359c3ec8c433b6d774bb0e",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "bufferDescriptor": {
+                "label": "<unnamed>",
+                "mappedAtCreation": false,
+                "size": 12,
+                "usage": 76
+              },
+              "effectiveSize": 12,
+              "layout": {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 1,
+              "layout": {
+                "binding": 1,
+                "storageTexture": {
+                  "access": "write-only",
+                  "format": "rgba16float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 6
+              },
+              "parentTexture": {
+                "depthOrArrayLayers": 1,
+                "dimension": "2d",
+                "format": "rgba16float",
+                "height": 128,
+                "label": "bezierTexture",
+                "mipLevelCount": 1,
+                "sampleCount": 1,
+                "usage": 31,
+                "viewFormats": [],
+                "width": 256
+              },
+              "resourceKind": "GPUTextureView",
+              "textureOriginClass": "device-created",
+              "viewDescriptor": {
+                "aspect": "all",
+                "baseArrayLayer": 0,
+                "baseMipLevel": 0,
+                "dimension": "2d",
+                "format": "rgba16float",
+                "label": "bezierWriteView",
+                "swizzle": "rgba",
+                "usage": 0
+              }
+            },
+            {
+              "binding": 2,
+              "bufferDescriptor": {
+                "label": "pointsBuffer",
+                "mappedAtCreation": true,
+                "size": 136,
+                "usage": 140
+              },
+              "effectiveSize": 136,
+              "layout": {
+                "binding": 2,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            },
+            {
+              "binding": 3,
+              "bufferDescriptor": {
+                "label": "controlPointsBuffer",
+                "mappedAtCreation": true,
+                "size": 128,
+                "usage": 140
+              },
+              "effectiveSize": 128,
+              "layout": {
+                "binding": 3,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              "offset": 0,
+              "resourceKind": "GPUBufferBinding"
+            }
+          ],
+          "label": "computeBezierPipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "uniform"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "storageTexture": {
+                  "access": "write-only",
+                  "format": "rgba16float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 6
+              },
+              {
+                "binding": 2,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 3,
+                "buffer": {
+                  "hasDynamicOffset": false,
+                  "minBindingSize": 0,
+                  "type": "read-only-storage"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "computeBezierPipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-workload-call-18",
+      "kind": "request",
+      "operationId": "GPUDevice.createBindGroup",
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ae107000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050e0000004750555465787475726556696577170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333137301200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050e000000475055546578747572655669657707020000000700000062696e64696e670301000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050a00000047505553616d706c6572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333137311200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050a00000047505553616d706c6572050000006c6162656c0528000000706970656c696e65202d204175746f6d617469632042696e642047726f75702026204c61796f7574060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313031371200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "receiver": {
+          "kind": "GPUDevice",
+          "objectId": "80",
+          "objectGeneration": "2",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": {
+          "kind": "GPUBindGroup",
+          "objectId": "2017",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "label": "pipeline - Automatic Bind Group & Layout",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUTextureView",
+                "reference": {
+                  "kind": "GPUTextureView",
+                  "objectId": "3170",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUSampler",
+                "reference": {
+                  "kind": "GPUSampler",
+                  "objectId": "3171",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1017",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      },
+      "workloadEvidence": {
+        "id": "typegpu-jelly-slider:75",
+        "workloadId": "typegpu-jelly-slider",
+        "evidenceSequence": 75,
+        "evidenceSha256": "f711deca3239ce169ba8249659d06142b8f07b77ab1fc9ec61395098ce73eb3a",
+        "signatureSha256": "a6f21caa488dd6e911351b79ebad4e2cc426367b0957ccde58868ad97c6664ba",
+        "joinedSignature": {
+          "entries": [
+            {
+              "binding": 0,
+              "layout": {
+                "binding": 0,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 7
+              },
+              "parentTexture": {
+                "depthOrArrayLayers": 1,
+                "dimension": "2d",
+                "format": "rgba16float",
+                "height": 128,
+                "label": "bezierTexture",
+                "mipLevelCount": 1,
+                "sampleCount": 1,
+                "usage": 31,
+                "viewFormats": [],
+                "width": 256
+              },
+              "resourceKind": "GPUTextureView",
+              "textureOriginClass": "device-created",
+              "viewDescriptor": {
+                "aspect": "all",
+                "baseArrayLayer": 0,
+                "baseMipLevel": 0,
+                "dimension": "2d",
+                "format": "rgba16float",
+                "label": "bezierTexture",
+                "swizzle": "rgba",
+                "usage": 0
+              }
+            },
+            {
+              "binding": 1,
+              "isComparison": false,
+              "isFiltering": true,
+              "layout": {
+                "binding": 1,
+                "sampler": {
+                  "type": "filtering"
+                },
+                "visibility": 7
+              },
+              "resourceKind": "GPUSampler",
+              "samplerDescriptor": {
+                "addressModeU": "clamp-to-edge",
+                "addressModeV": "clamp-to-edge",
+                "addressModeW": "clamp-to-edge",
+                "label": "sampler",
+                "lodMaxClamp": 32,
+                "lodMinClamp": 0,
+                "magFilter": "linear",
+                "maxAnisotropy": 1,
+                "minFilter": "linear",
+                "mipmapFilter": "nearest"
+              }
+            }
+          ],
+          "label": "pipeline - Automatic Bind Group & Layout",
+          "layoutDescriptor": {
+            "entries": [
+              {
+                "binding": 0,
+                "texture": {
+                  "multisampled": false,
+                  "sampleType": "float",
+                  "viewDimension": "2d"
+                },
+                "visibility": 7
+              },
+              {
+                "binding": 1,
+                "sampler": {
+                  "type": "filtering"
+                },
+                "visibility": 7
+              }
+            ],
+            "label": "pipeline - Automatic Bind Group & Layout"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-operation-success-result",
+      "kind": "result",
+      "operationId": "GPUDevice.createBindGroup",
+      "semanticTerminalId": "operation-success",
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "create-bind-group-missing-layout-structurally-rejected",
+      "kind": "structural-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "structuralBoundary": "generated-native-request-encoder-before-bytes",
+      "expected": {
+        "errorIncludes": "canonical descriptor",
+        "encodedByteCount": 0,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-bind-group-unknown-member-structurally-rejected",
+      "kind": "structural-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "structuralBoundary": "generated-native-request-encoder-before-bytes",
+      "expected": {
+        "errorIncludes": "canonical descriptor",
+        "encodedByteCount": 0,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-bind-group-wrong-layout-kind-structurally-rejected",
+      "kind": "structural-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "structuralBoundary": "generated-native-request-encoder-before-bytes",
+      "expected": {
+        "errorIncludes": "layout has an invalid",
+        "encodedByteCount": 0,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-bind-group-entry-missing-resource-structurally-rejected",
+      "kind": "structural-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "structuralBoundary": "generated-native-request-encoder-before-bytes",
+      "expected": {
+        "errorIncludes": "closed dictionary",
+        "encodedByteCount": 0,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-bind-group-invalid-buffer-range-structurally-rejected",
+      "kind": "structural-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "structuralBoundary": "generated-native-request-encoder-before-bytes",
+      "expected": {
+        "errorIncludes": "buffer entry",
+        "encodedByteCount": 0,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-bind-group-unknown-resource-kind-structurally-rejected",
+      "kind": "structural-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "structuralBoundary": "generated-native-request-encoder-before-bytes",
+      "expected": {
+        "errorIncludes": "resource entry",
+        "encodedByteCount": 0,
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "create-bind-group-empty-entries-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "semanticTerminalId": "later-predicate-rejection",
+      "firstFailingPredicate": "validate-bind-group-entry-layout-cardinality-and-exact-binding-join",
+      "providerTokenCount": 0,
+      "physicalSequenceCount": 0,
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad007000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e74726965730600000000050000006c6162656c0500000000060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030301200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "convertedArguments": {
+          "label": "",
+          "entries": [],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1000",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-overlong-label-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "semanticTerminalId": "later-predicate-rejection",
+      "firstFailingPredicate": "validate-exact-generated-typegpu-bind-group-workload-signature",
+      "providerTokenCount": 0,
+      "physicalSequenceCount": 0,
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad007000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050e0000004750555465787475726556696577170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333030301200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050e000000475055546578747572655669657707020000000700000062696e64696e670301000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050a00000047505553616d706c6572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333030311200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050a00000047505553616d706c6572050000006c6162656c053a00000078787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030301200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "convertedArguments": {
+          "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUTextureView",
+                "reference": {
+                  "kind": "GPUTextureView",
+                  "objectId": "3000",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUSampler",
+                "reference": {
+                  "kind": "GPUSampler",
+                  "objectId": "3001",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1000",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
+      }
+    },
+    {
+      "id": "create-bind-group-unreviewed-range-rejected",
+      "kind": "semantic-rejection",
+      "operationId": "GPUDevice.createBindGroup",
+      "semanticTerminalId": "later-predicate-rejection",
+      "firstFailingPredicate": "validate-exact-generated-typegpu-bind-group-workload-signature",
+      "providerTokenCount": 0,
+      "physicalSequenceCount": 0,
+      "bytesHex": "49424751010018008d2cab350350000000000000000200000000000000370000000000000001000000000000000900000000000000010ad007000000000000010000000000000037000000000000000100000000000000090000000000000002000000000000000000000000000000030000000000000000000000000000000600000000070300000007000000656e7472696573060200000007020000000700000062696e64696e670300000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050e0000004750555465787475726556696577170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333030301200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050e000000475055546578747572655669657707020000000700000062696e64696e670301000000080000007265736f757263650702000000090000007265666572656e63650706000000040000006b696e64050a00000047505553616d706c6572170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000333030311200000070726f766964657247656e65726174696f6e0501000000390c0000007265736f757263654b696e64050a00000047505553616d706c6572050000006c6162656c0500000000060000006c61796f75740706000000040000006b696e64051200000047505542696e6447726f75704c61796f7574170000006c6f676963616c44657669636547656e65726174696f6e0501000000310f0000006c6f676963616c446576696365496405020000003535100000006f626a65637447656e65726174696f6e050100000031080000006f626a65637449640504000000313030301200000070726f766964657247656e65726174696f6e050100000039",
+      "expected": {
+        "convertedArguments": {
+          "label": "",
+          "entries": [
+            {
+              "binding": 0,
+              "resource": {
+                "resourceKind": "GPUTextureView",
+                "reference": {
+                  "kind": "GPUTextureView",
+                  "objectId": "3000",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            },
+            {
+              "binding": 1,
+              "resource": {
+                "resourceKind": "GPUSampler",
+                "reference": {
+                  "kind": "GPUSampler",
+                  "objectId": "3001",
+                  "objectGeneration": "1",
+                  "logicalDeviceId": "55",
+                  "logicalDeviceGeneration": "1",
+                  "providerGeneration": "9"
+                }
+              }
+            }
+          ],
+          "layout": {
+            "kind": "GPUBindGroupLayout",
+            "objectId": "1000",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          }
+        }
       }
     },
     {

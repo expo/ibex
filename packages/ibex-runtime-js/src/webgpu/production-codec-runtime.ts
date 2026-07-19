@@ -58,6 +58,7 @@ interface NativeCodecField {
   readonly constraintType?:
     | 'requestAdapterOptionsV1'
     | 'requestDeviceDescriptorV1'
+    | 'bindGroupDescriptorV1'
     | 'bindGroupLayoutDescriptorV1'
     | 'bufferDescriptorV1'
     | 'pipelineLayoutDescriptorV1'
@@ -69,7 +70,7 @@ interface NativeCodecField {
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 24;
     operationWireId:
       | 1660448199
       | 194635792
@@ -81,7 +82,8 @@ interface NativeCodecField {
       | 4177957718
       | 1853125118
       | 599085487
-      | 4055478657;
+      | 4055478657
+      | 900410509;
   }>;
   readonly constant?: 1;
   readonly constraint?: 'positive' | 'boolean-zero-or-one';
@@ -153,6 +155,7 @@ interface NativeCodecCarrierConstraint {
     | 'objectKindTags.GPUSampler'
     | 'objectKindTags.GPUTexture'
     | 'objectKindTags.GPUTextureView'
+    | 'objectKindTags.GPUBindGroup'
     | 'objectKindTags.GPUBindGroupLayout'
     | 'objectKindTags.GPUPipelineLayout'
     | 'objectKindTags.GPUCommandEncoder'
@@ -178,6 +181,7 @@ interface NativeCodecCatalogReference {
     | 'nullable-gpu-adapter-service-completion-v2'
     | 'gpu-request-device-service-request-v1'
     | 'gpu-device-service-completion-v1'
+    | 'gpu-create-bind-group-service-request-v1'
     | 'gpu-create-bind-group-layout-service-request-v1'
     | 'gpu-create-buffer-service-request-v1'
     | 'gpu-create-sampler-service-request-v1'
@@ -188,7 +192,7 @@ interface NativeCodecCatalogReference {
     | 'gpu-create-shader-module-service-request-v1'
     | 'gpu-device-cleanup-service-request-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 24;
 }
 
 interface NativeCodecCompletionVariant {
@@ -346,6 +350,13 @@ interface NativeCodecCreateBindGroupLayoutRoute {
   }>;
 }
 
+interface NativeCodecCreateBindGroupRoute {
+  readonly operationId: 'GPUDevice.createBindGroup';
+  readonly wireId: 900410509;
+  readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
+  readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
+}
+
 interface NativeCodecCreatePipelineLayoutRoute {
   readonly operationId: 'GPUDevice.createPipelineLayout';
   readonly wireId: 3373402978;
@@ -450,7 +461,7 @@ interface NativeCodecDeviceDestroyRoute {
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -524,6 +535,7 @@ export interface NativeCodecProgramsV2 {
       }>[];
     }>;
     requestDeviceDescriptorV1: Readonly<Record<string, unknown>>;
+    bindGroupDescriptorV1: Readonly<Record<string, unknown>>;
     bindGroupLayoutDescriptorV1: Readonly<Record<string, unknown>>;
     bufferDescriptorV1: Readonly<Record<string, unknown>>;
     pipelineLayoutDescriptorV1: Readonly<Record<string, unknown>>;
@@ -542,6 +554,7 @@ export interface NativeCodecProgramsV2 {
   readonly routes: readonly (
     | NativeCodecRequestAdapterRoute
     | NativeCodecRequestDeviceRoute
+    | NativeCodecCreateBindGroupRoute
     | NativeCodecCreateBindGroupLayoutRoute
     | NativeCodecCreateBufferRoute
     | NativeCodecCreatePipelineLayoutRoute
@@ -640,6 +653,32 @@ export interface ExecutableWebGpuCodecManifest {
   readonly serviceArguments: readonly ServiceCodecCatalogRow[];
   readonly serviceCompletions: readonly CodecCatalogRow[];
   readonly completeLimitNames: readonly string[];
+  readonly typeGpuBindGroupWorkloadEvidence: Readonly<{
+    readonly corpusSha256: string;
+    readonly callCount: 18;
+    readonly distinctLayoutCount: 16;
+    readonly entryCount: 47;
+    readonly resourceKindCounts: Readonly<{
+      readonly GPUBufferBinding: 36;
+      readonly GPUSampler: 5;
+      readonly GPUTextureView: 6;
+    }>;
+    readonly maximumEntriesPerDescriptor: 5;
+    readonly maximumLabelUtf8Bytes: 57;
+    readonly workloadCallCounts: Readonly<{
+      readonly 'typegpu-genetic-racing': 16;
+      readonly 'typegpu-jelly-slider': 2;
+    }>;
+    readonly workloadDigests: Readonly<Record<string, string>>;
+    readonly acceptedSignatures: readonly Readonly<{
+      readonly id: string;
+      readonly evidenceSequence: number;
+      readonly evidenceSha256: string;
+      readonly signatureCanonicalJson: string;
+      readonly signatureSha256: string;
+      readonly workloadId: string;
+    }>[];
+  }>;
 }
 
 type ProductionRoute = (typeof WEBGPU_PRODUCTION_PLAN.routes)[number];
@@ -654,6 +693,7 @@ type DetachedOperationResultEvent = OperationResultEvent & Readonly<{
 const PRODUCTION_WRAPPER_KINDS = Object.freeze([
   'GPU',
   'GPUAdapter',
+  'GPUBindGroup',
   'GPUBindGroupLayout',
   'GPUBuffer',
   'GPUPipelineLayout',
@@ -680,6 +720,12 @@ const REQUEST_DEVICE_OPERATION_ID = 'GPUAdapter.requestDevice';
 const REQUEST_DEVICE_WIRE_ID = 194635792;
 const REQUEST_DEVICE_REQUEST_CODEC = 'gpu-request-device-service-request-v1';
 const REQUEST_DEVICE_COMPLETION_CODEC = 'gpu-device-service-completion-v1';
+const CREATE_BIND_GROUP_OPERATION_ID = 'GPUDevice.createBindGroup';
+const CREATE_BIND_GROUP_WIRE_ID = 900410509;
+const CREATE_BIND_GROUP_REQUEST_CODEC =
+  'gpu-create-bind-group-service-request-v1';
+const CREATE_BIND_GROUP_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
 const CREATE_BIND_GROUP_LAYOUT_OPERATION_ID =
   'GPUDevice.createBindGroupLayout';
 const CREATE_BIND_GROUP_LAYOUT_WIRE_ID = 2544948076;
@@ -800,7 +846,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -2745,6 +2791,7 @@ function sha256HexUtf8(value: string): string {
 interface ValidatedNativeCodecProgram {
   readonly route: NativeCodecRequestAdapterRoute;
   readonly requestDeviceRoute: NativeCodecRequestDeviceRoute;
+  readonly createBindGroupRoute: NativeCodecCreateBindGroupRoute;
   readonly createBindGroupLayoutRoute: NativeCodecCreateBindGroupLayoutRoute;
   readonly createBufferRoute: NativeCodecCreateBufferRoute;
   readonly createPipelineLayoutRoute: NativeCodecCreatePipelineLayoutRoute;
@@ -2765,14 +2812,126 @@ interface ValidatedNativeCodecProgram {
   readonly providerAdmitted: 1;
 }
 
+function validateTypeGpuBindGroupWorkloadEvidence(
+  manifest: ExecutableWebGpuCodecManifest,
+): void {
+  const evidence = manifest.typeGpuBindGroupWorkloadEvidence;
+  if (
+    evidence?.callCount !== 18 ||
+    evidence.distinctLayoutCount !== 16 ||
+    evidence.entryCount !== 47 ||
+    evidence.maximumEntriesPerDescriptor !== 5 ||
+    evidence.maximumLabelUtf8Bytes !== 57 ||
+    evidence.resourceKindCounts.GPUBufferBinding !== 36 ||
+    evidence.resourceKindCounts.GPUSampler !== 5 ||
+    evidence.resourceKindCounts.GPUTextureView !== 6 ||
+    evidence.workloadCallCounts['typegpu-genetic-racing'] !== 16 ||
+    evidence.workloadCallCounts['typegpu-jelly-slider'] !== 2 ||
+    !/^[0-9a-f]{64}$/u.test(evidence.corpusSha256) ||
+    !Object.values(evidence.workloadDigests).every(
+      (digest) => /^[0-9a-f]{64}$/u.test(digest),
+    ) ||
+    evidence.acceptedSignatures.length !== 18
+  ) {
+    throw new Error('Invalid generated TypeGPU bind-group workload evidence');
+  }
+  const resourceCounts = new Map<string, number>();
+  const workloadCounts = new Map<string, number>();
+  const layoutDescriptors = new Set<string>();
+  let entryCount = 0;
+  let maximumEntries = 0;
+  let maximumLabelBytes = 0;
+  for (const signature of evidence.acceptedSignatures) {
+    if (
+      !/^[0-9a-f]{64}$/u.test(signature.evidenceSha256) ||
+      !/^[0-9a-f]{64}$/u.test(signature.signatureSha256) ||
+      sha256HexUtf8(signature.signatureCanonicalJson) !==
+        signature.signatureSha256
+    ) {
+      throw new Error('Invalid generated TypeGPU bind-group signature digest');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(signature.signatureCanonicalJson);
+    } catch {
+      throw new Error('Invalid generated TypeGPU bind-group signature JSON');
+    }
+    if (
+      canonicalManifestJson(parsed) !== signature.signatureCanonicalJson ||
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      throw new Error('Noncanonical generated TypeGPU bind-group signature');
+    }
+    const joined = parsed as Readonly<Record<string, unknown>>;
+    if (
+      typeof joined.label !== 'string' ||
+      !Array.isArray(joined.entries) ||
+      joined.entries.length < 1 ||
+      joined.entries.length > 5 ||
+      typeof joined.layoutDescriptor !== 'object' ||
+      joined.layoutDescriptor === null
+    ) {
+      throw new Error('Invalid generated TypeGPU bind-group signature shape');
+    }
+    entryCount += joined.entries.length;
+    maximumEntries = Math.max(maximumEntries, joined.entries.length);
+    maximumLabelBytes = Math.max(
+      maximumLabelBytes,
+      encodeUtf8(joined.label).byteLength,
+    );
+    layoutDescriptors.add(canonicalManifestJson(joined.layoutDescriptor));
+    workloadCounts.set(
+      signature.workloadId,
+      (workloadCounts.get(signature.workloadId) ?? 0) + 1,
+    );
+    for (const entry of joined.entries) {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+        throw new Error('Invalid generated TypeGPU bind-group entry witness');
+      }
+      const resourceKind = (entry as Readonly<Record<string, unknown>>)
+        .resourceKind;
+      if (typeof resourceKind !== 'string') {
+        throw new Error('Invalid generated TypeGPU bind-group resource witness');
+      }
+      resourceCounts.set(
+        resourceKind,
+        (resourceCounts.get(resourceKind) ?? 0) + 1,
+      );
+    }
+  }
+  if (
+    entryCount !== evidence.entryCount ||
+    maximumEntries !== evidence.maximumEntriesPerDescriptor ||
+    maximumLabelBytes !== evidence.maximumLabelUtf8Bytes ||
+    layoutDescriptors.size !== evidence.distinctLayoutCount ||
+    resourceCounts.get('GPUBufferBinding') !== 36 ||
+    resourceCounts.get('GPUSampler') !== 5 ||
+    resourceCounts.get('GPUTextureView') !== 6 ||
+    resourceCounts.size !== 3 ||
+    workloadCounts.get('typegpu-genetic-racing') !== 16 ||
+    workloadCounts.get('typegpu-jelly-slider') !== 2 ||
+    workloadCounts.size !== 2
+  ) {
+    throw new Error('Generated TypeGPU bind-group evidence aggregate drifted');
+  }
+}
+
 function validateNativeCodecProgram(
   manifest: ExecutableWebGpuCodecManifest,
   expectedObjectKindTags: Readonly<Record<string, number>>,
 ): ValidatedNativeCodecProgram {
   const programWithoutDeviceObjectCreationRoutes = {
     ...manifest.nativeCodecPrograms,
+    types: Object.fromEntries(
+      Object.entries(manifest.nativeCodecPrograms.types).filter(
+        ([name]) => name !== 'bindGroupDescriptorV1',
+      ),
+    ),
     routes: manifest.nativeCodecPrograms.routes.filter(
       (candidate) =>
+        candidate.operationId !== CREATE_BIND_GROUP_OPERATION_ID &&
         candidate.operationId !== CREATE_BIND_GROUP_LAYOUT_OPERATION_ID &&
         candidate.operationId !== CREATE_BUFFER_OPERATION_ID &&
         candidate.operationId !== CREATE_PIPELINE_LAYOUT_OPERATION_ID &&
@@ -2798,6 +2957,10 @@ function validateNativeCodecProgram(
   const requestDeviceRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecRequestDeviceRoute =>
       candidate.operationId === REQUEST_DEVICE_OPERATION_ID,
+  );
+  const createBindGroupRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCreateBindGroupRoute =>
+      candidate.operationId === CREATE_BIND_GROUP_OPERATION_ID,
   );
   const createBindGroupLayoutRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreateBindGroupLayoutRoute =>
@@ -2852,6 +3015,15 @@ function validateNativeCodecProgram(
   );
   const requestDeviceCompletionCodec = manifest.serviceCompletions.find(
       (candidate) => candidate.tag === REQUEST_DEVICE_COMPLETION_CODEC,
+  );
+  const createBindGroupPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === CREATE_BIND_GROUP_OPERATION_ID,
+  );
+  const createBindGroupRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === CREATE_BIND_GROUP_REQUEST_CODEC,
+  );
+  const createBindGroupCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === CREATE_BIND_GROUP_COMPLETION_CODEC,
   );
   const createBindGroupLayoutPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === CREATE_BIND_GROUP_LAYOUT_OPERATION_ID,
@@ -3525,6 +3697,18 @@ function validateNativeCodecProgram(
       'authenticate-wrapper-allocated-shader-module-target',
       'authenticate-wrapper-allocated-bind-group-layout-target',
     );
+  const expectedCreateBindGroupCanonical = expectedCreateBindGroupLayoutCanonical
+    .replaceAll(CREATE_BIND_GROUP_LAYOUT_OPERATION_ID, CREATE_BIND_GROUP_OPERATION_ID)
+    .replaceAll(CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC, CREATE_BIND_GROUP_REQUEST_CODEC)
+    .replaceAll('GPUBindGroupLayout', 'GPUBindGroup')
+    .replaceAll('bindGroupLayoutDescriptorV1', 'bindGroupDescriptorV1')
+    .replaceAll(String(CREATE_BIND_GROUP_LAYOUT_WIRE_ID), String(CREATE_BIND_GROUP_WIRE_ID))
+    .replaceAll('"codecTag":15', '"codecTag":24')
+    .replaceAll('"wireTag":15', '"wireTag":24')
+    .replace(
+      '"requiredAfterDecode":["authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account","validate-bind-group-layout-descriptor-under-logical-device-capabilities","reserve-bind-group-layout-handle-and-aggregate-envelope","authenticate-wrapper-allocated-bind-group-layout-target","select-provider-admission-and-physical-sequence"]',
+      '"requiredAfterDecode":["authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table","authenticate-contiguous-sealed-local-timeline-prefix","validate-current-live-device-generation","validate-operation-coverage","validate-authorized-live-account-and-aggregate-envelope","validate-exact-generated-typegpu-bind-group-workload-signature","authenticate-current-same-device-bind-group-layout-full-reference-and-joined-descriptor","validate-bind-group-entry-layout-cardinality-and-exact-binding-join","authenticate-current-same-device-resource-full-references-and-creator-order","validate-buffer-sampler-texture-view-and-external-resource-compatibility","authenticate-wrapper-allocated-bind-group-target-provenance","validate-wrapper-allocated-bind-group-target-generation","reserve-bind-group-table-and-dual-ledger-capacity","reserve-bind-group-provider-request-completion-and-physical-sequence","validate-bind-group-label-under-reviewed-workload"]',
+    );
   const expectedCreatePipelineLayoutCanonical = expectedCreateBindGroupLayoutCanonical
     .replaceAll(CREATE_BIND_GROUP_LAYOUT_OPERATION_ID, CREATE_PIPELINE_LAYOUT_OPERATION_ID)
     .replaceAll(CREATE_BIND_GROUP_LAYOUT_REQUEST_CODEC, CREATE_PIPELINE_LAYOUT_REQUEST_CODEC)
@@ -3605,12 +3789,13 @@ function validateNativeCodecProgram(
     )
     .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
-    manifest.nativeCodecPrograms.routes.length !== 11 ||
+    manifest.nativeCodecPrograms.routes.length !== 12 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 11 ||
+    ).size !== 12 ||
     !route ||
     !requestDeviceRoute ||
+    !createBindGroupRoute ||
     !createBindGroupLayoutRoute ||
     !createBufferRoute ||
     !createPipelineLayoutRoute ||
@@ -3624,6 +3809,8 @@ function validateNativeCodecProgram(
       canonicalManifestJson(expectedCreateCommandEncoderRoute) ||
     canonicalManifestJson(createShaderModuleRoute) !==
       canonicalManifestJson(expectedCreateShaderModuleRoute) ||
+    canonicalManifestJson(createBindGroupRoute) !==
+      expectedCreateBindGroupCanonical ||
     canonicalManifestJson(createBindGroupLayoutRoute) !==
       expectedCreateBindGroupLayoutCanonical ||
     canonicalManifestJson(createBufferRoute) !==
@@ -3660,6 +3847,19 @@ function validateNativeCodecProgram(
     ]) ||
     requestDeviceCompletionCodec?.wireTag !==
       requestDeviceRoute.completion.catalog.wireTag ||
+    !createBindGroupPlanRoute ||
+    createBindGroupPlanRoute.wireId !== CREATE_BIND_GROUP_WIRE_ID ||
+    createBindGroupPlanRoute.serviceArgumentCodec !==
+      CREATE_BIND_GROUP_REQUEST_CODEC ||
+    createBindGroupPlanRoute.serviceCompletionCodec !==
+      CREATE_BIND_GROUP_COMPLETION_CODEC ||
+    createBindGroupRequestCodec?.wireTag !==
+      createBindGroupRoute.request.catalog.wireTag ||
+    createBindGroupRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    createBindGroupRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    createBindGroupRequestCodec.unavailableSemanticFields.length !== 0 ||
+    createBindGroupCompletionCodec?.wireTag !==
+      createBindGroupRoute.completion.catalog.wireTag ||
     !createBindGroupLayoutPlanRoute ||
     createBindGroupLayoutPlanRoute.wireId !== CREATE_BIND_GROUP_LAYOUT_WIRE_ID ||
     createBindGroupLayoutPlanRoute.serviceArgumentCodec !==
@@ -3782,6 +3982,7 @@ function validateNativeCodecProgram(
     manifest.objectKindTags.GPUTextureView !== 7 ||
     manifest.objectKindTags.GPUSampler !== 8 ||
     manifest.objectKindTags.GPUBindGroupLayout !== 9 ||
+    manifest.objectKindTags.GPUBindGroup !== 10 ||
     manifest.objectKindTags.GPUPipelineLayout !== 11 ||
     manifest.objectKindTags.GPUShaderModule !== 12 ||
     manifest.objectKindTags.GPUCommandEncoder !== 15 ||
@@ -3793,6 +3994,7 @@ function validateNativeCodecProgram(
     expectedObjectKindTags.GPUTextureView !== 7 ||
     expectedObjectKindTags.GPUSampler !== 8 ||
     expectedObjectKindTags.GPUBindGroupLayout !== 9 ||
+    expectedObjectKindTags.GPUBindGroup !== 10 ||
     expectedObjectKindTags.GPUPipelineLayout !== 11 ||
     expectedObjectKindTags.GPUShaderModule !== 12 ||
     expectedObjectKindTags.GPUCommandEncoder !== 15 ||
@@ -3803,6 +4005,8 @@ function validateNativeCodecProgram(
     deviceDestroyRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createCommandEncoderRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    createBindGroupRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createBindGroupLayoutRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
@@ -3824,6 +4028,7 @@ function validateNativeCodecProgram(
   return Object.freeze({
     route,
     requestDeviceRoute,
+    createBindGroupRoute,
     createBindGroupLayoutRoute,
     createBufferRoute,
     createPipelineLayoutRoute,
@@ -4435,6 +4640,89 @@ function convertBindGroupLayoutDescriptor(
     label,
     entries: Object.freeze(entries),
   });
+}
+
+function convertBindGroupDescriptor(
+  value: unknown,
+  wrappers: ProductionGpuCodecWrapperAccess,
+  maximum: number,
+): unknown {
+  const source = dictionary(value, 'GPUBindGroupDescriptor');
+  // GPUObjectDescriptorBase is inherited before entries and layout. Every
+  // conversion immediately follows its single Get to preserve observable
+  // Web IDL dictionary order.
+  const label = optionalLabel(source);
+  const entriesValue = source.entries;
+  if (entriesValue === undefined) {
+    throw new TypeError('GPUBindGroupDescriptor.entries is required');
+  }
+  const entries = sequence(
+    entriesValue,
+    'GPUBindGroupDescriptor.entries',
+    maximum,
+    (entry, index) => {
+      const row = dictionary(entry, `GPUBindGroupEntry[${index}]`);
+      const bindingValue = row.binding;
+      if (bindingValue === undefined) {
+        throw new TypeError(`GPUBindGroupEntry[${index}].binding is required`);
+      }
+      const binding = u32(bindingValue, `GPUBindGroupEntry[${index}].binding`);
+      const resourceValue = row.resource;
+      if (resourceValue === undefined) {
+        throw new TypeError(`GPUBindGroupEntry[${index}].resource is required`);
+      }
+
+      let resource: Readonly<Record<string, unknown>>;
+      try {
+        const reference = wrappers.reference(resourceValue);
+        if (
+          reference.kind !== 'GPUSampler' &&
+          reference.kind !== 'GPUTextureView' &&
+          reference.kind !== 'GPUBuffer' &&
+          reference.kind !== 'GPUTexture'
+        ) {
+          throw new TypeError(
+            `GPUBindGroupEntry[${index}].resource has an unsupported wrapper brand`,
+          );
+        }
+        resource = frozenRecord({
+          resourceKind: reference.kind,
+          reference,
+        });
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+        const bindingResource = dictionary(
+          resourceValue,
+          `GPUBufferBinding[${index}]`,
+        );
+        const bufferValue = bindingResource.buffer;
+        if (bufferValue === undefined) {
+          throw error;
+        }
+        const buffer = wrappers.reference(bufferValue, 'GPUBuffer');
+        const offsetValue = bindingResource.offset;
+        const offset = offsetValue === undefined
+          ? 0
+          : u64Number(offsetValue, `GPUBufferBinding[${index}].offset`);
+        const sizeValue = bindingResource.size;
+        resource = frozenRecord({
+          resourceKind: 'GPUBufferBinding',
+          buffer,
+          offset,
+          ...(sizeValue === undefined
+            ? {}
+            : { size: u64Number(sizeValue, `GPUBufferBinding[${index}].size`) }),
+        });
+      }
+      return frozenRecord({ binding, resource });
+    },
+  );
+  const layoutValue = source.layout;
+  if (layoutValue === undefined) {
+    throw new TypeError('GPUBindGroupDescriptor.layout is required');
+  }
+  const layout = wrappers.reference(layoutValue, 'GPUBindGroupLayout');
+  return frozenRecord({ label, entries: Object.freeze(entries), layout });
 }
 
 function convertBufferDescriptor(value: unknown): unknown {
@@ -5970,6 +6258,155 @@ function isPositiveCanonicalDecimalU64(value: unknown): value is string {
     (value.length === maximum.length && value <= maximum);
 }
 
+function validateBindGroupFullReference(
+  value: unknown,
+  expectedKinds: readonly string[],
+  label: string,
+): void {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    !hasExactOwnProperties(
+      value as Readonly<Record<string, unknown>>,
+      [
+        'kind',
+        'objectId',
+        'objectGeneration',
+        'logicalDeviceId',
+        'logicalDeviceGeneration',
+        'providerGeneration',
+      ],
+    )
+  ) {
+    throw new TypeError(`${label} must be a full object reference`);
+  }
+  const reference = value as RequestAdapterReferenceLike;
+  if (
+    typeof reference.kind !== 'string' ||
+    !expectedKinds.includes(reference.kind) ||
+    typeof reference.objectId !== 'string' ||
+    typeof reference.objectGeneration !== 'string' ||
+    typeof reference.logicalDeviceId !== 'string' ||
+    typeof reference.logicalDeviceGeneration !== 'string' ||
+    typeof reference.providerGeneration !== 'string'
+  ) {
+    throw new TypeError(`${label} has an invalid object-reference shape`);
+  }
+  for (const [identity, field] of [
+    [reference.objectId, 'objectId'],
+    [reference.objectGeneration, 'objectGeneration'],
+    [reference.logicalDeviceId, 'logicalDeviceId'],
+    [reference.logicalDeviceGeneration, 'logicalDeviceGeneration'],
+    [reference.providerGeneration, 'providerGeneration'],
+  ] as const) {
+    positiveIdentity(identity, `${label}.${field}`);
+  }
+}
+
+function validateCreateBindGroupDescriptorForService(
+  value: unknown,
+  sequenceMaximum: number,
+): void {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    !hasExactOwnProperties(
+      value as Readonly<Record<string, unknown>>,
+      ['label', 'entries', 'layout'],
+    )
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBindGroup converted arguments must be a canonical descriptor',
+    );
+  }
+  const descriptor = value as Readonly<Record<string, unknown>>;
+  if (
+    typeof descriptor.label !== 'string' ||
+    !Array.isArray(descriptor.entries) ||
+    descriptor.entries.length > sequenceMaximum
+  ) {
+    throw new TypeError(
+      'GPUDevice.createBindGroup converted descriptor exceeds structural transport bounds',
+    );
+  }
+  validateBindGroupFullReference(
+    descriptor.layout,
+    ['GPUBindGroupLayout'],
+    'GPUDevice.createBindGroup layout',
+  );
+  descriptor.entries.forEach((entry, index) => {
+    if (
+      typeof entry !== 'object' ||
+      entry === null ||
+      Array.isArray(entry) ||
+      !hasExactOwnProperties(
+        entry as Readonly<Record<string, unknown>>,
+        ['binding', 'resource'],
+      )
+    ) {
+      throw new TypeError(
+        `GPUDevice.createBindGroup entry ${index} must be a closed dictionary`,
+      );
+    }
+    const row = entry as Readonly<Record<string, unknown>>;
+    if (
+      !isConvertedU32(row.binding) ||
+      typeof row.resource !== 'object' ||
+      row.resource === null ||
+      Array.isArray(row.resource)
+    ) {
+      throw new TypeError(
+        `GPUDevice.createBindGroup entry ${index} is not a canonical WebIDL dictionary`,
+      );
+    }
+    const resource = row.resource as Readonly<Record<string, unknown>>;
+    if (resource.resourceKind === 'GPUBufferBinding') {
+      const names = Object.prototype.hasOwnProperty.call(resource, 'size')
+        ? ['resourceKind', 'buffer', 'offset', 'size']
+        : ['resourceKind', 'buffer', 'offset'];
+      if (
+        !hasExactOwnProperties(resource, names) ||
+        !isConvertedU64(resource.offset) ||
+        (Object.prototype.hasOwnProperty.call(resource, 'size') &&
+          !isConvertedU64(resource.size))
+      ) {
+        throw new TypeError(
+          `GPUDevice.createBindGroup buffer entry ${index} is not canonical`,
+        );
+      }
+      validateBindGroupFullReference(
+        resource.buffer,
+        ['GPUBuffer'],
+        `GPUDevice.createBindGroup entry ${index}.buffer`,
+      );
+      return;
+    }
+    const resourceKinds = [
+      'GPUSampler',
+      'GPUTextureView',
+      'GPUBuffer',
+      'GPUTexture',
+      'GPUExternalTexture',
+    ];
+    if (
+      typeof resource.resourceKind !== 'string' ||
+      !resourceKinds.includes(resource.resourceKind) ||
+      !hasExactOwnProperties(resource, ['resourceKind', 'reference'])
+    ) {
+      throw new TypeError(
+        `GPUDevice.createBindGroup resource entry ${index} is not canonical`,
+      );
+    }
+    validateBindGroupFullReference(
+      resource.reference,
+      [resource.resourceKind],
+      `GPUDevice.createBindGroup entry ${index}.reference`,
+    );
+  });
+}
+
 function validateCreateBindGroupLayoutDescriptorForService(
   value: unknown,
   sequenceMaximum: number,
@@ -6844,8 +7281,11 @@ function validateCreateBufferRequestFields(
 }
 
 function validateCreateResourceRequestFields(
-  operationId: 'GPUDevice.createSampler' | 'GPUDevice.createTexture',
-  targetKind: 'GPUSampler' | 'GPUTexture',
+  operationId:
+    | 'GPUDevice.createBindGroup'
+    | 'GPUDevice.createSampler'
+    | 'GPUDevice.createTexture',
+  targetKind: 'GPUBindGroup' | 'GPUSampler' | 'GPUTexture',
   receiver: RequestAdapterReferenceLike,
   target: unknown,
   adapterOrdinal: unknown,
@@ -6905,6 +7345,33 @@ function validateCreateResourceRequestFields(
     throw new TypeError(`${operationId} sealed local timeline must be a bounded sequence`);
   }
   return targetReference;
+}
+
+function validateCreateBindGroupRequestFields(
+  receiver: RequestAdapterReferenceLike,
+  target: unknown,
+  adapterOrdinal: unknown,
+  deviceIngressOrdinal: unknown,
+  queueIngressOrdinal: unknown,
+  sealedLocalTimeline: unknown,
+  convertedArguments: unknown,
+  sequenceMaximum: number,
+): void {
+  validateCreateResourceRequestFields(
+    CREATE_BIND_GROUP_OPERATION_ID,
+    'GPUBindGroup',
+    receiver,
+    target,
+    adapterOrdinal,
+    deviceIngressOrdinal,
+    queueIngressOrdinal,
+    sealedLocalTimeline,
+    sequenceMaximum,
+  );
+  validateCreateBindGroupDescriptorForService(
+    convertedArguments,
+    sequenceMaximum,
+  );
 }
 
 function validateCreateSamplerRequestFields(
@@ -7365,6 +7832,7 @@ export function createExecutableWebGpuCodecs(
     encodeCanonicalValue: (value: unknown) => Uint8Array;
   }>;
 }> {
+  validateTypeGpuBindGroupWorkloadEvidence(manifest);
   const requestAdapterNativeProgram = validateNativeCodecProgram(
     manifest,
     expectedObjectKindTags,
@@ -7375,7 +7843,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -7575,6 +8043,12 @@ export function createExecutableWebGpuCodecs(
         return convertObjectDescriptor(args[0], 'GPUCommandBufferDescriptor');
       case 'gpu-command-encoder-descriptor-v1':
         return convertObjectDescriptor(args[0], 'GPUCommandEncoderDescriptor');
+      case 'gpu-bind-group-descriptor-v1':
+        return convertBindGroupDescriptor(
+          args[0],
+          wrappers,
+          manifest.layout.sequenceMaxCount,
+        );
       case 'gpu-bind-group-layout-descriptor-v1':
         return convertBindGroupLayoutDescriptor(
           args[0],
@@ -7677,6 +8151,34 @@ export function createExecutableWebGpuCodecs(
         input.convertedArguments,
         manifest.layout.sequenceMaxCount,
         manifest.layout.dictionaryMaxFields,
+      );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.createBindGroupRoute.operationId
+    ) {
+      validateCreateBindGroupRequestFields(
+        input.receiver,
+        input.target,
+        input.adapterOrdinal,
+        input.deviceIngressOrdinal,
+        input.queueIngressOrdinal,
+        input.sealedLocalTimeline,
+        input.convertedArguments,
+        manifest.layout.sequenceMaxCount,
+      );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.createBindGroupRoute.operationId
+    ) {
+      validateCreateBindGroupRequestFields(
+        receiver,
+        target,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
       );
     } else if (
       route.operationId ===
@@ -7856,6 +8358,8 @@ export function createExecutableWebGpuCodecs(
       input.operationId !== requestAdapterNativeProgram.route.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.requestDeviceRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.createBindGroupRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId &&
       input.operationId !== requestAdapterNativeProgram.createBufferRoute.operationId &&
@@ -8338,6 +8842,8 @@ export function createExecutableWebGpuCodecs(
     }
     if (
       (route.operationId ===
+          requestAdapterNativeProgram.createBindGroupRoute.operationId ||
+        route.operationId ===
           requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId ||
         route.operationId === requestAdapterNativeProgram.createBufferRoute.operationId ||
         route.operationId ===

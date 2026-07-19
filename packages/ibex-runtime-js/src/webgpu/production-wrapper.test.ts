@@ -434,7 +434,7 @@ describe('production-private WebGPU wrapper gate', () => {
 
   test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
+      'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {
@@ -1072,7 +1072,8 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(WEBGPU_PRODUCTION_PLAN.routes.length).toBeGreaterThanOrEqual(41);
     expect(Object.keys(binding.interfaceObjects)).toHaveLength(24);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
-    const uninstalledBufferRoutes = new Set([
+    const uninstalledPrivateRoutes = new Set([
+      'GPUDevice.createBindGroup',
       'GPUBuffer.destroy',
       'GPUBuffer.getMappedRange',
       'GPUBuffer.mapAsync',
@@ -1088,7 +1089,7 @@ describe('production-private WebGPU wrapper factory', () => {
         interfaceObject.prototype,
         selected.memberName,
       );
-      if (uninstalledBufferRoutes.has(selected.operationId)) {
+      if (uninstalledPrivateRoutes.has(selected.operationId)) {
         expect(descriptor).toBeUndefined();
         continue;
       }

@@ -9,7 +9,7 @@
   "typegpuVersion": "0.11.9",
   "activeRouteSubset": {
     "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-    "operationCount": 41,
+    "operationCount": 42,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
@@ -26,6 +26,7 @@
       "GPUCanvasContext.unconfigure",
       "GPUCommandEncoder.beginRenderPass",
       "GPUCommandEncoder.finish",
+      "GPUDevice.createBindGroup",
       "GPUDevice.createBindGroupLayout",
       "GPUDevice.createBuffer",
       "GPUDevice.createCommandEncoder",
@@ -56,7 +57,7 @@
   },
   "workloadClosure": {
     "operationCount": 51,
-    "additionalOperationCount": 14,
+    "additionalOperationCount": 13,
     "operations": [
       {
         "operationId": "GPU.getPreferredCanvasFormat",
@@ -171,7 +172,7 @@
       {
         "operationId": "GPUDevice.createBindGroup",
         "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
+        "disposition": "active-private-graduated-route"
       },
       {
         "operationId": "GPUDevice.createBindGroupLayout",
@@ -366,7 +367,7 @@
   "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined",
   "source": {
     "path": "tests/gpu/typegpu-workload-closure-v1.json",
-    "normalizedProjectionSha256": "526fda55681766471351b47c965d00f368be281f09c1614542dc0c04cb2684f6",
+    "normalizedProjectionSha256": "6613a4f32859e741d6b2ed179af6c200d518968a6748b9684aa9bebbfdadd939",
     "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
   }
 }

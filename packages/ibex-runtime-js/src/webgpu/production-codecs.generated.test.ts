@@ -131,6 +131,53 @@ function convertedBindGroupLayoutDescriptor(): Readonly<Record<string, unknown>>
   });
 }
 
+function bindGroupDescriptor(): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    label: 'corpus-bind-group',
+    entries: Object.freeze([
+      Object.freeze({
+        binding: 0,
+        resource: Object.freeze({ buffer: gpuBuffer, offset: 0, size: 128 }),
+      }),
+      Object.freeze({ binding: 1, resource: sampler }),
+      Object.freeze({ binding: 2, resource: textureView }),
+    ]),
+    layout: bindGroupLayout,
+  });
+}
+
+function convertedBindGroupDescriptor(): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    label: 'corpus-bind-group',
+    entries: Object.freeze([
+      Object.freeze({
+        binding: 0,
+        resource: Object.freeze({
+          resourceKind: 'GPUBufferBinding',
+          buffer: reference('GPUBuffer'),
+          offset: 0,
+          size: 128,
+        }),
+      }),
+      Object.freeze({
+        binding: 1,
+        resource: Object.freeze({
+          resourceKind: 'GPUSampler',
+          reference: reference('GPUSampler'),
+        }),
+      }),
+      Object.freeze({
+        binding: 2,
+        resource: Object.freeze({
+          resourceKind: 'GPUTextureView',
+          reference: reference('GPUTextureView'),
+        }),
+      }),
+    ]),
+    layout: reference('GPUBindGroupLayout'),
+  });
+}
+
 const wrappers: ProductionGpuCodecWrapperAccess = {
   reference(value, expectedKind) {
     if (typeof value !== 'object' || value === null) {
@@ -172,6 +219,8 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [0, 4];
     case 'GPUBuffer.mapAsync':
       return [1, 0, 4];
+    case 'GPUDevice.createBindGroup':
+      return [bindGroupDescriptor()];
     case 'GPUDevice.createBindGroupLayout':
       return [bindGroupLayoutDescriptor()];
     case 'GPUDevice.createBuffer':
@@ -292,6 +341,8 @@ function serviceInput(
       requiredLimits: Object.freeze({ maxBindGroups: 4 }),
       defaultQueue: Object.freeze({ label: 'queue' }),
     })
+    : operationId === 'GPUDevice.createBindGroup'
+    ? convertedBindGroupDescriptor()
     : operationId === 'GPUDevice.createBindGroupLayout'
     ? convertedBindGroupLayoutDescriptor()
     : operationId === 'GPUDevice.createBuffer'
@@ -514,7 +565,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -531,6 +582,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       routes: [
         { operationId: 'GPU.requestAdapter', wireId: 1660448199 },
         { operationId: 'GPUAdapter.requestDevice', wireId: 194635792 },
+        { operationId: 'GPUDevice.createBindGroup', wireId: 900410509 },
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
         { operationId: 'GPUDevice.createBuffer', wireId: 1869756926 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
@@ -930,6 +982,34 @@ describe('generated injection-only WebGPU executable codecs', () => {
       substitutedTextureFormat,
       WEBGPU_OBJECT_KIND_TAGS,
     )).toThrow('Invalid generated WebGPU executable codec manifest');
+
+    const changedBindGroupBound = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      typeGpuBindGroupWorkloadEvidence: {
+        ...WEBGPU_EXECUTABLE_CODEC_MANIFEST.typeGpuBindGroupWorkloadEvidence,
+        maximumEntriesPerDescriptor: 6,
+      },
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      changedBindGroupBound,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('bind-group workload evidence');
+
+    const changedBindGroupSignature = {
+      ...WEBGPU_EXECUTABLE_CODEC_MANIFEST,
+      typeGpuBindGroupWorkloadEvidence: {
+        ...WEBGPU_EXECUTABLE_CODEC_MANIFEST.typeGpuBindGroupWorkloadEvidence,
+        acceptedSignatures:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.typeGpuBindGroupWorkloadEvidence
+            .acceptedSignatures.map((signature, index) => index === 0
+              ? { ...signature, signatureCanonicalJson: `${signature.signatureCanonicalJson} ` }
+              : signature),
+      },
+    } as unknown as ExecutableWebGpuCodecManifest;
+    expect(() => createExecutableWebGpuCodecs(
+      changedBindGroupSignature,
+      WEBGPU_OBJECT_KIND_TAGS,
+    )).toThrow('bind-group signature digest');
   });
 
   test('executes the selected public conversion for every reviewed operation', () => {
@@ -1372,6 +1452,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       ['GPU.requestAdapter', [{ powerPreference: 'fastest' }]],
       ['GPUCanvasContext.configure', [{ device: {}, format: 'bgra8unorm' }]],
       ['GPUCommandEncoder.beginRenderPass', [{ colorAttachments: [{ view: {} }] }]],
+      ['GPUDevice.createBindGroup', [{}]],
       ['GPUDevice.createBindGroupLayout', [{}]],
       ['GPUDevice.createBuffer', [{}]],
       ['GPUDevice.createPipelineLayout', [{}]],
@@ -1446,6 +1527,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
             }
             : route.operationId === 'GPUDevice.destroy'
             ? null
+            : route.operationId === 'GPUDevice.createBindGroup'
+            ? convertedBindGroupDescriptor()
             : route.operationId === 'GPUDevice.createBindGroupLayout'
             ? convertedBindGroupLayoutDescriptor()
             : route.operationId === 'GPUDevice.createBuffer'
@@ -2041,6 +2124,102 @@ describe('generated injection-only WebGPU executable codecs', () => {
       operationId,
       { kind: 'null' },
     )).toThrow('wrong shape');
+  });
+
+  test('converts createBindGroup in inherited Web IDL order and preserves optional size presence', () => {
+    const reads: string[] = [];
+    const property = (target: object, name: string, value: unknown) => {
+      Object.defineProperty(target, name, {
+        enumerable: true,
+        get() {
+          reads.push(name);
+          return value;
+        },
+      });
+    };
+    const binding: Record<string, unknown> = {};
+    property(binding, 'buffer', gpuBuffer);
+    property(binding, 'offset', 4);
+    property(binding, 'size', 64);
+    const entry: Record<string, unknown> = {};
+    property(entry, 'binding', 0);
+    property(entry, 'resource', binding);
+    const descriptor: Record<string, unknown> = {};
+    property(descriptor, 'label', 'ordered');
+    property(descriptor, 'entries', [entry]);
+    property(descriptor, 'layout', bindGroupLayout);
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createBindGroup',
+      [descriptor],
+      wrappers,
+    );
+    expect(reads).toEqual([
+      'label',
+      'entries',
+      'binding',
+      'resource',
+      'buffer',
+      'offset',
+      'size',
+      'layout',
+    ]);
+    expect(converted).toEqual({
+      label: 'ordered',
+      entries: [{
+        binding: 0,
+        resource: {
+          resourceKind: 'GPUBufferBinding',
+          buffer: reference('GPUBuffer'),
+          offset: 4,
+          size: 64,
+        },
+      }],
+      layout: reference('GPUBindGroupLayout'),
+    });
+  });
+
+  test('keeps createBindGroup structural transport broad before the exact 18-signature predicate', () => {
+    const externalReference = Object.freeze({
+      kind: 'GPUExternalTexture',
+      objectId: '31',
+      objectGeneration: '1',
+      logicalDeviceId: '17',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    const converted = Object.freeze({
+      label: 'x'.repeat(58),
+      entries: Object.freeze([
+        ...Array.from({ length: 5 }, (_, binding) => Object.freeze({
+          binding,
+          resource: Object.freeze({
+            resourceKind: 'GPUBufferBinding',
+            buffer: reference('GPUBuffer'),
+            offset: 0,
+          }),
+        })),
+        Object.freeze({
+          binding: 5,
+          resource: Object.freeze({
+            resourceKind: 'GPUExternalTexture',
+            reference: externalReference,
+          }),
+        }),
+      ]),
+      layout: reference('GPUBindGroupLayout'),
+    });
+    const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      serviceInput('GPUDevice.createBindGroup', converted),
+    );
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(bytes))
+      .toMatchObject({ convertedArguments: converted });
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.typeGpuBindGroupWorkloadEvidence)
+      .toMatchObject({
+        callCount: 18,
+        entryCount: 47,
+        maximumEntriesPerDescriptor: 5,
+        maximumLabelUtf8Bytes: 57,
+      });
   });
 
   test('carries the complete createBindGroupLayout structural domain before semantic narrowing', () => {
