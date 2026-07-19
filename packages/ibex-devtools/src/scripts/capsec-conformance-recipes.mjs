@@ -3304,6 +3304,8 @@ function bindNativeSetupSources(setup, liveByObservedKey, target) {
 const WINDOWS_UNTYPED_NATIVE_PUBLIC_OPERATIONS = new Set([
   "__exactFsOpen",
   "__exactFsPathAsync",
+  "__exactFsFdatasyncSync",
+  "__exactFsFsyncSync",
   "__exactLstat",
   "__exactMkdir",
   "__exactReadFile",

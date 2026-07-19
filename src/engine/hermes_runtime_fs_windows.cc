@@ -1854,33 +1854,57 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactFsStatAsync", std::move(fsStatAsyncFn));
 
-  auto installSync = [&rt](const char* name, const char* syscall, int32_t dataOnly) {
-    auto fn = facebook::jsi::Function::createFromHostFunction(
-        rt,
-        facebook::jsi::PropNameID::forAscii(rt, name),
-        1,
-        [name, syscall, dataOnly](
-            facebook::jsi::Runtime& runtime,
-            const facebook::jsi::Value&,
-            const facebook::jsi::Value* args,
-            size_t count) -> facebook::jsi::Value {
-          if (count == 0 || !args[0].isNumber()) {
-            throw facebook::jsi::JSError(runtime, std::string(name) + ": fd required");
-          }
-          auto entry = getFileEntry(runtime, fdFromValue(runtime, args[0]));
-          requireFileEntryWrite(runtime, entry);
-          auto file = entry.file;
-          std::lock_guard<std::mutex> ioLock(file->ioMutex);
-          if (ex_host_fs_sync(file->handle, dataOnly) != 0) {
-            throwFs(runtime, syscall, entry.path);
-          }
-          return facebook::jsi::Value::undefined();
-        });
-    rt.global().setProperty(rt, name, std::move(fn));
-  };
   // The Rust-owned handle now exposes File::sync_all/sync_data, which map to
   // FlushFileBuffers on Windows. These must be real flushes: registering
   // no-op success here would violate Node's durability contract (ENG-22963).
-  installSync("__exactFsFsyncSync", "fsync", 0);
-  installSync("__exactFsFdatasyncSync", "fdatasync", 1);
+  // Keep both registrations literal and source-bound so target inventory can
+  // distinguish installed Windows operations from genuinely absent POSIX
+  // globals. They remain residual while Windows descriptor setup uses the
+  // legacy capability gate.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+  auto fsyncSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsFsyncSync"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFsyncSync: fd required");
+        }
+        auto entry = getFileEntry(runtime, fdFromValue(runtime, args[0]));
+        requireFileEntryWrite(runtime, entry);
+        auto file = entry.file;
+        std::lock_guard<std::mutex> ioLock(file->ioMutex);
+        if (ex_host_fs_sync(file->handle, 0) != 0) {
+          throwFs(runtime, "fsync", entry.path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactFsFsyncSync", std::move(fsyncSyncFn));
+
+  auto fdatasyncSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactFsFdatasyncSync"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsFdatasyncSync: fd required");
+        }
+        auto entry = getFileEntry(runtime, fdFromValue(runtime, args[0]));
+        requireFileEntryWrite(runtime, entry);
+        auto file = entry.file;
+        std::lock_guard<std::mutex> ioLock(file->ioMutex);
+        if (ex_host_fs_sync(file->handle, 1) != 0) {
+          throwFs(runtime, "fdatasync", entry.path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactFsFdatasyncSync", std::move(fdatasyncSyncFn));
 }

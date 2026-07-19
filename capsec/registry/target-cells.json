@@ -145990,7 +145990,9 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [],
+      "implementationBranchIds": [
+        "surface.native.op.exactfsfdatasyncsync.1p6q71s.windows"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -146056,7 +146058,9 @@
         ]
       },
       "disposition": "unsupported",
-      "implementationBranchIds": [],
+      "implementationBranchIds": [
+        "surface.native.op.exactfsfsyncsync.02nw7ns.windows"
+      ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
@@ -171311,7 +171315,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.native.op.global.dynamic.table.native.global.name.0p79adi.windows"
+        "surface.native.op.global.dynamic.table.native.global.name.0p79adi.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -237960,40 +237964,6 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.install.route.installcryptohostfunctions.installzlibhostfunctions.08gshlh.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
-      "target": {
-        "triple": "x86_64-pc-windows-msvc",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."

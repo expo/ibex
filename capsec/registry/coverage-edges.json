@@ -260912,16 +260912,6 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
-      "id": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "startup",
-        "name": "install-route:installFsHostFunctions:installSync"
-      },
-      "rationaleId": "authority-control-plane",
-      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-    },
-    {
       "id": "surface.startup.install.route.installglobals.installandroidhostfunctions.02chgnh",
       "classification": "non-capability",
       "surface": {

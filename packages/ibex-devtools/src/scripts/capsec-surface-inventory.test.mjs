@@ -4068,6 +4068,34 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         targetVariant: "windows",
       },
     ]);
+    for (const globalName of [
+      "__exactFsFdatasyncSync",
+      "__exactFsFsyncSync",
+    ]) {
+      expect(
+        first.nativeOps.find((row) => row.name === globalName).metadata
+          .publicInvocations,
+      ).toEqual([
+        {
+          invocation: {
+            arity: 1,
+            globalName,
+            kind: "native-global-function",
+            sourceRef: `src/engine/hermes_runtime_fs.cc#jsi-global:${globalName}`,
+          },
+          targetVariant: "posix",
+        },
+        {
+          invocation: {
+            arity: 1,
+            globalName,
+            kind: "native-global-function",
+            sourceRef: `src/engine/hermes_runtime_fs_windows.cc#jsi-global:${globalName}`,
+          },
+          targetVariant: "windows",
+        },
+      ]);
+    }
     expect(
       first.nativeOps
         .filter((row) => row.metadata?.surfaceType === "native-network-backend")

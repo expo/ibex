@@ -2303,8 +2303,8 @@ async fn capsec_public_callback_invariant_batch() {
     // surface and neither target may borrow the other's count.
     let (target_wide_scenario_count, invariant_surface_count) =
         match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => (507, 332),
-        "x86_64-pc-windows-msvc" => (507, 331),
+        "aarch64-apple-darwin" => (507, 331),
+        "x86_64-pc-windows-msvc" => (507, 330),
         target => panic!("callback invariant batch has no reviewed target shape for {target}"),
     };
     assert_eq!(

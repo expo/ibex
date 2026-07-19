@@ -6557,7 +6557,6 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:installChildProcessHostFunctions:installUnsupportedJsonFn",
     "install-route:installCryptoHostFunctions:installDnsHostFunctions",
     "install-route:installCryptoHostFunctions:installZlibHostFunctions",
-    "install-route:installFsHostFunctions:installSync",
     "install-route:installGlobals:installAndroidHostFunctions",
     "install-route:installGlobals:installConsoleGlobals",
     "install-route:installGlobals:installTimerGlobals",

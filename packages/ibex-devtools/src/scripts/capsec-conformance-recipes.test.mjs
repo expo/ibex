@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(22_918);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_216);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_702);
+    expect(recipes.summary.requiredFixtures).toBe(22_915);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_214);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_701);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -203,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_620);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_959);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_661);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_625);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_955);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_670);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -221,7 +221,7 @@ describe("exact-target CapSec executable recipes", () => {
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(windowsAbsenceRecipes).toHaveLength(94);
+    expect(windowsAbsenceRecipes).toHaveLength(92);
     expect(
       windowsAbsenceRecipes.every(
         (recipe) =>
@@ -268,6 +268,8 @@ describe("exact-target CapSec executable recipes", () => {
     for (const [globalName, expectedCount] of [
       ["__exactFsOpen", 18],
       ["__exactFsPathAsync", 48],
+      ["__exactFsFdatasyncSync", 5],
+      ["__exactFsFsyncSync", 5],
       ["__exactLstat", 5],
       ["__exactMkdir", 5],
       ["__exactReadFile", 5],
@@ -306,24 +308,31 @@ describe("exact-target CapSec executable recipes", () => {
       ).toHaveLength(0);
     }
 
-    const close = windowsRecipes.recipes.find(
-      (recipe) =>
-        recipe.terminalObservedKey === "native-op:__exactFsClose" &&
-        recipe.residualReasons.includes(
-          "native-public-setup-operation-not-typed-on-target",
+    for (const [globalName, expectedCount] of [["__exactFsClose", 1]]) {
+      const setupBlocked = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.terminalObservedKey === `native-op:${globalName}` &&
+          recipe.residualReasons.includes(
+            "native-public-setup-operation-not-typed-on-target",
+          ),
+      );
+      expect(setupBlocked).toHaveLength(expectedCount);
+      expect(
+        setupBlocked.every(
+          (recipe) =>
+            recipe.publicSurfaceProbe === null &&
+            recipe.status === "unresolved" &&
+            !recipe.residualReasons.includes(
+              "native-public-operation-not-installed-on-target",
+            ),
         ),
-    );
-    expect(close).toBeDefined();
-    expect(close.publicSurfaceProbe).toBeNull();
-    expect(close.status).toBe("unresolved");
-    expect(close.residualReasons).not.toContain(
-      "native-public-operation-not-installed-on-target",
-    );
+      ).toBe(true);
+    }
     expect(
       windowsRecipes.summary.residualReasons[
         "native-public-operation-not-typed-on-target"
       ],
-    ).toBe(122);
+    ).toBe(132);
     expect(
       windowsRecipes.summary.residualReasons[
         "native-public-setup-operation-not-typed-on-target"
@@ -499,7 +508,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_700);
+    expect(callbackRecipes).toHaveLength(2_698);
     expect(
       Object.fromEntries(
         [
@@ -521,8 +530,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 507,
       "principal-restore": 507,
       "snapshot-mismatch-deny": 507,
-      "cannot-widen-authority": 332,
-      "post-lockdown-invariant": 332,
+      "cannot-widen-authority": 331,
+      "post-lockdown-invariant": 331,
       "non-capability": 8,
     });
     for (const terminalObservedKey of [
@@ -1511,15 +1520,22 @@ describe("exact-target CapSec executable recipes", () => {
       }
       const windowsRows = windowsRecipes.recipes.filter(
         (recipe) =>
-          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+          recipe.terminalObservedKey === `native-op:${globalName}`,
       );
-      expect(windowsRows).toHaveLength(1);
-      expect(windowsRows[0].publicSurfaceProbe).toMatchObject({
-        kind: "target-absence-probe",
-        invocation: {
-          expectedResult: "absent",
-        },
-      });
+      expect(windowsRows).toHaveLength(5);
+      expect(
+        windowsRows.every(
+          (recipe) =>
+            recipe.publicSurfaceProbe === null &&
+            recipe.status === "unresolved" &&
+            recipe.residualReasons.includes(
+              "native-public-operation-not-typed-on-target",
+            ) &&
+            recipe.implementationBranchIds.every((branchId) =>
+              branchId.endsWith(".windows"),
+            ),
+        ),
+      ).toBe(true);
     }
   });
 

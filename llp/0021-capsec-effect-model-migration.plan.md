@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 source-binds the installed Windows fsync/fdatasync globals and keeps their legacy-gated branches residual instead of falsely proving target absence)
 **Revised:** 2026-07-18 (ENG-24933 binds callback-invariant batch cardinality to each target's build-filtered source surface instead of retaining the pre-filter shared count)
 **Revised:** 2026-07-18 (ENG-24933 keeps target-absence evidence free of callable-only argument setup, worker, and cleanup terminals)
 **Revised:** 2026-07-18 (ENG-24933 removes callable Windows error placeholders for branchless target-absent DNS/Unix/UDP globals so feature detection and physical absence evidence agree)
@@ -649,14 +650,14 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalogs are target-specific:
-Apple has 22,918 required fixtures, 5,216 fully executable recipes, and 17,702
-unresolved fixtures; Windows has 22,620 required fixtures, 4,959 executable,
-and 17,661 unresolved. The build graph excludes 260 POSIX-only enforcement
+Apple has 22,915 required fixtures, 5,214 fully executable recipes, and 17,701
+unresolved fixtures; Windows has 22,625 required fixtures, 4,955 executable,
+and 17,670 unresolved. The build graph excludes 260 POSIX-only enforcement
 fixtures from Windows instead of treating their translation units as fallback
-implementations. Windows executes 94 source-bound native target-absence probes;
+implementations. Windows executes 92 source-bound native target-absence probes;
 69 additional target-absence source invocations remain unavailable, alongside
-11 recipes for two operations absent from the target and 122 recipes across
-13 installed operations not yet typed there. One installed zero-effect
+11 recipes for two operations absent from the target and 132 recipes across
+15 installed operations not yet typed there. One installed zero-effect
 close operation also remains residual because its physical recipe would have
 to obtain a descriptor through an untyped Windows open. None of those
 differences is borrowed from Apple or credited without target-local evidence.
@@ -664,7 +665,8 @@ Target-specific native source descriptors remain inventory inputs and recipe
 production selects the descriptor attached to the built branch wherever source
 discovery proves one. Independently, recipe production refuses to advertise the
 Windows path APIs `__exactFsOpen`,
-`__exactFsPathAsync`, `__exactLstat`, `__exactMkdir`, `__exactReadFile`,
+`__exactFsPathAsync`, `__exactFsFdatasyncSync`, `__exactFsFsyncSync`,
+`__exactLstat`, `__exactMkdir`, `__exactReadFile`,
 `__exactReaddir`, `__exactRealpath`, `__exactStat`, `__exactStatfs`, and
 `__exactWriteFile`, or the Windows `__exactTcpConnect`: those installed
 implementations still use the legacy capability gate, which armed execution
@@ -735,7 +737,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,702 unresolved Apple fixtures and 17,661
+are 7,043 ambiguous routes with 17,701 unresolved Apple fixtures and 17,670
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -767,9 +769,9 @@ obligations instead of pretending those unreachable members are independent
 APIs. The 232 source-derived storage cells raise each exact target to 618
 closed fixtures; the loaded Apple engine passes the complete batch with zero
 typed or legacy decisions. The current target-filtered callback-invariant
-batches contain 2,700 Apple fixtures and 2,698 Windows fixtures: the four
+batches contain 2,698 Apple fixtures and 2,696 Windows fixtures: the four
 target-wide scenarios retain 507 fixtures apiece, while `cannot-widen-authority`
-and `post-lockdown-invariant` bind 332 Apple or 331 Windows source surfaces,
+and `post-lockdown-invariant` bind 331 Apple or 330 Windows source surfaces,
 plus eight bounded non-capability mechanisms. The harness asserts those exact
 target-local counts before execution and still validates every recipe's source
 binding; one target cannot borrow the other's inapplicable surface. The
@@ -1651,10 +1653,14 @@ exact file under `target/` and opens an append descriptor through the
 source-bound native surface under joint `fs:list` and `fs:write` floors. Each
 durability invocation must emit one typed `fs:write` repeat decision, preserve
 the fixture bytes, and then close the descriptor and remove the owned file
-outside the decision window. The same typed implementations and recipes apply
-to Windows, pending physical Windows evidence. Denial remains residual on both
-targets because denying the descriptor's required `fs:write` authority would
-also prevent the prerequisite writable descriptor from being opened.
+outside the decision window. Windows installs both durability globals through
+its `File::sync_all`/`File::sync_data` bridge, but the installed branches and
+their descriptor-producing `__exactFsOpen` setup still use the legacy
+capability gate. Their ten effect fixtures therefore remain explicitly
+residual rather than being mislabeled as target absence or borrowing Apple
+typed evidence. Apple denial remains residual because denying the descriptor's
+required `fs:write` authority would also prevent the prerequisite writable
+descriptor from being opened.
 The same owned-descriptor harness now physically executes
 `__exactFsFtruncateSync` on Apple. Four recipes require one typed `fs:write`
 repeat decision, then independently verify the exact two-byte length before
@@ -1839,8 +1845,8 @@ without canceling an in-flight full-matrix run. Scheduled, pull-request, and
 `main` executions still require both physical targets; manual selection changes
 only job scheduling, never the target catalog, validators, retained evidence,
 or promotion criteria.
-Its current catalog has 22,620 required fixtures, 4,959 executable recipes, and
-17,661 unresolved fixtures. The
+Its current catalog has 22,625 required fixtures, 4,955 executable recipes, and
+17,670 unresolved fixtures. The
 source-derived class-factory traversal is path-cycle safe: a uniquely resolved
 factory may be revisited after its current return chain unwinds, but a mutually
 recursive return chain cannot recurse forever or invent a class shape. The
