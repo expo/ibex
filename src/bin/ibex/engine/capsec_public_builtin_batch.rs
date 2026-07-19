@@ -10,7 +10,13 @@ use std::io::Write as _;
 struct RecipeCatalog {
     recipe_catalog_schema: String,
     recipe_catalog_digest: String,
+    target: RecipeTarget,
     recipes: Vec<Recipe>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RecipeTarget {
+    triple: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,6 +195,26 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
                 })
         })
         .collect()
+}
+
+fn expected_authored_builtin_recipe_count(target: &str) -> usize {
+    match target {
+        "aarch64-apple-darwin" => 105,
+        "x86_64-pc-windows-msvc" => 90,
+        target => panic!("builtin public recipe batch has no reviewed target shape for {target}"),
+    }
+}
+
+#[test]
+fn capsec_public_builtin_recipe_counts_are_target_specific() {
+    assert_eq!(
+        expected_authored_builtin_recipe_count("aarch64-apple-darwin"),
+        105
+    );
+    assert_eq!(
+        expected_authored_builtin_recipe_count("x86_64-pc-windows-msvc"),
+        90
+    );
 }
 
 fn invocation_script(
@@ -697,9 +723,13 @@ async fn capsec_public_builtin_recipe_batch() {
         .expect("canonicalize CapSec executable recipe catalog path");
     let catalog = load_catalog(&recipe_path);
     let recipes = builtin_recipes(&catalog);
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // keep target-specific public evidence pinned to the exact authored slice:
+    // Windows has the OS recipes but does not borrow Apple's typed fs probes.
+    let expected_recipe_count = expected_authored_builtin_recipe_count(&catalog.target.triple);
     assert_eq!(
         recipes.len(),
-        105,
+        expected_recipe_count,
         "expected the authored OS and filesystem builtin recipe slices"
     );
     let _lock = hermes_engine_test_lock().lock().await;
