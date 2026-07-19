@@ -98,3 +98,24 @@ test("Windows native smoke uses the directly installed platform surface", () => 
   expect(windowsSmoke).toContain("__exactTcpConnect('127.0.0.1'");
   expect(windowsSmoke).not.toContain("__exactEnsureNet();");
 });
+
+test("Windows binary suites preserve process flags and ordinary tool paths", () => {
+  const nativeRuntime = fs.readFileSync(
+    path.join(repoRoot, "src/engine/hermes_runtime.cc"),
+    "utf8",
+  );
+  const cliRuntime = fs.readFileSync(
+    path.join(repoRoot, "src/bin/ibex/runtime.rs"),
+    "utf8",
+  );
+
+  expect(nativeRuntime).toContain(
+    "GetEnvironmentVariableA(env_name, nullptr, 0)",
+  );
+  expect(cliRuntime).toContain(
+    "normalize_windows_tool_path(bundler_script_path()?)",
+  );
+  expect(cliRuntime).toMatch(
+    /#\[cfg\(windows\)\][\s\S]{0,600}staged\.sync_all\(\)\?;/,
+  );
+});

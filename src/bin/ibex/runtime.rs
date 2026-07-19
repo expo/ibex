@@ -2898,7 +2898,16 @@ fn materialize_protected_artifact(
 
             match std::fs::hard_link(&temporary, &path) {
                 Ok(()) => {
+                    #[cfg(unix)]
                     std::fs::File::open(&directory)?.sync_all()?;
+                    #[cfg(windows)]
+                    {
+                        // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+                        // An ordinary Windows directory File cannot be flushed.
+                        // The staged handle still names the published hard link
+                        // and retains write access, so flush it after publication.
+                        staged.sync_all()?;
+                    }
                     Ok(identity)
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -5229,7 +5238,14 @@ async fn run_bundler(
     verify_bundler_toolchain_identity(&toolchain)?;
     let runner = toolchain.runner.clone();
     let runner_name = toolchain.runner_name;
-    let script = bundler_script_path()?;
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // the physical Windows product suite must execute the authenticated
+    // bundler rather than fail on an equivalent path spelling.
+    // Node accepts ordinary drive and UNC paths but can truncate Rust's
+    // canonical `\\?\` spelling while resolving its main module (for example,
+    // `\\?\D:\repo\script.mjs` becomes `D:`). Preserve the authenticated
+    // object while passing the equivalent Win32 spelling to the external tool.
+    let script = normalize_windows_tool_path(bundler_script_path()?);
     let working_dir = bundler_working_dir()?;
     let timeout = timeout_from_env("EXACT_BUNDLER_TIMEOUT_MS", DEFAULT_BUNDLER_TIMEOUT_MS);
 

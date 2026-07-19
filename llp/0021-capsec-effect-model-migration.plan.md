@@ -1846,6 +1846,26 @@ suite to one failure: its TCP smoke stage called `__exactEnsureNet`, the POSIX
 lazy installer that Windows intentionally does not expose because its Winsock
 surface is installed directly. The test now invokes the already-installed
 `__exactTcpConnect` surface without that invalid setup call.
+Physical Windows run `29705383864` proved that correction by completing the
+library target with 317 passes, zero failures, and three ignored tests. It then
+reached the CLI binary target for the first time and completed 169 tests rather
+than stopping in the library. Its 21 explicit failures reduced to seven
+platform-portability groups: the CLI artifact publisher still tried to open and
+flush an ordinary Windows directory after hard-link publication; Node received
+Rust's verbatim canonical bundler-script path and truncated it to the drive
+designator; MSVC `getenv` did not observe isolation flags that Rust added to the
+Win32 process environment before allocating Hermes; an intentionally
+POSIX-only byte helper was asserted as present; and three diagnostic
+socket/REPL assertions required Unix close-frame, cancelled-write, or Promise
+unwrapping behavior. The CLI publisher now mirrors the already-proven embedder
+publisher's staged-handle flush, the external Node argument uses the
+object-equivalent ordinary drive/UNC spelling, and native flag reads query the
+Win32 process environment directly. The remaining assertions preserve their
+security condition while accepting the target's documented absent surface,
+fail-closed connection reset, or lack of native Promise-result unwrapping. A
+new physical run must complete all later product layers before the retained
+report can be treated as a full Windows checkpoint; no target cell or
+advertisement changes on the strength of this partial run.
 Its armed physical test host derives the selected project root's stable object
 identity through the production platform helper, and preserves the target's
 complete normalized path components (including a Windows drive or verbatim

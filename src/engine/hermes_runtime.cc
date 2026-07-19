@@ -243,9 +243,32 @@ bool env_flag_enabled(const char* env_name) {
   // all work), everything else (0/false/no/off/empty/unset) disables. The Rust
   // `env_flag_enabled` (src/bin/ibex/main.rs) mirrors this so the bundler driver
   // and the engine never disagree about whether compartments are on. (ENG-22634)
-  const char* val = std::getenv(env_name);
-  return val && (val[0] == '1' || val[0] == 'y' || val[0] == 'Y' ||
-                 val[0] == 't' || val[0] == 'T');
+#if defined(_WIN32)
+  // @ref LLP 0021#wp9--make-complete-enforcement-the-default-and-remove-weakening-paths —
+  // Rust enables the production isolation flags before allocating Hermes. The Rust
+  // standard library updates the Win32 process environment, while MSVC's CRT
+  // can retain a separate getenv snapshot, so query the process environment
+  // directly and observe the same value the Rust caller just installed.
+  const DWORD required = GetEnvironmentVariableA(env_name, nullptr, 0);
+  if (required == 0) {
+    return false;
+  }
+  std::string value(required, '\0');
+  const DWORD length =
+      GetEnvironmentVariableA(env_name, value.data(), required);
+  if (length == 0 || length >= required) {
+    return false;
+  }
+  const char first = value.front();
+#else
+  const char* value = std::getenv(env_name);
+  if (!value) {
+    return false;
+  }
+  const char first = value[0];
+#endif
+  return first == '1' || first == 'y' || first == 'Y' ||
+      first == 't' || first == 'T';
 }
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);

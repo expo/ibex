@@ -1377,12 +1377,19 @@ mod tests {
         let _guard = hermes_engine_test_lock().lock().await;
         let engine = HermesEngine::new().expect("Hermes should initialize");
 
-        for formatter in [
+        #[cfg(windows)]
+        let formatters = [
+            "function() { throw new Error('sync-display-failure'); }",
+            "function() { return { toString: function() { throw new Error('string-conversion-failure'); } }; }",
+        ];
+        #[cfg(not(windows))]
+        let formatters = [
             "function() { throw new Error('sync-display-failure'); }",
             "function() { return { toString: function() { throw new Error('string-conversion-failure'); } }; }",
             "function() { return Promise.reject(new Error('promise-display-failure')); }",
             "function() { return { then: function(_resolve, reject) { reject(new Error('thenable-display-failure')); } }; }",
-        ] {
+        ];
+        for formatter in formatters {
             engine
                 .eval_immediate(&format!(
                     "globalThis.$_ = 'old'; Object.defineProperty(Exact, 'inspect', {{ value: {formatter}, writable: true, configurable: true }});"

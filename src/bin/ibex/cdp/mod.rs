@@ -1248,7 +1248,19 @@ mod tests {
         message: Message,
     ) {
         match socket.send(message).await {
-            Ok(()) => assert_eq!(next_close_code(socket).await, Some(CloseCode::Size)),
+            Ok(()) => {
+                let close = next_close_code(socket).await;
+                #[cfg(not(windows))]
+                assert_eq!(close, Some(CloseCode::Size));
+                #[cfg(windows)]
+                assert!(
+                    matches!(close, Some(CloseCode::Size) | None),
+                    "oversized message received unexpected close code {close:?}"
+                );
+                // Windows may surface the server's fail-closed reset while the
+                // client is reading rather than writing, before Tungstenite can
+                // expose the already-enqueued WebSocket close frame.
+            }
             Err(WebSocketError::Io(error))
                 if matches!(
                     error.kind(),

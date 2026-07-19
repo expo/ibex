@@ -7477,8 +7477,12 @@ cp \"$input\" \"$out\"\n";
                         ? 'headers:DENIED' : 'headers:ERR');
                     }
                     try {
-                      __exactBytesToUtf8String(forged);
-                      out.push('utf8:ALLOWED');
+                      if (typeof __exactBytesToUtf8String !== 'function') {
+                        out.push('utf8:ABSENT');
+                      } else {
+                        __exactBytesToUtf8String(forged);
+                        out.push('utf8:ALLOWED');
+                      }
                     } catch (e) {
                       out.push(String(e && e.message || e).indexOf('out of bounds') !== -1
                         ? 'utf8:DENIED' : 'utf8:ERR');
@@ -7497,9 +7501,10 @@ cp \"$input\" \"$out\"\n";
             .unwrap()
             .unwrap_or_default();
 
+        let expected_utf8 = if cfg!(windows) { "ABSENT" } else { "DENIED" };
         assert_eq!(
             outcome.trim(),
-            "headers:DENIED utf8:DENIED fetch-body:DENIED"
+            format!("headers:DENIED utf8:{expected_utf8} fetch-body:DENIED")
         );
     }
 
@@ -8109,7 +8114,19 @@ cp \"$input\" \"$out\"\n";
                     body.len(),
                     body
                 );
-                stream.write_all(response.as_bytes()).unwrap();
+                if let Err(error) = stream.write_all(response.as_bytes()) {
+                    assert!(
+                        matches!(
+                            error.kind(),
+                            std::io::ErrorKind::BrokenPipe
+                                | std::io::ErrorKind::ConnectionAborted
+                                | std::io::ErrorKind::ConnectionReset
+                        ),
+                        "unexpected held-server write failure: {error}"
+                    );
+                    // A cancelled request may reset the Windows connection
+                    // before this fixture releases its deliberately held reply.
+                }
             });
             HeldServer {
                 url: format!("http://127.0.0.1:{port}/"),
