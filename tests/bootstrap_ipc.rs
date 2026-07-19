@@ -731,20 +731,24 @@ const REMOVE_MISCOUNT_PARENT: &str = r#"
 const { fork } = require('child_process');
 const child = fork(__dirname + '/child.js');
 let got = [];
+let semanticTimeout = null;
 child.on('message', (m) => {
   got.push(m);
+  if (m === 'ready') {
+    semanticTimeout = setTimeout(() => {
+      console.log('RESULT|timeout|' + JSON.stringify(got));
+      child.kill();
+      process.exit(1);
+    }, 20000);
+  }
   if (String(m).indexOf('removed-nothing') === 0) child.send('after-remove');
   if (String(m).indexOf('after-remove-received') === 0) {
+    clearTimeout(semanticTimeout);
     console.log('RESULT|' + JSON.stringify(got));
     child.kill();
     process.exit(0);
   }
 });
-setTimeout(() => {
-  console.log('RESULT|timeout|' + JSON.stringify(got));
-  child.kill();
-  process.exit(1);
-}, 20000);
 "#;
 
 const REMOVE_MISCOUNT_CHILD: &str = r#"

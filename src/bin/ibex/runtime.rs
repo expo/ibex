@@ -3930,13 +3930,20 @@ fn manifest_path_matches_canonical(path: &Path, canonical: &Path) -> bool {
     #[cfg(windows)]
     {
         // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Bun emits ordinary drive/UNC spellings, while Rust canonicalization retains the authenticated verbatim identity.
-        let canonical = canonical.to_string_lossy();
-        return Path::new(normalize_windows_tool_path_text(&canonical).as_ref()) == path;
+        let (Some(path), Some(canonical)) = (path.to_str(), canonical.to_str()) else {
+            return false;
+        };
+        return windows_manifest_path_text_matches_canonical(path, canonical);
     }
     #[cfg(not(windows))]
     {
         canonical == path
     }
+}
+
+#[cfg(any(windows, test))]
+fn windows_manifest_path_text_matches_canonical(path: &str, canonical: &str) -> bool {
+    path == canonical || normalize_windows_tool_path_text(canonical).as_ref() == path
 }
 
 fn collect_bundle_output_files(root: &Path, current: &Path, files: &mut Vec<String>) -> bool {
@@ -6027,6 +6034,22 @@ mod tests {
             normalize_windows_tool_path_text(r"D:\ibex\tool.mjs"),
             r"D:\ibex\tool.mjs"
         );
+        assert!(windows_manifest_path_text_matches_canonical(
+            r"\\?\D:\ibex\entry.js",
+            r"\\?\D:\ibex\entry.js"
+        ));
+        assert!(windows_manifest_path_text_matches_canonical(
+            r"D:\ibex\entry.js",
+            r"\\?\D:\ibex\entry.js"
+        ));
+        assert!(windows_manifest_path_text_matches_canonical(
+            r"\\server\share\entry.js",
+            r"\\?\UNC\server\share\entry.js"
+        ));
+        assert!(!windows_manifest_path_text_matches_canonical(
+            r"D:\ibex\sub\..\entry.js",
+            r"\\?\D:\ibex\entry.js"
+        ));
     }
 
     #[test]
