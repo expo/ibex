@@ -11,6 +11,10 @@
 
 import { expect, test } from 'bun:test';
 import { structuredClone } from './structuredClone';
+import {
+  isDetachedArrayBuffer,
+  markNonTransferableArrayBuffer,
+} from '../arraybuffer-detach';
 import { Blob } from '../blob/Blob';
 import { File } from '../blob/File';
 
@@ -88,6 +92,24 @@ test('transferring an ArrayBuffer moves the data and detaches the source', () =>
   if (typeof (ArrayBuffer.prototype as unknown as { transfer?: unknown }).transfer === 'function') {
     expect(() => new Uint8Array(buf)).toThrow();
     expect(() => buf.slice(0)).toThrow();
+  }
+});
+
+test('non-transferable ArrayBuffers reject reachable and transfer-list-only moves', () => {
+  for (const reachable of [true, false]) {
+    const buf = new ArrayBuffer(4);
+    new Uint8Array(buf).set([1, 2, 3, 4]);
+    markNonTransferableArrayBuffer(buf);
+
+    let thrown: unknown;
+    try {
+      structuredClone(reachable ? { buf } : {}, { transfer: [buf] });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({ name: 'DataCloneError' });
+    expect(isDetachedArrayBuffer(buf)).toBe(false);
+    expect(Array.from(new Uint8Array(buf))).toEqual([1, 2, 3, 4]);
   }
 });
 

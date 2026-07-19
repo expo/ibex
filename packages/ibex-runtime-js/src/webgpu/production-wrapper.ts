@@ -100,6 +100,10 @@ const INTRINSIC_TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
 const INTRINSIC_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
   Object.getOwnPropertyDescriptor(INTRINSIC_ARRAY_BUFFER.prototype, 'byteLength')
     ?.get;
+const EMPTY_BUFFER_WRITEBACK = INTRINSIC_REFLECT_CONSTRUCT(
+  INTRINSIC_UINT8_ARRAY,
+  [0],
+) as Uint8Array;
 
 // This is a construction-private memory-safety guard, deliberately no larger
 // than the authenticated structural per-descriptor ceiling. It is not the
@@ -162,6 +166,7 @@ interface ActiveBufferMappingState {
   readonly offset: number;
   readonly size: number;
   readonly bytes: ArrayBuffer;
+  readonly writeback: Uint8Array;
   readonly ranges: BufferMappedRangeLease[];
 }
 
@@ -1466,10 +1471,38 @@ export function createProductionWebGpuPrivateBinding(
     return active;
   };
 
+  const moveActiveBufferMappingIntoCleanup = (
+    buffer: WrapperState,
+  ): ActiveBufferMappingState | undefined => {
+    const active = buffer.bufferActiveMapping;
+    if (!active) return undefined;
+    for (const range of active.ranges) {
+      markDetachedArrayBuffer(range.bytes);
+    }
+    // The private owned block is moved into the authenticated cleanup
+    // snapshot. It must not be detached here: doing so would destroy the
+    // exact MAP_WRITE bytes before a retryable service submission can consume
+    // them. No app-visible lease aliases this block; getMappedRange() returns
+    // separate non-transferable copies.
+    buffer.bufferActiveMapping = undefined;
+    buffer.bufferMappedBytes = undefined;
+    buffer.bufferMapState = buffer.bufferPendingMap ? 'pending' : 'unmapped';
+    releaseBufferLifecycleIfIdle(buffer);
+    return active;
+  };
+
   const discardPendingBufferCleanup = (buffer: WrapperState): void => {
     const pendingCleanup = buffer.bufferPendingCleanup;
     if (!pendingCleanup) return;
-    if (INTRINSIC_TYPED_ARRAY_BUFFER_GETTER) {
+    if (
+      INTRINSIC_TYPED_ARRAY_BUFFER_GETTER &&
+      INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER &&
+      (INTRINSIC_REFLECT_APPLY(
+        INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER,
+        pendingCleanup.body.writeback,
+        [],
+      ) as number) > 0
+    ) {
       const backing = INTRINSIC_REFLECT_APPLY(
         INTRINSIC_TYPED_ARRAY_BUFFER_GETTER,
         pendingCleanup.body.writeback,
@@ -1502,8 +1535,12 @@ export function createProductionWebGpuPrivateBinding(
       cancelPendingBufferMap(buffer, message, issueNativeCancel);
       if (clearActive) {
         detachActiveBufferMapping(buffer);
-        discardPendingBufferCleanup(buffer);
       }
+      // A retained cleanup snapshot is wrapper-detached authority whose
+      // retry target disappeared with the device/provider. Drop it on every
+      // physical loss transition, while preserving ordinary active mapped
+      // views until the wrapper realm itself closes.
+      discardPendingBufferCleanup(buffer);
     }
   };
 
@@ -3383,6 +3420,7 @@ export function createProductionWebGpuPrivateBinding(
       usage: number;
     }>;
     let mappedBytes: ArrayBuffer | undefined;
+    let mappedWriteback: Uint8Array | undefined;
     if (converted.mappedAtCreation) {
       if (converted.size % 4 !== 0) {
         throw new RangeError(
@@ -3403,6 +3441,10 @@ export function createProductionWebGpuPrivateBinding(
           INTRINSIC_ARRAY_BUFFER,
           [converted.size],
         ) as ArrayBuffer;
+        mappedWriteback = INTRINSIC_REFLECT_CONSTRUCT(
+          INTRINSIC_UINT8_ARRAY,
+          [mappedBytes],
+        ) as Uint8Array;
       } catch {
         throw new RangeError(
           'GPUBuffer mapped-at-creation byte block could not be allocated',
@@ -3425,7 +3467,7 @@ export function createProductionWebGpuPrivateBinding(
     buffer.bufferMapState = converted.mappedAtCreation ? 'mapped' : 'unmapped';
     buffer.bufferMappedBytes = mappedBytes;
     if (converted.mappedAtCreation) {
-      if (!mappedBytes) {
+      if (!mappedBytes || !mappedWriteback) {
         throw new Error('GPUBuffer mapped-at-creation byte block is missing');
       }
       buffer.bufferActiveMapping = {
@@ -3434,6 +3476,7 @@ export function createProductionWebGpuPrivateBinding(
         offset: 0,
         size: converted.size,
         bytes: mappedBytes,
+        writeback: mappedWriteback,
         ranges: [],
       };
       if (compareCanonicalU64Decimal(buffer.bufferNextMapGeneration, '1') <= 0) {
@@ -4907,41 +4950,48 @@ export function createProductionWebGpuPrivateBinding(
     error: unknown,
   ): void => {
     if (buffer.bufferPendingMap !== pending) return;
-    const cleanupPlan = consumeNextCounterOrClose(
-      buffer.bufferNextCleanupGeneration,
-      buffer.bufferCleanupGenerationExhausted,
-      'buffer cleanup generation',
-    );
-    const emptyWriteback = INTRINSIC_REFLECT_CONSTRUCT(
-      INTRINSIC_UINT8_ARRAY,
-      [0],
-    ) as Uint8Array;
-    const cleanup = Object.freeze({
-      operationId: 'GPUBuffer.unmap' as const,
-      body: Object.freeze({
-        kind: 'cleanup-v1' as const,
-        cleanupAction: 1 as const,
-        cleanupGeneration: cleanupPlan.value,
-        cancelledMapGeneration: '0',
-        activeMapGeneration: pending.generation,
-        activeMapMode: pending.mode,
-        mappedOffset: String(pending.offset),
-        mappedSize: String(pending.size),
-        writeback: pending.mode === 2
-          ? completion.ownedBytes as Uint8Array
-          : emptyWriteback,
-      }),
-    });
-    buffer.bufferPendingCleanup = cleanup;
-    retainBufferLifecycle(buffer);
+    // Settle the public promise before any reclamation preparation. Counter or
+    // allocation failure below may close the realm, but it must neither replace
+    // the original map error with AbortError nor escape from this ignored
+    // Promise fulfillment handler.
     clearCurrentPendingMap(buffer, pending, error);
     try {
+      if (buffer.bufferPendingCleanup !== undefined) {
+        closeRealmCounterIndependently(
+          'buffer-map-reclamation-conflict',
+          'The WebGPU realm closed after a buffer map reclamation conflict',
+        );
+        return;
+      }
+      const cleanupPlan = consumeNextCounterOrClose(
+        buffer.bufferNextCleanupGeneration,
+        buffer.bufferCleanupGenerationExhausted,
+        'buffer cleanup generation',
+      );
+      const cleanup = Object.freeze({
+        operationId: 'GPUBuffer.unmap' as const,
+        body: Object.freeze({
+          kind: 'cleanup-v1' as const,
+          cleanupAction: 1 as const,
+          cleanupGeneration: cleanupPlan.value,
+          cancelledMapGeneration: '0',
+          activeMapGeneration: pending.generation,
+          activeMapMode: pending.mode,
+          mappedOffset: String(pending.offset),
+          mappedSize: String(pending.size),
+          writeback: pending.mode === 2
+            ? completion.ownedBytes as Uint8Array
+            : EMPTY_BUFFER_WRITEBACK,
+        }),
+      });
+      buffer.bufferPendingCleanup = cleanup;
+      retainBufferLifecycle(buffer);
       submitBufferCleanup(buffer, cleanup);
     } catch {
-      // The retryable cleanup snapshot remains installed after a synchronous
-      // service rejection. The map promise already carries the local
-      // allocation failure, while a later unmap/destroy retries reclamation
-      // with the same cleanup generation and a fresh authenticated ingress.
+      closeRealmCounterIndependently(
+        'buffer-map-reclamation-preparation-failed',
+        'The WebGPU realm closed after buffer map reclamation preparation failed',
+      );
     }
   };
 
@@ -5026,8 +5076,13 @@ export function createProductionWebGpuPrivateBinding(
       return;
     }
     let ownedBlock: ArrayBuffer;
+    let ownedWriteback: Uint8Array;
     try {
       ownedBlock = copyOwnedUint8View(completion.ownedBytes, completion.size);
+      ownedWriteback = INTRINSIC_REFLECT_CONSTRUCT(
+        INTRINSIC_UINT8_ARRAY,
+        [ownedBlock],
+      ) as Uint8Array;
     } catch (error) {
       reclaimRejectedBufferMapCompletion(
         buffer,
@@ -5047,6 +5102,7 @@ export function createProductionWebGpuPrivateBinding(
       offset: pending.offset,
       size: pending.size,
       bytes: ownedBlock,
+      writeback: ownedWriteback,
       ranges: [],
     };
     buffer.bufferMappedBytes = ownedBlock;
@@ -5060,6 +5116,13 @@ export function createProductionWebGpuPrivateBinding(
   ): PendingBufferCleanupState | undefined => {
     const existing = buffer.bufferPendingCleanup;
     if (existing) {
+      if (buffer.bufferPendingMap || buffer.bufferActiveMapping) {
+        closeRealmCounterIndependently(
+          'buffer-cleanup-state-conflict',
+          'The WebGPU realm closed because retained cleanup overlapped a newer map',
+        );
+        return undefined;
+      }
       if (operationId === 'GPUBuffer.destroy' && existing.operationId === 'GPUBuffer.unmap') {
         const upgraded = Object.freeze({
           operationId,
@@ -5084,7 +5147,6 @@ export function createProductionWebGpuPrivateBinding(
       buffer.bufferCleanupGenerationExhausted,
       'buffer cleanup generation',
     );
-    let writebackBuffer: ArrayBuffer | undefined;
     if (active?.mode === 2) {
       for (const range of active.ranges) {
         copyMappedRangeInto(
@@ -5093,18 +5155,13 @@ export function createProductionWebGpuPrivateBinding(
           range.bytes,
         );
       }
-      writebackBuffer = copyArrayBufferRange(active.bytes, 0, active.size);
     }
-    const emptyWriteback = INTRINSIC_REFLECT_CONSTRUCT(
-      INTRINSIC_UINT8_ARRAY,
-      [0],
-    ) as Uint8Array;
-    const writeback = writebackBuffer === undefined
-      ? emptyWriteback
-      : INTRINSIC_REFLECT_CONSTRUCT(
-        INTRINSIC_UINT8_ARRAY,
-        [writebackBuffer],
-      ) as Uint8Array;
+    // Move the wrapper-owned affine block into cleanup instead of allocating
+    // and copying another full mapped block. App-visible mapped ranges are
+    // separate leases and are detached below before this method returns.
+    const writeback = active?.mode === 2
+      ? active.writeback
+      : EMPTY_BUFFER_WRITEBACK;
     const body = Object.freeze({
       kind: 'cleanup-v1' as const,
       cleanupAction: operationId === 'GPUBuffer.destroy' ? 2 as const : 1 as const,
@@ -5126,8 +5183,7 @@ export function createProductionWebGpuPrivateBinding(
         : 'GPUBuffer was unmapped',
       true,
     );
-    detachActiveBufferMapping(buffer);
-    if (operationId === 'GPUBuffer.destroy') buffer.destroyed = true;
+    moveActiveBufferMappingIntoCleanup(buffer);
     return cleanup;
   };
 
@@ -5135,59 +5191,106 @@ export function createProductionWebGpuPrivateBinding(
     buffer: WrapperState,
     cleanup: PendingBufferCleanupState,
   ): void {
-    if (cleanup.body.cleanupGeneration !== buffer.bufferNextCleanupGeneration) {
-      throw namedError('OperationError', 'GPUBuffer cleanup generation is stale');
+    let submissionFailure: ServiceSubmissionFailureKind | undefined;
+    try {
+      if (
+        buffer.bufferPendingCleanup !== cleanup ||
+        cleanup.body.cleanupGeneration !== buffer.bufferNextCleanupGeneration
+      ) {
+        closeRealmCounterIndependently(
+          'buffer-cleanup-generation-conflict',
+          'The WebGPU realm closed after a buffer cleanup generation conflict',
+        );
+        return;
+      }
+      const cleanupPlan = consumeNextCounterOrClose(
+        buffer.bufferNextCleanupGeneration,
+        buffer.bufferCleanupGenerationExhausted,
+        'buffer cleanup generation',
+      );
+      const servicePlan = prepareServiceCounters(
+        cleanup.operationId,
+        buffer,
+        buffer.device,
+      );
+      submitService(
+        cleanup.operationId,
+        buffer,
+        undefined,
+        null,
+        false,
+        servicePlan,
+        undefined,
+        (failure) => {
+          submissionFailure = failure;
+          if (failure === 'bridge-threw') {
+            closeRealmCounterIndependently(
+              'buffer-cleanup-bridge-threw',
+              'The WebGPU realm closed after an ambiguous buffer cleanup',
+            );
+          }
+        },
+        undefined,
+        cleanup.body,
+        () => {
+          if (buffer.bufferPendingCleanup !== cleanup) {
+            closeRealmCounterIndependently(
+              'buffer-cleanup-generation-conflict',
+              'The WebGPU realm closed after a buffer cleanup generation conflict',
+            );
+            return;
+          }
+          buffer.bufferNextCleanupGeneration = cleanupPlan.next;
+          buffer.bufferCleanupGenerationExhausted = cleanupPlan.exhaustedAfter;
+          buffer.bufferPendingCleanup = undefined;
+          releaseBufferLifecycleIfIdle(buffer);
+        },
+      );
+    } catch {
+      if (submissionFailure === 'submission-rejected') {
+        // Known non-admission leaves the exact affine cleanup snapshot in
+        // place. A later void cleanup call retries it with the same cleanup
+        // generation and a fresh authenticated device ingress.
+        return;
+      }
+      if (submissionFailure === 'bridge-threw') {
+        // Ambiguous admission already closed the realm in the failure hook.
+        return;
+      }
+      if (realm.active) {
+        closeRealmCounterIndependently(
+          'buffer-cleanup-preparation-failed',
+          'The WebGPU realm closed after buffer cleanup preparation failed',
+        );
+      }
     }
-    const cleanupPlan = consumeNextCounterOrClose(
-      buffer.bufferNextCleanupGeneration,
-      buffer.bufferCleanupGenerationExhausted,
-      'buffer cleanup generation',
-    );
-    const servicePlan = prepareServiceCounters(
-      cleanup.operationId,
-      buffer,
-      buffer.device,
-    );
-    submitService(
-      cleanup.operationId,
-      buffer,
-      undefined,
-      null,
-      false,
-      servicePlan,
-      undefined,
-      (failure) => {
-        if (failure === 'bridge-threw') {
-          closeRealmCounterIndependently(
-            'buffer-cleanup-bridge-threw',
-            'The WebGPU realm closed after an ambiguous buffer cleanup',
-          );
-        }
-      },
-      undefined,
-      cleanup.body,
-      () => {
-        if (buffer.bufferPendingCleanup !== cleanup) {
-          closeRealmCounterIndependently(
-            'buffer-cleanup-generation-conflict',
-            'The WebGPU realm closed after a buffer cleanup generation conflict',
-          );
-          return;
-        }
-        buffer.bufferNextCleanupGeneration = cleanupPlan.next;
-        buffer.bufferCleanupGenerationExhausted = cleanupPlan.exhaustedAfter;
-        buffer.bufferPendingCleanup = undefined;
-        releaseBufferLifecycleIfIdle(buffer);
-      },
-    );
   }
+
+  const captureAndSubmitBufferCleanup = (
+    buffer: WrapperState,
+    operationId: 'GPUBuffer.destroy' | 'GPUBuffer.unmap',
+  ): void => {
+    try {
+      const cleanup = captureBufferCleanup(buffer, operationId);
+      if (cleanup) submitBufferCleanup(buffer, cleanup);
+    } catch {
+      if (realm.active) {
+        closeRealmCounterIndependently(
+          'buffer-cleanup-capture-failed',
+          'The WebGPU realm closed after buffer cleanup capture failed',
+        );
+      }
+    }
+  };
 
   defineMethod(mutablePrototypes.GPUBuffer, 'destroy', function (this: object) {
     const buffer = requireState(this, 'GPUBuffer');
     convert('GPUBuffer.destroy', []);
     if (buffer.destroyed && buffer.bufferPendingCleanup === undefined) return;
-    const cleanup = captureBufferCleanup(buffer, 'GPUBuffer.destroy');
-    if (cleanup) submitBufferCleanup(buffer, cleanup);
+    // Destruction is a synchronous authority reduction even if cleanup
+    // capture, encoding, or service admission subsequently fails.
+    buffer.destroyed = true;
+    captureAndSubmitBufferCleanup(buffer, 'GPUBuffer.destroy');
   });
 
   defineMethod(mutablePrototypes.GPUBuffer, 'getMappedRange', function (
@@ -5247,54 +5350,63 @@ export function createProductionWebGpuPrivateBinding(
     size?: unknown,
   ) {
     const buffer = requireState(this, 'GPUBuffer');
-    let converted: Readonly<Record<string, unknown>>;
+    let converted!: Readonly<Record<string, unknown>>;
+    let generationPlan!: NextCounterConsumption;
+    let pending!: PendingBufferMapState;
+    let installPending!: boolean;
+    let body!: ProductionGpuBufferLifecycleEncoding;
     try {
       converted = asRecord(
         convert('GPUBuffer.mapAsync', [mode, offset, size]),
         'converted GPUBuffer.mapAsync arguments',
       );
+      const convertedMode = stagedU32(
+        converted.mode,
+        'converted GPUBuffer.mapAsync mode',
+      );
+      if (convertedMode !== 1 && convertedMode !== 2) {
+        throw namedError(
+          'OperationError',
+          'GPUBuffer map mode must be exactly READ or WRITE',
+        );
+      }
+      const mapOffset = stagedU64(
+        converted.offset,
+        'converted GPUBuffer.mapAsync offset',
+      );
+      const bufferSize = buffer.bufferSize ?? 0;
+      const mapSize = converted.size === undefined
+        ? Math.max(0, bufferSize - mapOffset)
+        : stagedU64(converted.size, 'converted GPUBuffer.mapAsync size');
+      if (buffer.destroyed || buffer.bufferPendingCleanup !== undefined) {
+        throw namedError(
+          'OperationError',
+          'GPUBuffer is destroyed or awaiting cleanup',
+        );
+      }
+      generationPlan = consumeNextCounterOrClose(
+        buffer.bufferNextMapGeneration,
+        buffer.bufferMapGenerationExhausted,
+        'buffer map generation',
+      );
+      pending = makePendingBufferMap(
+        generationPlan.value,
+        convertedMode,
+        mapOffset,
+        mapSize,
+      );
+      installPending = buffer.bufferMapState === 'unmapped';
+      body = Object.freeze({
+        kind: 'map-async-v1',
+        pendingMapGeneration: pending.generation,
+        mode: pending.mode,
+        offset: String(pending.offset),
+        requestedSizePresent: converted.size === undefined ? 0 : 1,
+        requestedSize: converted.size === undefined ? '0' : String(mapSize),
+      });
     } catch (error) {
       return Promise.reject(error);
     }
-    const convertedMode = stagedU32(
-      converted.mode,
-      'converted GPUBuffer.mapAsync mode',
-    );
-    if (convertedMode !== 1 && convertedMode !== 2) {
-      return Promise.reject(namedError(
-        'OperationError',
-        'GPUBuffer map mode must be exactly READ or WRITE',
-      ));
-    }
-    const mapMode = convertedMode;
-    const mapOffset = stagedU64(
-      converted.offset,
-      'converted GPUBuffer.mapAsync offset',
-    );
-    const bufferSize = buffer.bufferSize ?? 0;
-    const mapSize = converted.size === undefined
-      ? Math.max(0, bufferSize - mapOffset)
-      : stagedU64(converted.size, 'converted GPUBuffer.mapAsync size');
-    const generationPlan = consumeNextCounterOrClose(
-      buffer.bufferNextMapGeneration,
-      buffer.bufferMapGenerationExhausted,
-      'buffer map generation',
-    );
-    const pending = makePendingBufferMap(
-      generationPlan.value,
-      mapMode,
-      mapOffset,
-      mapSize,
-    );
-    const installPending = buffer.bufferMapState === 'unmapped';
-    const body: ProductionGpuBufferLifecycleEncoding = Object.freeze({
-      kind: 'map-async-v1',
-      pendingMapGeneration: pending.generation,
-      mode: pending.mode,
-      offset: String(pending.offset),
-      requestedSizePresent: converted.size === undefined ? 0 : 1,
-      requestedSize: converted.size === undefined ? '0' : String(mapSize),
-    });
     let servicePromise: Promise<ProductionGpuDecodedResult>;
     try {
       servicePromise = submitService(
@@ -5383,8 +5495,7 @@ export function createProductionWebGpuPrivateBinding(
   defineMethod(mutablePrototypes.GPUBuffer, 'unmap', function (this: object) {
     const buffer = requireState(this, 'GPUBuffer');
     convert('GPUBuffer.unmap', []);
-    const cleanup = captureBufferCleanup(buffer, 'GPUBuffer.unmap');
-    if (cleanup) submitBufferCleanup(buffer, cleanup);
+    captureAndSubmitBufferCleanup(buffer, 'GPUBuffer.unmap');
   });
 
   defineMethod(mutablePrototypes.GPUTexture, 'createView', function (
