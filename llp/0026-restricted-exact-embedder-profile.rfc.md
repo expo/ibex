@@ -5,13 +5,17 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r3 — adds the strict restricted-activation artifact
+**Revised:** 2026-07-19 (r4 — authenticates candidate artifacts from strict
+bytes, reopens and revalidates protected bundle/manifest objects, separates
+full/diagnostic/restricted Host-context claims, and adds a conformance-only
+candidate installation path while production still refuses the empty target
+advertisement; r3 — adds the strict restricted-activation artifact
 schema and target-local candidate builder binding the profile authorities,
 full registry identities, mapped engine, immutable operation manifest and
 single Contract bundle, graph/root/build digests, and fresh nonce without
 installing a Host or consuming an advertisement; r2 — implements the Phase 0 additive schemas,
-full-edge-set-pinned 7,110-row projection, empty advertisement authority,
-implementation-manifest binding, and mutation-sensitive drift gate; all 7,110
+full-edge-set-pinned 7,111-row projection, empty advertisement authority,
+implementation-manifest binding, and mutation-sensitive drift gate; all 7,111
 rows remain evidence-pending and no target is advertised)
 **Related:** LLP 0002 (host embedding ABI); LLP 0013 (per-package capability compartments); LLP 0021 (capability-security effect model); Exact LLP 0373 (pooled server-resident Contract sessions, cross-repository consumer)
 
@@ -300,8 +304,8 @@ empty.
 
 Implementation status (2026-07-19): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
-authored definition pins the exact 7,110-edge full-registry set and binds each
-of 20 candidate reachable and nine existing trusted-control-plane rows to its
+authored definition pins the exact 7,111-edge full-registry set and binds each
+of 20 candidate reachable and ten trusted-control-plane rows to its
 source-derived kind and name; the remaining 7,081 rows are candidate
 structural absences whose source-install and live-reachability evidence is
 explicitly pending. The projection also binds the raw definition, coverage,
@@ -322,6 +326,16 @@ Contract bundle; root-set, Contract-IR, module-graph, build, and empty package-
 graph digests; and a construction-fresh nonce. The builder validates source vs
 HBC format/version confusion and produces only `candidate-unadvertised`; it
 does not install a Host, create Hermes, or bypass the empty advertisement gate.
+Strict re-ingestion now recomputes the artifact domain digest; rebinds all
+compiled profile, full-registry, engine, target, feature, bytecode, and empty-
+package-graph identities; reopens the manifest and bundle without following a
+final symlink; checks immutable object, length, permission, and content identity
+before and after reading; reparses the operation manifest; and rejects stale,
+unknown-field, nonce, format, protected-object, or digest confusion. The Host
+handoff now has three mutually exclusive claim kinds, so a restricted context
+cannot be consumed by the full armed or diagnostic constructors. Production
+installation explicitly refuses the still-empty advertisement authority;
+candidate installation exists only in tests/the conformance-observer build.
 
 ### Phase 1 — Apple vertical slice
 

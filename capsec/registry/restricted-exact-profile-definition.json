@@ -4,8 +4,8 @@
   "fullProfile": "ibex/capsec/1",
   "status": "draft-unadvertised",
   "sourceEdgeSet": {
-    "count": 7110,
-    "digest": "sha256-RYYFqCa4cm0mexsBPvk7KbX2X-i50xB6X3t0zem-1KQ"
+    "count": 7111,
+    "digest": "sha256-H4exL6u17es6Lm6jKKh0mAYRY_STh0MqHSs4PRBKFV8"
   },
   "candidateTargets": [
     {
@@ -201,6 +201,12 @@
       "surfaceKind": "host-abi",
       "surfaceName": "ex_host_authorize_exact_endowment",
       "reason": "trusted construction verifies the exact context and complete endowment set"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_host_claim_restricted_exact_context",
+      "reason": "profile-distinct constructor claims only the exact thread-bound restricted Host context and artifact digest"
     }
   ],
   "structuralAbsencePolicy": {

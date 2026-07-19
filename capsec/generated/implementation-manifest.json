@@ -116844,6 +116844,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b",
+      "observedKey": "host-abi:ex_host_claim_restricted_exact_context",
+      "branchId": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_claim_restricted_exact_context"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_claim_restricted_exact_context"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_claim_restricted_exact_context"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_claim_restricted_exact_context"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_claim_restricted_exact_context"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b.default.non-capability",
+        "surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.console.flush.1tisl1d",
       "observedKey": "host-abi:ex_host_console_flush",
       "branchId": "surface.host.abi.ex.host.console.flush.1tisl1d.default",
@@ -264659,44 +264693,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-s11Y8wjwVZy3s8UeDzFnVLYCcQk0WafFDZl7Km16ArA"
+      "rawContentDigest": "sha256-yba_HEL9wDV51GgrReqYgi2Wi0smGZvokupygjxE1mU"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-YUYGugCkbzQQ9tYsVsFHWDHHZwxK94BB3ACVLWal8YE"
+      "rawContentDigest": "sha256-UYQO54c4Wbq7bwK7g_wcvLVvBKE-s80Y6cNQkbRmV50"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-Jfz4mFal0__6ObCLKxvfVBKGqY6fY9pxMxuOUnre8xA"
+      "rawContentDigest": "sha256-sL7j5tV33-EMA2Ab8cpld-KTWtt6qXmGzeCXOBYs4dE"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-VNt0850u0GTfP84JgROOec6SggXi8YqgDeIQ0zY_-F0"
+      "rawContentDigest": "sha256-YQ0QKo8Hnb-krR958smsGt3-aEsy3SVE7KHjC_a5w5Y"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-MZ_rzyKTI6mQjNRSHoIfaXAVJhTkO9D_-ugNTMMo_9w"
+      "rawContentDigest": "sha256-QU1cfdY2Js0qkwA3mXxkVydX__PMyzDByS6pPphNj3w"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-QMKQalRu3jsEEKyIbNd72jewIxVL51D1yAP9OfXHscI"
+      "rawContentDigest": "sha256-swHtwT1Hzoij9JWRdr34SvtbHWGK9K1YmaWPpuOX9ss"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-U_Ucq4p7AcbJT5XUmmeTKAYIiypJe3F3llfXkVwh1PE"
+      "rawContentDigest": "sha256-1Fgh9NBRgR9kcVnmCQ3HI2aXFKeBoaqY4RfV7OJTSHI"
     }
   ],
   "counts": {
-    "observedReferences": 12769,
-    "logicalSurfaces": 7110,
-    "enforcementBranches": 7309,
-    "coverageEdges": 7110,
-    "targetCells": 7110
+    "observedReferences": 12770,
+    "logicalSurfaces": 7111,
+    "enforcementBranches": 7310,
+    "coverageEdges": 7111,
+    "targetCells": 7111
   }
 }

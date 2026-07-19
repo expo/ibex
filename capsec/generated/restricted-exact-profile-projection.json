@@ -3,17 +3,17 @@
   "profile": "ibex/exact-embedder-contract/1",
   "fullProfile": "ibex/capsec/1",
   "status": "phase0-candidate-evidence-pending",
-  "definitionRawContentDigest": "sha256-NE13HlNPGV5uIqMG_X68M5oITT5xnNqArxsizxSc-OM",
-  "coverageRawContentDigest": "sha256-Jfz4mFal0__6ObCLKxvfVBKGqY6fY9pxMxuOUnre8xA",
-  "implementationManifestRawContentDigest": "sha256-usSKIHTb2hSDCu8hA8Quonnrm9jkQ8teNTvirSVIo3s",
+  "definitionRawContentDigest": "sha256-moVTif7ZqipW5QF0J4rmVIlmnIaJFkbDIwdpbRrO3FU",
+  "coverageRawContentDigest": "sha256-sL7j5tV33-EMA2Ab8cpld-KTWtt6qXmGzeCXOBYs4dE",
+  "implementationManifestRawContentDigest": "sha256-CiR1uy0W27M0EYyU-QHuvOSJcQKvBt8kdLUl9zhDdGs",
   "schemaRawContentDigests": {
     "advertisements": "sha256-9leFLXi4ezI8AfRqcP7L6zgQ1rto_TT5oBH2mBxJB3c",
     "definition": "sha256-XhhtwCROf1zqhnAYRz80T2CkzRJAPkfT1xR2sL0xCOE",
     "projection": "sha256-0A18tkQi75RBb4bgL9Ieu6ZdfmTZVcXXfCXV87FeHDs"
   },
   "sourceEdgeSet": {
-    "count": 7110,
-    "digest": "sha256-RYYFqCa4cm0mexsBPvk7KbX2X-i50xB6X3t0zem-1KQ"
+    "count": 7111,
+    "digest": "sha256-H4exL6u17es6Lm6jKKh0mAYRY_STh0MqHSs4PRBKFV8"
   },
   "candidateTargets": [
     {
@@ -34,10 +34,10 @@
     }
   ],
   "counts": {
-    "total": 7110,
+    "total": 7111,
     "reachable": 20,
     "structurallyAbsent": 7081,
-    "trustedControlPlane": 9,
+    "trustedControlPlane": 10,
     "evidenced": 0
   },
   "rows": [
@@ -3541,6 +3541,7 @@
     ["surface.host.abi.ex.host.check.import.1rnfpcv","structurally-absent","pending"],
     ["surface.host.abi.ex.host.claim.armed.context.0lgp4i1","structurally-absent","pending"],
     ["surface.host.abi.ex.host.claim.diagnostic.context.0dooych","structurally-absent","pending"],
+    ["surface.host.abi.ex.host.claim.restricted.exact.context.13osz2b","trusted-control-plane","pending"],
     ["surface.host.abi.ex.host.console.flush.1tisl1d","structurally-absent","pending"],
     ["surface.host.abi.ex.host.console.log.1ymt6at","structurally-absent","pending"],
     ["surface.host.abi.ex.host.enter.context.15xwr1j","structurally-absent","pending"],

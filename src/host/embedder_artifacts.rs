@@ -74,6 +74,97 @@ struct RestrictedContractBundleBinding {
     engine_bytecode_version: Option<u32>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedEngineBinding {
+    binary_digest: Digest,
+    bytecode_version: u32,
+    object: capsec_semantics::model::ObjectIdentity,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedProtectedArtifact {
+    host_path: LogicalPath,
+    object: capsec_semantics::model::ObjectIdentity,
+    content_digest: Digest,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedBundleArtifact {
+    host_path: LogicalPath,
+    object: capsec_semantics::model::ObjectIdentity,
+    content_digest: Digest,
+    format: String,
+    byte_length: usize,
+    root_set_digest: Digest,
+    contract_ir_digest: Digest,
+    module_graph_digest: Digest,
+    build_identity_digest: Digest,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestrictedExactArtifact {
+    artifact_schema: String,
+    profile: String,
+    full_profile: String,
+    status: String,
+    semantic_core: String,
+    vocab_digest: Digest,
+    registry_digest: Digest,
+    source_edge_set_digest: Digest,
+    restricted_surface_closure_digest: Digest,
+    profile_definition_raw_content_digest: Digest,
+    projection_raw_content_digest: Digest,
+    advertisements_raw_content_digest: Digest,
+    target: String,
+    features: Vec<String>,
+    engine: RestrictedEngineBinding,
+    operation_manifest: RestrictedProtectedArtifact,
+    bundle: RestrictedBundleArtifact,
+    package_graph_digest: Digest,
+    run_nonce: String,
+    artifact_digest: Digest,
+}
+
+#[derive(Clone, Debug)]
+pub struct AuthenticatedRestrictedExactArtifact {
+    artifact_digest: Digest,
+    target: String,
+    features: Vec<String>,
+    operation_binding: ExactEmbedderBinding,
+    bundle: Vec<u8>,
+    bundle_format: String,
+}
+
+impl AuthenticatedRestrictedExactArtifact {
+    pub fn digest(&self) -> &Digest {
+        &self.artifact_digest
+    }
+
+    pub fn operation_binding(&self) -> &ExactEmbedderBinding {
+        &self.operation_binding
+    }
+
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    pub fn features(&self) -> &[String] {
+        &self.features
+    }
+
+    pub fn bundle(&self) -> &[u8] {
+        &self.bundle
+    }
+
+    pub fn bundle_format(&self) -> &str {
+        &self.bundle_format
+    }
+}
+
 struct MaterializedArtifact {
     host_path: LogicalPath,
     object: capsec_semantics::model::ObjectIdentity,
@@ -441,6 +532,232 @@ fn raw_content_digest(bytes: &[u8]) -> Result<Digest> {
     .map_err(anyhow::Error::msg)
 }
 
+fn validate_restricted_bundle_format(
+    format: &str,
+    engine_bytecode_version: Option<u32>,
+    loaded_bytecode_version: u32,
+    bytes: &[u8],
+) -> Result<()> {
+    match format {
+        "source-utf8" => {
+            anyhow::ensure!(
+                engine_bytecode_version.is_none(),
+                "source bundle must not claim a Hermes bytecode version"
+            );
+            let source =
+                std::str::from_utf8(bytes).context("restricted source bundle is not UTF-8")?;
+            anyhow::ensure!(
+                !source.as_bytes().contains(&0),
+                "restricted source bundle contains NUL"
+            );
+        }
+        "hbc-v1" => anyhow::ensure!(
+            engine_bytecode_version == Some(loaded_bytecode_version),
+            "restricted HBC bundle version does not match the loaded Hermes engine"
+        ),
+        _ => anyhow::bail!("restricted Contract bundle format is unsupported"),
+    }
+    Ok(())
+}
+
+fn read_restricted_protected_artifact(
+    artifact: &RestrictedProtectedArtifact,
+    expected_len: Option<usize>,
+    label: &str,
+) -> Result<Vec<u8>> {
+    use std::io::Read as _;
+
+    let path = super::host_path_from_logical_path(&artifact.host_path, label)
+        .map_err(anyhow::Error::msg)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        options.custom_flags(0x0020_0000);
+    }
+    let mut file = options
+        .open(&path)
+        .with_context(|| format!("cannot pin {label} {}", path.display()))?;
+    let before = file.metadata()?;
+    anyhow::ensure!(before.is_file(), "{label} is not a regular file");
+    anyhow::ensure!(
+        super::object_identity_for_open_file(&file).map_err(anyhow::Error::msg)? == artifact.object,
+        "{label} object identity changed"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        anyhow::ensure!(
+            before.permissions().mode() & 0o222 == 0,
+            "{label} remains writable"
+        );
+    }
+    #[cfg(not(unix))]
+    anyhow::ensure!(before.permissions().readonly(), "{label} remains writable");
+    if let Some(expected) = expected_len {
+        anyhow::ensure!(before.len() == expected as u64, "{label} length changed");
+    }
+    let mut bytes = Vec::with_capacity(before.len() as usize);
+    file.read_to_end(&mut bytes)?;
+    anyhow::ensure!(
+        raw_content_digest(&bytes)? == artifact.content_digest,
+        "{label} content digest changed"
+    );
+    let after = file.metadata()?;
+    anyhow::ensure!(
+        after.len() == before.len()
+            && super::object_identity_for_open_file(&file).map_err(anyhow::Error::msg)?
+                == artifact.object,
+        "{label} changed while it was authenticated"
+    );
+    Ok(bytes)
+}
+
+/// Authenticate a serialized restricted Exact candidate artifact without
+/// installing it. Production installation remains separately gated by the
+/// report-derived target advertisement family.
+pub fn authenticate_restricted_exact_embedder_artifact(
+    artifact_bytes: &[u8],
+) -> Result<AuthenticatedRestrictedExactArtifact> {
+    super::reject_closed_startup_environment()?;
+    let text =
+        std::str::from_utf8(artifact_bytes).context("restricted Exact artifact is not UTF-8")?;
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .context("restricted Exact artifact is not strict JSON")?;
+    let artifact: RestrictedExactArtifact =
+        serde_json::from_value(value.clone()).context("invalid restricted Exact artifact")?;
+    anyhow::ensure!(
+        artifact.artifact_schema == "ibex/restricted-exact-artifact/1"
+            && artifact.profile == "ibex/exact-embedder-contract/1"
+            && artifact.full_profile == crate::capsec_registry_generated::CAPSEC_PROFILE
+            && artifact.status == "candidate-unadvertised"
+            && artifact.semantic_core == crate::capsec_registry_generated::CAPSEC_SEMANTIC_CORE,
+        "restricted Exact artifact profile identity mismatch"
+    );
+    let computed_digest = compute_domain_digest(
+        "ibex:restricted-exact-artifact:1",
+        &value,
+        &["artifactDigest".to_owned()],
+    )?;
+    anyhow::ensure!(
+        computed_digest == artifact.artifact_digest.as_str(),
+        "restricted Exact artifact digest is stale or tampered"
+    );
+
+    let definition_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/registry/restricted-exact-profile-definition.json"
+    ));
+    let projection_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-profile-projection.json"
+    ));
+    let advertisements_bytes = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/generated/restricted-exact-target-advertisements.json"
+    ));
+    let definition: serde_json::Value = serde_json::from_slice(definition_bytes)?;
+    let advertisements: serde_json::Value = serde_json::from_slice(advertisements_bytes)?;
+    let (vocab_digest, registry_digest) = checked_identity_digests()?;
+    anyhow::ensure!(
+        artifact.profile_definition_raw_content_digest == raw_content_digest(definition_bytes)?
+            && artifact.projection_raw_content_digest == raw_content_digest(projection_bytes)?
+            && artifact.advertisements_raw_content_digest
+                == raw_content_digest(advertisements_bytes)?
+            && artifact.restricted_surface_closure_digest == raw_content_digest(projection_bytes)?
+            && artifact.vocab_digest == vocab_digest
+            && artifact.registry_digest == registry_digest
+            && artifact.source_edge_set_digest.as_str()
+                == definition["sourceEdgeSet"]["digest"]
+                    .as_str()
+                    .unwrap_or_default(),
+        "restricted Exact artifact authority digest mismatch"
+    );
+    anyhow::ensure!(
+        advertisements["advertisements"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "candidate artifact authentication cannot consume an advertised profile"
+    );
+
+    let engine = crate::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)?;
+    let bytecode_version =
+        crate::engine::loaded_engine_bytecode_version().map_err(anyhow::Error::msg)?;
+    anyhow::ensure!(
+        artifact.target == runtime_target_triple()
+            && artifact.features == engine.structural_features
+            && artifact.engine.binary_digest.as_str() == engine.binary_digest
+            && artifact.engine.object == engine.object
+            && artifact.engine.bytecode_version == bytecode_version,
+        "restricted Exact artifact does not identify the loaded engine"
+    );
+    let empty_graph = serde_json::json!({"nodes": [], "importEdges": []});
+    anyhow::ensure!(
+        artifact.package_graph_digest.as_str()
+            == compute_domain_digest("ibex:capsec:package-graph:1", &empty_graph, &[])?,
+        "restricted Exact artifact package graph is not the canonical empty graph"
+    );
+    let nonce = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&artifact.run_nonce)
+        .context("restricted Exact artifact run nonce is invalid")?;
+    anyhow::ensure!(
+        nonce.len() == PRODUCTION_RUN_NONCE_BYTES
+            && artifact.run_nonce != CONTRACT_FIXTURE_RUN_NONCE,
+        "restricted Exact artifact run nonce is not construction-fresh"
+    );
+
+    let operation_bytes = read_restricted_protected_artifact(
+        &artifact.operation_manifest,
+        None,
+        "restricted Exact operation manifest",
+    )?;
+    let operation_binding = parse_exact_operation_manifest(&operation_bytes)?;
+    anyhow::ensure!(
+        operation_binding.operation_manifest_digest == artifact.operation_manifest.content_digest,
+        "restricted Exact operation manifest binding mismatch"
+    );
+    let bundle_protected = RestrictedProtectedArtifact {
+        host_path: artifact.bundle.host_path.clone(),
+        object: artifact.bundle.object.clone(),
+        content_digest: artifact.bundle.content_digest.clone(),
+    };
+    let bundle = read_restricted_protected_artifact(
+        &bundle_protected,
+        Some(artifact.bundle.byte_length),
+        "restricted Contract bundle",
+    )?;
+    validate_restricted_bundle_format(
+        &artifact.bundle.format,
+        (artifact.bundle.format == "hbc-v1").then_some(artifact.engine.bytecode_version),
+        bytecode_version,
+        &bundle,
+    )?;
+    // These fields are deliberately read through the strict typed artifact;
+    // their exact values are authenticated by artifactDigest and consumed by
+    // the Exact activation handshake rather than by Ibex policy selection.
+    let _activation_identity = (
+        artifact.bundle.root_set_digest,
+        artifact.bundle.contract_ir_digest,
+        artifact.bundle.module_graph_digest,
+        artifact.bundle.build_identity_digest,
+    );
+
+    Ok(AuthenticatedRestrictedExactArtifact {
+        artifact_digest: artifact.artifact_digest,
+        target: artifact.target,
+        features: artifact.features,
+        operation_binding,
+        bundle,
+        bundle_format: artifact.bundle.format,
+    })
+}
+
 /// Construct one immutable, target-local candidate artifact for the restricted
 /// Exact profile. This operation deliberately does not install a Host or claim
 /// target support: the generated advertisement family remains the sole
@@ -474,25 +791,12 @@ pub fn build_restricted_exact_embedder_artifact(
 
     let bytecode_version =
         crate::engine::loaded_engine_bytecode_version().map_err(anyhow::Error::msg)?;
-    match binding.format.as_str() {
-        "source-utf8" => {
-            anyhow::ensure!(
-                binding.engine_bytecode_version.is_none(),
-                "source bundle must not claim a Hermes bytecode version"
-            );
-            let source = std::str::from_utf8(bundle_bytes)
-                .context("restricted source bundle is not UTF-8")?;
-            anyhow::ensure!(
-                !source.as_bytes().contains(&0),
-                "restricted source bundle contains NUL"
-            );
-        }
-        "hbc-v1" => anyhow::ensure!(
-            binding.engine_bytecode_version == Some(bytecode_version),
-            "restricted HBC bundle version does not match the loaded Hermes engine"
-        ),
-        _ => anyhow::bail!("restricted Contract bundle format is unsupported"),
-    }
+    validate_restricted_bundle_format(
+        &binding.format,
+        binding.engine_bytecode_version,
+        bytecode_version,
+        bundle_bytes,
+    )?;
 
     let definition_bytes = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1490,6 +1794,48 @@ mod tests {
             "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         );
         assert_ne!(artifact["runNonce"], CONTRACT_FIXTURE_RUN_NONCE);
+        let authenticated = authenticate_restricted_exact_embedder_artifact(
+            &serde_json::to_vec(&artifact).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(authenticated.bundle(), bundle);
+        assert_eq!(authenticated.bundle_format(), "source-utf8");
+        assert_eq!(
+            authenticated.digest().as_str(),
+            artifact["artifactDigest"].as_str().unwrap()
+        );
+        assert!(crate::host::abi::install_restricted_exact_host(
+            &serde_json::to_vec(&artifact).unwrap(),
+        )
+        .unwrap_err()
+        .contains("not advertised"));
+
+        let installed_digest = unsafe {
+            crate::host::abi::install_restricted_exact_host_for_conformance(
+                &serde_json::to_vec(&artifact).unwrap(),
+            )
+        }
+        .unwrap();
+        let digest_c = std::ffi::CString::new(installed_digest).unwrap();
+        assert_eq!(crate::host::abi::ex_host_claim_diagnostic_context(), 0);
+        assert_eq!(
+            unsafe { crate::host::abi::ex_host_claim_armed_context(digest_c.as_ptr()) },
+            0
+        );
+        let context =
+            unsafe { crate::host::abi::ex_host_claim_restricted_exact_context(digest_c.as_ptr()) };
+        assert_ne!(context, 0);
+        crate::host::abi::ex_host_release_context(context);
+
+        let mut tampered = artifact;
+        tampered["bundle"]["rootSetDigest"] =
+            serde_json::json!("sha256-__________________________________________8");
+        assert!(authenticate_restricted_exact_embedder_artifact(
+            &serde_json::to_vec(&tampered).unwrap(),
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("stale or tampered"));
     }
 
     #[test]

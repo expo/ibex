@@ -173,6 +173,12 @@ pub struct Host {
     /// values are intentionally absent after this point.
     /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
     armed_snapshot: Option<Arc<capsec_semantics::arming::ArmedSnapshot>>,
+    /// Profile-distinct Exact activation artifact. This never coexists with a
+    /// full CapSec snapshot and grants only the immutable Exact binary
+    /// endowment consumed by the restricted constructor.
+    /// @ref LLP 0026#4-profile-identity-and-anti-confusion-rules
+    restricted_exact_artifact:
+        Option<Arc<embedder_artifacts::AuthenticatedRestrictedExactArtifact>>,
     /// Typed, validated authority state decoded from the immutable snapshot.
     /// Legacy `PolicyFile` data never enters this context.
     /// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
@@ -257,6 +263,7 @@ impl Host {
             module_loader: loader,
             handles: Arc::new(handles::HandleRegistry::new()),
             armed_snapshot: None,
+            restricted_exact_artifact: None,
             decision_context: None,
             typed_decision_count: Arc::new(AtomicUsize::new(0)),
             #[cfg(any(test, feature = "capsec-conformance-observer"))]
@@ -363,6 +370,31 @@ impl Host {
         self.armed_snapshot.as_ref()
     }
 
+    /// Construct the Host posture for one already-authenticated, advertised
+    /// restricted Exact artifact. Callers must derive advertisement completion
+    /// from the generated profile authority before reaching this function.
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    pub(crate) fn new_restricted_exact(
+        artifact: Arc<embedder_artifacts::AuthenticatedRestrictedExactArtifact>,
+    ) -> capsec_semantics::Result<Self> {
+        let mut host = Self::new(HostConfig {
+            mode: SecurityMode::Enforce,
+            ..Default::default()
+        });
+        host.restricted_exact_artifact = Some(artifact);
+        Ok(host)
+    }
+
+    pub fn restricted_exact_artifact(
+        &self,
+    ) -> Option<&Arc<embedder_artifacts::AuthenticatedRestrictedExactArtifact>> {
+        self.restricted_exact_artifact.as_ref()
+    }
+
+    pub fn is_production_armed(&self) -> bool {
+        self.armed_snapshot.is_some() || self.restricted_exact_artifact.is_some()
+    }
+
     /// Authorize one immutable Exact host-operation endowment before Hermes
     /// publishes the corresponding JSI capability. Diagnostic hosts retain
     /// their explicitly unarmed behavior; armed hosts require an Exact
@@ -374,14 +406,18 @@ impl Host {
         operation_manifest_digest: Option<&str>,
         operations: &[u32],
     ) -> bool {
-        let Some(snapshot) = self.armed_snapshot() else {
-            return true;
-        };
         let Some(operation_manifest_digest) = operation_manifest_digest else {
             return false;
         };
-        let Ok(Some(binding)) = snapshot.exact_embedder_binding() else {
-            return false;
+        let binding = if let Some(restricted) = self.restricted_exact_artifact() {
+            restricted.operation_binding().clone()
+        } else if let Some(snapshot) = self.armed_snapshot() {
+            let Ok(Some(binding)) = snapshot.exact_embedder_binding() else {
+                return false;
+            };
+            binding
+        } else {
+            return true;
         };
         if binding.operation_manifest_digest.as_str() != operation_manifest_digest {
             return false;
