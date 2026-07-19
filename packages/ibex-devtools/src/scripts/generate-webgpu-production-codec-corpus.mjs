@@ -34,6 +34,8 @@ const manifestPath =
   "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json";
 const semanticsPath =
   "tests/fixtures/webgpu-test-wrapper-semantics-v1.json";
+const renderPipelineConversionPath =
+  "tests/fixtures/webgpu-render-pipeline-conversion-v1.json";
 const outputPath =
   "tests/fixtures/webgpu-production-codec-corpus-v1.generated.json";
 const operationId = "GPU.requestAdapter";
@@ -42,6 +44,7 @@ const createBindGroupOperationId = "GPUDevice.createBindGroup";
 const createBindGroupLayoutOperationId = "GPUDevice.createBindGroupLayout";
 const createBufferOperationId = "GPUDevice.createBuffer";
 const createPipelineLayoutOperationId = "GPUDevice.createPipelineLayout";
+const createRenderPipelineOperationId = "GPUDevice.createRenderPipeline";
 const createSamplerOperationId = "GPUDevice.createSampler";
 const createTextureOperationId = "GPUDevice.createTexture";
 const createTextureViewOperationId = "GPUTexture.createView";
@@ -3966,6 +3969,496 @@ function buildCorpus() {
     ),
   ]);
 
+  const createRenderPipelineRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === createRenderPipelineOperationId,
+  );
+  const createRenderPipelineRequestCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (candidate) =>
+        candidate.tag === createRenderPipelineRoute?.serviceArgumentCodec,
+    );
+  const createRenderPipelineCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === createRenderPipelineRoute?.serviceCompletionCodec,
+    );
+  const createRenderPipelineNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === createRenderPipelineOperationId,
+    );
+  if (
+    !createRenderPipelineRoute ||
+    !createRenderPipelineRequestCodec?.executableFromCurrentAuthenticatedInputs ||
+    !createRenderPipelineRequestCodec.nativeProgramPrerequisitesRepresented ||
+    createRenderPipelineRequestCodec.unavailableSemanticFields.length !== 0 ||
+    !createRenderPipelineCompletionCodec ||
+    !createRenderPipelineNativeRoute ||
+    createRenderPipelineNativeRoute.request.catalog.wireTag !==
+      createRenderPipelineRequestCodec.wireTag ||
+    createRenderPipelineNativeRoute.completion.catalog.wireTag !==
+      createRenderPipelineCompletionCodec.wireTag
+  ) {
+    fail(
+      "GPUDevice.createRenderPipeline native codegen program is not executable from authenticated inputs",
+    );
+  }
+  const renderPipelineConversion = JSON.parse(
+    fs.readFileSync(
+      path.join(repositoryRoot, renderPipelineConversionPath),
+      "utf8",
+    ),
+  );
+  if (
+    renderPipelineConversion.schema !==
+      "ibex/webgpu-render-pipeline-conversion-fixtures/1" ||
+    !Array.isArray(renderPipelineConversion.rows) ||
+    renderPipelineConversion.rows.length !== 4
+  ) {
+    fail("GPUDevice.createRenderPipeline conversion fixture drifted");
+  }
+  const renderPipelineLayoutWrapper = Object.freeze({
+    corpusBrand: "GPUPipelineLayout",
+  });
+  const renderVertexModuleWrapper = Object.freeze({
+    corpusBrand: "GPUShaderModule.vertex",
+  });
+  const renderFragmentModuleWrapper = Object.freeze({
+    corpusBrand: "GPUShaderModule.fragment",
+  });
+  const renderPipelineLayoutReference = Object.freeze({
+    kind: "GPUPipelineLayout",
+    objectId: "94",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const renderVertexModuleReference = Object.freeze({
+    kind: "GPUShaderModule",
+    objectId: "95",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const renderFragmentModuleReference = Object.freeze({
+    kind: "GPUShaderModule",
+    objectId: "96",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const renderPipelineWrapperAccess = Object.freeze({
+    referenceIfBranded(value, expectedKind) {
+      if (
+        expectedKind === "GPUPipelineLayout" &&
+        value === renderPipelineLayoutWrapper
+      ) {
+        return renderPipelineLayoutReference;
+      }
+      if (
+        value === renderVertexModuleWrapper ||
+        value === renderFragmentModuleWrapper
+      ) {
+        return this.reference(value, expectedKind);
+      }
+      return undefined;
+    },
+    reference(value, expectedKind) {
+      if (
+        expectedKind === "GPUPipelineLayout" &&
+        value === renderPipelineLayoutWrapper
+      ) {
+        return renderPipelineLayoutReference;
+      }
+      if (
+        expectedKind === "GPUShaderModule" &&
+        value === renderVertexModuleWrapper
+      ) {
+        return renderVertexModuleReference;
+      }
+      if (
+        expectedKind === "GPUShaderModule" &&
+        value === renderFragmentModuleWrapper
+      ) {
+        return renderFragmentModuleReference;
+      }
+      throw new TypeError(`unbranded corpus ${expectedKind}`);
+    },
+  });
+  const renderPipelineTarget = (index) => Object.freeze({
+    kind: "GPURenderPipeline",
+    objectId: String(100 + index),
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const renderPipelineInput = (convertedArguments, index) => Object.freeze({
+    operationId: createRenderPipelineOperationId,
+    wireId: createRenderPipelineRoute.wireId,
+    convertedArguments,
+    receiver: createBindGroupLayoutReceiver,
+    target: renderPipelineTarget(index),
+    capturedScopeId: "2",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: String(40 + index),
+    queueIngressOrdinal: "0",
+    sealedLocalTimeline: Object.freeze([]),
+  });
+  const renderPipelineCarrier = (index) => Object.freeze({
+    operation_id: createRenderPipelineRoute.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: String(80 + index),
+    promise_id: "0",
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: String(40 + index),
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+      flags: 0,
+      object_id: "80",
+      object_generation: "2",
+    }),
+    target: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPURenderPipeline,
+      flags: 0,
+      object_id: String(100 + index),
+      object_generation: "1",
+    }),
+  });
+  const renderPipelineDescriptorForRow = (row, layout = renderPipelineLayoutWrapper) =>
+    Object.freeze({
+      label: row.label,
+      layout,
+      ...(row.sourcePrimitivePresence === "present"
+        ? { primitive: row.primitive }
+        : {}),
+      vertex: Object.freeze({
+        module: renderVertexModuleWrapper,
+        ...(row.sourceVertexBuffersPresence === "present"
+          ? { buffers: row.vertexBuffers }
+          : {}),
+      }),
+      fragment: Object.freeze({
+        module: renderFragmentModuleWrapper,
+        targets: Object.freeze([
+          Object.freeze({
+            format: row.targetFormat,
+            ...(row.blend ? { blend: row.blend } : {}),
+          }),
+        ]),
+      }),
+    });
+  const renderPipelineId = (workload) => workload
+    .replace(/([a-z0-9])([A-Z])/gu, "$1-$2")
+    .toLowerCase();
+  const renderPipelineRequestVector = (
+    id,
+    descriptor,
+    index,
+    evidence,
+    expectMaterializedDefaults = true,
+  ) => {
+    const convertedArguments =
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        createRenderPipelineOperationId,
+        [descriptor],
+        renderPipelineWrapperAccess,
+      );
+    if (
+      expectMaterializedDefaults &&
+      !convertedArguments ||
+      (expectMaterializedDefaults &&
+        (canonicalJson(convertedArguments.vertex.constants) !== "{}" ||
+          !Array.isArray(convertedArguments.vertex.buffers) ||
+          canonicalJson(convertedArguments.fragment.constants) !== "{}" ||
+          convertedArguments.fragment.targets[0].writeMask !== 0x0f ||
+          canonicalJson(convertedArguments.multisample) !==
+            canonicalJson({ alphaToCoverageEnabled: false, count: 1, mask: 0xffff_ffff }) ||
+          typeof convertedArguments.primitive !== "object"))
+    ) {
+      fail(`${id} did not materialize the authenticated WebIDL defaults`);
+    }
+    const input = renderPipelineInput(convertedArguments, index);
+    const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+      input,
+    );
+    const inspected = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(bytes);
+    const expected = Object.freeze({
+      receiver: input.receiver,
+      target: input.target,
+      capturedScopeId: "2",
+      adapterOrdinal: "0",
+      deviceIngressOrdinal: String(40 + index),
+      queueIngressOrdinal: "0",
+      sealedLocalTimeline: Object.freeze([]),
+      convertedArguments,
+    });
+    if (
+      canonicalJson(inspected) !== canonicalJson({
+        operationId: createRenderPipelineOperationId,
+        codec: createRenderPipelineRequestCodec.tag,
+        ...expected,
+      })
+    ) {
+      fail(`${id} generated request does not round-trip through inspection`);
+    }
+    return Object.freeze({
+      id,
+      kind: "request",
+      operationId: createRenderPipelineOperationId,
+      carrierProjection: renderPipelineCarrier(index),
+      trust:
+        "untrusted-wrapper-record-prefix-and-descriptor-references-only-never-authority",
+      semanticOwner: "native-semantic-service-before-provider-admission",
+      bytesHex: toHex(bytes),
+      expected,
+      reviewedWorkloadEvidence: evidence,
+    });
+  };
+  const renderPipelineCohortVectors = Object.freeze(
+    renderPipelineConversion.rows.map((row, index) =>
+      renderPipelineRequestVector(
+        `create-render-pipeline-${renderPipelineId(row.workload)}-request`,
+        renderPipelineDescriptorForRow(row),
+        index,
+        Object.freeze({
+          workload: row.workload,
+          sourceVertexBuffersPresence: row.sourceVertexBuffersPresence,
+          sourcePrimitivePresence: row.sourcePrimitivePresence,
+          targetFormat: row.targetFormat,
+        }),
+      )
+    ),
+  );
+  const renderPipelineAutoVector = renderPipelineRequestVector(
+    "create-render-pipeline-auto-layout-request",
+    renderPipelineDescriptorForRow(renderPipelineConversion.rows[0], "auto"),
+    4,
+    Object.freeze({ workload: "layout-auto", layout: "auto" }),
+  );
+  const renderPipelineFullStateDescriptor = Object.freeze({
+    label: "full-state-pipeline",
+    layout: renderPipelineLayoutWrapper,
+    depthStencil: Object.freeze({
+      depthBias: -2,
+      depthBiasClamp: 0.5,
+      depthBiasSlopeScale: 1.25,
+      depthCompare: "less-equal",
+      depthWriteEnabled: true,
+      format: "depth24plus-stencil8",
+      stencilBack: Object.freeze({
+        compare: "always",
+        depthFailOp: "increment-clamp",
+        failOp: "keep",
+        passOp: "replace",
+      }),
+      stencilFront: Object.freeze({
+        compare: "less",
+        depthFailOp: "decrement-wrap",
+        failOp: "zero",
+        passOp: "invert",
+      }),
+      stencilReadMask: 0x0f0f_0f0f,
+      stencilWriteMask: 0xf0f0_f0f0,
+    }),
+    fragment: Object.freeze({
+      constants: Object.freeze({ tint: 0.75 }),
+      entryPoint: "fs_main",
+      module: renderFragmentModuleWrapper,
+      targets: Object.freeze([
+        Object.freeze({
+          blend: Object.freeze({
+            alpha: Object.freeze({
+              dstFactor: "one-minus-src-alpha",
+              operation: "add",
+              srcFactor: "src-alpha",
+            }),
+            color: Object.freeze({
+              dstFactor: "one",
+              operation: "reverse-subtract",
+              srcFactor: "constant",
+            }),
+          }),
+          format: "bgra8unorm",
+          writeMask: 0x07,
+        }),
+      ]),
+    }),
+    multisample: Object.freeze({
+      alphaToCoverageEnabled: true,
+      count: 4,
+      mask: 0x00ff_00ff,
+    }),
+    primitive: Object.freeze({
+      cullMode: "back",
+      frontFace: "cw",
+      stripIndexFormat: "uint32",
+      topology: "triangle-strip",
+      unclippedDepth: true,
+    }),
+    vertex: Object.freeze({
+      buffers: Object.freeze([
+        Object.freeze({
+          arrayStride: 16,
+          attributes: Object.freeze([
+            Object.freeze({ format: "float32x4", offset: 0, shaderLocation: 3 }),
+          ]),
+          stepMode: "vertex",
+        }),
+      ]),
+      constants: Object.freeze({ scale: 2 }),
+      entryPoint: "vs_main",
+      module: renderVertexModuleWrapper,
+    }),
+  });
+  const renderPipelineFullStateVector = renderPipelineRequestVector(
+    "create-render-pipeline-full-state-request",
+    renderPipelineFullStateDescriptor,
+    5,
+    Object.freeze({ workload: "full-descriptor-field-preservation" }),
+    false,
+  );
+  const renderPipelineSemanticBoundaryVector = (id, mutate, predicate, index) => {
+    const convertedArguments = structuredClone(
+      renderPipelineCohortVectors[0].expected.convertedArguments,
+    );
+    mutate(convertedArguments);
+    const input = renderPipelineInput(convertedArguments, index);
+    const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(input);
+    const inspected = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(bytes);
+    if (canonicalJson(inspected.convertedArguments) !== canonicalJson(convertedArguments)) {
+      fail(`${id} did not reach the semantic boundary intact`);
+    }
+    return Object.freeze({
+      id,
+      kind: "semantic-rejection",
+      operationId: createRenderPipelineOperationId,
+      semanticTerminalId: "later-predicate-rejection",
+      carrierProjection: renderPipelineCarrier(index),
+      bytesHex: toHex(bytes),
+      expected: Object.freeze({
+        codegenDisposition: "encoded-for-post-decode-semantic-validation",
+        failingPredicate: predicate,
+        providerTokenCount: 0,
+        physicalSequenceCount: 0,
+      }),
+    });
+  };
+  const renderPipelineSemanticRejections = Object.freeze([
+    renderPipelineSemanticBoundaryVector(
+      "create-render-pipeline-cross-device-layout-semantically-rejected",
+      (descriptor) => { descriptor.layout.logicalDeviceId = "56"; },
+      "authenticate-explicit-pipeline-layout-full-reference-or-validate-auto-layout-policy",
+      6,
+    ),
+    renderPipelineSemanticBoundaryVector(
+      "create-render-pipeline-cross-device-shader-semantically-rejected",
+      (descriptor) => { descriptor.vertex.module.logicalDeviceId = "56"; },
+      "authenticate-current-same-device-shader-module-full-references-and-creator-order",
+      7,
+    ),
+  ]);
+  const renderPipelineStructuralRejection = (id, mutate) => {
+    const convertedArguments = structuredClone(
+      renderPipelineCohortVectors[0].expected.convertedArguments,
+    );
+    mutate(convertedArguments);
+    let rejection = null;
+    try {
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeNativeCodegenRequest(
+        renderPipelineInput(convertedArguments, 8),
+      );
+    } catch (error) {
+      rejection = error;
+    }
+    if (!(rejection instanceof TypeError)) {
+      fail(`${id} did not reject before native payload encoding`);
+    }
+    return Object.freeze({
+      id,
+      kind: "structural-rejection",
+      operationId: createRenderPipelineOperationId,
+      structuralBoundary: "generated-native-request-encoder-before-bytes",
+      expected: Object.freeze({
+        errorName: "TypeError",
+        errorMessage: rejection.message,
+        encodedByteCount: 0,
+        providerTokenCount: 0,
+        physicalSequenceCount: 0,
+      }),
+    });
+  };
+  const renderPipelineStructuralRejections = Object.freeze([
+    renderPipelineStructuralRejection(
+      "create-render-pipeline-missing-write-mask-structurally-rejected",
+      (descriptor) => { delete descriptor.fragment.targets[0].writeMask; },
+    ),
+    renderPipelineStructuralRejection(
+      "create-render-pipeline-invalid-vertex-format-structurally-rejected",
+      (descriptor) => {
+        descriptor.vertex.buffers = [{
+          arrayStride: 4,
+          attributes: [{ format: "invalid", offset: 0, shaderLocation: 0 }],
+          stepMode: "vertex",
+        }];
+      },
+    ),
+  ]);
+  const createRenderPipelineCompletion =
+    WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      createRenderPipelineOperationId,
+      { kind: "none" },
+    );
+  if (createRenderPipelineCompletion.byteLength !== 0) {
+    fail("GPUDevice.createRenderPipeline terminal receipt must have an empty payload");
+  }
+  const renderPipelineSuccessCarrier = Object.freeze({
+    kind: 1,
+    record: Object.freeze({
+      operation_result: Object.freeze({
+        result_kind: 0,
+        status: 0,
+        operation: Object.freeze({
+          operation_id: createRenderPipelineRoute.wireId,
+          operation_instance_id: "80",
+          promise_id: "0",
+          provider_admission: 1,
+          physical_sequence: "39",
+          captured_scope_id: "2",
+          adapter_ordinal: "0",
+          device_ingress_ordinal: "40",
+          queue_ingress_ordinal: "0",
+          device_transition: 0,
+          ingress_device: renderPipelineCarrier(0).ingress_device,
+          result_device: renderPipelineCarrier(0).ingress_device,
+          provider_generation: "9",
+          receiver: renderPipelineCarrier(0).receiver,
+          target: renderPipelineCarrier(0).target,
+        }),
+      }),
+    }),
+  });
+  const renderPipelineSemanticSteps = Object.freeze(
+    createRenderPipelineNativeRoute.request.semanticServiceBoundary
+      .requiredAfterDecode,
+  );
+  if (renderPipelineSemanticSteps.length !== 19) {
+    fail("GPUDevice.createRenderPipeline semantic step inventory drifted");
+  }
+
   const createCommandEncoderRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === createCommandEncoderOperationId,
   );
@@ -6016,7 +6509,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -6140,6 +6633,30 @@ function buildCorpus() {
         productionExecutableFromCurrentAuthenticatedInputs: true,
         semanticTerminalMapping:
           createPipelineLayoutNativeRoute.completion.semanticTerminalMapping,
+      },
+      {
+        operationId: createRenderPipelineOperationId,
+        wireId: createRenderPipelineRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: createRenderPipelineRequestCodec.tag,
+        requestCodecTag: createRenderPipelineRequestCodec.wireTag,
+        completionCodec: createRenderPipelineCompletionCodec.tag,
+        completionCodecTag: createRenderPipelineCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          createRenderPipelineNativeRoute.completion.semanticTerminalMapping,
+        reviewedWorkloadEvidence: {
+          cohortCount: 4,
+          cohorts: renderPipelineConversion.rows.map((row) => row.workload),
+          layoutModes: ["explicit", "auto"],
+          fieldPreservationVector: "create-render-pipeline-full-state-request",
+          WebIdlMaterializedDefaults:
+            renderPipelineConversion.materializedDefaults,
+          WebIdlSharedOmissions: renderPipelineConversion.sharedOmissions,
+        },
+        structuralRejectionCount: renderPipelineStructuralRejections.length,
+        semanticStepOrder: renderPipelineSemanticSteps,
       },
       {
         operationId: createSamplerOperationId,
@@ -6604,6 +7121,20 @@ function buildCorpus() {
         expected: { kind: "terminal-receipt", value: "undefined" },
       },
       ...pipelineLayoutRejectionVectors,
+      ...renderPipelineCohortVectors,
+      renderPipelineAutoVector,
+      renderPipelineFullStateVector,
+      {
+        id: "create-render-pipeline-operation-success-result",
+        kind: "result",
+        operationId: createRenderPipelineOperationId,
+        semanticTerminalId: "operation-success",
+        carrierProjection: renderPipelineSuccessCarrier,
+        bytesHex: toHex(createRenderPipelineCompletion),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      },
+      ...renderPipelineStructuralRejections,
+      ...renderPipelineSemanticRejections,
       {
         id: "create-command-encoder-request",
         kind: "request",

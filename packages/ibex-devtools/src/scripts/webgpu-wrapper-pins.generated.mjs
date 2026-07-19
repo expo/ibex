@@ -2,11 +2,11 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "777d5a8854e2d00d4a20307d55ac255afba3bab48d98191ca2945d19ab34a54c",
+  "projection": "0a5f7beae3e4c4d38fb7919a901ecd794267b601e3a2c4103c385495fa678bfd",
   "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
   "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
   "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
-  "webgpuCVocabulary": "a7ae48d8a186a41845d5ebf7404a84a5410af99cba697f97373fea3009f0d766"
+  "webgpuCVocabulary": "ee3e5eb0dd1a9f77792d63c4cb3aecc46420e812c7e977c9461fb69e28207dac"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   "semanticProjection": "a93ae9932b1d82602a6a9f0b60344c8a5a4e192a3fdec87c75fb00ed19134452",
@@ -291,6 +291,7 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPUDevice.createBindGroupLayout",
   "GPUDevice.createBuffer",
   "GPUDevice.createPipelineLayout",
+  "GPUDevice.createRenderPipeline",
   "GPUDevice.createSampler",
   "GPUDevice.createTexture",
   "GPUTexture.createView",

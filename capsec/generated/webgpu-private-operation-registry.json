@@ -6,15 +6,15 @@
   "status": "construction-private-source-derived-no-public-install",
   "source": {
     "productionPlanPath": "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts",
-    "productionPlanRawContentSha256": "dd342d51197a1d4c2af145526fabd90eb0171d404b6a3027860a5aa3242ac5ef",
+    "productionPlanRawContentSha256": "cb7ae26c7e8379c544bb8a89405f5b23f34525f2da4f6b7ba2bd04f096294f98",
     "wrapperAuthorityPath": "tests/fixtures/webgpu-test-wrapper-authority-v1.json",
-    "wrapperAuthorityRawContentSha256": "3a87d162a91b4c45fc16883884eddf72650c74fa13c80b0f4470caef41ea240d",
+    "wrapperAuthorityRawContentSha256": "25e7b9575fc626a9735ba1a7f23e79d6da7dfe4db33c07c22f93f84afc2adca9",
     "authenticatedDigests": {
       "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
       "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
       "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
-      "webgpuCVocabulary": "a7ae48d8a186a41845d5ebf7404a84a5410af99cba697f97373fea3009f0d766",
-      "projection": "777d5a8854e2d00d4a20307d55ac255afba3bab48d98191ca2945d19ab34a54c"
+      "webgpuCVocabulary": "ee3e5eb0dd1a9f77792d63c4cb3aecc46420e812c7e977c9461fb69e28207dac",
+      "projection": "0a5f7beae3e4c4d38fb7919a901ecd794267b601e3a2c4103c385495fa678bfd"
     }
   },
   "publicBoundary": {

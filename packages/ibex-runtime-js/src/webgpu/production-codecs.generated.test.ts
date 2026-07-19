@@ -358,6 +358,38 @@ function convertedTextureViewRequest(
   });
 }
 
+function convertedRenderPipelineDescriptor(
+  vertexConstants: Readonly<Record<string, number>> = Object.freeze({}),
+) {
+  return Object.freeze({
+    label: 'render-pipeline',
+    layout: reference('GPUPipelineLayout'),
+    fragment: Object.freeze({
+      constants: Object.freeze({}),
+      module: reference('GPUShaderModule'),
+      targets: Object.freeze([
+        Object.freeze({ format: 'bgra8unorm', writeMask: 0x0f }),
+      ]),
+    }),
+    multisample: Object.freeze({
+      alphaToCoverageEnabled: false,
+      count: 1,
+      mask: 0xffff_ffff,
+    }),
+    primitive: Object.freeze({
+      cullMode: 'none',
+      frontFace: 'ccw',
+      topology: 'triangle-list',
+      unclippedDepth: false,
+    }),
+    vertex: Object.freeze({
+      buffers: Object.freeze([]),
+      constants: vertexConstants,
+      module: reference('GPUShaderModule'),
+    }),
+  });
+}
+
 function completeTextureViewCurrentOrigin() {
   const digestInput: ProductionGpuTextureOriginDigestInput = Object.freeze({
     originClass: 'canvas-current',
@@ -423,6 +455,8 @@ function serviceInput(
       bindGroupLayouts: Object.freeze([reference('GPUBindGroupLayout')]),
       immediateSize: 0,
     })
+    : operationId === 'GPUDevice.createRenderPipeline'
+    ? convertedRenderPipelineDescriptor()
     : operationId === 'GPUDevice.createSampler'
     ? Object.freeze({
       addressModeU: 'clamp-to-edge',
@@ -704,7 +738,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -725,6 +759,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
         { operationId: 'GPUDevice.createBuffer', wireId: 1869756926 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
+        { operationId: 'GPUDevice.createRenderPipeline', wireId: 2407151159 },
         { operationId: 'GPUDevice.createSampler', wireId: 3285037552 },
         { operationId: 'GPUDevice.createTexture', wireId: 4177957718 },
         { operationId: 'GPUTexture.createView', wireId: 1853125118 },
@@ -2619,6 +2654,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
               bindGroupLayouts: [reference('GPUBindGroupLayout')],
               immediateSize: 0,
             }
+            : route.operationId === 'GPUDevice.createRenderPipeline'
+            ? convertedRenderPipelineDescriptor()
             : route.operationId === 'GPUDevice.createSampler'
             ? {
               addressModeU: 'clamp-to-edge',
@@ -2656,10 +2693,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
   });
 
   test('request encoding is canonical and rejects unknown tags, trailing bytes, and bounds', () => {
-    const input = serviceInput('GPUDevice.createRenderPipeline', Object.freeze({
-      z: 1,
-      a: 'first',
-    }));
+    const input = serviceInput(
+      'GPUDevice.createRenderPipeline',
+      convertedRenderPipelineDescriptor(Object.freeze({ z: 1, a: 2 })),
+    );
     const first = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(input);
     const second = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(input);
     expect([...new Uint8Array(first as Uint8Array)]).toEqual([
@@ -2667,16 +2704,23 @@ describe('generated injection-only WebGPU executable codecs', () => {
     ]);
     const bytes = first as Uint8Array;
     const utf8Ordered = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createRenderPipeline', Object.freeze({
-        '\u{10000}': 'supplementary-plane',
-        '\ue000': 'basic-multilingual-plane',
-      })),
+      serviceInput(
+        'GPUDevice.createRenderPipeline',
+        convertedRenderPipelineDescriptor(Object.freeze({
+          '\u{10000}': 1,
+          '\ue000': 2,
+        })),
+      ),
     );
     const inspectedUtf8Order = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
       .inspectServiceRequest(utf8Ordered as Uint8Array) as {
         convertedArguments: Record<string, unknown>;
       };
-    expect(Object.keys(inspectedUtf8Order.convertedArguments)).toEqual([
+    expect(Object.keys(
+      (inspectedUtf8Order.convertedArguments.vertex as {
+        constants: Record<string, number>;
+      }).constants,
+    )).toEqual([
       '\ue000',
       '\u{10000}',
     ]);
@@ -2689,21 +2733,18 @@ describe('generated injection-only WebGPU executable codecs', () => {
     expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
       new Uint8Array(WEBGPU_EXECUTABLE_CODEC_MANIFEST.maxPayloadBytes + 1),
     )).toThrow('reviewed byte bound');
-    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput(
-        'GPUDevice.createRenderPipeline',
-        Array.from({ length: 1025 }, () => null),
-      ),
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
+      Array.from({ length: 1025 }, () => null),
     )).toThrow('reviewed count bound');
     const tooManyFields: Record<string, number> = {};
     for (let index = 0; index < 129; index += 1) tooManyFields[`k${index}`] = index;
-    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createRenderPipeline', tooManyFields),
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
+      tooManyFields,
     )).toThrow('reviewed field bound');
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
-    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createRenderPipeline', cyclic),
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
+      cyclic,
     )).toThrow('contains a cycle');
     const nested: Record<string, unknown> = {};
     let cursor = nested;
@@ -2712,11 +2753,11 @@ describe('generated injection-only WebGPU executable codecs', () => {
       cursor.next = next;
       cursor = next;
     }
-    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createRenderPipeline', nested),
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
+      nested,
     )).toThrow('reviewed nesting bound');
-    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
-      serviceInput('GPUDevice.createRenderPipeline', '\ud800'),
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
+      '\ud800',
     )).toThrow('not well-formed UTF-16');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
       ...serviceInput('GPUDevice.createCommandEncoder'),

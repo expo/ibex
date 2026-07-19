@@ -87,6 +87,7 @@ interface NativeCodecField {
     | 'bindGroupLayoutDescriptorV1'
     | 'bufferDescriptorV1'
     | 'pipelineLayoutDescriptorV1'
+    | 'renderPipelineDescriptorV1'
     | 'samplerDescriptorV1'
     | 'textureDescriptorV1'
     | 'textureViewRequestV1'
@@ -103,6 +104,7 @@ interface NativeCodecField {
       | 1869756926
       | 2544948076
       | 3373402978
+      | 2407151159
       | 3285037552
       | 4177957718
       | 1853125118
@@ -189,6 +191,7 @@ interface NativeCodecCarrierConstraint {
     | 'objectKindTags.GPUBindGroup'
     | 'objectKindTags.GPUBindGroupLayout'
     | 'objectKindTags.GPUPipelineLayout'
+    | 'objectKindTags.GPURenderPipeline'
     | 'objectKindTags.GPUCommandEncoder'
     | 'objectKindTags.GPUShaderModule'
     | 'constants.providerTopologyId';
@@ -220,6 +223,7 @@ interface NativeCodecCatalogReference {
     | 'gpu-create-texture-service-request-v1'
     | 'gpu-create-texture-view-service-request-v1'
     | 'gpu-create-pipeline-layout-service-request-v1'
+    | 'gpu-create-render-pipeline-service-request-v1'
     | 'gpu-create-command-encoder-service-request-v1'
     | 'gpu-create-shader-module-service-request-v1'
     | 'gpu-device-cleanup-service-request-v1'
@@ -402,6 +406,13 @@ interface NativeCodecCreatePipelineLayoutRoute {
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
 
+interface NativeCodecCreateRenderPipelineRoute {
+  readonly operationId: 'GPUDevice.createRenderPipeline';
+  readonly wireId: 2407151159;
+  readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
+  readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
+}
+
 interface NativeCodecCreateBufferRoute {
   readonly operationId: 'GPUDevice.createBuffer';
   readonly wireId: 1869756926;
@@ -549,7 +560,7 @@ interface NativeCodecQueueSubmitRoute {
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -627,6 +638,7 @@ export interface NativeCodecProgramsV2 {
     bindGroupLayoutDescriptorV1: Readonly<Record<string, unknown>>;
     bufferDescriptorV1: Readonly<Record<string, unknown>>;
     pipelineLayoutDescriptorV1: Readonly<Record<string, unknown>>;
+    renderPipelineDescriptorV1: Readonly<Record<string, unknown>>;
     samplerDescriptorV1: Readonly<Record<string, unknown>>;
     textureDescriptorV1: Readonly<Record<string, unknown>>;
     textureViewRequestV1: Readonly<Record<string, unknown>>;
@@ -653,6 +665,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecCreateBindGroupLayoutRoute
     | NativeCodecCreateBufferRoute
     | NativeCodecCreatePipelineLayoutRoute
+    | NativeCodecCreateRenderPipelineRoute
     | NativeCodecCreateSamplerRoute
     | NativeCodecCreateTextureRoute
     | NativeCodecCreateTextureViewRoute
@@ -870,6 +883,13 @@ const CREATE_PIPELINE_LAYOUT_REQUEST_CODEC =
   'gpu-create-pipeline-layout-service-request-v1';
 const CREATE_PIPELINE_LAYOUT_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
+const CREATE_RENDER_PIPELINE_OPERATION_ID =
+  'GPUDevice.createRenderPipeline';
+const CREATE_RENDER_PIPELINE_WIRE_ID = 2407151159;
+const CREATE_RENDER_PIPELINE_REQUEST_CODEC =
+  'gpu-create-render-pipeline-service-request-v1';
+const CREATE_RENDER_PIPELINE_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
 const CREATE_COMMAND_ENCODER_OPERATION_ID = 'GPUDevice.createCommandEncoder';
 const CREATE_COMMAND_ENCODER_WIRE_ID = 4055478657;
 const CREATE_COMMAND_ENCODER_REQUEST_CODEC =
@@ -942,6 +962,8 @@ const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
   'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
   '7a59f736947398c326440be76b8a1611dc2edddd6ac90251347ef78ebfc9b2b2';
+const EXPECTED_CREATE_RENDER_PIPELINE_NATIVE_ROUTE_SHA256 =
+  '0f1af44238843ba1edc0ca1513c8b732cb72733a3680006be94a3322602919ee';
 
 type NativeCodecProgramsWithoutQueueSubmitTypes = Omit<
   NativeCodecProgramsV2,
@@ -949,7 +971,7 @@ type NativeCodecProgramsWithoutQueueSubmitTypes = Omit<
 > & {
   readonly types: Omit<
     NativeCodecProgramsV2['types'],
-    'commandRecordV1' | 'queueSubmitRequestBodyV1'
+    'commandRecordV1' | 'queueSubmitRequestBodyV1' | 'renderPipelineDescriptorV1'
   >;
 };
 
@@ -1004,7 +1026,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -3190,6 +3212,7 @@ interface ValidatedNativeCodecProgram {
   readonly createBindGroupLayoutRoute: NativeCodecCreateBindGroupLayoutRoute;
   readonly createBufferRoute: NativeCodecCreateBufferRoute;
   readonly createPipelineLayoutRoute: NativeCodecCreatePipelineLayoutRoute;
+  readonly createRenderPipelineRoute: NativeCodecCreateRenderPipelineRoute;
   readonly createSamplerRoute: NativeCodecCreateSamplerRoute;
   readonly createTextureRoute: NativeCodecCreateTextureRoute;
   readonly createTextureViewRoute: NativeCodecCreateTextureViewRoute;
@@ -3409,10 +3432,17 @@ function validateNativeCodecProgram(
   const {
     commandRecordV1,
     queueSubmitRequestBodyV1,
+    renderPipelineDescriptorV1,
     ...nativeTypesWithoutQueueSubmit
   } = manifest.nativeCodecPrograms.types;
   void commandRecordV1;
   void queueSubmitRequestBodyV1;
+  if (
+    sha256HexUtf8(canonicalManifestJson(renderPipelineDescriptorV1)) !==
+      '9a597fe88d4b7d91edfdf927df1429f8762b3cf3d0ed47ed1645bc12f8f7f2b7'
+  ) {
+    throw new Error('Invalid authenticated GPUDevice.createRenderPipeline descriptor type');
+  }
   const programWithoutDeviceObjectCreationRoutes = {
     ...manifest.nativeCodecPrograms,
     types: nativeTypesWithoutQueueSubmit,
@@ -3422,6 +3452,7 @@ function validateNativeCodecProgram(
         candidate.operationId !== CREATE_BIND_GROUP_LAYOUT_OPERATION_ID &&
         candidate.operationId !== CREATE_BUFFER_OPERATION_ID &&
         candidate.operationId !== CREATE_PIPELINE_LAYOUT_OPERATION_ID &&
+        candidate.operationId !== CREATE_RENDER_PIPELINE_OPERATION_ID &&
         candidate.operationId !== CREATE_SAMPLER_OPERATION_ID &&
         candidate.operationId !== CREATE_TEXTURE_OPERATION_ID &&
         candidate.operationId !== CREATE_TEXTURE_VIEW_OPERATION_ID &&
@@ -3521,6 +3552,10 @@ function validateNativeCodecProgram(
     (candidate): candidate is NativeCodecCreatePipelineLayoutRoute =>
       candidate.operationId === CREATE_PIPELINE_LAYOUT_OPERATION_ID,
   );
+  const createRenderPipelineRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCreateRenderPipelineRoute =>
+      candidate.operationId === CREATE_RENDER_PIPELINE_OPERATION_ID,
+  );
   const createSamplerRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecCreateSamplerRoute =>
       candidate.operationId === CREATE_SAMPLER_OPERATION_ID,
@@ -3618,6 +3653,15 @@ function validateNativeCodecProgram(
   );
   const createPipelineLayoutCompletionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === CREATE_PIPELINE_LAYOUT_COMPLETION_CODEC,
+  );
+  const createRenderPipelinePlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === CREATE_RENDER_PIPELINE_OPERATION_ID,
+  );
+  const createRenderPipelineRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === CREATE_RENDER_PIPELINE_REQUEST_CODEC,
+  );
+  const createRenderPipelineCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === CREATE_RENDER_PIPELINE_COMPLETION_CODEC,
   );
   const createSamplerPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === CREATE_SAMPLER_OPERATION_ID,
@@ -4399,16 +4443,17 @@ function validateNativeCodecProgram(
     )
     .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
-    manifest.nativeCodecPrograms.routes.length !== 17 ||
+    manifest.nativeCodecPrograms.routes.length !== 18 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 17 ||
+    ).size !== 18 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupRoute ||
     !createBindGroupLayoutRoute ||
     !createBufferRoute ||
     !createPipelineLayoutRoute ||
+    !createRenderPipelineRoute ||
     !createSamplerRoute ||
     !createTextureRoute ||
     !createTextureViewRoute ||
@@ -4432,6 +4477,8 @@ function validateNativeCodecProgram(
       expectedCreateBufferCanonical ||
     canonicalManifestJson(createPipelineLayoutRoute) !==
       expectedCreatePipelineLayoutCanonical ||
+    sha256HexUtf8(canonicalManifestJson(createRenderPipelineRoute)) !==
+      EXPECTED_CREATE_RENDER_PIPELINE_NATIVE_ROUTE_SHA256 ||
     canonicalManifestJson(createSamplerRoute) !==
       expectedCreateSamplerCanonical ||
     canonicalManifestJson(createTextureRoute) !==
@@ -4512,6 +4559,19 @@ function validateNativeCodecProgram(
     createPipelineLayoutRequestCodec.unavailableSemanticFields.length !== 0 ||
     createPipelineLayoutCompletionCodec?.wireTag !==
       createPipelineLayoutRoute.completion.catalog.wireTag ||
+    !createRenderPipelinePlanRoute ||
+    createRenderPipelinePlanRoute.wireId !== CREATE_RENDER_PIPELINE_WIRE_ID ||
+    createRenderPipelinePlanRoute.serviceArgumentCodec !==
+      CREATE_RENDER_PIPELINE_REQUEST_CODEC ||
+    createRenderPipelinePlanRoute.serviceCompletionCodec !==
+      CREATE_RENDER_PIPELINE_COMPLETION_CODEC ||
+    createRenderPipelineRequestCodec?.wireTag !==
+      createRenderPipelineRoute.request.catalog.wireTag ||
+    createRenderPipelineRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    createRenderPipelineRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    createRenderPipelineRequestCodec.unavailableSemanticFields.length !== 0 ||
+    createRenderPipelineCompletionCodec?.wireTag !==
+      createRenderPipelineRoute.completion.catalog.wireTag ||
     !createSamplerPlanRoute ||
     createSamplerPlanRoute.wireId !== CREATE_SAMPLER_WIRE_ID ||
     createSamplerPlanRoute.serviceArgumentCodec !== CREATE_SAMPLER_REQUEST_CODEC ||
@@ -4651,6 +4711,7 @@ function validateNativeCodecProgram(
     manifest.objectKindTags.GPUBindGroup !== 10 ||
     manifest.objectKindTags.GPUPipelineLayout !== 11 ||
     manifest.objectKindTags.GPUShaderModule !== 12 ||
+    manifest.objectKindTags.GPURenderPipeline !== 14 ||
     manifest.objectKindTags.GPUCommandEncoder !== 15 ||
     expectedObjectKindTags.GPU !== 1 ||
     expectedObjectKindTags.GPUAdapter !== 2 ||
@@ -4664,6 +4725,7 @@ function validateNativeCodecProgram(
     expectedObjectKindTags.GPUBindGroup !== 10 ||
     expectedObjectKindTags.GPUPipelineLayout !== 11 ||
     expectedObjectKindTags.GPUShaderModule !== 12 ||
+    expectedObjectKindTags.GPURenderPipeline !== 14 ||
     expectedObjectKindTags.GPUCommandEncoder !== 15 ||
     nullVariant?.resultKind !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NULL_V2 ||
@@ -4680,6 +4742,8 @@ function validateNativeCodecProgram(
     createBufferRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createPipelineLayoutRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    createRenderPipelineRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createSamplerRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
@@ -4709,6 +4773,7 @@ function validateNativeCodecProgram(
     createBindGroupLayoutRoute,
     createBufferRoute,
     createPipelineLayoutRoute,
+    createRenderPipelineRoute,
     createSamplerRoute,
     createTextureRoute,
     createTextureViewRoute,
@@ -9330,6 +9395,357 @@ function validateCreatePipelineLayoutDescriptorForService(
   });
 }
 
+function validateRenderPipelineConstantsForService(
+  value: unknown,
+  dictionaryMaximum: number,
+  label: string,
+): void {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    throw new TypeError(`${label} must be a canonical constants dictionary`);
+  }
+  const keys = Reflect.ownKeys(value);
+  if (
+    keys.length > dictionaryMaximum ||
+    keys.some(
+      (key) =>
+        typeof key !== 'string' ||
+        typeof (value as Readonly<Record<string, unknown>>)[key] !== 'number' ||
+        !Number.isFinite((value as Readonly<Record<string, number>>)[key]),
+    )
+  ) {
+    throw new TypeError(`${label} exceeds structural transport bounds`);
+  }
+}
+
+function validateRenderPipelineStageForService(
+  value: unknown,
+  kind: 'vertex' | 'fragment',
+  sequenceMaximum: number,
+  dictionaryMaximum: number,
+  textureFormats: readonly string[],
+): void {
+  const label = `GPUDevice.createRenderPipeline ${kind}`;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError(`${label} must be a canonical stage dictionary`);
+  }
+  const stage = value as Readonly<Record<string, unknown>>;
+  const hasEntryPoint = Object.prototype.hasOwnProperty.call(stage, 'entryPoint');
+  const required = kind === 'vertex'
+    ? ['buffers', 'constants', 'module']
+    : ['constants', 'module', 'targets'];
+  if (
+    !hasExactOwnProperties(
+      stage,
+      hasEntryPoint ? [...required, 'entryPoint'] : required,
+    ) ||
+    (hasEntryPoint && typeof stage.entryPoint !== 'string')
+  ) {
+    throw new TypeError(`${label} has an invalid closed dictionary shape`);
+  }
+  validateRenderPipelineConstantsForService(
+    stage.constants,
+    dictionaryMaximum,
+    `${label}.constants`,
+  );
+  validateBindGroupFullReference(stage.module, ['GPUShaderModule'], `${label}.module`);
+
+  if (kind === 'vertex') {
+    if (!Array.isArray(stage.buffers) || stage.buffers.length > sequenceMaximum) {
+      throw new TypeError(`${label}.buffers must be a bounded sequence`);
+    }
+    stage.buffers.forEach((buffer, bufferIndex) => {
+      if (buffer === null) return;
+      if (
+        typeof buffer !== 'object' ||
+        Array.isArray(buffer) ||
+        !hasExactOwnProperties(
+          buffer as Readonly<Record<string, unknown>>,
+          ['arrayStride', 'attributes', 'stepMode'],
+        )
+      ) {
+        throw new TypeError(`${label}.buffers[${bufferIndex}] is not canonical`);
+      }
+      const layout = buffer as Readonly<Record<string, unknown>>;
+      if (
+        !isConvertedU64(layout.arrayStride) ||
+        !Array.isArray(layout.attributes) ||
+        layout.attributes.length > sequenceMaximum ||
+        (layout.stepMode !== 'vertex' && layout.stepMode !== 'instance')
+      ) {
+        throw new TypeError(`${label}.buffers[${bufferIndex}] exceeds structural bounds`);
+      }
+      layout.attributes.forEach((attribute, attributeIndex) => {
+        if (
+          typeof attribute !== 'object' ||
+          attribute === null ||
+          Array.isArray(attribute) ||
+          !hasExactOwnProperties(
+            attribute as Readonly<Record<string, unknown>>,
+            ['format', 'offset', 'shaderLocation'],
+          )
+        ) {
+          throw new TypeError(
+            `${label}.buffers[${bufferIndex}].attributes[${attributeIndex}] is not canonical`,
+          );
+        }
+        const row = attribute as Readonly<Record<string, unknown>>;
+        if (
+          typeof row.format !== 'string' ||
+          !VERTEX_FORMATS.includes(row.format as (typeof VERTEX_FORMATS)[number]) ||
+          !isConvertedU64(row.offset) ||
+          !isConvertedU32(row.shaderLocation)
+        ) {
+          throw new TypeError(
+            `${label}.buffers[${bufferIndex}].attributes[${attributeIndex}] exceeds structural bounds`,
+          );
+        }
+      });
+    });
+    return;
+  }
+
+  if (!Array.isArray(stage.targets) || stage.targets.length > sequenceMaximum) {
+    throw new TypeError(`${label}.targets must be a bounded sequence`);
+  }
+  const blendOperations = ['add', 'subtract', 'reverse-subtract', 'min', 'max'];
+  stage.targets.forEach((target, targetIndex) => {
+    if (target === null) return;
+    if (typeof target !== 'object' || Array.isArray(target)) {
+      throw new TypeError(`${label}.targets[${targetIndex}] is not canonical`);
+    }
+    const row = target as Readonly<Record<string, unknown>>;
+    const hasBlend = Object.prototype.hasOwnProperty.call(row, 'blend');
+    if (
+      !hasExactOwnProperties(row, hasBlend ? ['blend', 'format', 'writeMask'] : ['format', 'writeMask']) ||
+      typeof row.format !== 'string' ||
+      !textureFormats.includes(row.format) ||
+      !isConvertedU32(row.writeMask)
+    ) {
+      throw new TypeError(`${label}.targets[${targetIndex}] exceeds structural bounds`);
+    }
+    if (!hasBlend) return;
+    if (
+      typeof row.blend !== 'object' ||
+      row.blend === null ||
+      Array.isArray(row.blend) ||
+      !hasExactOwnProperties(
+        row.blend as Readonly<Record<string, unknown>>,
+        ['alpha', 'color'],
+      )
+    ) {
+      throw new TypeError(`${label}.targets[${targetIndex}].blend is not canonical`);
+    }
+    const blend = row.blend as Readonly<Record<string, unknown>>;
+    for (const componentName of ['alpha', 'color'] as const) {
+      const component = blend[componentName];
+      if (
+        typeof component !== 'object' ||
+        component === null ||
+        Array.isArray(component) ||
+        !hasExactOwnProperties(
+          component as Readonly<Record<string, unknown>>,
+          ['dstFactor', 'operation', 'srcFactor'],
+        )
+      ) {
+        throw new TypeError(
+          `${label}.targets[${targetIndex}].blend.${componentName} is not canonical`,
+        );
+      }
+      const values = component as Readonly<Record<string, unknown>>;
+      if (
+        typeof values.dstFactor !== 'string' ||
+        !BLEND_FACTORS.includes(values.dstFactor as (typeof BLEND_FACTORS)[number]) ||
+        typeof values.operation !== 'string' ||
+        !blendOperations.includes(values.operation) ||
+        typeof values.srcFactor !== 'string' ||
+        !BLEND_FACTORS.includes(values.srcFactor as (typeof BLEND_FACTORS)[number])
+      ) {
+        throw new TypeError(
+          `${label}.targets[${targetIndex}].blend.${componentName} exceeds structural bounds`,
+        );
+      }
+    }
+  });
+}
+
+function validateCreateRenderPipelineDescriptorForService(
+  value: unknown,
+  sequenceMaximum: number,
+  dictionaryMaximum: number,
+  textureFormats: readonly string[],
+): void {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError(
+      'GPUDevice.createRenderPipeline converted arguments must be a canonical descriptor',
+    );
+  }
+  const descriptor = value as Readonly<Record<string, unknown>>;
+  const optional = ['depthStencil', 'fragment'].filter((field) =>
+    Object.prototype.hasOwnProperty.call(descriptor, field)
+  );
+  if (
+    !hasExactOwnProperties(
+      descriptor,
+      ['label', 'layout', ...optional, 'multisample', 'primitive', 'vertex'],
+    ) ||
+    typeof descriptor.label !== 'string'
+  ) {
+    throw new TypeError(
+      'GPUDevice.createRenderPipeline descriptor has an invalid closed dictionary shape',
+    );
+  }
+  if (descriptor.layout !== 'auto') {
+    validateBindGroupFullReference(
+      descriptor.layout,
+      ['GPUPipelineLayout'],
+      'GPUDevice.createRenderPipeline layout',
+    );
+  }
+
+  const multisample = descriptor.multisample;
+  if (
+    typeof multisample !== 'object' ||
+    multisample === null ||
+    Array.isArray(multisample) ||
+    !hasExactOwnProperties(
+      multisample as Readonly<Record<string, unknown>>,
+      ['alphaToCoverageEnabled', 'count', 'mask'],
+    )
+  ) {
+    throw new TypeError('GPUDevice.createRenderPipeline multisample is not canonical');
+  }
+  const multisampleState = multisample as Readonly<Record<string, unknown>>;
+  if (
+    typeof multisampleState.alphaToCoverageEnabled !== 'boolean' ||
+    !isConvertedU32(multisampleState.count) ||
+    !isConvertedU32(multisampleState.mask)
+  ) {
+    throw new TypeError('GPUDevice.createRenderPipeline multisample exceeds structural bounds');
+  }
+
+  const primitive = descriptor.primitive;
+  if (typeof primitive !== 'object' || primitive === null || Array.isArray(primitive)) {
+    throw new TypeError('GPUDevice.createRenderPipeline primitive is not canonical');
+  }
+  const primitiveState = primitive as Readonly<Record<string, unknown>>;
+  const hasStripIndexFormat = Object.prototype.hasOwnProperty.call(
+    primitiveState,
+    'stripIndexFormat',
+  );
+  if (
+    !hasExactOwnProperties(
+      primitiveState,
+      hasStripIndexFormat
+        ? ['cullMode', 'frontFace', 'stripIndexFormat', 'topology', 'unclippedDepth']
+        : ['cullMode', 'frontFace', 'topology', 'unclippedDepth'],
+    ) ||
+    !['none', 'front', 'back'].includes(String(primitiveState.cullMode)) ||
+    !['ccw', 'cw'].includes(String(primitiveState.frontFace)) ||
+    (hasStripIndexFormat &&
+      primitiveState.stripIndexFormat !== 'uint16' &&
+      primitiveState.stripIndexFormat !== 'uint32') ||
+    !['point-list', 'line-list', 'line-strip', 'triangle-list', 'triangle-strip'].includes(
+      String(primitiveState.topology),
+    ) ||
+    typeof primitiveState.unclippedDepth !== 'boolean'
+  ) {
+    throw new TypeError('GPUDevice.createRenderPipeline primitive exceeds structural bounds');
+  }
+
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'depthStencil')) {
+    const depthStencil = descriptor.depthStencil;
+    if (
+      typeof depthStencil !== 'object' ||
+      depthStencil === null ||
+      Array.isArray(depthStencil)
+    ) {
+      throw new TypeError('GPUDevice.createRenderPipeline depthStencil is not canonical');
+    }
+    const state = depthStencil as Readonly<Record<string, unknown>>;
+    const optionals = ['depthCompare', 'depthWriteEnabled'].filter((field) =>
+      Object.prototype.hasOwnProperty.call(state, field)
+    );
+    if (
+      !hasExactOwnProperties(
+        state,
+        [
+          'depthBias', 'depthBiasClamp', 'depthBiasSlopeScale', ...optionals,
+          'format', 'stencilBack', 'stencilFront', 'stencilReadMask',
+          'stencilWriteMask',
+        ],
+      ) ||
+      typeof state.depthBias !== 'number' ||
+      !Number.isInteger(state.depthBias) ||
+      state.depthBias < -0x8000_0000 ||
+      state.depthBias > 0x7fff_ffff ||
+      typeof state.depthBiasClamp !== 'number' ||
+      !Number.isFinite(state.depthBiasClamp) ||
+      typeof state.depthBiasSlopeScale !== 'number' ||
+      !Number.isFinite(state.depthBiasSlopeScale) ||
+      (Object.prototype.hasOwnProperty.call(state, 'depthCompare') &&
+        (typeof state.depthCompare !== 'string' ||
+          !COMPARE_FUNCTIONS.includes(
+            state.depthCompare as (typeof COMPARE_FUNCTIONS)[number],
+          ))) ||
+      (Object.prototype.hasOwnProperty.call(state, 'depthWriteEnabled') &&
+        typeof state.depthWriteEnabled !== 'boolean') ||
+      typeof state.format !== 'string' ||
+      !textureFormats.includes(state.format) ||
+      !isConvertedU32(state.stencilReadMask) ||
+      !isConvertedU32(state.stencilWriteMask)
+    ) {
+      throw new TypeError('GPUDevice.createRenderPipeline depthStencil exceeds structural bounds');
+    }
+    for (const faceName of ['stencilBack', 'stencilFront'] as const) {
+      const face = state[faceName];
+      if (
+        typeof face !== 'object' ||
+        face === null ||
+        Array.isArray(face) ||
+        !hasExactOwnProperties(
+          face as Readonly<Record<string, unknown>>,
+          ['compare', 'depthFailOp', 'failOp', 'passOp'],
+        )
+      ) {
+        throw new TypeError(`GPUDevice.createRenderPipeline ${faceName} is not canonical`);
+      }
+      const values = face as Readonly<Record<string, unknown>>;
+      if (
+        typeof values.compare !== 'string' ||
+        !COMPARE_FUNCTIONS.includes(values.compare as (typeof COMPARE_FUNCTIONS)[number]) ||
+        [values.depthFailOp, values.failOp, values.passOp].some(
+          (entry) =>
+            typeof entry !== 'string' ||
+            !STENCIL_OPERATIONS.includes(entry as (typeof STENCIL_OPERATIONS)[number]),
+        )
+      ) {
+        throw new TypeError(`GPUDevice.createRenderPipeline ${faceName} exceeds structural bounds`);
+      }
+    }
+  }
+
+  validateRenderPipelineStageForService(
+    descriptor.vertex,
+    'vertex',
+    sequenceMaximum,
+    dictionaryMaximum,
+    textureFormats,
+  );
+  if (Object.prototype.hasOwnProperty.call(descriptor, 'fragment')) {
+    validateRenderPipelineStageForService(
+      descriptor.fragment,
+      'fragment',
+      sequenceMaximum,
+      dictionaryMaximum,
+      textureFormats,
+    );
+  }
+}
+
 function validateCreateBufferDescriptorForService(value: unknown): void {
   if (
     typeof value !== 'object' ||
@@ -9996,9 +10412,10 @@ function validateCreateBufferRequestFields(
 function validateCreateResourceRequestFields(
   operationId:
     | 'GPUDevice.createBindGroup'
+    | 'GPUDevice.createRenderPipeline'
     | 'GPUDevice.createSampler'
     | 'GPUDevice.createTexture',
-  targetKind: 'GPUBindGroup' | 'GPUSampler' | 'GPUTexture',
+  targetKind: 'GPUBindGroup' | 'GPURenderPipeline' | 'GPUSampler' | 'GPUTexture',
   receiver: RequestAdapterReferenceLike,
   target: unknown,
   adapterOrdinal: unknown,
@@ -10084,6 +10501,37 @@ function validateCreateBindGroupRequestFields(
   validateCreateBindGroupDescriptorForService(
     convertedArguments,
     sequenceMaximum,
+  );
+}
+
+function validateCreateRenderPipelineRequestFields(
+  receiver: RequestAdapterReferenceLike,
+  target: unknown,
+  adapterOrdinal: unknown,
+  deviceIngressOrdinal: unknown,
+  queueIngressOrdinal: unknown,
+  sealedLocalTimeline: unknown,
+  convertedArguments: unknown,
+  sequenceMaximum: number,
+  dictionaryMaximum: number,
+  textureFormats: readonly string[],
+): void {
+  validateCreateResourceRequestFields(
+    CREATE_RENDER_PIPELINE_OPERATION_ID,
+    'GPURenderPipeline',
+    receiver,
+    target,
+    adapterOrdinal,
+    deviceIngressOrdinal,
+    queueIngressOrdinal,
+    sealedLocalTimeline,
+    sequenceMaximum,
+  );
+  validateCreateRenderPipelineDescriptorForService(
+    convertedArguments,
+    sequenceMaximum,
+    dictionaryMaximum,
+    textureFormats,
   );
 }
 
@@ -10589,7 +11037,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -10981,6 +11429,22 @@ export function createExecutableWebGpuCodecs(
       );
     } else if (
       route.operationId ===
+        requestAdapterNativeProgram.createRenderPipelineRoute.operationId
+    ) {
+      validateCreateRenderPipelineRequestFields(
+        input.receiver,
+        input.target,
+        input.adapterOrdinal,
+        input.deviceIngressOrdinal,
+        input.queueIngressOrdinal,
+        input.sealedLocalTimeline,
+        input.convertedArguments,
+        manifest.layout.sequenceMaxCount,
+        manifest.layout.dictionaryMaxFields,
+        manifest.webIdlVocabulary.gpuTextureFormats,
+      );
+    } else if (
+      route.operationId ===
         requestAdapterNativeProgram.createSamplerRoute.operationId
     ) {
       validateCreateSamplerRequestFields(
@@ -11181,6 +11645,8 @@ export function createExecutableWebGpuCodecs(
       input.operationId !== requestAdapterNativeProgram.createBufferRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createPipelineLayoutRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.createRenderPipelineRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.createSamplerRoute.operationId &&
       input.operationId !==
@@ -11699,6 +12165,22 @@ export function createExecutableWebGpuCodecs(
       );
     } else if (
       route.operationId ===
+        requestAdapterNativeProgram.createRenderPipelineRoute.operationId
+    ) {
+      validateCreateRenderPipelineRequestFields(
+        receiver,
+        target,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
+        manifest.layout.dictionaryMaxFields,
+        manifest.webIdlVocabulary.gpuTextureFormats,
+      );
+    } else if (
+      route.operationId ===
         requestAdapterNativeProgram.createSamplerRoute.operationId
     ) {
       validateCreateSamplerRequestFields(
@@ -11936,6 +12418,8 @@ export function createExecutableWebGpuCodecs(
         route.operationId === requestAdapterNativeProgram.createBufferRoute.operationId ||
         route.operationId ===
           requestAdapterNativeProgram.createPipelineLayoutRoute.operationId ||
+        route.operationId ===
+          requestAdapterNativeProgram.createRenderPipelineRoute.operationId ||
         route.operationId ===
           requestAdapterNativeProgram.createSamplerRoute.operationId ||
         route.operationId ===

@@ -32,7 +32,7 @@ export const WEBGPU_OBJECT_KIND_TAGS = {
 
 export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   "schema": "ibex/webgpu-executable-codec-manifest/2",
-  "disposition": "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim",
+  "disposition": "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim",
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
   "operationCount": 45,
@@ -99,8 +99,8 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
     "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
     "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
-    "webgpuCVocabulary": "a7ae48d8a186a41845d5ebf7404a84a5410af99cba697f97373fea3009f0d766",
-    "projection": "777d5a8854e2d00d4a20307d55ac255afba3bab48d98191ca2945d19ab34a54c"
+    "webgpuCVocabulary": "ee3e5eb0dd1a9f77792d63c4cb3aecc46420e812c7e977c9461fb69e28207dac",
+    "projection": "0a5f7beae3e4c4d38fb7919a901ecd794267b601e3a2c4103c385495fa678bfd"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -131,7 +131,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   },
   "nativeCodecPrograms": {
     "schema": "ibex/webgpu-native-codec-programs/2",
-    "disposition": "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+    "disposition": "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "dispatch": {
       "carrierPath": "ExactGpuSemanticCallV2.operation_id",
       "payloadOperationWireIdRole": "constant-and-equality-check-only-never-dispatch",
@@ -1914,6 +1914,755 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
           "each-program-digest-is-recomputed-and-compared-in-constant-time-before-semantic-service-ingress",
           "pass-order-validity-single-use-command-buffer-validity-and-provider-predicate-validity-remain-semantic-service-authority",
           "unknown-index-duplicate-index-generation-drift-digest-mismatch-truncation-or-trailing-byte-fails-closed"
+        ]
+      },
+      "renderPipelineDescriptorV1": {
+        "kind": "closed-dictionary",
+        "encodingType": "canonicalValueV1",
+        "trust": "untrusted-webidl-converted-semantic-service-ingress-only",
+        "providerBoundary": "forbidden-raw-descriptor-must-not-reach-provider",
+        "unknownFields": "reject",
+        "fields": [
+          {
+            "name": "depthStencil",
+            "required": false,
+            "value": {
+              "kind": "closed-dictionary",
+              "unknownFields": "reject",
+              "fields": [
+                {
+                  "name": "depthBias",
+                  "required": true,
+                  "value": {
+                    "kind": "i32"
+                  }
+                },
+                {
+                  "name": "depthBiasClamp",
+                  "required": true,
+                  "value": {
+                    "kind": "f64",
+                    "constraints": [
+                      "finite",
+                      "f32-representable"
+                    ]
+                  }
+                },
+                {
+                  "name": "depthBiasSlopeScale",
+                  "required": true,
+                  "value": {
+                    "kind": "f64",
+                    "constraints": [
+                      "finite",
+                      "f32-representable"
+                    ]
+                  }
+                },
+                {
+                  "name": "depthCompare",
+                  "required": false,
+                  "value": {
+                    "kind": "string-enum",
+                    "valuesFrom": "webIdlVocabulary.gpuCompareFunctions"
+                  }
+                },
+                {
+                  "name": "depthWriteEnabled",
+                  "required": false,
+                  "value": {
+                    "kind": "boolean"
+                  }
+                },
+                {
+                  "name": "format",
+                  "required": true,
+                  "value": {
+                    "kind": "string-enum",
+                    "valuesFrom": "webIdlVocabulary.gpuTextureFormats"
+                  }
+                },
+                {
+                  "name": "stencilBack",
+                  "required": true,
+                  "value": {
+                    "kind": "closed-dictionary",
+                    "unknownFields": "reject",
+                    "fields": [
+                      {
+                        "name": "compare",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "valuesFrom": "webIdlVocabulary.gpuCompareFunctions"
+                        }
+                      },
+                      {
+                        "name": "depthFailOp",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "values": [
+                            "keep",
+                            "zero",
+                            "replace",
+                            "invert",
+                            "increment-clamp",
+                            "decrement-clamp",
+                            "increment-wrap",
+                            "decrement-wrap"
+                          ]
+                        }
+                      },
+                      {
+                        "name": "failOp",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "values": [
+                            "keep",
+                            "zero",
+                            "replace",
+                            "invert",
+                            "increment-clamp",
+                            "decrement-clamp",
+                            "increment-wrap",
+                            "decrement-wrap"
+                          ]
+                        }
+                      },
+                      {
+                        "name": "passOp",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "values": [
+                            "keep",
+                            "zero",
+                            "replace",
+                            "invert",
+                            "increment-clamp",
+                            "decrement-clamp",
+                            "increment-wrap",
+                            "decrement-wrap"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "stencilFront",
+                  "required": true,
+                  "value": {
+                    "kind": "closed-dictionary",
+                    "unknownFields": "reject",
+                    "fields": [
+                      {
+                        "name": "compare",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "valuesFrom": "webIdlVocabulary.gpuCompareFunctions"
+                        }
+                      },
+                      {
+                        "name": "depthFailOp",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "values": [
+                            "keep",
+                            "zero",
+                            "replace",
+                            "invert",
+                            "increment-clamp",
+                            "decrement-clamp",
+                            "increment-wrap",
+                            "decrement-wrap"
+                          ]
+                        }
+                      },
+                      {
+                        "name": "failOp",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "values": [
+                            "keep",
+                            "zero",
+                            "replace",
+                            "invert",
+                            "increment-clamp",
+                            "decrement-clamp",
+                            "increment-wrap",
+                            "decrement-wrap"
+                          ]
+                        }
+                      },
+                      {
+                        "name": "passOp",
+                        "required": true,
+                        "value": {
+                          "kind": "string-enum",
+                          "values": [
+                            "keep",
+                            "zero",
+                            "replace",
+                            "invert",
+                            "increment-clamp",
+                            "decrement-clamp",
+                            "increment-wrap",
+                            "decrement-wrap"
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "name": "stencilReadMask",
+                  "required": true,
+                  "value": {
+                    "kind": "u32"
+                  }
+                },
+                {
+                  "name": "stencilWriteMask",
+                  "required": true,
+                  "value": {
+                    "kind": "u32"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "fragment",
+            "required": false,
+            "value": {
+              "kind": "closed-dictionary",
+              "unknownFields": "reject",
+              "fields": [
+                {
+                  "name": "constants",
+                  "required": true,
+                  "value": {
+                    "kind": "string-keyed-record",
+                    "maxCountFrom": "codecLayout.dictionaryMaxFields",
+                    "keyConstraints": [
+                      "unique",
+                      "strictly-increasing-unsigned-utf8-bytes-shorter-prefix-first"
+                    ],
+                    "value": {
+                      "kind": "f64",
+                      "constraints": [
+                        "finite"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "name": "entryPoint",
+                  "required": false,
+                  "value": {
+                    "kind": "string"
+                  }
+                },
+                {
+                  "name": "module",
+                  "required": true,
+                  "value": {
+                    "kind": "full-object-reference",
+                    "referenceType": "objectReferenceV1",
+                    "requiredObjectKind": "GPUShaderModule"
+                  }
+                },
+                {
+                  "name": "targets",
+                  "required": true,
+                  "value": {
+                    "kind": "sequence",
+                    "maxCountFrom": "codecLayout.sequenceMaxCount",
+                    "element": {
+                      "kind": "nullable-value",
+                      "nullValue": "null",
+                      "value": {
+                        "kind": "closed-dictionary",
+                        "unknownFields": "reject",
+                        "fields": [
+                          {
+                            "name": "blend",
+                            "required": false,
+                            "value": {
+                              "kind": "closed-dictionary",
+                              "unknownFields": "reject",
+                              "fields": [
+                                {
+                                  "name": "alpha",
+                                  "required": true,
+                                  "value": {
+                                    "kind": "closed-dictionary",
+                                    "unknownFields": "reject",
+                                    "fields": [
+                                      {
+                                        "name": "dstFactor",
+                                        "required": true,
+                                        "value": {
+                                          "kind": "string-enum",
+                                          "values": [
+                                            "zero",
+                                            "one",
+                                            "src",
+                                            "one-minus-src",
+                                            "src-alpha",
+                                            "one-minus-src-alpha",
+                                            "dst",
+                                            "one-minus-dst",
+                                            "dst-alpha",
+                                            "one-minus-dst-alpha",
+                                            "src-alpha-saturated",
+                                            "constant",
+                                            "one-minus-constant",
+                                            "src1",
+                                            "one-minus-src1",
+                                            "src1-alpha",
+                                            "one-minus-src1-alpha"
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "name": "operation",
+                                        "required": true,
+                                        "value": {
+                                          "kind": "string-enum",
+                                          "values": [
+                                            "add",
+                                            "subtract",
+                                            "reverse-subtract",
+                                            "min",
+                                            "max"
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "name": "srcFactor",
+                                        "required": true,
+                                        "value": {
+                                          "kind": "string-enum",
+                                          "values": [
+                                            "zero",
+                                            "one",
+                                            "src",
+                                            "one-minus-src",
+                                            "src-alpha",
+                                            "one-minus-src-alpha",
+                                            "dst",
+                                            "one-minus-dst",
+                                            "dst-alpha",
+                                            "one-minus-dst-alpha",
+                                            "src-alpha-saturated",
+                                            "constant",
+                                            "one-minus-constant",
+                                            "src1",
+                                            "one-minus-src1",
+                                            "src1-alpha",
+                                            "one-minus-src1-alpha"
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                },
+                                {
+                                  "name": "color",
+                                  "required": true,
+                                  "value": {
+                                    "kind": "closed-dictionary",
+                                    "unknownFields": "reject",
+                                    "fields": [
+                                      {
+                                        "name": "dstFactor",
+                                        "required": true,
+                                        "value": {
+                                          "kind": "string-enum",
+                                          "values": [
+                                            "zero",
+                                            "one",
+                                            "src",
+                                            "one-minus-src",
+                                            "src-alpha",
+                                            "one-minus-src-alpha",
+                                            "dst",
+                                            "one-minus-dst",
+                                            "dst-alpha",
+                                            "one-minus-dst-alpha",
+                                            "src-alpha-saturated",
+                                            "constant",
+                                            "one-minus-constant",
+                                            "src1",
+                                            "one-minus-src1",
+                                            "src1-alpha",
+                                            "one-minus-src1-alpha"
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "name": "operation",
+                                        "required": true,
+                                        "value": {
+                                          "kind": "string-enum",
+                                          "values": [
+                                            "add",
+                                            "subtract",
+                                            "reverse-subtract",
+                                            "min",
+                                            "max"
+                                          ]
+                                        }
+                                      },
+                                      {
+                                        "name": "srcFactor",
+                                        "required": true,
+                                        "value": {
+                                          "kind": "string-enum",
+                                          "values": [
+                                            "zero",
+                                            "one",
+                                            "src",
+                                            "one-minus-src",
+                                            "src-alpha",
+                                            "one-minus-src-alpha",
+                                            "dst",
+                                            "one-minus-dst",
+                                            "dst-alpha",
+                                            "one-minus-dst-alpha",
+                                            "src-alpha-saturated",
+                                            "constant",
+                                            "one-minus-constant",
+                                            "src1",
+                                            "one-minus-src1",
+                                            "src1-alpha",
+                                            "one-minus-src1-alpha"
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "format",
+                            "required": true,
+                            "value": {
+                              "kind": "string-enum",
+                              "valuesFrom": "webIdlVocabulary.gpuTextureFormats"
+                            }
+                          },
+                          {
+                            "name": "writeMask",
+                            "required": true,
+                            "value": {
+                              "kind": "u32"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "label",
+            "required": true,
+            "value": {
+              "kind": "string"
+            }
+          },
+          {
+            "name": "layout",
+            "required": true,
+            "value": {
+              "kind": "one-of",
+              "variants": [
+                {
+                  "kind": "string-enum",
+                  "values": [
+                    "auto"
+                  ]
+                },
+                {
+                  "kind": "full-object-reference",
+                  "referenceType": "objectReferenceV1",
+                  "requiredObjectKind": "GPUPipelineLayout"
+                }
+              ]
+            }
+          },
+          {
+            "name": "multisample",
+            "required": true,
+            "value": {
+              "kind": "closed-dictionary",
+              "unknownFields": "reject",
+              "fields": [
+                {
+                  "name": "alphaToCoverageEnabled",
+                  "required": true,
+                  "value": {
+                    "kind": "boolean"
+                  }
+                },
+                {
+                  "name": "count",
+                  "required": true,
+                  "value": {
+                    "kind": "u32"
+                  }
+                },
+                {
+                  "name": "mask",
+                  "required": true,
+                  "value": {
+                    "kind": "u32"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "primitive",
+            "required": true,
+            "value": {
+              "kind": "closed-dictionary",
+              "unknownFields": "reject",
+              "fields": [
+                {
+                  "name": "cullMode",
+                  "required": true,
+                  "value": {
+                    "kind": "string-enum",
+                    "values": [
+                      "none",
+                      "front",
+                      "back"
+                    ]
+                  }
+                },
+                {
+                  "name": "frontFace",
+                  "required": true,
+                  "value": {
+                    "kind": "string-enum",
+                    "values": [
+                      "ccw",
+                      "cw"
+                    ]
+                  }
+                },
+                {
+                  "name": "stripIndexFormat",
+                  "required": false,
+                  "value": {
+                    "kind": "string-enum",
+                    "values": [
+                      "uint16",
+                      "uint32"
+                    ]
+                  }
+                },
+                {
+                  "name": "topology",
+                  "required": true,
+                  "value": {
+                    "kind": "string-enum",
+                    "values": [
+                      "point-list",
+                      "line-list",
+                      "line-strip",
+                      "triangle-list",
+                      "triangle-strip"
+                    ]
+                  }
+                },
+                {
+                  "name": "unclippedDepth",
+                  "required": true,
+                  "value": {
+                    "kind": "boolean"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "vertex",
+            "required": true,
+            "value": {
+              "kind": "closed-dictionary",
+              "unknownFields": "reject",
+              "fields": [
+                {
+                  "name": "buffers",
+                  "required": true,
+                  "value": {
+                    "kind": "sequence",
+                    "maxCountFrom": "codecLayout.sequenceMaxCount",
+                    "element": {
+                      "kind": "nullable-value",
+                      "nullValue": "null",
+                      "value": {
+                        "kind": "closed-dictionary",
+                        "unknownFields": "reject",
+                        "fields": [
+                          {
+                            "name": "arrayStride",
+                            "required": true,
+                            "value": {
+                              "kind": "u64",
+                              "constraints": [
+                                "js-safe-integer"
+                              ]
+                            }
+                          },
+                          {
+                            "name": "attributes",
+                            "required": true,
+                            "value": {
+                              "kind": "sequence",
+                              "maxCountFrom": "codecLayout.sequenceMaxCount",
+                              "element": {
+                                "kind": "closed-dictionary",
+                                "unknownFields": "reject",
+                                "fields": [
+                                  {
+                                    "name": "format",
+                                    "required": true,
+                                    "value": {
+                                      "kind": "string-enum",
+                                      "values": [
+                                        "uint8",
+                                        "uint8x2",
+                                        "uint8x4",
+                                        "sint8",
+                                        "sint8x2",
+                                        "sint8x4",
+                                        "unorm8",
+                                        "unorm8x2",
+                                        "unorm8x4",
+                                        "snorm8",
+                                        "snorm8x2",
+                                        "snorm8x4",
+                                        "uint16",
+                                        "uint16x2",
+                                        "uint16x4",
+                                        "sint16",
+                                        "sint16x2",
+                                        "sint16x4",
+                                        "unorm16",
+                                        "unorm16x2",
+                                        "unorm16x4",
+                                        "snorm16",
+                                        "snorm16x2",
+                                        "snorm16x4",
+                                        "float16",
+                                        "float16x2",
+                                        "float16x4",
+                                        "float32",
+                                        "float32x2",
+                                        "float32x3",
+                                        "float32x4",
+                                        "uint32",
+                                        "uint32x2",
+                                        "uint32x3",
+                                        "uint32x4",
+                                        "sint32",
+                                        "sint32x2",
+                                        "sint32x3",
+                                        "sint32x4",
+                                        "unorm10-10-10-2",
+                                        "unorm8x4-bgra"
+                                      ]
+                                    }
+                                  },
+                                  {
+                                    "name": "offset",
+                                    "required": true,
+                                    "value": {
+                                      "kind": "u64",
+                                      "constraints": [
+                                        "js-safe-integer"
+                                      ]
+                                    }
+                                  },
+                                  {
+                                    "name": "shaderLocation",
+                                    "required": true,
+                                    "value": {
+                                      "kind": "u32"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          {
+                            "name": "stepMode",
+                            "required": true,
+                            "value": {
+                              "kind": "string-enum",
+                              "values": [
+                                "vertex",
+                                "instance"
+                              ]
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "constants",
+                  "required": true,
+                  "value": {
+                    "kind": "string-keyed-record",
+                    "maxCountFrom": "codecLayout.dictionaryMaxFields",
+                    "keyConstraints": [
+                      "unique",
+                      "strictly-increasing-unsigned-utf8-bytes-shorter-prefix-first"
+                    ],
+                    "value": {
+                      "kind": "f64",
+                      "constraints": [
+                        "finite"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "name": "entryPoint",
+                  "required": false,
+                  "value": {
+                    "kind": "string"
+                  }
+                },
+                {
+                  "name": "module",
+                  "required": true,
+                  "value": {
+                    "kind": "full-object-reference",
+                    "referenceType": "objectReferenceV1",
+                    "requiredObjectKind": "GPUShaderModule"
+                  }
+                }
+              ]
+            }
+          }
         ]
       }
     },
@@ -4464,6 +5213,439 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
           },
           "semanticTerminalMapping": {
             "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createPipelineLayout]",
+            "terminals": [
+              {
+                "terminalId": "webidl-rejection",
+                "errorTiming": "synchronous-webidl",
+                "resultDisposition": "throw",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "no-service-call",
+                  "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+                }
+              },
+              {
+                "terminalId": "later-predicate-rejection",
+                "errorTiming": "device-timeline",
+                "resultDisposition": "return-invalid-object-and-report-error",
+                "providerTokenCount": 0,
+                "physicalSequenceCount": 0,
+                "event": {
+                  "kind": "device-error",
+                  "kindValue": 2,
+                  "kindSymbol": "EXACT_GPU_SERVICE_EVENT_DEVICE_ERROR_V2",
+                  "completionPayloadEncoderEligibility": "excluded-not-an-operation-result"
+                }
+              },
+              {
+                "terminalId": "operation-success",
+                "errorTiming": "none",
+                "resultDisposition": "return-object",
+                "providerTokenCount": 1,
+                "physicalSequenceCount": 1,
+                "event": {
+                  "kind": "operation-result",
+                  "kindValue": 1,
+                  "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+                  "resultKind": 0,
+                  "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+                  "status": 0,
+                  "completionVariant": "operation-success"
+                }
+              }
+            ]
+          },
+          "variants": [
+            {
+              "name": "operation-success",
+              "carrierConstraints": [
+                {
+                  "carrierPath": "record.operation_result.operation.provider_admission",
+                  "operator": "equal",
+                  "value": 1,
+                  "symbol": "EXACT_GPU_PROVIDER_ADMITTED_V2"
+                },
+                {
+                  "carrierPath": "record.operation_result.operation.physical_sequence",
+                  "operator": "positive"
+                }
+              ]
+            }
+          ],
+          "noTrailingBytes": true
+        }
+      },
+      {
+        "operationId": "GPUDevice.createRenderPipeline",
+        "wireId": 2407151159,
+        "request": {
+          "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
+          "catalog": {
+            "name": "serviceArguments",
+            "tag": "gpu-create-render-pipeline-service-request-v1",
+            "wireTag": 6
+          },
+          "payload": {
+            "kind": "struct",
+            "fields": [
+              {
+                "name": "header",
+                "type": "headerV1",
+                "constants": {
+                  "magic": "IBGQ",
+                  "version": 1,
+                  "codecTag": 6,
+                  "operationWireId": 2407151159
+                }
+              },
+              {
+                "name": "receiver",
+                "type": "objectReferenceV1"
+              },
+              {
+                "name": "target",
+                "type": "optionalReferenceV1"
+              },
+              {
+                "name": "capturedScopeId",
+                "type": "u64le"
+              },
+              {
+                "name": "adapterOrdinal",
+                "type": "u64le"
+              },
+              {
+                "name": "deviceIngressOrdinal",
+                "type": "u64le"
+              },
+              {
+                "name": "queueIngressOrdinal",
+                "type": "u64le"
+              },
+              {
+                "name": "sealedLocalTimeline",
+                "type": "canonicalValueV1"
+              },
+              {
+                "name": "convertedArguments",
+                "type": "canonicalValueV1",
+                "constraintType": "renderPipelineDescriptorV1"
+              }
+            ]
+          },
+          "carrierJoins": [
+            {
+              "payloadPath": "header.operationWireId",
+              "carrierPath": "operation_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.kind",
+              "carrierPath": "receiver.kind",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.objectId",
+              "carrierPath": "receiver.object_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.objectGeneration",
+              "carrierPath": "receiver.object_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.logicalDeviceId",
+              "carrierPath": "ingress_device.logical_device_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.logicalDeviceGeneration",
+              "carrierPath": "ingress_device.logical_device_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.providerGeneration",
+              "carrierPath": "ingress_device.provider_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "receiver.providerGeneration",
+              "carrierPath": "provider_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.kind",
+              "carrierPath": "target.kind",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.objectId",
+              "carrierPath": "target.object_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.objectGeneration",
+              "carrierPath": "target.object_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.logicalDeviceId",
+              "carrierPath": "ingress_device.logical_device_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.logicalDeviceGeneration",
+              "carrierPath": "ingress_device.logical_device_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.providerGeneration",
+              "carrierPath": "ingress_device.provider_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "target.providerGeneration",
+              "carrierPath": "provider_generation",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "capturedScopeId",
+              "carrierPath": "captured_scope_id",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "adapterOrdinal",
+              "carrierPath": "adapter_ordinal",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "deviceIngressOrdinal",
+              "carrierPath": "device_ingress_ordinal",
+              "operator": "equal"
+            },
+            {
+              "payloadPath": "queueIngressOrdinal",
+              "carrierPath": "queue_ingress_ordinal",
+              "operator": "equal"
+            }
+          ],
+          "carrierConstraints": [
+            {
+              "carrierPath": "operation_id",
+              "operator": "equal",
+              "value": 2407151159
+            },
+            {
+              "carrierPath": "flags",
+              "operator": "equal",
+              "value": 0
+            },
+            {
+              "carrierPath": "topology_id",
+              "operator": "equal",
+              "valueFrom": "constants.providerTopologyId"
+            },
+            {
+              "carrierPath": "ingress_device",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "provider_generation",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "operation_instance_id",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "promise_id",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "receiver.kind",
+              "operator": "equal",
+              "valueFrom": "objectKindTags.GPUDevice"
+            },
+            {
+              "carrierPath": "receiver.flags",
+              "operator": "equal",
+              "value": 0
+            },
+            {
+              "carrierPath": "receiver.object_id",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "receiver.object_generation",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "target.kind",
+              "operator": "equal",
+              "valueFrom": "objectKindTags.GPURenderPipeline"
+            },
+            {
+              "carrierPath": "target.flags",
+              "operator": "equal",
+              "value": 0
+            },
+            {
+              "carrierPath": "target.object_id",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "target.object_generation",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "adapter_ordinal",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "device_ingress_ordinal",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "queue_ingress_ordinal",
+              "operator": "equal",
+              "value": "0"
+            }
+          ],
+          "valueConstraints": [
+            {
+              "payloadPath": "sealedLocalTimeline",
+              "operator": "canonical-sequence-within-layout-bounds"
+            },
+            {
+              "payloadPath": "sealedLocalTimeline",
+              "operator": "untrusted-wrapper-record-prefix-join-only-never-authority"
+            },
+            {
+              "payloadPath": "convertedArguments",
+              "operator": "conforms-to-type",
+              "type": "renderPipelineDescriptorV1"
+            }
+          ],
+          "semanticServiceBoundary": {
+            "stateAuthority": "authenticated-device-object-account-coverage-and-reservation-tables",
+            "payloadRole": "comparison-input-only-never-authority",
+            "requiredAfterDecode": [
+              "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+              "authenticate-contiguous-sealed-local-timeline-prefix",
+              "validate-current-live-device-generation",
+              "validate-operation-coverage",
+              "validate-authorized-live-account-and-aggregate-envelope",
+              "authenticate-explicit-pipeline-layout-full-reference-or-validate-auto-layout-policy",
+              "authenticate-current-same-device-shader-module-full-references-and-creator-order",
+              "validate-exact-generated-typegpu-render-pipeline-four-cohort-witness",
+              "validate-programmable-stage-entry-points-and-constants",
+              "validate-vertex-buffers-attributes-and-logical-limits",
+              "validate-fragment-target-blend-format-and-write-mask",
+              "validate-primitive-multisample-and-depth-stencil-state",
+              "authenticate-wrapper-allocated-render-pipeline-target-provenance",
+              "validate-wrapper-allocated-render-pipeline-target-generation",
+              "reserve-render-pipeline-table-and-dual-ledger-capacity",
+              "commit-pipeline-layout-and-shader-module-dependency-retention-before-provider-admission",
+              "arm-exactly-once-terminal-unwind-for-render-pipeline-dependency-retention",
+              "reserve-render-pipeline-provider-request-completion-and-physical-sequence",
+              "validate-render-pipeline-label-under-reviewed-workload"
+            ],
+            "completionEncodingRequires": [
+              "authenticated-retained-call",
+              "service-owned-operation-result"
+            ]
+          },
+          "executablePrerequisites": [],
+          "noTrailingBytes": true
+        },
+        "completion": {
+          "payloadRole": "service-completion-payload-codec-plus-operation-specific-event-joins",
+          "catalog": {
+            "name": "serviceCompletions",
+            "tag": "terminal-receipt-service-completion-v1",
+            "wireTag": 2
+          },
+          "commonCarrierConstraints": [
+            {
+              "carrierPath": "kind",
+              "operator": "equal",
+              "value": 1,
+              "symbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2"
+            },
+            {
+              "carrierPath": "record.operation_result.status",
+              "operator": "equal",
+              "value": 0
+            },
+            {
+              "carrierPath": "record.operation_result.operation.operation_id",
+              "operator": "equal",
+              "value": 2407151159
+            },
+            {
+              "carrierPath": "record.operation_result.operation.device_transition",
+              "operator": "equal",
+              "value": 0,
+              "symbol": "EXACT_GPU_DEVICE_UNCHANGED_V2"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.ingress_device",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.result_device",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.provider_generation",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.promise_id",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.receiver.kind",
+              "operator": "equal",
+              "valueFrom": "objectKindTags.GPUDevice"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.target.kind",
+              "operator": "equal",
+              "valueFrom": "objectKindTags.GPURenderPipeline"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.adapter_ordinal",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.device_ingress_ordinal",
+              "operator": "positive"
+            },
+            {
+              "carrierPath": "record.operation_result.operation.queue_ingress_ordinal",
+              "operator": "equal",
+              "value": "0"
+            },
+            {
+              "carrierPath": "record.operation_result.result_kind",
+              "operator": "equal",
+              "value": 0,
+              "symbol": "EXACT_GPU_RESULT_NONE_V2"
+            }
+          ],
+          "payload": {
+            "kind": "empty",
+            "exactLengthBytes": 0
+          },
+          "semanticTerminalMapping": {
+            "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createRenderPipeline]",
             "terminals": [
               {
                 "terminalId": "webidl-rejection",

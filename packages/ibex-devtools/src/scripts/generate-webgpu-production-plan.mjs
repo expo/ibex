@@ -564,7 +564,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     webIdlVocabulary,
     activeRouteSubset: {
@@ -750,6 +750,9 @@ function buildCodecManifest(
   const createPipelineLayoutProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createPipelineLayout",
   );
+  const createRenderPipelineProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUDevice.createRenderPipeline",
+  );
   const createSamplerProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createSampler",
   );
@@ -827,6 +830,10 @@ function buildCodecManifest(
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createPipelineLayout",
     );
+  const createRenderPipelineSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUDevice.createRenderPipeline",
+    );
   const createSamplerSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createSampler",
@@ -856,6 +863,7 @@ function buildCodecManifest(
     !createBindGroupLayoutProgram ||
     !createBufferProgram ||
     !createPipelineLayoutProgram ||
+    !createRenderPipelineProgram ||
     !createSamplerProgram ||
     !createTextureProgram ||
     !createTextureViewProgram ||
@@ -870,6 +878,7 @@ function buildCodecManifest(
     !createBindGroupLayoutSemanticProgram ||
     !createBufferSemanticProgram ||
     !createPipelineLayoutSemanticProgram ||
+    !createRenderPipelineSemanticProgram ||
     !createSamplerSemanticProgram ||
     !createTextureSemanticProgram ||
     !createTextureViewSemanticProgram ||
@@ -892,6 +901,7 @@ function buildCodecManifest(
     headerVocabulary.tags.GPUBindGroup !== 10 ||
     headerVocabulary.tags.GPUPipelineLayout !== 11 ||
     headerVocabulary.tags.GPUShaderModule !== 12 ||
+    headerVocabulary.tags.GPURenderPipeline !== 14 ||
     headerVocabulary.tags.GPUCommandEncoder !== 15 ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 !==
       requestAdapterProgram.completion.commonCarrierConstraints[0].value ||
@@ -914,6 +924,8 @@ function buildCodecManifest(
       createBufferProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createPipelineLayoutProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      createRenderPipelineProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createSamplerProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
@@ -942,6 +954,7 @@ function buildCodecManifest(
     createBindGroupLayoutProgram.request.executablePrerequisites.length !== 0 ||
     createBufferProgram.request.executablePrerequisites.length !== 0 ||
     createPipelineLayoutProgram.request.executablePrerequisites.length !== 0 ||
+    createRenderPipelineProgram.request.executablePrerequisites.length !== 0 ||
     createSamplerProgram.request.executablePrerequisites.length !== 0 ||
     createTextureProgram.request.executablePrerequisites.length !== 0 ||
     createTextureViewProgram.request.executablePrerequisites.length !== 0 ||
@@ -1286,6 +1299,29 @@ function buildCodecManifest(
       "GPUDevice.createPipelineLayout native completion mapping differs from semantic terminals",
     );
   }
+  const expectedCreateRenderPipelineTerminalMapping = {
+    authorityPath:
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createRenderPipeline]",
+    terminals: createRenderPipelineSemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+      event: createCommandEncoderCompletionEvents[terminal.terminalId],
+    })),
+  };
+  if (
+    canonicalJson(createRenderPipelineProgram.completion.semanticTerminalMapping) !==
+      canonicalJson(expectedCreateRenderPipelineTerminalMapping) ||
+    expectedCreateRenderPipelineTerminalMapping.terminals.some(
+      (terminal) => !terminal.event,
+    )
+  ) {
+    throw new Error(
+      "GPUDevice.createRenderPipeline native completion mapping differs from semantic terminals",
+    );
+  }
   for (const [operationId, nativeProgram, semanticProgram] of [
     ["GPUDevice.createSampler", createSamplerProgram, createSamplerSemanticProgram],
     ["GPUDevice.createTexture", createTextureProgram, createTextureSemanticProgram],
@@ -1386,7 +1422,7 @@ function buildCodecManifest(
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
