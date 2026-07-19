@@ -1645,40 +1645,51 @@ mod tests {
     // ENG-23876 — the host-boundary fence (`HostConfig.root_dir` /
     // `allowed_hosts`) must deny outside-the-fence operations in EVERY mode,
     // for every principal, and must not be widenable by policy grants. The
-    // fence root here is a non-existent path so symlink resolution keeps it
-    // literal and the assertions are platform-stable.
+    // The fixture uses the target's real temporary root so drive prefixes and
+    // native separators exercise the same normalization as embedder paths.
     #[test]
     fn host_boundary_root_dir_fences_fs_in_every_mode() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("fence-root");
+        std::fs::create_dir(&root).unwrap();
+        let inside = root.join("data.txt");
+        let sibling = temp.path().join("fence-root-sibling/data.txt");
+        let outside = temp.path().join("outside/data.txt");
+        let fs = |action: &str, path: &Path| format!("fs:{action}:{}", path.display());
+
         for mode in [
             SecurityMode::Permissive,
             SecurityMode::Audit,
             SecurityMode::Enforce,
         ] {
             let mut manager = CapabilityManager::new(mode);
-            manager.set_host_boundary(Some(Path::new("/fence-root")), None);
+            manager.set_host_boundary(Some(&root), None);
 
             // Inside the fence: root principal is trusted (or mode allows).
             assert!(
-                manager.check("0", "fs:read:/fence-root/data.txt"),
+                manager.check("0", &fs("read", &inside)),
                 "inside-fence read denied under {mode:?}"
             );
-            assert!(manager.check("0", "fs:read:/fence-root"));
+            assert!(manager.check("0", &fs("read", &root)));
             // Outside: denied regardless of mode.
             assert!(
-                !manager.check("0", "fs:read:/fence-root-sibling/data.txt"),
+                !manager.check("0", &fs("read", &sibling)),
                 "boundary must not be a string prefix match"
             );
             assert!(
-                !manager.check("0", "fs:write:/outside/data.txt"),
+                !manager.check("0", &fs("write", &outside)),
                 "outside-fence write allowed under {mode:?}"
             );
             // The module loader is fenced too: root_dir bounds ALL file access.
-            assert!(!manager.check("module-loader", "fs:read:/outside/mod.js"));
+            assert!(!manager.check(
+                "module-loader",
+                &fs("read", &outside.with_file_name("mod.js"))
+            ));
             // A resource-less fs capability claims any path: denied.
             assert!(!manager.check("0", "fs:read"));
             // A blanket policy grant cannot widen past the fence.
             manager.grant("*", "fs:read", None);
-            assert!(!manager.check("0", "fs:read:/outside/data.txt"));
+            assert!(!manager.check("0", &fs("read", &outside)));
             // Non-fs capabilities are untouched by the fs fence.
             assert!(manager.check("0", "crypto:random"));
         }
@@ -1744,18 +1755,21 @@ mod tests {
     // status (an outside-fence capability is not acquirable by prompt).
     #[test]
     fn host_boundary_fence_covers_stack_mint_and_grant_status() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("fence-root");
+        std::fs::create_dir(&root).unwrap();
+        let inside = format!("fs:read:{}", root.join("data.txt").display());
+        let outside = format!("fs:read:{}", temp.path().join("outside/data.txt").display());
+
         let mut manager = CapabilityManager::new(SecurityMode::Enforce);
-        manager.set_host_boundary(
-            Some(Path::new("/fence-root")),
-            Some(&["api.example.com".to_string()]),
-        );
+        manager.set_host_boundary(Some(&root), Some(&["api.example.com".to_string()]));
         manager.grant("0", "fs:read", None);
         manager.grant("0", "network:fetch", None);
 
-        assert!(!manager.check_stack(&["0"], "fs:read:/outside/data.txt"));
-        assert!(manager.check_stack(&["0"], "fs:read:/fence-root/data.txt"));
-        assert!(!manager.check_handle_mint("0", "fs:read:/outside/data.txt"));
-        assert!(manager.check_handle_mint("0", "fs:read:/fence-root/data.txt"));
+        assert!(!manager.check_stack(&["0"], &outside));
+        assert!(manager.check_stack(&["0"], &inside));
+        assert!(!manager.check_handle_mint("0", &outside));
+        assert!(manager.check_handle_mint("0", &inside));
         assert_eq!(manager.grant_status("network:fetch:evil.example.com"), 0);
         assert_eq!(manager.grant_status("network:fetch:api.example.com"), 1);
     }

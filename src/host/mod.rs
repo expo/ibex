@@ -4582,6 +4582,12 @@ mod tests {
     // manager-level fence matrix lives in capability.rs.
     #[test]
     fn embedder_host_boundary_fields_are_enforced() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("fence-root");
+        std::fs::create_dir(&root).unwrap();
+        let inside = format!("fs:read:{}", root.join("data.txt").display());
+        let outside = format!("fs:read:{}", temp.path().join("outside/data.txt").display());
+
         for mode in [
             SecurityMode::Permissive,
             SecurityMode::Audit,
@@ -4589,7 +4595,7 @@ mod tests {
         ] {
             let host = Host::new(HostConfig {
                 mode,
-                root_dir: Some(std::path::PathBuf::from("/fence-root")),
+                root_dir: Some(root.clone()),
                 allowed_hosts: Some(vec!["api.example.com".to_string()]),
                 ..Default::default()
             });
@@ -4598,8 +4604,8 @@ mod tests {
             // false whenever a fence is configured, even in Permissive mode.
             assert!(!host.is_allow_all(), "fence skipped under {mode:?}");
 
-            assert!(host.check_capability("0", "fs:read:/fence-root/data.txt"));
-            assert!(!host.check_capability("0", "fs:read:/outside/data.txt"));
+            assert!(host.check_capability("0", &inside));
+            assert!(!host.check_capability("0", &outside));
             assert!(host.check_capability("0", "network:fetch:api.example.com"));
             assert!(!host.check_capability("0", "network:fetch:evil.example.com"));
         }

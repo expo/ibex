@@ -4360,12 +4360,12 @@ for (let i = 0; i < 3; i++) {
             .resolve_meta_from_bound_package("pkg", "pkg", &authenticated)
             .unwrap();
         assert_eq!(
-            resolved.path.as_deref(),
-            Some(authenticated.join("index.js").as_path())
+            std::fs::canonicalize(resolved.path.as_ref().unwrap()).unwrap(),
+            std::fs::canonicalize(authenticated.join("index.js")).unwrap()
         );
         assert_eq!(
-            resolved.package_root.as_deref(),
-            Some(authenticated.as_path())
+            std::fs::canonicalize(resolved.package_root.as_ref().unwrap()).unwrap(),
+            std::fs::canonicalize(&authenticated).unwrap()
         );
         assert_eq!(resolved.package_version.as_deref(), Some("1.0.0"));
     }
@@ -4397,8 +4397,8 @@ for (let i = 0; i < 3; i++) {
             .resolve_meta_from_bound_package("pkg", "pkg", &authenticated)
             .unwrap();
         assert_eq!(
-            public.path.as_deref(),
-            Some(authenticated.join("public.js").as_path())
+            std::fs::canonicalize(public.path.as_ref().unwrap()).unwrap(),
+            std::fs::canonicalize(authenticated.join("public.js")).unwrap()
         );
         assert!(loader
             .resolve_meta_from_bound_package("pkg/private", "pkg", &authenticated)

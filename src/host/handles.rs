@@ -540,7 +540,8 @@ mod tests {
         // interior node reclaims exactly its subtree and leaves siblings intact.
         let temp = tempfile::tempdir().unwrap();
         let app = temp.path().join("app");
-        std::fs::create_dir(&app).unwrap();
+        std::fs::create_dir_all(app.join("a/deep")).unwrap();
+        std::fs::create_dir(app.join("b")).unwrap();
         let capability = |suffix: &str| {
             format!(
                 "fs:read:{}{}{}",

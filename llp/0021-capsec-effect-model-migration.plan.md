@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 makes Windows library verification use target-native filesystem fixtures and object-equivalent path assertions, while the native-backend smoke test installs its explicitly permissive diagnostic host)
 **Revised:** 2026-07-19 (ENG-24933 reconstructs armed Windows drive/UNC roots as absolute paths and makes host-boundary tree matching separator-neutral after retained run 29694430491 exposed a malformed-root deadlock and Windows-only fence failures)
 **Revised:** 2026-07-19 (ENG-24933 keeps non-Windows crypto test-only C ABI hooks out of Windows default and all-features product linkage after physical run 29693213321 reached MSVC and exposed the false obligation)
 **Revised:** 2026-07-19 (ENG-24933 pins Cargo's Windows MSVC linker across Git Bash product suites after physical public-probe success exposed Git for Windows' unrelated `link.exe` shadow)
@@ -1828,6 +1829,17 @@ the four-hour job limit preserved that exact stalled test name. Windows now
 reconstructs the drive/UNC prefix first and roots it before appending logical
 components, path-tree matching canonicalizes native separators, and the race
 test asserts the wire round trip before entering either barrier.
+Physical Windows run `29702870979` confirmed the deadlock repair by completing
+the library binary in 29.57 seconds with 310 passes rather than reaching the
+four-hour job timeout. Its seven remaining failures were all explicit: three
+host-boundary tests supplied Unix-rooted fixture strings, one handle test did
+not materialize its nested fixture tree, two module-loader tests compared an
+ordinary Windows path with its object-equivalent verbatim canonical spelling,
+and the native-backend smoke test installed the deliberately closed unarmed ABI
+host despite claiming a permissive diagnostic context. Those tests now use
+target-native paths and canonical object spellings, and the smoke helper
+installs `Host::default_legacy()` directly; production arming and import gates
+remain unchanged.
 Its armed physical test host derives the selected project root's stable object
 identity through the production platform helper, and preserves the target's
 complete normalized path components (including a Windows drive or verbatim
