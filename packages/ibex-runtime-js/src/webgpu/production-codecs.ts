@@ -148,8 +148,10 @@ export type ProductionGpuCanvasServiceEncoding =
       configuredDeviceRef: ProductionGpuFullObjectReference;
       format: string;
       usage: number;
+      viewFormats: readonly string[];
       alphaMode: 'opaque' | 'premultiplied';
       colorSpace: 'srgb' | 'display-p3';
+      toneMappingMode: 'standard' | 'extended';
       targetAuthorityDigest: string;
       surfaceAccountToken: string;
       surfaceAccountGeneration: string;

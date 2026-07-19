@@ -68,6 +68,7 @@ interface NativeCodecField {
     'queueWriteBufferRequestBodyV1' |
     'queueSubmitRequestBodyV1' |
     'canvasConfigureRequestBodyV1' |
+    'canvasViewFormatSequenceV1' |
     'canvasUnconfigureRequestBodyV1' |
     'textureDestroyRequestBodyV1' |
     'canvasCurrentTextureOriginV1' |
@@ -685,6 +686,7 @@ export interface NativeCodecProgramsV2 {
     bufferMapAsyncCompletionBodyV1: Readonly<Record<string, unknown>>;
     sha256DigestV1: Readonly<Record<string, unknown>>;
     canvasConfigureRequestBodyV1: Readonly<Record<string, unknown>>;
+    canvasViewFormatSequenceV1: Readonly<Record<string, unknown>>;
     canvasUnconfigureRequestBodyV1: Readonly<Record<string, unknown>>;
     canvasCurrentTextureOriginV1: Readonly<Record<string, unknown>>;
     textureDestroyRequestBodyV1: Readonly<Record<string, unknown>>;
@@ -1034,9 +1036,9 @@ const EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256 =
 const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
   'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
-  '7a59f736947398c326440be76b8a1611dc2edddd6ac90251347ef78ebfc9b2b2';
+  '27940878fd3ceebda412356eeab0fa5a58e99baaf2b2538b8f6df23cfbf54f94';
 const EXPECTED_CANVAS_NATIVE_CODEC_SHA256 =
-  'eaa30c29665fb26967dd9bd15835873fb14b9ce27815502695d15675e26ada60';
+  '413d6367475738dc970f2d76401fb26b955b3b55d7f9ffb502f88f370d36c7cb';
 const EXPECTED_CREATE_RENDER_PIPELINE_NATIVE_ROUTE_SHA256 =
   '0f1af44238843ba1edc0ca1513c8b732cb72733a3680006be94a3322602919ee';
 const EXPECTED_CREATE_COMPUTE_PIPELINE_DESCRIPTOR_SHA256 =
@@ -1053,6 +1055,7 @@ type NativeCodecProgramsWithoutQueueSubmitTypes = Omit<
     'commandRecordV1' | 'queueSubmitRequestBodyV1' |
     'computePipelineDescriptorV1' | 'renderPipelineDescriptorV1' |
     'sha256DigestV1' | 'canvasConfigureRequestBodyV1' |
+    'canvasViewFormatSequenceV1' |
     'canvasUnconfigureRequestBodyV1' | 'canvasCurrentTextureOriginV1' |
     'textureDestroyRequestBodyV1'
   >;
@@ -3523,6 +3526,7 @@ function validateNativeCodecProgram(
     renderPipelineDescriptorV1,
     sha256DigestV1,
     canvasConfigureRequestBodyV1,
+    canvasViewFormatSequenceV1,
     canvasUnconfigureRequestBodyV1,
     canvasCurrentTextureOriginV1,
     textureDestroyRequestBodyV1,
@@ -3532,6 +3536,7 @@ function validateNativeCodecProgram(
   void queueSubmitRequestBodyV1;
   void sha256DigestV1;
   void canvasConfigureRequestBodyV1;
+  void canvasViewFormatSequenceV1;
   void canvasUnconfigureRequestBodyV1;
   void canvasCurrentTextureOriginV1;
   void textureDestroyRequestBodyV1;
@@ -3641,6 +3646,8 @@ function validateNativeCodecProgram(
       sha256DigestV1: manifest.nativeCodecPrograms.types.sha256DigestV1,
       canvasConfigureRequestBodyV1:
         manifest.nativeCodecPrograms.types.canvasConfigureRequestBodyV1,
+      canvasViewFormatSequenceV1:
+        manifest.nativeCodecPrograms.types.canvasViewFormatSequenceV1,
       canvasUnconfigureRequestBodyV1:
         manifest.nativeCodecPrograms.types.canvasUnconfigureRequestBodyV1,
       canvasCurrentTextureOriginV1:
@@ -5357,53 +5364,80 @@ function convertCanvasConfiguration(
   textureFormats: readonly string[],
 ): unknown {
   const source = dictionary(value, 'GPUCanvasConfiguration');
+  // Web IDL dictionary members are observed in lexicographic order. Keep
+  // every Get in a local so hostile accessors run exactly once and a failure
+  // stops before every later member.
+  const alphaModeValue = source.alphaMode;
+  const alphaMode = alphaModeValue === undefined
+    ? 'opaque'
+    : enumValue(
+      alphaModeValue,
+      ['opaque', 'premultiplied'],
+      'GPUCanvasConfiguration.alphaMode',
+    );
+  const colorSpaceValue = source.colorSpace;
+  const colorSpace = colorSpaceValue === undefined
+    ? 'srgb'
+    : enumValue(
+      colorSpaceValue,
+      ['srgb', 'display-p3'],
+      'GPUCanvasConfiguration.colorSpace',
+    );
   const device = source.device;
   wrappers.reference(device, 'GPUDevice');
-  if (source.format === undefined) {
+  const formatValue = source.format;
+  if (formatValue === undefined) {
     throw new TypeError('GPUCanvasConfiguration.format is required');
   }
-  const result: Record<string, unknown> = {
-    device,
-    format: enumValue(source.format, textureFormats, 'GPUCanvasConfiguration.format'),
-    usage: u32(source.usage, 'GPUCanvasConfiguration.usage', 0x10),
-    viewFormats: Object.freeze(
-      (source.viewFormats === undefined
-        ? []
-        : sequence(source.viewFormats, 'GPUCanvasConfiguration.viewFormats', maximum)
-      ).map((format) =>
-        enumValue(format, textureFormats, 'GPUCanvasConfiguration.viewFormats member')),
-    ),
-    colorSpace: source.colorSpace === undefined
-      ? 'srgb'
-      : enumValue(
-        source.colorSpace,
-        ['srgb', 'display-p3'],
-        'GPUCanvasConfiguration.colorSpace',
-      ),
-    alphaMode: source.alphaMode === undefined
-      ? 'opaque'
-      : enumValue(
-        source.alphaMode,
-        ['opaque', 'premultiplied'],
-        'GPUCanvasConfiguration.alphaMode',
-      ),
-  };
-  if (source.toneMapping !== undefined) {
-    const toneMapping = dictionary(
-      source.toneMapping,
-      'GPUCanvasToneMapping',
+  const format = enumValue(
+    formatValue,
+    textureFormats,
+    'GPUCanvasConfiguration.format',
+  );
+  const toneMappingValue = source.toneMapping;
+  const toneMapping = dictionary(
+    toneMappingValue,
+    'GPUCanvasToneMapping',
+  );
+  const toneMappingModeValue = toneMapping.mode;
+  const toneMappingMode = toneMappingModeValue === undefined
+    ? 'standard'
+    : enumValue(
+      toneMappingModeValue,
+      ['standard', 'extended'],
+      'GPUCanvasToneMapping.mode',
     );
-    result.toneMapping = frozenRecord({
-      mode: toneMapping.mode === undefined
-        ? 'standard'
-        : enumValue(
-          toneMapping.mode,
-          ['standard', 'extended'],
-          'GPUCanvasToneMapping.mode',
-        ),
-    });
-  }
-  return frozenRecord(result);
+  const usageValue = source.usage;
+  const usage = u32(
+    usageValue,
+    'GPUCanvasConfiguration.usage',
+    0x10,
+  );
+  const viewFormatsValue = source.viewFormats;
+  const viewFormats = Object.freeze(
+    (viewFormatsValue === undefined
+      ? []
+      : sequence(
+        viewFormatsValue,
+        'GPUCanvasConfiguration.viewFormats',
+        maximum,
+      )
+    ).map((candidate) =>
+      enumValue(
+        candidate,
+        textureFormats,
+        'GPUCanvasConfiguration.viewFormats member',
+      )),
+  );
+  return frozenRecord({
+    alphaMode,
+    colorSpace,
+    device,
+    format,
+    toneMapping: frozenRecord({ mode: toneMappingMode }),
+    usage,
+    viewFormats,
+  });
 }
 
 function convertColor(value: unknown): Readonly<Record<string, number>> {
@@ -7429,6 +7463,7 @@ function validateCanvasServiceBody(
   receiver: ProductionGpuServiceEncodingInput['receiver'],
   convertedArguments: unknown,
   textureFormats: readonly string[],
+  sequenceMaximum: number,
 ): void {
   if (operationId === CANVAS_CONFIGURE_OPERATION_ID) {
     if (body.kind !== 'canvas-configure-v1') {
@@ -7443,8 +7478,10 @@ function validateCanvasServiceBody(
       'configuredDeviceRef',
       'format',
       'usage',
+      'viewFormats',
       'alphaMode',
       'colorSpace',
+      'toneMappingMode',
       'targetAuthorityDigest',
       'surfaceAccountToken',
       'surfaceAccountGeneration',
@@ -7478,17 +7515,36 @@ function validateCanvasServiceBody(
       convertedArguments,
       'GPUCanvasContext.configure converted arguments',
     );
+    const convertedToneMapping = submitRecord(
+      converted.toneMapping,
+      'GPUCanvasContext.configure converted toneMapping',
+    );
+    const convertedViewFormats = converted.viewFormats;
+    if (body.toneMappingMode !== 'standard') {
+      throw new TypeError(
+        'GPUCanvasContext.configure toneMappingMode must be standard',
+      );
+    }
     if (
       !textureFormats.includes(body.format) ||
       !Number.isInteger(body.usage) ||
       body.usage < 0 ||
       body.usage > 0xffff_ffff ||
+      !Array.isArray(body.viewFormats) ||
+      body.viewFormats.length > sequenceMaximum ||
+      body.viewFormats.some((format) => !textureFormats.includes(format)) ||
       (body.alphaMode !== 'opaque' && body.alphaMode !== 'premultiplied') ||
       (body.colorSpace !== 'srgb' && body.colorSpace !== 'display-p3') ||
+      !Array.isArray(convertedViewFormats) ||
+      convertedViewFormats.length !== body.viewFormats.length ||
+      body.viewFormats.some(
+        (format, index) => convertedViewFormats[index] !== format,
+      ) ||
       converted.format !== body.format ||
       converted.usage !== body.usage ||
       converted.alphaMode !== body.alphaMode ||
-      converted.colorSpace !== body.colorSpace
+      converted.colorSpace !== body.colorSpace ||
+      convertedToneMapping.mode !== body.toneMappingMode
     ) {
       throw new TypeError(
         'GPUCanvasContext.configure authority disagrees with converted configuration',
@@ -7626,6 +7682,7 @@ function writeCanvasServiceBody(
   convertedArguments: unknown,
   objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
   textureFormats: readonly string[],
+  sequenceMaximum: number,
 ): void {
   validateCanvasServiceBody(
     operationId,
@@ -7633,6 +7690,7 @@ function writeCanvasServiceBody(
     receiver,
     convertedArguments,
     textureFormats,
+    sequenceMaximum,
   );
   if (body.kind === 'canvas-configure-v1') {
     writeReference(writer, body.receiverContextRef, objectKinds);
@@ -7642,8 +7700,11 @@ function writeCanvasServiceBody(
     writeReference(writer, body.configuredDeviceRef, objectKinds);
     writer.string(body.format);
     writer.u32(body.usage);
+    writer.u32(body.viewFormats.length);
+    for (const viewFormat of body.viewFormats) writer.string(viewFormat);
     writer.u8(body.alphaMode === 'opaque' ? 1 : 2);
     writer.u8(body.colorSpace === 'srgb' ? 1 : 2);
+    writer.u8(body.toneMappingMode === 'standard' ? 1 : 2);
     writer.raw(digestBytes(body.targetAuthorityDigest, 'canvas target authority digest'));
     writer.u64(body.surfaceAccountToken);
     writer.u64(body.surfaceAccountGeneration);
@@ -7686,6 +7747,7 @@ function readCanvasServiceBody(
   receiver: ProductionGpuServiceEncodingInput['receiver'],
   objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
   textureFormats: readonly string[],
+  sequenceMaximum: number,
 ): CanvasServiceBody {
   let body: CanvasServiceBody;
   let convertedArguments: unknown = null;
@@ -7697,8 +7759,16 @@ function readCanvasServiceBody(
     const configuredDeviceRef = readReference(reader, objectKindsByTag);
     const format = reader.string(256);
     const usage = reader.u32();
+    const viewFormatCount = reader.u32();
+    if (viewFormatCount > sequenceMaximum) {
+      throw new TypeError('GPUCanvasContext.configure viewFormats exceeds its bound');
+    }
+    const viewFormats = Object.freeze(
+      Array.from({ length: viewFormatCount }, () => reader.string(256)),
+    );
     const alphaModeTag = reader.u8();
     const colorSpaceTag = reader.u8();
+    const toneMappingModeTag = reader.u8();
     const alphaMode = alphaModeTag === 1
       ? 'opaque'
       : alphaModeTag === 2
@@ -7709,7 +7779,12 @@ function readCanvasServiceBody(
       : colorSpaceTag === 2
         ? 'display-p3'
         : undefined;
-    if (!alphaMode || !colorSpace) {
+    const toneMappingMode = toneMappingModeTag === 1
+      ? 'standard'
+      : toneMappingModeTag === 2
+        ? 'extended'
+        : undefined;
+    if (!alphaMode || !colorSpace || !toneMappingMode) {
       throw new TypeError('GPUCanvasContext.configure enum tag is unknown');
     }
     body = Object.freeze({
@@ -7721,13 +7796,22 @@ function readCanvasServiceBody(
       configuredDeviceRef,
       format,
       usage,
+      viewFormats,
       alphaMode,
       colorSpace,
+      toneMappingMode,
       targetAuthorityDigest: readDigest(reader),
       surfaceAccountToken: reader.u64(),
       surfaceAccountGeneration: reader.u64(),
     });
-    convertedArguments = Object.freeze({ format, usage, alphaMode, colorSpace });
+    convertedArguments = Object.freeze({
+      format,
+      usage,
+      viewFormats,
+      alphaMode,
+      colorSpace,
+      toneMapping: Object.freeze({ mode: toneMappingMode }),
+    });
   } else if (operationId === CANVAS_UNCONFIGURE_OPERATION_ID) {
     const terminalIntentTag = (() => {
       const receiverContextRef = readReference(reader, objectKindsByTag);
@@ -7800,6 +7884,7 @@ function readCanvasServiceBody(
     receiver,
     convertedArguments,
     textureFormats,
+    sequenceMaximum,
   );
   return body;
 }
@@ -7807,6 +7892,7 @@ function readCanvasServiceBody(
 function validateCanvasServiceRequestFields(
   input: ProductionGpuServiceEncodingInput,
   textureFormats: readonly string[],
+  sequenceMaximum: number,
 ): CanvasServiceBody {
   const expectedReceiverKind = input.operationId === TEXTURE_DESTROY_OPERATION_ID
     ? 'GPUTexture'
@@ -7832,6 +7918,7 @@ function validateCanvasServiceRequestFields(
     input.receiver,
     input.convertedArguments,
     textureFormats,
+    sequenceMaximum,
   );
   return input.canvasService;
 }
@@ -8414,6 +8501,16 @@ function validateQueueSubmitArgument(
 
   switch (spec.operationName) {
     case 'GPUCanvasContext.getCurrentTexture':
+      if (!record) {
+        throw new TypeError('GPUCanvasContext.getCurrentTexture arguments are missing');
+      }
+      exactKeys(record, ['currentOrigin'], [], spec.operationName);
+      validateCanvasCurrentTextureOrigin(
+        record.currentOrigin,
+        WEBGPU_PRODUCTION_PLAN.webIdlVocabulary,
+        'GPUCanvasContext.getCurrentTexture currentOrigin',
+      );
+      return;
     case 'GPURenderPassEncoder.end':
       if (value !== null) throw new TypeError(`${spec.operationName} arguments must be null`);
       return;
@@ -8740,6 +8837,34 @@ function validateQueueSubmitRecord(
       if (receiver.kind !== 'GPUCanvasContext' || commandEncoder !== null ||
           pass !== null || target?.kind !== 'GPUTexture') {
         throw new TypeError('Timeline-only canvas-current provenance is invalid');
+      }
+      {
+        const argument = submitRecord(
+          source.argumentBody,
+          'GPUCanvasContext.getCurrentTexture arguments',
+        );
+        exactKeys(argument, ['currentOrigin'], [], 'GPUCanvasContext.getCurrentTexture');
+        const origin = validateCanvasCurrentTextureOrigin(
+          argument.currentOrigin,
+          WEBGPU_PRODUCTION_PLAN.webIdlVocabulary,
+          'GPUCanvasContext.getCurrentTexture currentOrigin',
+        );
+        if (
+          !sameReference(origin.contextRef, receiver) ||
+          !sameDeviceReference(origin.configuredDeviceRef, device) ||
+          compareU64(origin.mintOperationInstanceId, operationInstanceId) > 0 ||
+          compareU64(origin.mintDeviceIngressOrdinal, deviceIngressOrdinal) > 0
+        ) {
+          throw new TypeError(
+            'Timeline-only canvas-current origin does not match its source-affine record',
+          );
+        }
+        validateCanvasCurrentTextureOriginDigest(
+          origin,
+          target,
+          WEBGPU_PRODUCTION_PLAN.webIdlVocabulary,
+          'GPUCanvasContext.getCurrentTexture currentOrigin',
+        );
       }
       break;
     case 'GPUCommandEncoder.beginComputePass':
@@ -10601,7 +10726,23 @@ function validateTextureViewFullReference(
   value: unknown,
   expectedKind: 'GPUCanvasContext' | 'GPUDevice' | 'GPUTexture',
   label: string,
-): void {
+): ProductionGpuServiceEncodingInput['receiver'] {
+  return submitReference(value, label, expectedKind);
+}
+
+interface ValidatedCanvasCurrentTextureOrigin {
+  readonly currentOrigin: Readonly<Record<string, unknown>>;
+  readonly contextRef: ProductionGpuServiceEncodingInput['receiver'];
+  readonly configuredDeviceRef: ProductionGpuServiceEncodingInput['receiver'];
+  readonly mintOperationInstanceId: string;
+  readonly mintDeviceIngressOrdinal: string;
+}
+
+function validateCanvasCurrentTextureOrigin(
+  value: unknown,
+  vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
+  label: string,
+): ValidatedCanvasCurrentTextureOrigin {
   if (
     typeof value !== 'object' ||
     value === null ||
@@ -10609,42 +10750,132 @@ function validateTextureViewFullReference(
     !hasExactOwnProperties(
       value as Readonly<Record<string, unknown>>,
       [
-        'kind',
-        'objectId',
-        'objectGeneration',
-        'logicalDeviceId',
-        'logicalDeviceGeneration',
-        'providerGeneration',
+        'originClass',
+        'contextRef',
+        'attachmentGeneration',
+        'contextGeneration',
+        'configurationGeneration',
+        'currentEpoch',
+        'mintOperationProvenance',
+        'textureOriginDigest',
+        'configuredDeviceRef',
+        'format',
+        'usage',
+        'alphaMode',
+        'colorSpace',
+        'targetAuthorityDigest',
+        'surfaceAccountToken',
+        'surfaceAccountGeneration',
       ],
     )
   ) {
-    throw new TypeError(`${label} must be a full object reference`);
+    throw new TypeError(`${label} must be a complete closed dictionary`);
   }
-  const reference = value as RequestAdapterReferenceLike;
+  const currentOrigin = value as Readonly<Record<string, unknown>>;
+  const contextRef = validateTextureViewFullReference(
+    currentOrigin.contextRef,
+    'GPUCanvasContext',
+    `${label}.contextRef`,
+  );
+  const configuredDeviceRef = validateTextureViewFullReference(
+    currentOrigin.configuredDeviceRef,
+    'GPUDevice',
+    `${label}.configuredDeviceRef`,
+  );
+  const mint = currentOrigin.mintOperationProvenance;
   if (
-    reference.kind !== expectedKind ||
-    typeof reference.objectId !== 'string' ||
-    typeof reference.objectGeneration !== 'string' ||
-    typeof reference.logicalDeviceId !== 'string' ||
-    typeof reference.logicalDeviceGeneration !== 'string' ||
-    typeof reference.providerGeneration !== 'string'
+    typeof mint !== 'object' ||
+    mint === null ||
+    Array.isArray(mint) ||
+    !hasExactOwnProperties(
+      mint as Readonly<Record<string, unknown>>,
+      ['operationInstanceId', 'deviceIngressOrdinal'],
+    )
   ) {
-    throw new TypeError(`${label} has an invalid object-reference shape`);
+    throw new TypeError(`${label} mint provenance is incomplete`);
   }
-  for (const [identity, field] of [
-    [reference.objectId, 'objectId'],
-    [reference.objectGeneration, 'objectGeneration'],
-    [reference.logicalDeviceId, 'logicalDeviceId'],
-    [reference.logicalDeviceGeneration, 'logicalDeviceGeneration'],
-    [reference.providerGeneration, 'providerGeneration'],
-  ] as const) {
-    positiveIdentity(identity, `${label}.${field}`);
+  const mintRecord = mint as Readonly<Record<string, unknown>>;
+  const positiveU64 = isPositiveCanonicalDecimalU64;
+  if (
+    currentOrigin.originClass !== 'canvas-current' ||
+    !positiveU64(currentOrigin.attachmentGeneration) ||
+    !positiveU64(currentOrigin.contextGeneration) ||
+    !positiveU64(currentOrigin.configurationGeneration) ||
+    !positiveU64(currentOrigin.currentEpoch) ||
+    !positiveU64(mintRecord.operationInstanceId) ||
+    !positiveU64(mintRecord.deviceIngressOrdinal) ||
+    typeof currentOrigin.textureOriginDigest !== 'string' ||
+    !/^[0-9a-f]{64}$/u.test(currentOrigin.textureOriginDigest) ||
+    typeof currentOrigin.format !== 'string' ||
+    !vocabulary.gpuTextureFormats.includes(currentOrigin.format) ||
+    !isConvertedU32(currentOrigin.usage) ||
+    typeof currentOrigin.alphaMode !== 'string' ||
+    !['opaque', 'premultiplied'].includes(currentOrigin.alphaMode) ||
+    typeof currentOrigin.colorSpace !== 'string' ||
+    !['srgb', 'display-p3'].includes(currentOrigin.colorSpace) ||
+    typeof currentOrigin.targetAuthorityDigest !== 'string' ||
+    !/^[0-9a-f]{64}$/u.test(currentOrigin.targetAuthorityDigest) ||
+    !positiveU64(currentOrigin.surfaceAccountToken) ||
+    !positiveU64(currentOrigin.surfaceAccountGeneration)
+  ) {
+    throw new TypeError(`${label} violates structural bounds`);
+  }
+  return Object.freeze({
+    currentOrigin,
+    contextRef,
+    configuredDeviceRef,
+    mintOperationInstanceId: mintRecord.operationInstanceId as string,
+    mintDeviceIngressOrdinal: mintRecord.deviceIngressOrdinal as string,
+  });
+}
+
+function validateCanvasCurrentTextureOriginDigest(
+  origin: ValidatedCanvasCurrentTextureOrigin,
+  receiverTextureRef: ProductionGpuServiceEncodingInput['receiver'],
+  vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
+  label: string,
+): void {
+  if (
+    receiverTextureRef.kind !== 'GPUTexture' ||
+    !sameDeviceReference(origin.contextRef, receiverTextureRef) ||
+    !sameDeviceReference(origin.configuredDeviceRef, receiverTextureRef)
+  ) {
+    throw new TypeError(`${label} has foreign source-affine device provenance`);
+  }
+  const source = origin.currentOrigin;
+  const digestInput: ProductionGpuTextureOriginDigestInput = Object.freeze({
+    originClass: 'canvas-current',
+    receiverTextureRef,
+    contextRef: origin.contextRef,
+    attachmentGeneration: source.attachmentGeneration as string,
+    contextGeneration: source.contextGeneration as string,
+    configurationGeneration: source.configurationGeneration as string,
+    currentEpoch: source.currentEpoch as string,
+    mintOperationProvenance: Object.freeze({
+      operationInstanceId: origin.mintOperationInstanceId,
+      deviceIngressOrdinal: origin.mintDeviceIngressOrdinal,
+    }),
+    configuredDeviceRef: origin.configuredDeviceRef,
+    format: source.format as string,
+    usage: source.usage as number,
+    alphaMode: source.alphaMode as 'opaque' | 'premultiplied',
+    colorSpace: source.colorSpace as 'srgb' | 'display-p3',
+    targetAuthorityDigest: source.targetAuthorityDigest as string,
+    surfaceAccountToken: source.surfaceAccountToken as string,
+    surfaceAccountGeneration: source.surfaceAccountGeneration as string,
+  });
+  const expectedDigest = sha256HexUtf8(
+    canonicalTextureOriginDigestInput(digestInput, vocabulary),
+  );
+  if (source.textureOriginDigest !== expectedDigest) {
+    throw new TypeError(`${label} digest does not bind the source texture`);
   }
 }
 
 function validateCreateTextureViewRequestForService(
   value: unknown,
   vocabulary: ExecutableWebGpuCodecManifest['webIdlVocabulary'],
+  receiverTextureRef?: ProductionGpuServiceEncodingInput['receiver'],
 ): void {
   if (
     typeof value !== 'object' ||
@@ -10722,88 +10953,17 @@ function validateCreateTextureViewRequestForService(
   }
 
   if (!hasCurrentOrigin) return;
-  const origin = request.currentOrigin;
-  if (
-    typeof origin !== 'object' ||
-    origin === null ||
-    Array.isArray(origin) ||
-    !hasExactOwnProperties(
-      origin as Readonly<Record<string, unknown>>,
-      [
-        'originClass',
-        'contextRef',
-        'attachmentGeneration',
-        'contextGeneration',
-        'configurationGeneration',
-        'currentEpoch',
-        'mintOperationProvenance',
-        'textureOriginDigest',
-        'configuredDeviceRef',
-        'format',
-        'usage',
-        'alphaMode',
-        'colorSpace',
-        'targetAuthorityDigest',
-        'surfaceAccountToken',
-        'surfaceAccountGeneration',
-      ],
-    )
-  ) {
-    throw new TypeError(
-      'GPUTexture.createView canvas-current origin must be a complete closed dictionary',
-    );
-  }
-  const currentOrigin = origin as Readonly<Record<string, unknown>>;
-  validateTextureViewFullReference(
-    currentOrigin.contextRef,
-    'GPUCanvasContext',
-    'GPUTexture.createView currentOrigin.contextRef',
+  const origin = validateCanvasCurrentTextureOrigin(
+    request.currentOrigin,
+    vocabulary,
+    'GPUTexture.createView canvas-current origin',
   );
-  validateTextureViewFullReference(
-    currentOrigin.configuredDeviceRef,
-    'GPUDevice',
-    'GPUTexture.createView currentOrigin.configuredDeviceRef',
-  );
-  const mint = currentOrigin.mintOperationProvenance;
-  if (
-    typeof mint !== 'object' ||
-    mint === null ||
-    Array.isArray(mint) ||
-    !hasExactOwnProperties(
-      mint as Readonly<Record<string, unknown>>,
-      ['operationInstanceId', 'deviceIngressOrdinal'],
-    )
-  ) {
-    throw new TypeError(
-      'GPUTexture.createView currentOrigin mint provenance is incomplete',
-    );
-  }
-  const mintRecord = mint as Readonly<Record<string, unknown>>;
-  const positiveU64 = isPositiveCanonicalDecimalU64;
-  if (
-    currentOrigin.originClass !== 'canvas-current' ||
-    !positiveU64(currentOrigin.attachmentGeneration) ||
-    !positiveU64(currentOrigin.contextGeneration) ||
-    !positiveU64(currentOrigin.configurationGeneration) ||
-    !positiveU64(currentOrigin.currentEpoch) ||
-    !positiveU64(mintRecord.operationInstanceId) ||
-    !positiveU64(mintRecord.deviceIngressOrdinal) ||
-    typeof currentOrigin.textureOriginDigest !== 'string' ||
-    !/^[0-9a-f]{64}$/u.test(currentOrigin.textureOriginDigest) ||
-    typeof currentOrigin.format !== 'string' ||
-    !vocabulary.gpuTextureFormats.includes(currentOrigin.format) ||
-    !isConvertedU32(currentOrigin.usage) ||
-    typeof currentOrigin.alphaMode !== 'string' ||
-    !['opaque', 'premultiplied'].includes(currentOrigin.alphaMode) ||
-    typeof currentOrigin.colorSpace !== 'string' ||
-    !['srgb', 'display-p3'].includes(currentOrigin.colorSpace) ||
-    typeof currentOrigin.targetAuthorityDigest !== 'string' ||
-    !/^[0-9a-f]{64}$/u.test(currentOrigin.targetAuthorityDigest) ||
-    !positiveU64(currentOrigin.surfaceAccountToken) ||
-    !positiveU64(currentOrigin.surfaceAccountGeneration)
-  ) {
-    throw new TypeError(
-      'GPUTexture.createView canvas-current origin violates structural bounds',
+  if (receiverTextureRef !== undefined) {
+    validateCanvasCurrentTextureOriginDigest(
+      origin,
+      receiverTextureRef,
+      vocabulary,
+      'GPUTexture.createView canvas-current origin',
     );
   }
 }
@@ -11373,6 +11533,11 @@ function validateCreateTextureViewRequestFields(
   ] as const) {
     positiveIdentity(identity, `GPUTexture.createView ${label}`);
   }
+  const receiverTextureRef = submitReference(
+    receiver,
+    'GPUTexture.createView receiver',
+    'GPUTexture',
+  );
   if (typeof target !== 'object' || target === null || Array.isArray(target)) {
     throw new TypeError(
       'GPUTexture.createView requires a wrapper-allocated GPUTextureView target',
@@ -11383,9 +11548,9 @@ function validateCreateTextureViewRequestFields(
     targetReference.kind !== 'GPUTextureView' ||
     typeof targetReference.objectId !== 'string' ||
     typeof targetReference.objectGeneration !== 'string' ||
-    targetReference.logicalDeviceId !== receiver.logicalDeviceId ||
-    targetReference.logicalDeviceGeneration !== receiver.logicalDeviceGeneration ||
-    targetReference.providerGeneration !== receiver.providerGeneration
+    targetReference.logicalDeviceId !== receiverTextureRef.logicalDeviceId ||
+    targetReference.logicalDeviceGeneration !== receiverTextureRef.logicalDeviceGeneration ||
+    targetReference.providerGeneration !== receiverTextureRef.providerGeneration
   ) {
     throw new TypeError(
       'GPUTexture.createView target must share the source texture device provenance',
@@ -11416,7 +11581,11 @@ function validateCreateTextureViewRequestFields(
       'GPUTexture.createView sealed local timeline must be a bounded sequence',
     );
   }
-  validateCreateTextureViewRequestForService(convertedArguments, vocabulary);
+  validateCreateTextureViewRequestForService(
+    convertedArguments,
+    vocabulary,
+    receiverTextureRef,
+  );
 }
 
 function validateCreateCommandEncoderRequestFields(
@@ -12352,6 +12521,7 @@ export function createExecutableWebGpuCodecs(
       canvasServiceBody = validateCanvasServiceRequestFields(
         input,
         manifest.webIdlVocabulary.gpuTextureFormats,
+        manifest.layout.sequenceMaxCount,
       );
     }
     const writer = new Writer(manifest.maxPayloadBytes);
@@ -12403,6 +12573,7 @@ export function createExecutableWebGpuCodecs(
         input.convertedArguments,
         objectKinds,
         manifest.webIdlVocabulary.gpuTextureFormats,
+        manifest.layout.sequenceMaxCount,
       );
       return writer.finish();
     }
@@ -12871,6 +13042,7 @@ export function createExecutableWebGpuCodecs(
           receiver,
           objectKindsByTag,
           manifest.webIdlVocabulary.gpuTextureFormats,
+          manifest.layout.sequenceMaxCount,
         )
       : undefined;
     const convertedArguments = bufferLifecycle?.kind === 'map-async-v1'
@@ -12907,8 +13079,10 @@ export function createExecutableWebGpuCodecs(
       ? Object.freeze({
           format: canvasService.format,
           usage: canvasService.usage,
+          viewFormats: canvasService.viewFormats,
           alphaMode: canvasService.alphaMode,
           colorSpace: canvasService.colorSpace,
+          toneMapping: Object.freeze({ mode: canvasService.toneMappingMode }),
         })
       : canvasServiceRoute
       ? null
@@ -13157,19 +13331,23 @@ export function createExecutableWebGpuCodecs(
       if (!Array.isArray(sealedLocalTimeline)) {
         throw new TypeError('Canvas lifecycle timeline must be a closed sequence');
       }
-      validateCanvasServiceRequestFields({
-        operationId: route.operationId,
-        wireId: route.wireId,
-        receiver,
-        target: target ?? undefined,
-        capturedScopeId,
-        adapterOrdinal,
-        deviceIngressOrdinal,
-        queueIngressOrdinal,
-        sealedLocalTimeline,
-        convertedArguments,
-        canvasService,
-      }, manifest.webIdlVocabulary.gpuTextureFormats);
+      validateCanvasServiceRequestFields(
+        {
+          operationId: route.operationId,
+          wireId: route.wireId,
+          receiver,
+          target: target ?? undefined,
+          capturedScopeId,
+          adapterOrdinal,
+          deviceIngressOrdinal,
+          queueIngressOrdinal,
+          sealedLocalTimeline,
+          convertedArguments,
+          canvasService,
+        },
+        manifest.webIdlVocabulary.gpuTextureFormats,
+        manifest.layout.sequenceMaxCount,
+      );
     }
     const inspectedBufferLifecycle = bufferLifecycle?.kind === 'cleanup-v1'
       ? Object.freeze({

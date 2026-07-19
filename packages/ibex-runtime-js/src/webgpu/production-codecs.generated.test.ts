@@ -453,8 +453,10 @@ function canvasConfigureServiceBody(): ProductionGpuCanvasServiceEncoding {
     configuredDeviceRef: reference('GPUDevice'),
     format: 'bgra8unorm',
     usage: 16,
+    viewFormats: Object.freeze([]),
     alphaMode: 'opaque',
     colorSpace: 'srgb',
+    toneMappingMode: 'standard',
     targetAuthorityDigest: '2'.repeat(64),
     surfaceAccountToken: '19',
     surfaceAccountGeneration: '23',
@@ -571,8 +573,10 @@ function serviceInput(
     ? Object.freeze({
       format: 'bgra8unorm',
       usage: 16,
+      viewFormats: Object.freeze([]),
       alphaMode: 'opaque',
       colorSpace: 'srgb',
+      toneMapping: Object.freeze({ mode: 'standard' }),
     })
     : operationId === 'GPUCanvasContext.unconfigure' ||
         operationId === 'GPUTexture.destroy'
@@ -2802,8 +2806,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
             ? {
               format: 'bgra8unorm',
               usage: 16,
+              viewFormats: Object.freeze([]),
               alphaMode: 'opaque',
               colorSpace: 'srgb',
+              toneMapping: Object.freeze({ mode: 'standard' }),
             }
             : route.operationId === 'GPUCanvasContext.unconfigure' ||
                 route.operationId === 'GPUTexture.destroy'
@@ -2836,8 +2842,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
       convertedArguments: {
         format: 'bgra8unorm',
         usage: 16,
+        viewFormats: [],
         alphaMode: 'opaque',
         colorSpace: 'srgb',
+        toneMapping: { mode: 'standard' },
       },
       canvasService: canvasConfigureServiceBody(),
     });
@@ -2960,6 +2968,24 @@ describe('generated injection-only WebGPU executable codecs', () => {
       ...configureInput,
       canvasService: {
         ...canvasConfigureServiceBody(),
+        viewFormats: ['rgba8unorm'],
+      },
+    })).toThrow('disagrees with converted configuration');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      convertedArguments: {
+        ...(configureInput.convertedArguments as Record<string, unknown>),
+        toneMapping: { mode: 'extended' },
+      },
+      canvasService: {
+        ...canvasConfigureServiceBody(),
+        toneMappingMode: 'extended',
+      } as never,
+    })).toThrow('must be standard');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      canvasService: {
+        ...canvasConfigureServiceBody(),
         unexpected: true,
       } as never,
     })).toThrow('closed lifecycle body');
@@ -3035,13 +3061,22 @@ describe('generated injection-only WebGPU executable codecs', () => {
     )).toThrow('Trailing bytes');
 
     const configureAlphaModeOffset = 12 + 41 + 1 + 32 + 5 + 41 + 24 +
-      41 + 4 + 'bgra8unorm'.length + 4;
-    expect(configurePayload[configureAlphaModeOffset]).toBe(1);
-    const unknownConfigureEnum = configurePayload.slice();
-    unknownConfigureEnum[configureAlphaModeOffset] = 0xff;
-    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
-      unknownConfigureEnum,
-    )).toThrow('enum tag is unknown');
+      41 + 4 + 'bgra8unorm'.length + 4 + 4;
+    expect(Array.from(configurePayload.slice(
+      configureAlphaModeOffset,
+      configureAlphaModeOffset + 3,
+    ))).toEqual([1, 1, 1]);
+    for (const offset of [
+      configureAlphaModeOffset,
+      configureAlphaModeOffset + 1,
+      configureAlphaModeOffset + 2,
+    ]) {
+      const unknownConfigureEnum = configurePayload.slice();
+      unknownConfigureEnum[offset] = 0xff;
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        unknownConfigureEnum,
+      )).toThrow('enum tag is unknown');
+    }
   });
 
   test('request encoding is canonical and rejects unknown tags, trailing bytes, and bounds', () => {
@@ -6112,6 +6147,67 @@ describe('generated injection-only WebGPU executable codecs', () => {
         wrapperValidationError: undefined,
       },
     });
+
+    const currentOrigin = completeTextureViewCurrentOrigin();
+    const canvasCurrentRecord = Object.freeze({
+      recordIdentityClass: 'active-route',
+      operationId: routeWireId('GPUCanvasContext.getCurrentTexture'),
+      operationName: 'GPUCanvasContext.getCurrentTexture',
+      operationIdentitySha256: null,
+      operationInstanceId: '13',
+      deviceIngressOrdinal: '17',
+      capturedScopeId: '0',
+      receiverRef: reference('GPUCanvasContext'),
+      commandEncoderRef: null,
+      passRef: null,
+      wrapperAllocatedTargetRef: reference('GPUTexture'),
+      argumentBody: Object.freeze({ currentOrigin }),
+      logicalError: null,
+    });
+    const canvasSubmitInput = Object.freeze({
+      ...serviceInput('GPUQueue.submit'),
+      deviceIngressOrdinal: '18',
+      sealedLocalTimeline: Object.freeze([canvasCurrentRecord]),
+    });
+    const canvasSubmitPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(canvasSubmitInput);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      canvasSubmitPayload,
+    )).toMatchObject({
+      operationId: 'GPUQueue.submit',
+      sealedLocalTimeline: [{
+        operationName: 'GPUCanvasContext.getCurrentTexture',
+        wrapperAllocatedTargetRef: reference('GPUTexture'),
+        argumentBody: { currentOrigin },
+      }],
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...canvasSubmitInput,
+        sealedLocalTimeline: [{
+          ...canvasCurrentRecord,
+          argumentBody: {
+            currentOrigin: {
+              ...currentOrigin,
+              contextRef: {
+                ...currentOrigin.contextRef,
+                objectId: '99',
+              },
+            },
+          },
+        }],
+      })).toThrow('source-affine record');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest({
+        ...canvasSubmitInput,
+        sealedLocalTimeline: [{
+          ...canvasCurrentRecord,
+          wrapperAllocatedTargetRef: {
+            ...reference('GPUTexture'),
+            objectId: '99',
+          },
+        }],
+      })).toThrow('digest does not bind');
   });
 
   test('encodes all typed mapAsync completions and rejects carrier, variant, extent, truncation, and trailing-byte drift', () => {

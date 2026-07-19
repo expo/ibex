@@ -604,14 +604,69 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
   );
 }
 
-function serviceCodecBlockers(codec) {
+function canvasNativeSemanticFields(codec, nativeCodecPrograms) {
+  const types = nativeCodecPrograms.types;
+  if (codec.tag === "gpu-canvas-configure-service-request-v1") {
+    const fields = types.canvasConfigureRequestBodyV1?.fields;
+    if (!Array.isArray(fields)) {
+      throw new Error("canvas configure native body fields are missing");
+    }
+    return fields.map((field) => field.name);
+  }
+  if (codec.tag === "gpu-canvas-unconfigure-service-request-v1") {
+    const fields = types.canvasUnconfigureRequestBodyV1?.fields;
+    if (!Array.isArray(fields)) {
+      throw new Error("canvas unconfigure native body fields are missing");
+    }
+    return fields.map((field) => field.name);
+  }
+  if (codec.tag === "gpu-texture-cleanup-service-request-v1") {
+    const cleanup = types.textureDestroyRequestBodyV1;
+    const origin = types.canvasCurrentTextureOriginV1;
+    if (
+      !Array.isArray(cleanup?.commonFields) ||
+      !cleanup?.tag ||
+      !Array.isArray(origin?.fields)
+    ) {
+      throw new Error("texture cleanup native body fields are missing");
+    }
+    const mintFields = origin.fields
+      .filter((field) => field.name.startsWith("mint"))
+      .map((field) => field.name);
+    if (
+      JSON.stringify(mintFields) !==
+        JSON.stringify(["mintOperationInstanceId", "mintDeviceIngressOrdinal"])
+    ) {
+      throw new Error(
+        "texture cleanup mintOperationProvenance native expansion drifted",
+      );
+    }
+    return [
+      ...cleanup.commonFields.map((field) => field.name),
+      cleanup.tag.name,
+      ...origin.fields.flatMap((field) =>
+        field.name === "mintOperationInstanceId"
+          ? ["mintOperationProvenance"]
+          : field.name === "mintDeviceIngressOrdinal"
+            ? []
+            : [field.name]
+      ),
+    ];
+  }
+  return undefined;
+}
+
+function serviceCodecBlockers(codec, nativeCodecPrograms) {
   if (codec.tag === "none-service-request-v1") return ["no-service-call"];
   if (codec.tag === "gpu-create-texture-view-service-request-v1") return [];
-  if (
-    codec.tag === "gpu-canvas-configure-service-request-v1" ||
-    codec.tag === "gpu-canvas-unconfigure-service-request-v1" ||
-    codec.tag === "gpu-texture-cleanup-service-request-v1"
-  ) {
+  const canvasFields = canvasNativeSemanticFields(codec, nativeCodecPrograms);
+  if (canvasFields !== undefined) {
+    const requiredFields = codec.requiredSemanticFields ?? [];
+    if (JSON.stringify(canvasFields) !== JSON.stringify(requiredFields)) {
+      throw new Error(
+        `${codec.tag} requiredSemanticFields do not bijectively match its authenticated native body`,
+      );
+    }
     return [];
   }
   if (
@@ -1527,7 +1582,7 @@ function buildCodecManifest(
     serviceArguments: numberedCatalog(
       payload.codecCatalog.serviceArguments,
       (codec) => {
-        const blockers = serviceCodecBlockers(codec);
+        const blockers = serviceCodecBlockers(codec, nativeCodecPrograms);
         const nativeProgramPrerequisitesRepresented =
           codec.tag !== "gpu-request-device-service-request-v1" ||
           requestDeviceProgram.request.executablePrerequisites.join(",") ===

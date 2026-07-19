@@ -36,7 +36,7 @@ export {
 };
 
 const EXPECTED_QUEUE_SUBMIT_COMMAND_RECORD_TYPE_SHA256 =
-  "432138a1cc45bccd3a7ffce4a53e391a3bd0a321ce7393e7a097410a9206d758";
+  "f15698f25d6c76cd48243cc7bacc6bee24f763f595840200a4de4d66cf3e218b";
 const EXPECTED_QUEUE_SUBMIT_REQUEST_BODY_TYPE_SHA256 =
   "db9e3537ef359719593b74e73ebbe670c35a4a9e4235cbd3bdecc3ce57cf5683";
 const EXPECTED_QUEUE_SUBMIT_NATIVE_ROUTE_SHA256 =
@@ -46,7 +46,7 @@ const EXPECTED_RENDER_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
 const EXPECTED_COMPUTE_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
   "a3acb8ac3e4c8a8b19efdbc015819f2387297686265b40d1c3fe79578c0a4ac5";
 const EXPECTED_CANVAS_NATIVE_PROGRAM_SHA256 =
-  "15944ef6b77e25afb117e46d6ad461e0573496138169368cd4c555710bb722d2";
+  "129337b77eafc714c1b696dcb7045ce1192916d33ba7da304cd2461ab9252ab5";
 
 function assert(condition, message) {
   if (!condition) throw new Error("webgpu test-wrapper authority: " + message);
@@ -569,6 +569,7 @@ function validateNativeCodecPrograms(payload) {
       "canvasConfigureRequestBodyV1",
       "canvasCurrentTextureOriginV1",
       "canvasUnconfigureRequestBodyV1",
+      "canvasViewFormatSequenceV1",
       "commandEncoderDescriptorV1",
       "commandRecordV1",
       "completeDeviceLimitsV1",
@@ -687,6 +688,20 @@ function validateNativeCodecPrograms(payload) {
     "native canvas sha256 digest type",
   );
   assertCanonical(
+    types.canvasViewFormatSequenceV1,
+    {
+      kind: "sequence",
+      countType: "u32le",
+      elementType: "utf8",
+      maxCountFrom: "codecLayout.sequenceMaxCount",
+      constraints: [
+        "preserve-WebIDL-order-and-duplicates",
+        "each-entry-is-a-pinned-GPUTextureFormat",
+      ],
+    },
+    "native canvas view-format sequence type",
+  );
+  assertCanonical(
     types.canvasConfigureRequestBodyV1,
     {
       kind: "struct",
@@ -698,8 +713,10 @@ function validateNativeCodecPrograms(payload) {
         { name: "configuredDeviceRef", type: "objectReferenceV1" },
         { name: "format", type: "utf8" },
         { name: "usage", type: "u32le" },
+        { name: "viewFormats", type: "canvasViewFormatSequenceV1" },
         { name: "alphaMode", type: "u8" },
         { name: "colorSpace", type: "u8" },
+        { name: "toneMappingMode", type: "u8" },
         { name: "targetAuthorityDigest", type: "sha256DigestV1" },
         { name: "surfaceAccountToken", type: "u64le" },
         { name: "surfaceAccountGeneration", type: "u64le" },
@@ -708,7 +725,8 @@ function validateNativeCodecPrograms(payload) {
         "receiverContextRef-exactly-equals-the-carried-GPUCanvasContext-reference",
         "configuredDeviceRef-is-current-generation-and-device-provenance-equals-receiver-ingress-device",
         "attachment-context-configuration-and-surface-account-generations-are-positive-source-affine-wrapper-values",
-        "format-usage-alphaMode-and-colorSpace-exactly-equal-the-post-WebIDL-converted-configuration",
+        "format-usage-viewFormats-alphaMode-colorSpace-and-toneMappingMode-exactly-equal-the-post-WebIDL-converted-configuration",
+        "toneMappingMode-is-the-phase-1a-profile-value-standard",
         "targetAuthorityDigest-is-the-construction-private-current-target-authority-digest",
         "body-is-wrapper-derived-and-cannot-be-supplied-by-the-public-GPUCanvasConfiguration",
       ],
@@ -872,6 +890,16 @@ function validateNativeCodecPrograms(payload) {
       { name: "GPUCommandEncoder.finish", tag: 15, identityClass: "active-route", recordRole: "command-program" },
     ],
     "native queue submit operation-variant table",
+  );
+  const canvasCurrentVariant = types.commandRecordV1.operationVariants[0];
+  assert(
+    canvasCurrentVariant?.argumentShape ===
+      "closed-canvas-current-origin-record" &&
+      Array.isArray(types.commandRecordV1.invariants) &&
+      types.commandRecordV1.invariants.includes(
+        "canvas-current-records-carry-a-complete-source-affine-origin-whose-digest-binds-the-wrapper-allocated-texture-target",
+      ),
+    "native queue submit canvas-current records do not close origin provenance",
   );
   assertDigest(
     canonicalDigest(
@@ -1674,6 +1702,7 @@ function validateNativeCodecPrograms(payload) {
         types: {
           sha256DigestV1: types.sha256DigestV1,
           canvasConfigureRequestBodyV1: types.canvasConfigureRequestBodyV1,
+          canvasViewFormatSequenceV1: types.canvasViewFormatSequenceV1,
           canvasUnconfigureRequestBodyV1: types.canvasUnconfigureRequestBodyV1,
           canvasCurrentTextureOriginV1: types.canvasCurrentTextureOriginV1,
           textureDestroyRequestBodyV1: types.textureDestroyRequestBodyV1,

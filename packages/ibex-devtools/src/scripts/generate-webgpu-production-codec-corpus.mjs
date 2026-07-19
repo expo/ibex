@@ -5878,10 +5878,34 @@ function buildCorpus() {
       return canvasDeviceRef;
     },
   });
-  const convertedCanvasConfigure =
+  const convertedCanvasConfigureDefaults =
     WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
       canvasConfigureOperationId,
       [Object.freeze({ device: canvasDeviceBrand, format: "bgra8unorm" })],
+      canvasWrapperAccess,
+    );
+  const convertedCanvasConfigure =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      canvasConfigureOperationId,
+      [Object.freeze({
+        alphaMode: "premultiplied",
+        colorSpace: "display-p3",
+        device: canvasDeviceBrand,
+        format: "bgra8unorm",
+        toneMapping: Object.freeze({ mode: "standard" }),
+        usage: 17,
+        viewFormats: Object.freeze(["rgba8unorm", "rgba8unorm"]),
+      })],
+      canvasWrapperAccess,
+    );
+  const convertedCanvasExtendedToneMapping =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      canvasConfigureOperationId,
+      [Object.freeze({
+        device: canvasDeviceBrand,
+        format: "bgra8unorm",
+        toneMapping: Object.freeze({ mode: "extended" }),
+      })],
       canvasWrapperAccess,
     );
   const convertedCanvasUnconfigure =
@@ -5899,10 +5923,20 @@ function buildCorpus() {
   if (
     convertedCanvasUnconfigure !== null ||
     convertedTextureDestroy !== null ||
+    convertedCanvasConfigureDefaults.format !== "bgra8unorm" ||
+    convertedCanvasConfigureDefaults.usage !== 16 ||
+    convertedCanvasConfigureDefaults.viewFormats.length !== 0 ||
+    convertedCanvasConfigureDefaults.alphaMode !== "opaque" ||
+    convertedCanvasConfigureDefaults.colorSpace !== "srgb" ||
+    convertedCanvasConfigureDefaults.toneMapping.mode !== "standard" ||
     convertedCanvasConfigure.format !== "bgra8unorm" ||
-    convertedCanvasConfigure.usage !== 16 ||
-    convertedCanvasConfigure.alphaMode !== "opaque" ||
-    convertedCanvasConfigure.colorSpace !== "srgb"
+    convertedCanvasConfigure.usage !== 17 ||
+    JSON.stringify(convertedCanvasConfigure.viewFormats) !==
+      JSON.stringify(["rgba8unorm", "rgba8unorm"]) ||
+    convertedCanvasConfigure.alphaMode !== "premultiplied" ||
+    convertedCanvasConfigure.colorSpace !== "display-p3" ||
+    convertedCanvasConfigure.toneMapping.mode !== "standard" ||
+    convertedCanvasExtendedToneMapping.toneMapping.mode !== "extended"
   ) {
     fail("canvas lifecycle public conversion projection drifted");
   }
@@ -5915,9 +5949,11 @@ function buildCorpus() {
     configurationGeneration: "8",
     configuredDeviceRef: canvasDeviceRef,
     format: "bgra8unorm",
-    usage: 16,
-    alphaMode: "opaque",
-    colorSpace: "srgb",
+    usage: 17,
+    viewFormats: Object.freeze(["rgba8unorm", "rgba8unorm"]),
+    alphaMode: "premultiplied",
+    colorSpace: "display-p3",
+    toneMappingMode: "standard",
     targetAuthorityDigest: canvasTargetAuthorityDigest,
     surfaceAccountToken: "19",
     surfaceAccountGeneration: "23",
@@ -5949,9 +5985,9 @@ function buildCorpus() {
         }),
         configuredDeviceRef: canvasDeviceRef,
         format: "bgra8unorm",
-        usage: 16,
-        alphaMode: "opaque",
-        colorSpace: "srgb",
+        usage: 17,
+        alphaMode: "premultiplied",
+        colorSpace: "display-p3",
         targetAuthorityDigest: canvasTargetAuthorityDigest,
         surfaceAccountToken: "19",
         surfaceAccountGeneration: "23",
@@ -6143,6 +6179,136 @@ function buildCorpus() {
       }),
     });
   };
+  const canvasCarrierMutationEntries = [
+    canvasRequestById.get("canvas-configure-next-generation-request"),
+    canvasRequestById.get("canvas-unconfigure-retiring-generation-request"),
+    canvasRequestById.get("texture-destroy-expired-canvas-current-request"),
+  ];
+  const canvasCarrierMutationCases = Object.freeze([
+    Object.freeze({
+      id: "operation-id",
+      field: "operation_id",
+      mutate: (carrier) => ({
+        ...carrier,
+        operation_id: carrier.operation_id + 1,
+      }),
+    }),
+    Object.freeze({
+      id: "operation-instance-id",
+      field: "operation_instance_id",
+      mutate: (carrier) => ({ ...carrier, operation_instance_id: "0" }),
+    }),
+    Object.freeze({
+      id: "captured-scope-id",
+      field: "captured_scope_id",
+      mutate: (carrier) => ({ ...carrier, captured_scope_id: "3" }),
+    }),
+    Object.freeze({
+      id: "device-ingress-ordinal",
+      field: "device_ingress_ordinal",
+      mutate: (carrier) => ({ ...carrier, device_ingress_ordinal: "31" }),
+    }),
+    Object.freeze({
+      id: "ingress-logical-device-id",
+      field: "ingress_device.logical_device_id",
+      mutate: (carrier) => ({
+        ...carrier,
+        ingress_device: {
+          ...carrier.ingress_device,
+          logical_device_id: "56",
+        },
+      }),
+    }),
+    Object.freeze({
+      id: "ingress-logical-device-generation",
+      field: "ingress_device.logical_device_generation",
+      mutate: (carrier) => ({
+        ...carrier,
+        ingress_device: {
+          ...carrier.ingress_device,
+          logical_device_generation: "2",
+        },
+      }),
+    }),
+    Object.freeze({
+      id: "ingress-provider-generation",
+      field: "ingress_device.provider_generation",
+      mutate: (carrier) => ({
+        ...carrier,
+        ingress_device: {
+          ...carrier.ingress_device,
+          provider_generation: "10",
+        },
+      }),
+    }),
+    Object.freeze({
+      id: "operation-provider-generation",
+      field: "provider_generation",
+      mutate: (carrier) => ({ ...carrier, provider_generation: "10" }),
+    }),
+    Object.freeze({
+      id: "receiver-kind",
+      field: "receiver.kind",
+      mutate: (carrier) => ({
+        ...carrier,
+        receiver: {
+          ...carrier.receiver,
+          kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUDevice,
+        },
+      }),
+    }),
+    Object.freeze({
+      id: "receiver-object-id",
+      field: "receiver.object_id",
+      mutate: (carrier) => ({
+        ...carrier,
+        receiver: { ...carrier.receiver, object_id: "999" },
+      }),
+    }),
+    Object.freeze({
+      id: "receiver-object-generation",
+      field: "receiver.object_generation",
+      mutate: (carrier) => ({
+        ...carrier,
+        receiver: { ...carrier.receiver, object_generation: "3" },
+      }),
+    }),
+    Object.freeze({
+      id: "non-null-target",
+      field: "target",
+      mutate: (carrier) => ({
+        ...carrier,
+        target: {
+          kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUTexture,
+          flags: 0,
+          object_id: "142",
+          object_generation: "1",
+        },
+      }),
+    }),
+  ]);
+  const canvasCarrierRejections = Object.freeze(
+    canvasCarrierMutationEntries.flatMap((entry) => {
+      const carrier = canvasRequestCarrier(entry);
+      return canvasCarrierMutationCases.map((mutation) => Object.freeze({
+        id: `${entry.id}-carrier-${mutation.id}-rejected`,
+        operationId: entry.operationId,
+        kind: "carrier-rejection",
+        carrierProjection: Object.freeze(mutation.mutate(carrier)),
+        authenticatedCarrierMutation: Object.freeze({
+          field: mutation.field,
+          originalCarrierProjection: carrier,
+        }),
+        bytesHex: toHex(entry.encoded.bytes),
+        expected: Object.freeze({
+          rejection:
+            "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        }),
+      }));
+    }),
+  );
   const canvasCompletionCarrier = (
     entry,
     providerAdmission,
@@ -6185,12 +6351,50 @@ function buildCorpus() {
   const expiredTextureDestroyBytes = canvasRequestById.get(
     "texture-destroy-expired-canvas-current-request",
   ).encoded.bytes;
+  const canvasConfigureEnumOffset = 12 + 41 + 1 + 32 + 5 + 41 + 24 +
+    41 + 4 + "bgra8unorm".length + 4 + 4 +
+    canvasConfigureBody.viewFormats.reduce(
+      (size, format) => size + 4 + format.length,
+      0,
+    );
+  const canvasConfigureViewFormatCountOffset =
+    canvasConfigureEnumOffset -
+    canvasConfigureBody.viewFormats.reduce(
+      (size, format) => size + 4 + format.length,
+      0,
+    ) - 4;
   const canvasBinaryRejections = Object.freeze([
-    {
-      id: "canvas-configure-unknown-alpha-mode-tag-rejected",
+    ...[
+      ["alpha-mode", 0],
+      ["color-space", 1],
+      ["tone-mapping-mode", 2],
+    ].map(([name, offset]) => Object.freeze({
+      id: `canvas-configure-unknown-${name}-tag-rejected`,
       operationId: canvasConfigureOperationId,
-      mutation: "alpha-mode-tag-255",
-      bytes: mutatedBytes(configureBytes, (bytes) => { bytes[215] = 0xff; }),
+      mutation: `${name}-tag-255`,
+      bytes: mutatedBytes(configureBytes, (bytes) => {
+        bytes[canvasConfigureEnumOffset + offset] = 0xff;
+      }),
+    })),
+    {
+      id: "canvas-configure-view-format-count-bound-rejected",
+      operationId: canvasConfigureOperationId,
+      mutation: "view-format-count-max-plus-one",
+      bytes: mutatedBytes(configureBytes, (_bytes, view) => {
+        view.setUint32(
+          canvasConfigureViewFormatCountOffset,
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.sequenceMaxCount + 1,
+          true,
+        );
+      }),
+    },
+    {
+      id: "canvas-configure-extended-tone-mapping-body-rejected",
+      operationId: canvasConfigureOperationId,
+      mutation: "tone-mapping-mode-extended-tag",
+      bytes: mutatedBytes(configureBytes, (bytes) => {
+        bytes[canvasConfigureEnumOffset + 2] = 2;
+      }),
     },
     {
       id: "canvas-unconfigure-unknown-terminal-intent-tag-rejected",
@@ -6594,6 +6798,14 @@ function buildCorpus() {
   };
   const submitReferences = Object.freeze({
     queue: queueReceiver,
+    device: Object.freeze({
+      kind: "GPUDevice",
+      objectId: "207",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
     adapter: Object.freeze({
       kind: "GPUAdapter",
       objectId: "208",
@@ -6729,12 +6941,42 @@ function buildCorpus() {
     argumentBody,
     logicalError,
   });
+  const timelineOnlyOriginDigestInput = Object.freeze({
+    originClass: "canvas-current",
+    receiverTextureRef: submitReferences.sourceTexture,
+    contextRef: submitReferences.canvas,
+    attachmentGeneration: "31",
+    contextGeneration: "37",
+    configurationGeneration: "8",
+    currentEpoch: "13",
+    mintOperationProvenance: Object.freeze({
+      operationInstanceId: "110",
+      deviceIngressOrdinal: "10",
+    }),
+    configuredDeviceRef: submitReferences.device,
+    format: "bgra8unorm",
+    usage: 17,
+    alphaMode: "premultiplied",
+    colorSpace: "display-p3",
+    targetAuthorityDigest: "ef".repeat(32),
+    surfaceAccountToken: "41",
+    surfaceAccountGeneration: "43",
+  });
+  const {
+    receiverTextureRef: _timelineOnlyReceiverTextureRef,
+    ...timelineOnlyOriginFacts
+  } = timelineOnlyOriginDigestInput;
+  const timelineOnlyCurrentOrigin = Object.freeze({
+    ...timelineOnlyOriginFacts,
+    textureOriginDigest: WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .deriveTextureOriginDigest(timelineOnlyOriginDigestInput),
+  });
   const timelineOnlySubmitRecord = submitRecord({
     operationName: "GPUCanvasContext.getCurrentTexture",
     ingress: 10,
     receiverRef: submitReferences.canvas,
     wrapperAllocatedTargetRef: submitReferences.sourceTexture,
-    argumentBody: null,
+    argumentBody: Object.freeze({ currentOrigin: timelineOnlyCurrentOrigin }),
   });
   const commandRecords = Object.freeze([
     submitRecord({
@@ -7130,8 +7372,18 @@ function buildCorpus() {
   const beginComputeTableIndex = queueSubmitPositive.inspected.recordTable.findIndex(
     (record) => record.operationName === "GPUCommandEncoder.beginComputePass",
   );
+  const canvasCurrentTableIndex = queueSubmitPositive.inspected.recordTable.findIndex(
+    (record) => record.operationName === "GPUCanvasContext.getCurrentTexture",
+  );
   const depthSliceOffset = asciiOffset(queueSubmitPositive.bytes, "depthSlice") +
     Buffer.byteLength("depthSlice");
+  const canvasCurrentOriginDigestOffset = asciiOffset(
+    queueSubmitPositive.bytes,
+    timelineOnlyCurrentOrigin.textureOriginDigest,
+  );
+  if (canvasCurrentTableIndex < 0) {
+    fail("queue-submit canvas-current record is absent from the positive table");
+  }
   if (
     queueSubmitPositive.bytes[depthSliceOffset] !==
       WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.valueTags.u32
@@ -7201,6 +7453,25 @@ function buildCorpus() {
       mutation: "staged-record-identity-digest-bit",
       bytes: mutatedBytes(queueSubmitPositive.bytes, (bytes) => {
         bytes[queueSubmitPositiveLayout.records[firstStagedIndex].start + 8] ^= 1;
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-canvas-current-target-retarget-rejected",
+      mutation: "canvas-current-wrapper-target-object-id-999",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        view.setUint32(
+          queueSubmitPositiveLayout.records[canvasCurrentTableIndex].start + 109,
+          999,
+          true,
+        );
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-canvas-current-origin-digest-rejected",
+      mutation: "canvas-current-origin-digest-byte-without-target-rebind",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (bytes) => {
+        bytes[canvasCurrentOriginDigestOffset] =
+          bytes[canvasCurrentOriginDigestOffset] === 0x30 ? 0x31 : 0x30;
       }),
     }),
     Object.freeze({
@@ -8239,6 +8510,7 @@ function buildCorpus() {
         bytesHex: toHex(entry.encoded.bytes),
         expected: entry.encoded.inspected,
       })),
+      ...canvasCarrierRejections,
       ...[
         {
           entry: canvasRequestById.get(
@@ -8309,6 +8581,28 @@ function buildCorpus() {
         },
       })),
       {
+        id: "canvas-configure-extended-tone-mapping-content-rejected",
+        operationId: canvasConfigureOperationId,
+        kind: "content-timeline-rejection",
+        convertedArguments: convertedCanvasExtendedToneMapping,
+        observedDictionaryGetOrder: [
+          "alphaMode",
+          "colorSpace",
+          "device",
+          "format",
+          "toneMapping",
+          "toneMapping.mode",
+          "usage",
+          "viewFormats",
+        ],
+        expected: {
+          rejection: "phase-1a-tone-mapping-mode-is-standard",
+          configurationPublicationCount: 0,
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
         id: "canvas-configure-candidate-generation-mismatch-rejected",
         operationId: canvasConfigureOperationId,
         kind: "semantic-rejection",
@@ -8316,9 +8610,9 @@ function buildCorpus() {
           "canvas-configure-next-generation-request",
         )),
         authenticatedStateMutation: {
-          currentConfigurationGeneration: "7",
-          requiredCandidateConfigurationGeneration: "8",
-          payloadConfigurationGeneration: "7",
+          currentConfigurationGeneration: "8",
+          requiredCandidateConfigurationGeneration: "9",
+          payloadConfigurationGeneration: "8",
         },
         expected: {
           rejection: "source-affine-generation-mismatch-before-provider-admission",
@@ -8356,6 +8650,104 @@ function buildCorpus() {
         },
         expected: {
           rejection: "source-affine-generation-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "canvas-configure-authenticated-snapshot-mismatch-rejected",
+        operationId: canvasConfigureOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "canvas-configure-next-generation-request",
+        )),
+        bytesHex: toHex(configureBytes),
+        authenticatedStateMutation: {
+          installedConfigurationGeneration: "8",
+          installedFormat: "bgra8unorm",
+          installedUsage: 17,
+          installedViewFormats: ["rgba16float"],
+          installedToneMappingMode: "standard",
+          payloadViewFormats: ["rgba8unorm", "rgba8unorm"],
+        },
+        expected: {
+          rejection:
+            "source-affine-configured-state-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "canvas-configure-surface-account-state-mismatch-rejected",
+        operationId: canvasConfigureOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "canvas-configure-next-generation-request",
+        )),
+        bytesHex: toHex(configureBytes),
+        authenticatedStateMutation: {
+          currentSurfaceAccountToken: "20",
+          payloadSurfaceAccountToken: "19",
+          currentSurfaceAccountGeneration: "23",
+          payloadSurfaceAccountGeneration: "23",
+        },
+        expected: {
+          rejection: "source-affine-surface-account-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "texture-destroy-origin-digest-state-mismatch-rejected",
+        operationId: textureDestroyOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "texture-destroy-expired-canvas-current-request",
+        )),
+        bytesHex: toHex(expiredTextureDestroyBytes),
+        authenticatedStateMutation: {
+          authenticatedTextureOriginDigest: "cd".repeat(32),
+          payloadTextureOriginDigest: canvasTextureOriginDigest,
+        },
+        expected: {
+          rejection: "source-affine-texture-origin-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "texture-destroy-materialization-state-mismatch-rejected",
+        operationId: textureDestroyOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "texture-destroy-expired-canvas-current-request",
+        )),
+        bytesHex: toHex(expiredTextureDestroyBytes),
+        authenticatedStateMutation: {
+          authenticatedMaterializationState: "unmaterialized",
+          payloadMaterializationState: "materialized",
+        },
+        expected: {
+          rejection: "texture-materialization-state-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "texture-destroy-terminal-state-mismatch-rejected",
+        operationId: textureDestroyOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "texture-destroy-expired-canvas-current-request",
+        )),
+        bytesHex: toHex(expiredTextureDestroyBytes),
+        authenticatedStateMutation: {
+          authenticatedTextureTerminalState: "already-destroyed",
+          requiredTerminalIntent: "repeat-cleanup-noop",
+          payloadTerminalIntent: "first-expired-cleanup",
+        },
+        expected: {
+          rejection: "texture-terminal-intent-mismatch-before-provider-admission",
           providerTokenCount: 0,
           physicalSequenceCount: 0,
         },

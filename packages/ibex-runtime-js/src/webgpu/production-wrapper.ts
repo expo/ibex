@@ -132,6 +132,13 @@ interface DeviceState {
   scopeExhausted: boolean;
   scopes: Array<Readonly<{ id: string; filter: string }>>;
   pendingLocalTimeline: unknown[];
+  readonly pendingCurrentTextureMaterializations: Map<
+    WrapperState,
+    {
+      readonly records: unknown[];
+      readonly materializesOnPrefixCarrier: boolean;
+    }
+  >;
   readonly configuredCanvasContexts: Set<WrapperState>;
   readonly buffers: Set<WrapperState>;
 }
@@ -784,7 +791,21 @@ function cloneConfiguration(
   value: Record<string, unknown>,
 ): Record<string, unknown> {
   const clone: Record<string, unknown> = {};
-  for (const key of Object.keys(value)) clone[key] = value[key];
+  for (const key of Object.keys(value)) {
+    const member = value[key];
+    if (key === 'viewFormats' && Array.isArray(member)) {
+      clone[key] = member.slice();
+    } else if (
+      key === 'toneMapping' &&
+      typeof member === 'object' &&
+      member !== null &&
+      !Array.isArray(member)
+    ) {
+      clone[key] = { ...(member as Record<string, unknown>) };
+    } else {
+      clone[key] = member;
+    }
+  }
   return clone;
 }
 
@@ -1591,6 +1612,7 @@ export function createProductionWebGpuPrivateBinding(
     for (const device of devices) {
       device.configuredCanvasContexts.clear();
       device.pendingLocalTimeline.length = 0;
+      device.pendingCurrentTextureMaterializations.clear();
       if (!device.lost.settled) {
         device.lost.settled = true;
         const info = Object.freeze(Object.assign(
@@ -2249,6 +2271,7 @@ export function createProductionWebGpuPrivateBinding(
   ): Readonly<{
     operationInstanceId: string;
     deviceIngressOrdinal: string;
+    sealedRecord: Readonly<Record<string, unknown>>;
   }> => commitLocalRecord(
     prepareLocalRecord(operationId, receiver, target?.device),
     receiver,
@@ -2413,12 +2436,52 @@ export function createProductionWebGpuPrivateBinding(
     if ((receiver.device ?? target?.device) !== device) {
       throw new Error(`${operationId} counter plan changed logical device`);
     }
-    // Immediate uploads and wrapper-owned buffer lifecycle calls must neither
-    // consume nor duplicate command records still waiting for queue.submit.
+    // writeBuffer owns an immediate affine byte snapshot and queue ordinal,
+    // and wrapper-owned buffer lifecycle calls are likewise independent of
+    // command recording, so they must neither consume nor duplicate command
+    // records still waiting for their eventual queue.submit carrier. A pending
+    // canvas-current mint likewise remains pending until a carrier that
+    // authenticates that exact origin takes it. Direct createView/destroy
+    // selects only its receiver's mint record; queue.submit/popErrorScope take
+    // the contiguous global prefix. Unrelated accepted operations cannot
+    // silently erase the source-affine origin/materialization obligation.
+    const carriesCanvasCurrentOrigin =
+      operationId === 'GPUQueue.submit' ||
+      operationId === 'GPUDevice.popErrorScope' ||
+      ((operationId === 'GPUTexture.createView' ||
+        operationId === 'GPUTexture.destroy') &&
+        receiver.kind === 'GPUTexture' &&
+        receiver.currentOrigin !== undefined);
+    const retainsPendingCanvasCurrentOrigin =
+      (device?.pendingCurrentTextureMaterializations.size ?? 0) > 0 &&
+      !carriesCanvasCurrentOrigin;
+    const directCanvasCurrentRecords =
+      carriesCanvasCurrentOrigin &&
+        operationId !== 'GPUQueue.submit' &&
+        operationId !== 'GPUDevice.popErrorScope' &&
+        device
+        ? device.pendingCurrentTextureMaterializations.get(receiver)?.records
+        : undefined;
     const sealedLocalTimeline = Object.freeze(
-      operationId === 'GPUQueue.writeBuffer' || bufferLifecycle !== undefined
+      operationId === 'GPUQueue.writeBuffer' ||
+        bufferLifecycle !== undefined ||
+        retainsPendingCanvasCurrentOrigin
         ? []
-        : device?.pendingLocalTimeline.slice() ?? [],
+        : directCanvasCurrentRecords !== undefined
+          ? directCanvasCurrentRecords.slice()
+          : carriesCanvasCurrentOrigin &&
+              operationId !== 'GPUQueue.submit' &&
+              operationId !== 'GPUDevice.popErrorScope'
+            ? []
+            : device?.pendingLocalTimeline.slice() ?? [],
+    );
+    const prefixCurrentTextureOrigins = Object.freeze(
+      sealedLocalTimeline.length === 0 || !device
+        ? []
+        : [...device.pendingCurrentTextureMaterializations.entries()]
+          .filter(([, origin]) =>
+            origin.records.every((record) => sealedLocalTimeline.includes(record))
+          )
     );
     const receiverReference = singleton
       ? Object.freeze({
@@ -2541,7 +2604,39 @@ export function createProductionWebGpuPrivateBinding(
         `WebGPU realm closed during ${operationId}`,
       );
     }
-    if (device) device.pendingLocalTimeline.splice(0, sealedLocalTimeline.length);
+    if (device) {
+      if (directCanvasCurrentRecords !== undefined) {
+        for (const currentRecord of directCanvasCurrentRecords) {
+          const recordIndex = device.pendingLocalTimeline.indexOf(currentRecord);
+          if (recordIndex >= 0) {
+            device.pendingLocalTimeline.splice(recordIndex, 1);
+          }
+        }
+      } else {
+        device.pendingLocalTimeline.splice(0, sealedLocalTimeline.length);
+      }
+      if (
+        operationId === 'GPUQueue.submit' ||
+        operationId === 'GPUDevice.popErrorScope'
+      ) {
+        for (const [texture, origin] of prefixCurrentTextureOrigins) {
+          device.pendingCurrentTextureMaterializations.delete(texture);
+          if (origin.materializesOnPrefixCarrier) texture.materialized = true;
+        }
+      }
+      if (
+        (operationId === 'GPUTexture.createView' ||
+          operationId === 'GPUTexture.destroy') &&
+        receiver.kind === 'GPUTexture' &&
+        receiver.currentOrigin !== undefined
+      ) {
+        // Direct texture carriers authenticate their receiver's immutable
+        // origin independently of whether its original mint record remains in
+        // this particular contiguous prefix. Never settle a second context's
+        // obligation merely because that record shared the encoded prefix.
+        device.pendingCurrentTextureMaterializations.delete(receiver);
+      }
+    }
     if (!wantsPromise) return undefined;
     if (!carrier.receipt || carrier.promiseId === '0') {
       throw new Error(`${operationId} did not return its required receipt`);
@@ -2665,6 +2760,7 @@ export function createProductionWebGpuPrivateBinding(
         scopeExhausted: false,
         scopes: [],
         pendingLocalTimeline: [],
+        pendingCurrentTextureMaterializations: new Map(),
         configuredCanvasContexts: new Set(),
         buffers: new Set(),
       };
@@ -2853,28 +2949,73 @@ export function createProductionWebGpuPrivateBinding(
     );
     const deviceWrapper = converted.device;
     const deviceState = requireState(deviceWrapper, 'GPUDevice');
-    if (
-      !deviceState.device ||
-      deviceState.device.destroyed ||
-      deviceState.device.lost.settled
-    ) {
-      throw namedError('InvalidStateError', 'GPUDevice is unavailable');
-    }
+    if (!deviceState.device) throw new Error('GPUDevice lacks logical device state');
     const configuredDevice = deviceState.device;
     const canvasAuthority = context.canvasAuthority;
     const configuredFormat = converted.format;
     const configuredUsage = converted.usage;
     const configuredAlphaMode = converted.alphaMode;
     const configuredColorSpace = converted.colorSpace;
+    const configuredViewFormats = converted.viewFormats;
+    const configuredToneMapping = converted.toneMapping;
     if (
       !canvasAuthority ||
       typeof configuredFormat !== 'string' ||
       typeof configuredUsage !== 'number' ||
+      !Array.isArray(configuredViewFormats) ||
+      typeof configuredToneMapping !== 'object' ||
+      configuredToneMapping === null ||
+      Array.isArray(configuredToneMapping) ||
       (configuredAlphaMode !== 'opaque' &&
         configuredAlphaMode !== 'premultiplied') ||
       (configuredColorSpace !== 'srgb' && configuredColorSpace !== 'display-p3')
     ) {
       throw new Error('GPUCanvasContext lacks closed configure authority');
+    }
+    const toneMappingMode = (configuredToneMapping as Record<string, unknown>).mode;
+    if (toneMappingMode !== 'standard' && toneMappingMode !== 'extended') {
+      throw new Error('GPUCanvasContext lacks a normalized tone-mapping mode');
+    }
+    const requiredFeatures: Readonly<Record<string, string | null>> =
+      WEBGPU_PRODUCTION_PLAN.webIdlVocabulary.gpuTextureFormatRequiredFeatures;
+    for (const format of [configuredFormat, ...configuredViewFormats]) {
+      if (
+        typeof format !== 'string' ||
+        !Object.prototype.hasOwnProperty.call(requiredFeatures, format)
+      ) {
+        throw new Error(`GPUTextureFormat ${String(format)} lacks capability metadata`);
+      }
+      const requiredFeature = requiredFeatures[format];
+      if (
+        requiredFeature !== null &&
+        !configuredDevice.featureNames.includes(requiredFeature)
+      ) {
+        throw new TypeError(
+          `GPUTextureFormat ${format} requires feature ${requiredFeature}`,
+        );
+      }
+    }
+    if (
+      configuredFormat !== 'bgra8unorm' &&
+      configuredFormat !== 'rgba8unorm' &&
+      configuredFormat !== 'rgba16float'
+    ) {
+      throw new TypeError(
+        `GPUTextureFormat ${configuredFormat} is not a supported canvas context format`,
+      );
+    }
+    // @webgpu/types exposes this post-CRD bit, but Exact's pinned CRD profile
+    // excludes it. The WebGPU configure algorithm rejects it on the content
+    // timeline before configuration state changes.
+    if ((configuredUsage & 0x20) !== 0) {
+      throw new TypeError(
+        'GPUCanvasConfiguration.usage may not include TRANSIENT_ATTACHMENT',
+      );
+    }
+    if (toneMappingMode !== 'standard') {
+      throw new TypeError(
+        'GPUCanvasConfiguration.toneMapping.mode must be standard in this profile',
+      );
     }
     const nextConfigurationGeneration = advanceCounterOrClose(
       context.configurationGeneration,
@@ -2886,14 +3027,6 @@ export function createProductionWebGpuPrivateBinding(
       configuredDevice,
     );
     const copiedConfiguration = cloneConfiguration(converted);
-    const previousConfiguration = context.configuration;
-    const previousConfigurationGeneration = context.configurationGeneration;
-    const previousConfiguredDevice = context.configuredDevice;
-    const previousConfiguredDeviceWrapper = context.configuredDeviceWrapper;
-    const previousCanvasContextLifecycle = context.canvasContextLifecycle;
-    const previousDeviceMembership = previousConfiguredDevice
-      ?.configuredCanvasContexts.has(context) ?? false;
-    let provisionalConfigurationInstalled = false;
     let submissionFailure: ServiceSubmissionFailureKind | undefined;
     const configureServiceAuthority: ProductionGpuCanvasServiceEncoding =
       Object.freeze({
@@ -2905,12 +3038,31 @@ export function createProductionWebGpuPrivateBinding(
         configuredDeviceRef: reference(deviceWrapper, 'GPUDevice'),
         format: configuredFormat,
         usage: configuredUsage,
+        viewFormats: Object.freeze(configuredViewFormats.slice()) as readonly string[],
         alphaMode: configuredAlphaMode,
         colorSpace: configuredColorSpace,
+        toneMappingMode,
         targetAuthorityDigest: canvasAuthority.targetAuthorityDigest,
         surfaceAccountToken: canvasAuthority.surfaceAccountToken,
         surfaceAccountGeneration: canvasAuthority.surfaceAccountGeneration,
       });
+    // LLP 0368 §2.2 installs the copied configuration immediately after the
+    // synchronous content checks. Native payload encoding and service
+    // admission are downstream implementation work: neither a deterministic
+    // non-admission nor a later device-timeline validation may resurrect the
+    // old configuration or current texture.
+    unlinkConfiguredCanvasContext(context);
+    expireCurrentTexture(context);
+    context.configurationGeneration = nextConfigurationGeneration;
+    context.configuration = copiedConfiguration;
+    context.configuredDevice = configuredDevice;
+    context.configuredDeviceWrapper = deviceWrapper as object;
+    context.canvasContextLifecycle = 'configured';
+    configuredDevice.configuredCanvasContexts.add(context);
+    if (configuredDevice.destroyed || configuredDevice.lost.settled) {
+      context.canvasContextLifecycle = 'lost';
+      configuredDevice.configuredCanvasContexts.delete(context);
+    }
     // The semantic call carries the configured device as ingress while the
     // service receiver remains the complete canvas-context reference.
     context.device = configuredDevice;
@@ -2923,89 +3075,29 @@ export function createProductionWebGpuPrivateBinding(
           converted,
           false,
           servicePlan,
-          () => {
-            if (
-              !realm.active ||
-              configuredDevice.destroyed ||
-              configuredDevice.lost.settled
-            ) {
-              throw namedError('InvalidStateError', 'GPUDevice is unavailable');
-            }
-            // LLP 0368 §2.2 installs the copied configuration before later
-            // device-timeline validation. A loss delivered reentrantly by the
-            // bridge must therefore observe and terminalize this generation.
-            unlinkConfiguredCanvasContext(context);
-            expireCurrentTexture(context);
-            context.configurationGeneration = nextConfigurationGeneration;
-            context.configuration = copiedConfiguration;
-            context.configuredDevice = configuredDevice;
-            context.configuredDeviceWrapper = deviceWrapper as object;
-            context.canvasContextLifecycle = 'configured';
-            configuredDevice.configuredCanvasContexts.add(context);
-            provisionalConfigurationInstalled = true;
-          },
+          undefined,
           (failure) => {
             submissionFailure = failure;
           },
           configureServiceAuthority,
         );
       } catch (error) {
-        if (
-          provisionalConfigurationInstalled &&
-          submissionFailure !== undefined &&
-          realm.active
-        ) {
+        if (submissionFailure === 'bridge-threw' && realm.active) {
           // A synchronous LLP 0368 §2.4 loss is already terminal and must
-          // dominate either provider return. Otherwise an explicit rejection
-          // proves non-admission and may roll back only the provisional
-          // publication; ingress remains consumed and an expired old texture
-          // never revives. A thrown bridge call has ambiguous admission, so
-          // it closes the realm instead of guessing.
+          // dominate the thrown bridge return. Otherwise admission is
+          // ambiguous, so close the realm instead of guessing. An explicit
+          // non-admission is not ambiguous and leaves the already-installed
+          // configuration intact for the caller's next operation.
           const lossWon =
             configuredDevice.lost.settled &&
             context.canvasContextLifecycle === 'lost' &&
             context.configuredDevice === configuredDevice &&
             !configuredDevice.configuredCanvasContexts.has(context);
           if (!lossWon) {
-            const provisionalStateIsIntact =
-              !configuredDevice.destroyed &&
-              !configuredDevice.lost.settled &&
-              context.canvasContextLifecycle === 'configured' &&
-              context.configurationGeneration === nextConfigurationGeneration &&
-              context.configuration === copiedConfiguration &&
-              context.configuredDevice === configuredDevice &&
-              context.configuredDeviceWrapper === deviceWrapper &&
-              context.currentTexture === undefined &&
-              configuredDevice.configuredCanvasContexts.has(context);
-            const previousStateCanBeRestored =
-              !previousDeviceMembership ||
-              (previousConfiguredDevice !== undefined &&
-                !previousConfiguredDevice.destroyed &&
-                !previousConfiguredDevice.lost.settled);
-            if (
-              submissionFailure === 'submission-rejected' &&
-              provisionalStateIsIntact &&
-              previousStateCanBeRestored
-            ) {
-              configuredDevice.configuredCanvasContexts.delete(context);
-              context.configurationGeneration = previousConfigurationGeneration;
-              context.configuration = previousConfiguration;
-              context.configuredDevice = previousConfiguredDevice;
-              context.configuredDeviceWrapper = previousConfiguredDeviceWrapper;
-              context.canvasContextLifecycle = previousCanvasContextLifecycle;
-              if (previousDeviceMembership && previousConfiguredDevice) {
-                previousConfiguredDevice.configuredCanvasContexts.add(context);
-              }
-            } else {
-              closeRealmCounterIndependently(
-                submissionFailure === 'bridge-threw'
-                  ? 'canvas-configure-submit-threw'
-                  : 'canvas-configure-rejection-race',
-                submissionFailure === 'bridge-threw'
-                  ? 'The WebGPU realm closed because canvas configure submission threw'
-                  : 'The WebGPU realm closed after a canvas configure rejection race',
-              );
-            }
+            closeRealmCounterIndependently(
+              'canvas-configure-submit-threw',
+              'The WebGPU realm closed because canvas configure submission threw',
+            );
           }
         }
         throw error;
@@ -3065,7 +3157,7 @@ export function createProductionWebGpuPrivateBinding(
     function (this: object) {
       const context = requireState(this, 'GPUCanvasContext');
       assertCanvasContextUsable(context);
-      const converted = convert('GPUCanvasContext.getCurrentTexture', []);
+      convert('GPUCanvasContext.getCurrentTexture', []);
       if (
         !context.configuration ||
         !context.configuredDevice ||
@@ -3076,13 +3168,30 @@ export function createProductionWebGpuPrivateBinding(
       }
       if (context.currentTexture) {
         const current = requireState(context.currentTexture, 'GPUTexture');
-        recordLocal(
+        if (current.currentOrigin === undefined) {
+          throw new Error('GPUCanvasContext current texture lacks immutable origin');
+        }
+        const committedCurrentRecord = recordLocal(
           'GPUCanvasContext.getCurrentTexture',
           context,
           current,
-          converted,
+          Object.freeze({ currentOrigin: current.currentOrigin }),
           undefined,
         );
+        let pendingOrigin = context.configuredDevice
+          .pendingCurrentTextureMaterializations.get(current);
+        if (!pendingOrigin) {
+          pendingOrigin = {
+            records: [],
+            materializesOnPrefixCarrier:
+              !current.materialized && !current.destroyed,
+          };
+          context.configuredDevice.pendingCurrentTextureMaterializations.set(
+            current,
+            pendingOrigin,
+          );
+        }
+        pendingOrigin.records.push(committedCurrentRecord.sealedRecord);
         return context.currentTexture;
       }
       if (
@@ -3127,16 +3236,9 @@ export function createProductionWebGpuPrivateBinding(
         texture.invalid = true;
         texture.status = 'invalid-device';
       }
-      const committedMintRecord = commitLocalRecord(
-        localRecordPlan,
-        context,
-        texture,
-        converted,
-        undefined,
-      );
       const mintOperationProvenance = Object.freeze({
-        operationInstanceId: committedMintRecord.operationInstanceId,
-        deviceIngressOrdinal: committedMintRecord.deviceIngressOrdinal,
+        operationInstanceId: localRecordPlan.operationInstanceId,
+        deviceIngressOrdinal: localRecordPlan.deviceIngressOrdinal,
       });
       const authority = context.canvasAuthority;
       const receiverTextureRef = reference(texture.wrapper, 'GPUTexture');
@@ -3165,7 +3267,7 @@ export function createProductionWebGpuPrivateBinding(
       });
       const textureOriginDigest = codecs.deriveTextureOriginDigest(digestInput);
       context.currentEpoch = nextCurrentEpoch;
-      texture.currentOrigin = Object.freeze({
+      const currentOrigin: CanvasCurrentTextureOriginState = Object.freeze({
         originClass: digestInput.originClass,
         contextRef: digestInput.contextRef,
         attachmentGeneration: digestInput.attachmentGeneration,
@@ -3183,6 +3285,21 @@ export function createProductionWebGpuPrivateBinding(
         surfaceAccountToken: digestInput.surfaceAccountToken,
         surfaceAccountGeneration: digestInput.surfaceAccountGeneration,
       });
+      texture.currentOrigin = currentOrigin;
+      const committedMintRecord = commitLocalRecord(
+        localRecordPlan,
+        context,
+        texture,
+        Object.freeze({ currentOrigin }),
+        undefined,
+      );
+      context.configuredDevice.pendingCurrentTextureMaterializations.set(
+        texture,
+        {
+          records: [committedMintRecord.sealedRecord],
+          materializesOnPrefixCarrier: true,
+        },
+      );
       context.currentTexture = texture.wrapper;
       return texture.wrapper;
     },
@@ -3231,7 +3348,14 @@ export function createProductionWebGpuPrivateBinding(
         false,
         servicePlan,
         undefined,
-        undefined,
+        (failure) => {
+          if (failure === 'bridge-threw') {
+            closeRealmCounterIndependently(
+              'canvas-unconfigure-submit-threw',
+              'The WebGPU realm closed because canvas unconfigure submission threw',
+            );
+          }
+        },
         unconfigureServiceAuthority,
       );
     } finally {
@@ -5560,7 +5684,14 @@ export function createProductionWebGpuPrivateBinding(
       false,
       undefined,
       undefined,
-      undefined,
+      (failure) => {
+        if (failure === 'bridge-threw') {
+          closeRealmCounterIndependently(
+            'texture-destroy-submit-threw',
+            'The WebGPU realm closed because texture destroy submission threw',
+          );
+        }
+      },
       textureDestroyServiceAuthority,
     );
     texture.destroyed = true;

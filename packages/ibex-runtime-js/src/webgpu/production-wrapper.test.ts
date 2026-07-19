@@ -779,6 +779,24 @@ function mintTestCanvasContext(
   }) as TestCanvasContext;
 }
 
+function mintSecondTestCanvasContext(
+  binding: ReturnType<typeof createProductionWebGpuPrivateBinding>,
+): TestCanvasContext {
+  return binding.mintCanvasContext({
+    objectId: '402',
+    objectGeneration: '1',
+    drawingBufferWidth: 800,
+    drawingBufferHeight: 600,
+    authority: Object.freeze({
+      attachmentGeneration: '32',
+      contextGeneration: '38',
+      targetAuthorityDigest: 'cd'.repeat(32),
+      surfaceAccountToken: '42',
+      surfaceAccountGeneration: '44',
+    }),
+  }) as TestCanvasContext;
+}
+
 describe('production-private WebGPU wrapper gate', () => {
   test('increments private u64 counters exactly and rejects overflow before wrap', () => {
     expect(incrementCanonicalU64Decimal('18446744073709551614')).toBe(
@@ -2758,8 +2776,10 @@ describe('production-private WebGPU wrapper factory', () => {
       },
       format: 'bgra8unorm',
       usage: 16,
+      viewFormats: [],
       alphaMode: 'opaque',
       colorSpace: 'srgb',
+      toneMappingMode: 'standard',
       targetAuthorityDigest: CANVAS_AUTHORITY.targetAuthorityDigest,
       surfaceAccountToken: '41',
       surfaceAccountGeneration: '43',
@@ -2963,6 +2983,331 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
+  test('converts canvas configuration once in Web IDL dictionary order', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    const observations: string[] = [];
+    const toneMapping = new Proxy({ mode: 'standard' }, {
+      get(target, key, receiver) {
+        observations.push(`toneMapping.${String(key)}`);
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const values: Record<string, unknown> = {
+      alphaMode: 'premultiplied',
+      colorSpace: 'display-p3',
+      device,
+      format: 'rgba8unorm',
+      toneMapping,
+      usage: 16,
+      viewFormats: ['bgra8unorm'],
+    };
+    const configuration = new Proxy(values, {
+      get(target, key, receiver) {
+        observations.push(`configuration.${String(key)}`);
+        return Reflect.get(target, key, receiver);
+      },
+    });
+
+    context.configure(configuration);
+    expect(observations).toEqual([
+      'configuration.alphaMode',
+      'configuration.colorSpace',
+      'configuration.device',
+      'configuration.format',
+      'configuration.toneMapping',
+      'toneMapping.mode',
+      'configuration.usage',
+      'configuration.viewFormats',
+    ]);
+    expect(codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUCanvasContext.configure',
+    )).toMatchObject({
+      convertedArguments: {
+        alphaMode: 'premultiplied',
+        colorSpace: 'display-p3',
+        device,
+        format: 'rgba8unorm',
+        toneMapping: { mode: 'standard' },
+        usage: 16,
+        viewFormats: ['bgra8unorm'],
+      },
+      canvasService: {
+        configuredDeviceRef: { kind: 'GPUDevice', objectId: '201' },
+        viewFormats: ['bgra8unorm'],
+        toneMappingMode: 'standard',
+      },
+    });
+
+    const earlyObservations: string[] = [];
+    const hostile = new Proxy({ device }, {
+      get(target, key, receiver) {
+        earlyObservations.push(String(key));
+        if (key === 'format') throw new TypeError('format getter exploded');
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const submissionCount = bridge.submissions.length;
+    expect(() => context.configure(hostile)).toThrow('format getter exploded');
+    expect(earlyObservations).toEqual([
+      'alphaMode',
+      'colorSpace',
+      'device',
+      'format',
+    ]);
+    expect(bridge.submissions).toHaveLength(submissionCount);
+    expect(context.getConfiguration()?.format).toBe('rgba8unorm');
+    binding.revoke();
+  });
+
+  test('rejects canvas content predicates only after complete conversion', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    const configureWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUCanvasContext.configure',
+    )?.wireId;
+    if (configureWireId === undefined) throw new Error('missing configure route');
+
+    for (const [configuration, message] of [
+      [
+        { device, format: 'bgra8unorm', viewFormats: ['bc1-rgba-unorm'] },
+        'requires feature texture-compression-bc',
+      ],
+      [
+        { device, format: 'r8unorm' },
+        'is not a supported canvas context format',
+      ],
+      [
+        { device, format: 'bgra8unorm', usage: 0x30 },
+        'may not include TRANSIENT_ATTACHMENT',
+      ],
+      [
+        {
+          device,
+          format: 'bgra8unorm',
+          toneMapping: { mode: 'extended' },
+        },
+        'toneMapping.mode must be standard in this profile',
+      ],
+    ] as const) {
+      expect(() => context.configure(configuration)).toThrow(message);
+      expect(context.getConfiguration()).toBeNull();
+    }
+    expect(bridge.submissions.filter(
+      (submission) => submission.operationId === configureWireId,
+    )).toHaveLength(0);
+    expect(codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUCanvasContext.configure',
+    )).toHaveLength(0);
+
+    context.configure({ device, format: 'bgra8unorm' });
+    context.getCurrentTexture().createView();
+    expect(latestCanvasTextureOrigin(bridge).configurationGeneration).toBe('1');
+    binding.revoke();
+  });
+
+  test('returns detached deep canvas configuration snapshots', async () => {
+    const binding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    const viewFormats = ['rgba8unorm'];
+    const toneMapping = { mode: 'standard' };
+    context.configure({
+      device,
+      format: 'bgra8unorm',
+      viewFormats,
+      toneMapping,
+    });
+    viewFormats[0] = 'rgba16float';
+    toneMapping.mode = 'extended';
+
+    const first = context.getConfiguration()!;
+    expect(first).toMatchObject({
+      format: 'bgra8unorm',
+      viewFormats: ['rgba8unorm'],
+      toneMapping: { mode: 'standard' },
+    });
+    (first.viewFormats as string[])[0] = 'rgba16float';
+    (first.toneMapping as { mode: string }).mode = 'extended';
+    const second = context.getConfiguration()!;
+    expect(second).toMatchObject({
+      format: 'bgra8unorm',
+      viewFormats: ['rgba8unorm'],
+      toneMapping: { mode: 'standard' },
+    });
+    expect(second).not.toBe(first);
+    expect(second.viewFormats).not.toBe(first.viewFormats);
+    expect(second.toneMapping).not.toBe(first.toneMapping);
+    binding.revoke();
+  });
+
+  test('keeps the published reconfiguration when codec preflight fails', async () => {
+    const bridge = createFakeBridge();
+    const baseCodecs = createFakeCodecs();
+    let failConfigureEncoding = false;
+    const codecs: ExecutableWebGpuCodecBundle = {
+      ...baseCodecs,
+      encodeServiceRequest(input) {
+        if (
+          failConfigureEncoding &&
+          input.operationId === 'GPUCanvasContext.configure'
+        ) {
+          throw new TypeError('configure codec preflight exploded');
+        }
+        return baseCodecs.encodeServiceRequest(input);
+      },
+    };
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    const oldTexture = context.getCurrentTexture();
+    oldTexture.createView();
+    const oldOrigin = latestCanvasTextureOrigin(bridge);
+    const configureSubmissionCount = bridge.submissions.filter(
+      (submission) => submission.operationId === WEBGPU_PRODUCTION_PLAN.routes.find(
+        (route) => route.operationId === 'GPUCanvasContext.configure',
+      )?.wireId,
+    ).length;
+
+    failConfigureEncoding = true;
+    expect(() => context.configure({ device, format: 'rgba8unorm' }))
+      .toThrow('configure codec preflight exploded');
+    expect(context.getConfiguration()?.format).toBe('rgba8unorm');
+    expect(bridge.submissions.filter(
+      (submission) => submission.operationId === WEBGPU_PRODUCTION_PLAN.routes.find(
+        (route) => route.operationId === 'GPUCanvasContext.configure',
+      )?.wireId,
+    )).toHaveLength(configureSubmissionCount);
+    failConfigureEncoding = false;
+    const newTexture = context.getCurrentTexture();
+    expect(newTexture).not.toBe(oldTexture);
+    newTexture.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
+      configurationGeneration: '2',
+      currentEpoch: '2',
+      format: 'rgba8unorm',
+    });
+    oldTexture.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toEqual(oldOrigin);
+    binding.revoke();
+  });
+
+  test('settles only the exact canvas origin for direct carriers in either order', async () => {
+    for (const order of [
+      ['first', 'second'],
+      ['second', 'first'],
+    ] as const) {
+      const bridge = createFakeBridge();
+      const codecs = createFakeCodecs();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        codecs,
+        { enableStateInspection: true },
+      );
+      const device = await requestTestDevice(binding);
+      const firstContext = mintTestCanvasContext(binding);
+      const secondContext = mintSecondTestCanvasContext(binding);
+      firstContext.configure({ device, format: 'bgra8unorm' });
+      secondContext.configure({ device, format: 'rgba8unorm' });
+      const textures = {
+        first: firstContext.getCurrentTexture(),
+        second: secondContext.getCurrentTexture(),
+      };
+      const contextIds = { first: '401', second: '402' } as const;
+      expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(2);
+
+      for (const [index, name] of order.entries()) {
+        textures[name].createView();
+        const encoding = codecs.encodings.findLast(
+          (candidate) => candidate.operationId === 'GPUTexture.createView',
+        );
+        if (!encoding) throw new Error('missing direct canvas carrier');
+        const records = localRecords(encoding);
+        expect(records).toHaveLength(1);
+        expect(records[0]).toMatchObject({
+          operationName: 'GPUCanvasContext.getCurrentTexture',
+          argumentBody: {
+            currentOrigin: {
+              contextRef: { objectId: contextIds[name] },
+            },
+          },
+        });
+        expect(inspectBinding(binding).current.pendingLocalRecordCount)
+          .toBe(1 - index);
+      }
+      binding.revoke();
+    }
+  });
+
+  test('preserves a second canvas origin through unrelated work and materializes it on queue submit', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const firstContext = mintTestCanvasContext(binding);
+    const secondContext = mintSecondTestCanvasContext(binding);
+    firstContext.configure({ device, format: 'bgra8unorm' });
+    secondContext.configure({ device, format: 'rgba8unorm' });
+    const firstTexture = firstContext.getCurrentTexture();
+    const secondTexture = secondContext.getCurrentTexture();
+    device.createBuffer({ size: 16, usage: 1 });
+    const unrelatedEncoding = codecs.encodings.findLast(
+      (candidate) => candidate.operationId === 'GPUDevice.createBuffer',
+    );
+    if (!unrelatedEncoding) throw new Error('missing unrelated service call');
+    expect(localRecords(unrelatedEncoding)).toEqual([]);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(2);
+
+    firstTexture.createView();
+    const firstCarrier = codecs.encodings.findLast(
+      (candidate) => candidate.operationId === 'GPUTexture.createView',
+    );
+    if (!firstCarrier) throw new Error('missing first direct carrier');
+    expect(localRecords(firstCarrier)).toMatchObject([{
+      argumentBody: {
+        currentOrigin: { contextRef: { objectId: '401' } },
+      },
+    }]);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(1);
+
+    device.queue.submit([]);
+    const queueCarrier = codecs.encodings.findLast(
+      (candidate) => candidate.operationId === 'GPUQueue.submit',
+    );
+    if (!queueCarrier) throw new Error('missing queue canvas carrier');
+    expect(localRecords(queueCarrier)).toMatchObject([{
+      argumentBody: {
+        currentOrigin: { contextRef: { objectId: '402' } },
+      },
+    }]);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+
+    secondTexture.destroy();
+    const secondDestroy = codecs.encodings.findLast(
+      (candidate) => candidate.operationId === 'GPUTexture.destroy',
+    );
+    expect(secondDestroy?.canvasService).toMatchObject({
+      kind: 'texture-destroy-v1',
+      materializationState: 'materialized',
+      origin: { kind: 'canvas-current-v1' },
+    });
+    binding.revoke();
+  });
+
   test('keeps texture destroy retryable after bridge rejection and authenticates each terminal intent', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
@@ -3011,6 +3356,101 @@ describe('production-private WebGPU wrapper factory', () => {
       (submission) => submission.operationId === destroyWireId,
     )).toHaveLength(3);
     binding.revoke();
+  });
+
+  test('keeps canvas unconfigure retryable after explicit service rejection', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    const unconfigureWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUCanvasContext.unconfigure',
+    )?.wireId;
+    if (unconfigureWireId === undefined) {
+      throw new Error('missing canvas unconfigure route');
+    }
+    bridge.setSubmitHook((operationId) =>
+      operationId === unconfigureWireId ? 73 : undefined);
+
+    expect(() => context.unconfigure()).toThrow(
+      'WebGPU semantic service rejected GPUCanvasContext.unconfigure (73)',
+    );
+    expect(context.getConfiguration()?.format).toBe('bgra8unorm');
+    bridge.setSubmitHook(undefined);
+    context.unconfigure();
+    expect(context.getConfiguration()).toBeNull();
+    expect(codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUCanvasContext.unconfigure',
+    ).map((encoding) => encoding.canvasService)).toMatchObject([
+      { terminalIntent: 'first-cleanup', configurationGeneration: '1' },
+      { terminalIntent: 'first-cleanup', configurationGeneration: '1' },
+    ]);
+    binding.revoke();
+  });
+
+  test('closes the realm on ambiguous canvas cleanup bridge throws', async () => {
+    {
+      const bridge = createFakeBridge();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs(),
+        { enableStateInspection: true },
+      );
+      const device = await requestTestDevice(binding);
+      const context = mintTestCanvasContext(binding);
+      context.configure({ device, format: 'bgra8unorm' });
+      const unconfigureWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+        (route) => route.operationId === 'GPUCanvasContext.unconfigure',
+      )?.wireId;
+      if (unconfigureWireId === undefined) {
+        throw new Error('missing canvas unconfigure route');
+      }
+      bridge.setSubmitHook((operationId) => {
+        if (operationId === unconfigureWireId) {
+          throw new Error('unconfigure submit exploded');
+        }
+      });
+      expect(() => context.unconfigure()).toThrow('unconfigure submit exploded');
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      expect(inspectBinding(binding).current).toMatchObject({
+        active: false,
+        closeReason: 'canvas-unconfigure-submit-threw',
+      });
+      expect(() => context.unconfigure()).toThrow('realm is revoked');
+      binding.revoke();
+    }
+
+    {
+      const bridge = createFakeBridge();
+      const binding = createProductionWebGpuPrivateBinding(
+        bridge,
+        createFakeCodecs(),
+        { enableStateInspection: true },
+      );
+      const device = await requestTestRecordingDevice(binding);
+      const texture = device.createTexture({
+        format: 'rgba8unorm',
+        size: [8, 8],
+        usage: 4,
+      }) as TestCanvasTexture;
+      const destroyWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+        (route) => route.operationId === 'GPUTexture.destroy',
+      )?.wireId;
+      if (destroyWireId === undefined) throw new Error('missing texture destroy route');
+      bridge.setSubmitHook((operationId) => {
+        if (operationId === destroyWireId) throw new Error('destroy submit exploded');
+      });
+      expect(() => texture.destroy()).toThrow('destroy submit exploded');
+      expect(await device.lost).toMatchObject({ reason: 'unknown' });
+      expect(inspectBinding(binding).current).toMatchObject({
+        active: false,
+        closeReason: 'texture-destroy-submit-threw',
+      });
+      expect(() => texture.destroy()).toThrow('realm is revoked');
+      binding.revoke();
+    }
   });
 
   test('interns only exact unchanged host canvas identities and fences stale generations', async () => {
@@ -3202,13 +3642,19 @@ describe('production-private WebGPU wrapper factory', () => {
 
     beforeLoss.createView();
     expect(latestCanvasTextureOrigin(bridge)).toEqual(beforeLossOrigin);
-    expect(() => context.configure({ device, format: 'bgra8unorm' }))
-      .toThrow('GPUDevice is unavailable');
+    context.configure({ device, format: 'bgra8unorm' });
+    const replacementInvalidTexture = context.getCurrentTexture();
+    expect(replacementInvalidTexture).not.toBe(afterLoss);
+    replacementInvalidTexture.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
+      configurationGeneration: '3',
+      currentEpoch: '3',
+    });
 
     // A later duplicate native loss input cannot re-expire the post-loss
     // invalid-device identity or advance configuration generation again.
     emitDeviceLoss(bridge, '301', '2');
-    expect(context.getCurrentTexture()).toBe(afterLoss);
+    expect(context.getCurrentTexture()).toBe(replacementInvalidTexture);
     expect(await device.lost).toEqual({
       reason: 'destroyed',
       message: 'The device was destroyed',
@@ -3293,7 +3739,7 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('rolls back an initially rejected configure without reusing ingress', async () => {
+  test('keeps an initially rejected configure installed without reusing ingress', async () => {
     const bridge = createFakeBridge();
     const binding = createProductionWebGpuPrivateBinding(
       bridge,
@@ -3312,8 +3758,14 @@ describe('production-private WebGPU wrapper factory', () => {
 
     expect(() => context.configure({ device, format: 'rgba8unorm' }))
       .toThrow('semantic service rejected GPUCanvasContext.configure (17)');
-    expect(context.getConfiguration()).toBeNull();
-    expect(() => context.getCurrentTexture()).toThrow('not configured');
+    expect(context.getConfiguration()?.format).toBe('rgba8unorm');
+    const rejectedConfigurationTexture = context.getCurrentTexture();
+    rejectedConfigurationTexture.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
+      configurationGeneration: '1',
+      currentEpoch: '1',
+      format: 'rgba8unorm',
+    });
     expect(inspectBinding(binding).current).toMatchObject({
       active: true,
       routedDeviceCount: 1,
@@ -3335,13 +3787,14 @@ describe('production-private WebGPU wrapper factory', () => {
       (submission) => submission.operationId === configureWireId,
     ).map((submission) => submission.metadata.deviceIngressOrdinal)).toEqual([
       '1',
-      '2',
+      '4',
     ]);
     const configuredTexture = context.getCurrentTexture();
+    expect(configuredTexture).not.toBe(rejectedConfigurationTexture);
     configuredTexture.createView();
     expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
-      configurationGeneration: '1',
-      currentEpoch: '1',
+      configurationGeneration: '2',
+      currentEpoch: '2',
       format: 'bgra8unorm',
     });
 
@@ -3350,8 +3803,8 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(invalidTexture).not.toBe(configuredTexture);
     invalidTexture.createView();
     expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
-      configurationGeneration: '2',
-      currentEpoch: '2',
+      configurationGeneration: '3',
+      currentEpoch: '3',
       format: 'bgra8unorm',
     });
     emitDeviceLoss(bridge, '301', '2');
@@ -3361,7 +3814,7 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('rolls back a rejected reconfigure while expiring the prior texture', async () => {
+  test('keeps a rejected reconfigure installed while expiring the prior texture', async () => {
     const bridge = createFakeBridge();
     const binding = createProductionWebGpuPrivateBinding(
       bridge,
@@ -3384,14 +3837,14 @@ describe('production-private WebGPU wrapper factory', () => {
 
     expect(() => context.configure({ device, format: 'rgba8unorm' }))
       .toThrow('semantic service rejected GPUCanvasContext.configure (23)');
-    expect(context.getConfiguration()?.format).toBe('bgra8unorm');
+    expect(context.getConfiguration()?.format).toBe('rgba8unorm');
     const afterRejectedConfigure = context.getCurrentTexture();
     expect(afterRejectedConfigure).not.toBe(beforeRejectedConfigure);
     afterRejectedConfigure.createView();
     expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
-      configurationGeneration: '1',
+      configurationGeneration: '2',
       currentEpoch: '2',
-      format: 'bgra8unorm',
+      format: 'rgba8unorm',
     });
     expect(bridge.submissions.at(-1)?.metadata.deviceIngressOrdinal).toBe('6');
     beforeRejectedConfigure.createView();
@@ -3419,9 +3872,9 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(invalidTexture).not.toBe(afterRejectedConfigure);
     invalidTexture.createView();
     expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
-      configurationGeneration: '2',
+      configurationGeneration: '3',
       currentEpoch: '3',
-      format: 'bgra8unorm',
+      format: 'rgba8unorm',
     });
     expect(inspectBinding(binding).current).toMatchObject({
       routedDeviceCount: 0,
@@ -3693,9 +4146,17 @@ describe('production-private WebGPU wrapper factory', () => {
     emitProviderLoss(bridge);
     expect(context.getCurrentTexture()).toBe(invalidTexture);
     expect(await device.lost).toEqual({ reason: 'unknown', message: 'loss-4' });
-    expect(() => context.configure({ device, format: 'bgra8unorm' }))
-      .toThrow('GPUDevice is unavailable');
-    expect(inlineLossCount).toBe(1);
+    context.configure({ device, format: 'rgba8unorm' });
+    expect(context.getConfiguration()?.format).toBe('rgba8unorm');
+    const replacementInvalidTexture = context.getCurrentTexture();
+    expect(replacementInvalidTexture).not.toBe(invalidTexture);
+    replacementInvalidTexture.createView();
+    expect(latestCanvasTextureOrigin(bridge)).toMatchObject({
+      configurationGeneration: '3',
+      currentEpoch: '2',
+      format: 'rgba8unorm',
+    });
+    expect(inlineLossCount).toBe(2);
     binding.revoke();
   });
 

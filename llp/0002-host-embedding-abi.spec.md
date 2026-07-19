@@ -8,6 +8,7 @@
 **Revised:** 2026-07-19 (composes GPUBuffer mapping with true engine aliases: first aliasing promotes an internal mapped-at-creation source to shared external ownership in place, all aliases are tracked from native mint through one matching-key detach attempt, operation-result bytes have one wrapper carrier while the success receipt resolves undefined, and either compile-time or live-cast engine-capability absence fails finalization closed with rollback; no public issuer, global installation, positive platform edge, or support claim is added)
 **Revised:** 2026-07-19 (hardens the construction-private GPUBuffer lifecycle: retained cleanup, destroyed state, and an existing pending or active mapping fence new maps without service work; all post-WebIDL `mapAsync` failures remain Promise rejections; void cleanup suppresses known non-admission while retaining the exact retry snapshot and closes on ambiguous admission; spontaneous loss discards detached retry snapshots, preserves active views, and makes their later explicit cleanup local-only with private detachment bookkeeping; cleanup moves the existing private MAP_WRITE block without a second full allocation; and Ibex structured clone/ArrayBuffer transfer entry points enforce mapped-range non-transferability through an inaccessible lexical set and captured operations without claiming native Hermes detachment; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes construction-private `GPUBuffer.destroy`, `GPUBuffer.getMappedRange`, `GPUBuffer.mapAsync`, and `GPUBuffer.unmap` over the authenticated existing lifecycle codecs and V2 routes, with wrapper-owned mapped bytes, independent positive map/cleanup generations, generation-fenced cancellation and typed completion, bounded nonoverlapping mapped-range leases, exact MAP_WRITE cleanup, MAP_READ discard, and synchronous detachment on owning cleanup; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
+**Revised:** 2026-07-19 (repairs the construction-private canvas authority end to end: lexicographic Get-once configuration conversion, complete `viewFormats` and profile-standard tone-mapping transport, content-timeline publication and detached configuration snapshots, fail-closed ambiguous cleanup submission, source-affine current-texture origin records across exact direct/prefix carriers, and carrier/state-tamper corpus coverage; no public issuer, installed provider, CapSec support edge, or support claim is added)
 **Revised:** 2026-07-19 (materializes authenticated `GPUDevice.createComputePipeline` and `GPUQueue.writeBuffer` methods inside the construction-private wrapper, adds the `GPUComputePipeline` and existing `GPUComputePassEncoder` interface objects to that gated installation inventory, and consumes distinct positive queue ingress for `writeBuffer` without consuming pending command records; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-18 (adds the authenticated production-private `GPUDevice.createBuffer` Web IDL conversion, bounded structural transport, six-field wrapper target, wrapper-local immutable `usage`/`mapState` metadata, ordered semantic boundary, dual-ledger accounting evidence, and 21-call positive/adversarial corpus without installing native execution or a CapSec edge); 2026-07-18 (adds the authenticated production-private `GPUDevice.createPipelineLayout` Web IDL, full-reference transport, semantic-boundary program, wrapper target, and positive/adversarial corpus without installing native execution); 2026-07-18 (separates the complete post-WebIDL bind-group-layout structural transport type from the post-decode TypeGPU workload predicate); 2026-07-18 (consumes Exact-generated wrapper pins as the sole normalized digest/route authority and classifies the immutable 25-operation triangle separately from explicit TypeGPU graduates)
 **Revised:** 2026-07-19 (promotes the staged construction-private `GPUDevice.createComputePipeline` conversion to an authenticated private route with generated request/result codecs and a positive/adversarial language-neutral corpus over the exact seven-call TypeGPU 0.11.9 cohort, preserving full reference lineage, the constants `{}` default, and optional entry-point presence without adding a prototype member, public issuer, installed native semantic service/provider factory, embedded codec, positive CapSec support edge, global installation, or support claim; the staged semantic program remains the provenance authority)
@@ -793,16 +794,39 @@ the result-selection identity, cross-link those native-owned results to the
 authenticated carrier and completion payload, and keep the raw descriptor out
 of the provider boundary. The canvas configure program carries the candidate
 next configuration generation plus the exact context, configured-device,
-surface-account, format, usage, alpha-mode, color-space, and target-authority
-projection copied from branded wrapper state. Unconfigure carries the retiring
-current generation and only the first-cleanup intent; an already unconfigured
-repeat remains wrapper-local. Texture destroy carries its exact texture
-reference, first/expired/repeat terminal intent, materialization state, and
-either a closed device-created origin or the context/generation/epoch/mint/digest
-subset of its immutable canvas-current origin. A rejected destroy does not mark
-the wrapper destroyed, so a later call retries the first terminal. Repeated
-`getCurrentTexture` calls in one epoch reuse the wrapper and never become a
-service route. These three programs expand the authenticated native-codec route
+surface-account, format, usage, ordered duplicate-preserving `viewFormats`,
+alpha-mode, color-space, profile-standard tone-mapping mode, and target-authority
+projection copied from branded wrapper state. Its Web IDL conversion performs
+each inherited dictionary Get exactly once in lexicographic order (`alphaMode`,
+`colorSpace`, `device`, `format`, `toneMapping` and nested `mode`, `usage`,
+`viewFormats`). Required format-feature, supported-context-format,
+transient-usage, and profile tone-mapping predicates are content-timeline
+checks. On success the deep copied configuration and next generation are
+installed before payload encoding or device/service admission; later
+non-admission cannot resurrect an old configuration or expired current texture.
+`getConfiguration()` returns a new detached `viewFormats` array and tone-mapping
+dictionary on every call.
+
+Unconfigure carries the retiring current generation and only the first-cleanup
+intent; an already unconfigured repeat remains wrapper-local. Texture destroy
+carries its exact texture reference, first/expired/repeat terminal intent,
+materialization state, and either a closed device-created origin or the
+context/generation/epoch/mint/digest subset of its immutable canvas-current
+origin. Explicit provider non-admission leaves unconfigure and destroy
+retryable. A thrown bridge return has ambiguous admission and closes the realm,
+so retry never guesses whether cleanup already ran.
+
+Every wrapper-local `getCurrentTexture` record carries the complete immutable
+origin whose digest binds its wrapper-allocated texture target. Repeated calls
+in one epoch reuse the wrapper but retain their own source-affine record. Direct
+`createView`/`destroy` carriers select only that receiver texture's pending
+origin records; `queue.submit` and `popErrorScope` settle only origins present
+in their encoded prefix. Unrelated service calls cannot clear an origin
+obligation, and one context's direct carrier cannot materialize or settle a
+second context's texture. The language-neutral corpus covers the complete
+canvas carrier joins plus configuration generation/snapshot, surface account,
+origin digest, materialization, and terminal-state tampering before provider
+admission. These three programs expand the authenticated native-codec route
 set from 19 to 22 only; they do not add any of the separate installation,
 publication, or CapSec support authorities. The five device-object creation requests admit a
 bounded canonical sealed-local-timeline sequence as comparison input, join a
