@@ -1,9 +1,17 @@
 import { expect, test } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   CONFORMANCE_COMMANDS,
   CONFORMANCE_PREFLIGHT_COMMANDS,
   CONFORMANCE_PRODUCT_COMMANDS,
 } from "./capsec-conformance-matrix.mjs";
+
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
 
 test("conformance prerequisite matrix covers every product test layer", () => {
   const byId = new Map(CONFORMANCE_COMMANDS.map((entry) => [entry[0], entry.slice(1)]));
@@ -61,4 +69,20 @@ test("conformance prerequisite matrix covers every product test layer", () => {
     "all-generated-drift",
     "linked-literate-references",
   ]);
+});
+
+test("OpenSSL-only native test hooks do not become Windows link obligations", () => {
+  const nodeHashTest = fs.readFileSync(
+    path.join(repoRoot, "tests/crypto_node_hash_name.rs"),
+    "utf8",
+  );
+  const rsaTest = fs.readFileSync(
+    path.join(repoRoot, "tests/crypto_rsa_pss.rs"),
+    "utf8",
+  );
+
+  expect(nodeHashTest).toContain('#![cfg(not(target_os = "windows"))]');
+  expect(rsaTest).toContain(
+    '#![cfg(all(feature = "openssl-crypto", not(target_os = "windows")))]',
+  );
 });

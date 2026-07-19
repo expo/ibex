@@ -12,6 +12,10 @@
 //! Linux/OpenSSL) through the `ex_crypto_test_node_hash_name` C ABI hook in
 //! `src/engine/hermes_runtime_crypto.cc`.
 
+// Windows compiles the separate BCrypt-only backend, which has neither the
+// asymmetric node-crypto normalizer nor this test-only C ABI hook.
+#![cfg(not(target_os = "windows"))]
+
 use std::os::raw::{c_char, c_int};
 
 /// Reference a public item so the `ibex_runtime` rlib — which bundles the C++

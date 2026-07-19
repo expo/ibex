@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 keeps non-Windows crypto test-only C ABI hooks out of Windows default and all-features product linkage after physical run 29693213321 reached MSVC and exposed the false obligation)
 **Revised:** 2026-07-19 (ENG-24933 pins Cargo's Windows MSVC linker across Git Bash product suites after physical public-probe success exposed Git for Windows' unrelated `link.exe` shadow)
 **Revised:** 2026-07-19 (ENG-24933 keeps 15 Windows `node:fs` metadata recipes residual after physical evidence proved their installed native terminals still emit no typed discovery/commit/repeat decisions)
 **Revised:** 2026-07-19 (ENG-24933 physically verifies Windows protected-artifact publication, callback principal invariants, and all nine startup-environment recipes after the access and flush repairs)
@@ -1808,6 +1809,13 @@ After the MSVC environment is configured, it also binds Cargo's target linker
 to the exact `link.exe` under `VCToolsInstallDir`. Product suites execute through
 Git Bash, whose unrelated Unix `link.exe` otherwise shadows the configured MSVC
 toolchain and can refuse Rust test linkage after every public probe has passed.
+Physical Windows run `29693213321` accepted that binding and reached the MSVC
+product link. It then exposed a different test-only portability error: the
+non-Windows node-crypto normalizer test declared a C ABI hook from
+`hermes_runtime_crypto.cc`, while Windows deliberately compiles the separate
+BCrypt-only source. That hook test now excludes Windows, as does the adjacent
+OpenSSL RSA hook test when the product matrix enables every Cargo feature; a
+feature flag cannot replace the backend selected for the authenticated target.
 Its armed physical test host derives the selected project root's stable object
 identity through the production platform helper, and preserves the target's
 complete normalized path components (including a Windows drive or verbatim

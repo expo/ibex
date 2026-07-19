@@ -13,9 +13,10 @@
 //!   * finding 4 — RSA-PSS must actually use PSS padding and honour the salt
 //!     length, instead of silently producing a PKCS#1 v1.5 signature.
 //!
-//! Only compiled with the `openssl-crypto` feature: without it the runtime has
-//! no OpenSSL RSA core and the hooks are not defined.
-#![cfg(feature = "openssl-crypto")]
+//! Only compiled with the `openssl-crypto` feature on a non-Windows target:
+//! Windows always selects the separate BCrypt-only backend, even when an
+//! all-features product check enables the Cargo feature.
+#![cfg(all(feature = "openssl-crypto", not(target_os = "windows")))]
 
 use std::os::raw::{c_char, c_int};
 
