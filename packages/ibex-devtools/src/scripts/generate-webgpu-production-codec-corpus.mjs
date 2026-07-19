@@ -564,6 +564,28 @@ function buildCorpus() {
   if (unknownLimitDisposition !== "operation-error-promise-rejection") {
     fail("unknown requestDevice limit disposition drifted");
   }
+  const assertSemanticTerminalCounts = (
+    operationId,
+    terminalId,
+    providerAdmission,
+    physicalSequence,
+  ) => {
+    const program = semanticAuthority.semanticProjection?.providerRoutingPrograms
+      ?.find((candidate) => candidate.operationId === operationId);
+    const terminal = program?.terminals?.find(
+      (candidate) => candidate.terminalId === terminalId,
+    );
+    const physicalSequenceCount = physicalSequence === "0" ? 0 : 1;
+    if (
+      !terminal ||
+      terminal.providerTokenCount !== providerAdmission ||
+      terminal.physicalSequenceCount !== physicalSequenceCount
+    ) {
+      fail(
+        `${operationId} ${terminalId} completion carrier disagrees with semantic authority`,
+      );
+    }
+  };
   const hostileRequiredLimits = Object.defineProperty({}, "__proto__", {
     value: 4,
     writable: true,
@@ -8243,28 +8265,38 @@ function buildCorpus() {
           physicalSequence: "0",
         },
         {
+          id: "gputexture-destroy-expired-repeat-cleanup-noop-result",
           entry: canvasRequestById.get(
             "texture-destroy-expired-canvas-current-request",
           ),
-          terminal: "first-cleanup-provider",
-          providerAdmission: 1,
-          physicalSequence: "65",
+          terminal: "repeat-cleanup-noop",
+          providerAdmission: 0,
+          physicalSequence: "0",
         },
-      ].map(({ entry, terminal, providerAdmission, physicalSequence }) => ({
-        id: `${entry.operationId.replaceAll(".", "-").toLowerCase()}-${terminal}-result`,
-        operationId: entry.operationId,
-        kind: "result",
-        semanticTerminalId: terminal,
-        carrierProjection: canvasCompletionCarrier(
-          entry,
+      ].map(({ id, entry, terminal, providerAdmission, physicalSequence }) => {
+        assertSemanticTerminalCounts(
+          entry.operationId,
+          terminal,
           providerAdmission,
           physicalSequence,
-        ),
-        bytesHex: toHex(canvasTerminalBytes.get(
-          `${entry.operationId}:${terminal}`,
-        )),
-        expected: { kind: "terminal-receipt", value: "undefined" },
-      })),
+        );
+        return {
+          id: id ??
+            `${entry.operationId.replaceAll(".", "-").toLowerCase()}-${terminal}-result`,
+          operationId: entry.operationId,
+          kind: "result",
+          semanticTerminalId: terminal,
+          carrierProjection: canvasCompletionCarrier(
+            entry,
+            providerAdmission,
+            physicalSequence,
+          ),
+          bytesHex: toHex(canvasTerminalBytes.get(
+            `${entry.operationId}:${terminal}`,
+          )),
+          expected: { kind: "terminal-receipt", value: "undefined" },
+        };
+      }),
       ...canvasBinaryRejections.map((rejection) => ({
         id: rejection.id,
         operationId: rejection.operationId,

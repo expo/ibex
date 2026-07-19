@@ -27620,10 +27620,10 @@
       }
     },
     {
-      "id": "gputexture-destroy-first-cleanup-provider-result",
+      "id": "gputexture-destroy-expired-repeat-cleanup-noop-result",
       "operationId": "GPUTexture.destroy",
       "kind": "result",
-      "semanticTerminalId": "first-cleanup-provider",
+      "semanticTerminalId": "repeat-cleanup-noop",
       "carrierProjection": {
         "kind": 1,
         "record": {
@@ -27634,8 +27634,8 @@
               "operation_id": 2933046788,
               "operation_instance_id": "62",
               "promise_id": "0",
-              "provider_admission": 1,
-              "physical_sequence": "65",
+              "provider_admission": 0,
+              "physical_sequence": "0",
               "captured_scope_id": "2",
               "adapter_ordinal": "0",
               "device_ingress_ordinal": "30",
