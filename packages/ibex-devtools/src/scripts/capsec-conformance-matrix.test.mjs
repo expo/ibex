@@ -86,3 +86,15 @@ test("OpenSSL-only native test hooks do not become Windows link obligations", ()
     '#![cfg(all(feature = "openssl-crypto", not(target_os = "windows")))]',
   );
 });
+
+test("Windows native smoke uses the directly installed platform surface", () => {
+  const engine = fs.readFileSync(path.join(repoRoot, "src/engine/mod.rs"), "utf8");
+  const windowsSmoke = engine.slice(
+    engine.indexOf("mod windows_native_smoke"),
+    engine.indexOf("\n    }\n}", engine.indexOf("mod windows_native_smoke")),
+  );
+
+  expect(windowsSmoke).toContain("Host::default_legacy()");
+  expect(windowsSmoke).toContain("__exactTcpConnect('127.0.0.1'");
+  expect(windowsSmoke).not.toContain("__exactEnsureNet();");
+});

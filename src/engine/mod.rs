@@ -3054,7 +3054,6 @@ mod tests {
             let tcp_source = format!(
                 r#"
                 globalThis.__windowsNativeTcp = {{ done: false, result: '' }};
-                __exactEnsureNet();
                 var tcpHandle = __exactTcpConnect('127.0.0.1', {tcp_port}, null, null);
                 __exactTcpWrite(tcpHandle, 'ibex-winsock-tcp');
                 function __tcpBytesToText(bytes) {{

@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 removes the POSIX-only lazy net installer from the Windows native-backend smoke test after physical run 29704246482 passed 316 library tests and isolated that final failure)
 **Revised:** 2026-07-19 (ENG-24933 makes Windows library verification use target-native filesystem fixtures and object-equivalent path assertions, while the native-backend smoke test installs its explicitly permissive diagnostic host)
 **Revised:** 2026-07-19 (ENG-24933 reconstructs armed Windows drive/UNC roots as absolute paths and makes host-boundary tree matching separator-neutral after retained run 29694430491 exposed a malformed-root deadlock and Windows-only fence failures)
 **Revised:** 2026-07-19 (ENG-24933 keeps non-Windows crypto test-only C ABI hooks out of Windows default and all-features product linkage after physical run 29693213321 reached MSVC and exposed the false obligation)
@@ -1840,6 +1841,11 @@ host despite claiming a permissive diagnostic context. Those tests now use
 target-native paths and canonical object spellings, and the smoke helper
 installs `Host::default_legacy()` directly; production arming and import gates
 remain unchanged.
+Physical Windows run `29704246482` then passed 316 library tests and reduced the
+suite to one failure: its TCP smoke stage called `__exactEnsureNet`, the POSIX
+lazy installer that Windows intentionally does not expose because its Winsock
+surface is installed directly. The test now invokes the already-installed
+`__exactTcpConnect` surface without that invalid setup call.
 Its armed physical test host derives the selected project root's stable object
 identity through the production platform helper, and preserves the target's
 complete normalized path components (including a Windows drive or verbatim
