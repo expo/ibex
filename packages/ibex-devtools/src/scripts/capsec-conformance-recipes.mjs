@@ -678,6 +678,7 @@ const nativeNoEffectTemplate = (
   argumentsList = [],
   setup = [],
   expectedCleanup = null,
+  { unsupportedTargetReason = null, unsupportedTargetTriples = [] } = {},
 ) =>
   Object.freeze({
     actionIds: [],
@@ -688,6 +689,10 @@ const nativeNoEffectTemplate = (
     expectedStages: { "non-capability": [] },
     requiredSourceArity,
     setup,
+    ...(unsupportedTargetReason ? { unsupportedTargetReason } : {}),
+    ...(unsupportedTargetTriples.length > 0
+      ? { unsupportedTargetTriples }
+      : {}),
   });
 const nativeConditionalNoEffectTemplate = (
   requiredSourceArity,
@@ -1703,6 +1708,12 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       1,
       [harnessLoopbackClientHandleArgument()],
       tcpLoopbackClientSetup(),
+      null,
+      {
+        unsupportedTargetReason:
+          "native-public-prerequisite-not-typed-on-target",
+        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+      },
     ),
   ],
   [
@@ -1711,6 +1722,12 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       1,
       [harnessLoopbackClientHandleArgument()],
       tcpLoopbackClientSetup(),
+      null,
+      {
+        unsupportedTargetReason:
+          "native-public-prerequisite-not-typed-on-target",
+        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+      },
     ),
   ],
   [
@@ -1719,6 +1736,12 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       2,
       [harnessLoopbackClientHandleArgument(), literalArgument(1)],
       tcpLoopbackClientSetup(),
+      null,
+      {
+        unsupportedTargetReason:
+          "native-public-prerequisite-not-typed-on-target",
+        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+      },
     ),
   ],
   ["__exactPerformanceNow", nativeNoEffectTemplate(0)],

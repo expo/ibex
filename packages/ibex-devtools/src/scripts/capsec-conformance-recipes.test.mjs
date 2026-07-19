@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_117);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_972);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_145);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_969);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_148);
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
@@ -260,6 +260,21 @@ describe("exact-target CapSec executable recipes", () => {
           "__exactTcpConnect",
       ),
     ).toHaveLength(0);
+    for (const globalName of [
+      "__exactTcpClose",
+      "__exactTcpReset",
+      "__exactTcpShutdown",
+    ]) {
+      const recipe = windowsRecipes.recipes.find(
+        (candidate) =>
+          candidate.terminalObservedKey === `native-op:${globalName}` &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe.publicSurfaceProbe).toBeNull();
+      expect(recipe.residualReasons).toContain(
+        "native-public-prerequisite-not-typed-on-target",
+      );
+    }
     const windowsExcludedDefaultGlobals = new Set([
       "__exactAesCbcDecrypt",
       "__exactAesCbcEncrypt",
