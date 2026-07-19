@@ -6141,6 +6141,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:cache:env-temp_dir",
     "operation:cache:env-var",
     "operation:cache:from_raw_fd",
+    "operation:cache:from_raw_handle",
     "operation:cache:last_os_error",
     "operation:cache:metadata",
     "operation:cache:new",
@@ -6161,6 +6162,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:load:env-temp_dir",
     "operation:load:env-var",
     "operation:load:from_raw_fd",
+    "operation:load:from_raw_handle",
     "operation:load:last_os_error",
     "operation:load:metadata",
     "operation:load:new",
@@ -6182,6 +6184,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:resolution:env-temp_dir",
     "operation:resolution:env-var",
     "operation:resolution:from_raw_fd",
+    "operation:resolution:from_raw_handle",
     "operation:resolution:last_os_error",
     "operation:resolution:metadata",
     "operation:resolution:new",
@@ -6204,6 +6207,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:transform:env-temp_dir",
     "operation:transform:env-var",
     "operation:transform:from_raw_fd",
+    "operation:transform:from_raw_handle",
     "operation:transform:last_os_error",
     "operation:transform:metadata",
     "operation:transform:new",
@@ -6227,6 +6231,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:cache:rust:compute_transpile_override_identity",
     "route:cache:rust:compute_transpile_tooling_hash",
     "route:cache:rust:digest_file",
+    "route:cache:rust:directory_entries",
     "route:cache:rust:directory_names",
     "route:cache:rust:directory_size",
     "route:cache:rust:drop",
@@ -6236,6 +6241,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:cache:rust:format_oxc_errors",
     "route:cache:rust:from_value",
     "route:cache:rust:module_cache_key",
+    "route:cache:rust:open_relative",
     "route:cache:rust:output_has_esm_module_syntax",
     "route:cache:rust:oxc_target",
     "route:cache:rust:program_has_top_level_await",
@@ -6271,6 +6277,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:compute_transpile_tooling_hash",
     "route:load:rust:contains_using_keyword",
     "route:load:rust:digest_file",
+    "route:load:rust:directory_entries",
     "route:load:rust:directory_names",
     "route:load:rust:directory_size",
     "route:load:rust:drop",
@@ -6284,6 +6291,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:module_cache_key",
     "route:load:rust:needs_js_downlevel",
     "route:load:rust:needs_transpile",
+    "route:load:rust:open_relative",
     "route:load:rust:output_has_esm_module_syntax",
     "route:load:rust:oxc_target",
     "route:load:rust:program_has_top_level_await",
@@ -6328,6 +6336,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:compute_transpile_tooling_hash",
     "route:resolution:rust:contains_using_keyword",
     "route:resolution:rust:digest_file",
+    "route:resolution:rust:directory_entries",
     "route:resolution:rust:directory_names",
     "route:resolution:rust:directory_size",
     "route:resolution:rust:drop",
@@ -6345,6 +6354,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:needs_transpile",
     "route:resolution:rust:normalize_import_target",
     "route:resolution:rust:normalize_windows_verbatim_path_text",
+    "route:resolution:rust:open_relative",
     "route:resolution:rust:output_has_esm_module_syntax",
     "route:resolution:rust:oxc_target",
     "route:resolution:rust:package_name_and_root_in_node_modules",
@@ -6404,6 +6414,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:transform:rust:compute_transpile_override_identity",
     "route:transform:rust:compute_transpile_tooling_hash",
     "route:transform:rust:digest_file",
+    "route:transform:rust:directory_entries",
     "route:transform:rust:directory_names",
     "route:transform:rust:directory_size",
     "route:transform:rust:drop",
@@ -6413,6 +6424,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:transform:rust:format_oxc_errors",
     "route:transform:rust:from_value",
     "route:transform:rust:module_cache_key",
+    "route:transform:rust:open_relative",
     "route:transform:rust:output_has_esm_module_syntax",
     "route:transform:rust:oxc_target",
     "route:transform:rust:program_has_top_level_await",
@@ -9413,7 +9425,7 @@ function loaderClassification(surface) {
     if (/^(?:env-current_dir|env-temp_dir|process-id)$/u.test(operation)) {
       return effectSpec(["sys:read"], "system", "WP7");
     }
-    if (/^(?:command-new|from_raw_fd|new)$/u.test(operation)) {
+    if (/^(?:command-new|from_raw_fd|from_raw_handle|new)$/u.test(operation)) {
       return nonCapabilitySpec("unbound-owned-resource", "WP7");
     }
     if (operation === "last_os_error") {
@@ -9488,7 +9500,7 @@ function loaderClassification(surface) {
       return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
     }
     if (
-      /^(?:capture_transpile_tool_directory|digest_file|directory_names|walk)$/u.test(
+      /^(?:capture_transpile_tool_directory|digest_file|directory_entries|directory_names|open_relative|walk)$/u.test(
         functionName,
       )
     ) {
