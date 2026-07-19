@@ -1171,7 +1171,10 @@ pushing the prefix into an already separator-rooted `PathBuf` collapses the
 drive and leaves module resolution rooted at `\\`. Module-specifier query and
 fragment stripping likewise begins after the Windows verbatim namespace prefix
 (`\\?\`), so the prefix's question mark cannot truncate an authenticated entry
-path before resolution.
+path before resolution. At the Oxc resolver boundary only, canonical verbatim
+drive and UNC spellings are projected to their ordinary Windows equivalents;
+authenticated paths and identities remain canonical and unchanged outside that
+compatibility boundary.
 
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.

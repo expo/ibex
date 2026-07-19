@@ -182763,6 +182763,16 @@
       }
     },
     {
+      "id": "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "loader",
+        "name": "route:resolution:rust:normalize_windows_verbatim_path_text"
+      },
+      "rationaleId": "internal-data-transform",
+      "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+    },
+    {
       "id": "surface.loader.route.resolution.rust.output.has.esm.module.syntax.10x2lfm",
       "classification": "non-capability",
       "surface": {

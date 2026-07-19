@@ -239,6 +239,10 @@ impl ModuleLoader {
             return Err(anyhow!("Empty module specifier"));
         }
         let specifier = strip_file_specifier_decorations(specifier);
+        #[cfg(windows)]
+        let normalized_specifier = normalize_windows_verbatim_path_text(specifier);
+        #[cfg(windows)]
+        let specifier = normalized_specifier.as_ref();
         if !attributes.is_empty() && kind == ResolutionKind::CommonJsRequire {
             return Err(anyhow!(
                 "CommonJS require does not accept import attributes"
@@ -1028,6 +1032,11 @@ impl ModuleLoader {
         } else {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
+        #[cfg(windows)]
+        let base_dir = {
+            let value = base_dir.to_string_lossy();
+            PathBuf::from(normalize_windows_verbatim_path_text(&value).as_ref())
+        };
 
         self.resolve_with_oxc_at(specifier, &base_dir, true, kind)
     }
@@ -1797,6 +1806,18 @@ fn strip_file_specifier_decorations(specifier: &str) -> &str {
         })
         .unwrap_or(specifier.len());
     &specifier[..end]
+}
+
+#[cfg(any(windows, test))]
+fn normalize_windows_verbatim_path_text(value: &str) -> std::borrow::Cow<'_, str> {
+    // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Oxc receives ordinary Windows drive/UNC spellings while authorization retains canonical verbatim paths.
+    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        return std::borrow::Cow::Owned(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = value.strip_prefix(r"\\?\") {
+        return std::borrow::Cow::Borrowed(rest);
+    }
+    std::borrow::Cow::Borrowed(value)
 }
 
 fn find_package_root(start: &Path) -> Option<PathBuf> {
@@ -2917,6 +2938,14 @@ mod tests {
         assert_eq!(
             strip_file_specifier_decorations(r"\\?\D:\a\ibex\entry.mjs?cache=one#section"),
             path
+        );
+        assert_eq!(
+            normalize_windows_verbatim_path_text(path),
+            r"D:\a\ibex\entry.mjs"
+        );
+        assert_eq!(
+            normalize_windows_verbatim_path_text(r"\\?\UNC\server\share\entry.mjs"),
+            r"\\server\share\entry.mjs"
         );
     }
 

@@ -141797,6 +141797,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.route.resolution.rust.normalize.windows.verbatim.path.text.0aq09a9.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.loader.route.resolution.rust.output.has.esm.module.syntax.10x2lfm",
       "target": {
         "triple": "aarch64-apple-darwin",
