@@ -252,29 +252,14 @@ fn package_components(path: &std::path::Path) -> Vec<serde_json::Value> {
 }
 
 fn object_identity(path: &std::path::Path) -> serde_json::Value {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = std::fs::metadata(path).expect("read environment probe package metadata");
-        serde_json::json!({
-            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                "apple"
-            } else {
-                "unix"
-            },
-            "volume": format!("dev:{}", metadata.dev()),
-            "file": format!("ino:{}", metadata.ino()),
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        serde_json::json!({
-            "platform": "windows",
-            "volume": "startup-environment-fixture-volume",
-            "file": "startup-environment-fixture-file",
-        })
-    }
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // package traversal must revalidate the same physical object that the
+    // target-local arming snapshot authenticated, including NTFS identity.
+    serde_json::to_value(
+        ibex_runtime::host::object_identity_for_host_path(path)
+            .expect("read environment probe package identity"),
+    )
+    .expect("serialize environment probe package identity")
 }
 
 fn prepare_package_fixture(operation: &StartupEnvironmentOperation) -> PackageFixture {

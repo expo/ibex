@@ -1868,6 +1868,15 @@ A downloaded bundle whose commit, patch, architecture, and Release profile
 match but whose source-build-authority digest is stale is treated as a cache
 miss and rebuilt from the exact current source authority; other identity or
 profile mismatches remain hard failures.
+A later physical Windows attempt completed all 434 target-local native public
+fixtures, then correctly refused the startup-environment package preload
+because that harness still armed a synthetic Windows volume/file identity while
+module traversal revalidated the real NTFS directory. Startup-environment and
+callback-invariant package fixtures now derive their identities through the
+same production cross-platform object-identity function used by arming and
+traversal. The nine Apple startup-environment recipes and all 2,698 Apple
+callback-invariant fixtures pass with that binding; Windows must still repeat
+the physical batches before the result can contribute evidence.
 A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not
