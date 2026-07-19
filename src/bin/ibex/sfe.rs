@@ -71,10 +71,10 @@ pub fn compile(
         bail!("factory-table carriers are diagnostic-only and cannot produce a release executable");
     }
 
-    let target = host_target_triple()?;
     let catalog_digest = RELEASE_CATALOG_DIGEST.context(
         "SFC001 catalog trust root refused: this ibex release has no pinned SFE catalog; install a release that publishes compiled-executable artifacts",
     )?;
+    let target = host_target_triple()?;
     let catalog_root = release_catalog_root(catalog_digest)?;
     let manifest_path = catalog_root.join("manifest.json");
     let manifest_bytes = std::fs::read(&manifest_path).with_context(|| {

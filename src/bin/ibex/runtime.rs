@@ -3926,6 +3926,19 @@ fn normalized_relative_artifact_path(path: &Path) -> Option<String> {
     )
 }
 
+fn manifest_path_matches_canonical(path: &Path, canonical: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Bun emits ordinary drive/UNC spellings, while Rust canonicalization retains the authenticated verbatim identity.
+        let canonical = canonical.to_string_lossy();
+        return Path::new(normalize_windows_tool_path_text(&canonical).as_ref()) == path;
+    }
+    #[cfg(not(windows))]
+    {
+        canonical == path
+    }
+}
+
 fn collect_bundle_output_files(root: &Path, current: &Path, files: &mut Vec<String>) -> bool {
     let Ok(entries) = std::fs::read_dir(current) else {
         return false;
@@ -4024,7 +4037,6 @@ async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
         return false;
     }
     let mut previous_dep: Option<&str> = None;
-    let canonical_entry_string = canonical_entry.to_string_lossy();
     let mut includes_entry = false;
     for dep in &manifest.deps {
         if !valid_sha256(&dep.sha256)
@@ -4037,10 +4049,10 @@ async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
         let Ok(canonical_dep) = std::fs::canonicalize(path) else {
             return false;
         };
-        if canonical_dep.to_string_lossy() != dep.path {
+        if !manifest_path_matches_canonical(path, &canonical_dep) {
             return false;
         }
-        includes_entry |= dep.path == canonical_entry_string;
+        includes_entry |= canonical_dep == canonical_entry;
         let Ok(digest) = sha256_file(path).await else {
             return false;
         };
