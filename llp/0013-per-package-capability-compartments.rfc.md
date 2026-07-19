@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-19 (ENG-24933 removes an invalid Windows directory `sync_all` after protected-artifact hard-link publication and instead flushes the still-writable staged handle after the link exists)
 **Revised:** 2026-07-19 (ENG-24933 physically verifies the repaired Windows deputy stack as `1,0` and all nine startup-environment recipes, then narrows the next refusal to exact artifact-root identity opening with excessive generic-read access)
 **Revised:** 2026-07-19 (ENG-24933 traces the physical Windows deputy stack to `0,1,0`, identifies the Windows-only second disk evaluation that replaced the authenticated native-bootstrap bundle as root, and makes every platform reuse a successfully installed native bundle)
 **Revised:** 2026-07-19 (ENG-24933 materializes the exact process.env deputy call chain with an inaccessible no-I/O sentinel before binding after physical Windows accepted every retained anchor readback but still replaced or bypassed those pre-execution Domains on first use)
@@ -1354,8 +1355,12 @@ currently compatibility routing and defense in depth on top of it:
   pair: armed-root identity opening requested generic read, which includes
   directory enumeration and returned access denied for a valid metadata-only
   root. Windows root identity now requests only `FILE_READ_ATTRIBUTES` and
-  `SYNCHRONIZE`; that later artifact gate still requires a physical rerun. This
-  closes channel #2
+  `SYNCHRONIZE`. The builder's publication path also tried to open and
+  `sync_all` its containing directory, but Windows `FlushFileBuffers` requires a
+  writable file handle and ordinary directory `File` opening is not the
+  supported primitive. Windows now flushes the still-writable staged file
+  handle again after creating the hard link; Unix retains directory fsync. That
+  later artifact gate still requires a physical rerun. This closes channel #2
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
   rewrite never touches. Tested by
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.

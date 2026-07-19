@@ -303,7 +303,20 @@ fn materialize_protected_artifact(
             staged.sync_all()?;
             validate(&mut staged)?;
             match std::fs::hard_link(&temporary, &path) {
-                Ok(()) => std::fs::File::open(&directory)?.sync_all()?,
+                Ok(()) => {
+                    #[cfg(unix)]
+                    std::fs::File::open(&directory)?.sync_all()?;
+                    #[cfg(windows)]
+                    {
+                        // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+                        // Windows FlushFileBuffers requires a GENERIC_WRITE
+                        // file handle and does not accept an ordinary directory
+                        // File. The staged handle still names the published
+                        // hard-linked file and retains write access, so flush it
+                        // again after link creation to persist file metadata.
+                        staged.sync_all()?;
+                    }
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                     let mut existing = open_existing()?;
                     validate(&mut existing)?;
