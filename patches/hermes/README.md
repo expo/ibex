@@ -37,15 +37,12 @@ the pinned checkout (`ac8c6e6c80ec…`, HEAD of
 (`current_package_id`, `set_pending_package_id`, `clear_pending_package_id`,
 `set_default_package_id`, `collect_package_ids`, `set_job_scheduler_capture`).
 Patch 0009's original write-only form built on physical Windows but did not fix
-source-profile callback attribution. Focused physical Windows runs of the
+source-profile callback attribution. A focused physical Windows run of the
 fail-closed package readback proved both the CommonJS wrapper and its exported
 callback carried the package principal, while the immediately following
-`process.env` deputy call observed root. Binding `process.cwd` then read back the
-runtime principal successfully but did not change the decision actor, proving
-the source bundle owns multiple lazy Domains. The retained-function bind now
-covers the exact bootstrap-only `process.env` deputy anchors plus
-non-compartmented builtin deputies; that revision is pending its focused
-physical Windows rerun.
+`process.env` deputy call observed root. The retained-function bind therefore
+also covers the shared runtime bundle and non-compartmented builtin deputies;
+that revision is pending its focused physical Windows rerun.
 
 ### Phase 2 integration — DONE
 
@@ -58,13 +55,9 @@ physical Windows rerun.
    `__exactSetCompartmentFor` bridge after compilation. Builtin modules
    (`node:fs`, …) use that same bridge without a compartment and get the runtime
    principal `0xFFFFFFFF`; the shared runtime bundle binds that principal through
-   its retained `process.cwd` function and an exact bootstrap-only list of the
-   `process.env` Proxy trap/helper functions that Windows compiles into distinct
-   lazy Domains. The already-reviewed private shared-runtime marker carries the
-   list only during bundle evaluation and is restored to a boolean afterward.
-   Both classes are therefore transparent deputies. The bootstrap default
-   principal is set to `0xFFFFFFFF` during boot and reset to 0 before user code
-   runs (`src/engine/hermes_runtime.cc`).
+   its retained `process.cwd` function. Both classes are therefore transparent
+   deputies. The bootstrap default principal is set to `0xFFFFFFFF` during boot
+   and reset to 0 before user code runs (`src/engine/hermes_runtime.cc`).
 2. **Read the principal.** `checkCapability` (`hermes_runtime_internal.h`) calls
    `currentPrincipalId()` → `ex_hermes_vm_current_package_id` when
    `EXACT_HAVE_FRAME_ATTRIBUTION` is set (build.rs probes the framework for the
@@ -77,8 +70,8 @@ physical Windows rerun.
    layered over the native `__exact*` functions. Attribution reaches through them
    only because those deputy Domains carry the runtime principal (skipped by the
    walk). `process.env` is a capability-checked Proxy whose handler lives in the
-   shared runtime Domains, which is why exact post-bind readback of each retained
-   capability-boundary anchor is part of the attribution boundary.
+   shared runtime Domain, which is why the bundle's exact post-bind readback is
+   part of the attribution boundary.
 
 ### Phase 5 integration — DONE
 
