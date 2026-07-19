@@ -1081,6 +1081,108 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
         },
       ],
     },
+    bindGroupDescriptorV1: {
+      kind: 'closed-dictionary',
+      encodingType: 'canonicalValueV1',
+      trust: 'untrusted-webidl-converted-semantic-service-ingress-only',
+      providerBoundary: 'forbidden-raw-descriptor-must-not-reach-provider',
+      unknownFields: 'reject',
+      fields: [
+        {
+          name: 'label',
+          required: true,
+          value: { kind: 'string' },
+        },
+        {
+          name: 'entries',
+          required: true,
+          value: {
+            kind: 'sequence',
+            minCount: 0,
+            maxCountFrom: 'codecLayout.sequenceMaxCount',
+            element: {
+              kind: 'closed-dictionary',
+              unknownFields: 'reject',
+              fields: [
+                {
+                  name: 'binding',
+                  required: true,
+                  value: { kind: 'u32' },
+                },
+                {
+                  name: 'resource',
+                  required: true,
+                  value: {
+                    kind: 'closed-dictionary',
+                    unknownFields: 'reject',
+                    fields: [
+                      {
+                        name: 'resourceKind',
+                        required: true,
+                        value: {
+                          kind: 'string-enum',
+                          values: [
+                            'GPUBufferBinding',
+                            'GPUSampler',
+                            'GPUTextureView',
+                            'GPUBuffer',
+                            'GPUTexture',
+                            'GPUExternalTexture',
+                          ],
+                        },
+                      },
+                      {
+                        name: 'buffer',
+                        required: false,
+                        value: {
+                          kind: 'full-object-reference',
+                          referenceType: 'objectReferenceV1',
+                          requiredObjectKind: 'GPUBuffer',
+                        },
+                      },
+                      {
+                        name: 'offset',
+                        required: false,
+                        value: { kind: 'u64' },
+                      },
+                      {
+                        name: 'size',
+                        required: false,
+                        value: { kind: 'u64' },
+                      },
+                      {
+                        name: 'reference',
+                        required: false,
+                        value: {
+                          kind: 'full-object-reference',
+                          referenceType: 'objectReferenceV1',
+                          permittedObjectKinds: [
+                            'GPUSampler',
+                            'GPUTextureView',
+                            'GPUBuffer',
+                            'GPUTexture',
+                            'GPUExternalTexture',
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+        },
+        {
+          name: 'layout',
+          required: true,
+          value: {
+            kind: 'full-object-reference',
+            referenceType: 'objectReferenceV1',
+            requiredObjectKind: 'GPUBindGroupLayout',
+          },
+        },
+      ],
+    },
     bindGroupLayoutDescriptorV1: {
       kind: 'closed-dictionary',
       encodingType: 'canonicalValueV1',
@@ -3011,11 +3113,6 @@ function validateNativeCodecProgram(
 ): ValidatedNativeCodecProgram {
   const programWithoutDeviceObjectCreationRoutes = {
     ...manifest.nativeCodecPrograms,
-    types: Object.fromEntries(
-      Object.entries(manifest.nativeCodecPrograms.types).filter(
-        ([name]) => name !== 'bindGroupDescriptorV1',
-      ),
-    ),
     routes: manifest.nativeCodecPrograms.routes.filter(
       (candidate) =>
         candidate.operationId !== CREATE_BIND_GROUP_OPERATION_ID &&
@@ -8256,20 +8353,6 @@ export function createExecutableWebGpuCodecs(
       );
     } else if (
       route.operationId ===
-        requestAdapterNativeProgram.createBindGroupRoute.operationId
-    ) {
-      validateCreateBindGroupRequestFields(
-        receiver,
-        target,
-        adapterOrdinal,
-        deviceIngressOrdinal,
-        queueIngressOrdinal,
-        sealedLocalTimeline,
-        convertedArguments,
-        manifest.layout.sequenceMaxCount,
-      );
-    } else if (
-      route.operationId ===
         requestAdapterNativeProgram.createBindGroupLayoutRoute.operationId
     ) {
       validateCreateBindGroupLayoutRequestFields(
@@ -8764,6 +8847,20 @@ export function createExecutableWebGpuCodecs(
         convertedArguments,
         manifest.layout.sequenceMaxCount,
         manifest.layout.dictionaryMaxFields,
+      );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.createBindGroupRoute.operationId
+    ) {
+      validateCreateBindGroupRequestFields(
+        receiver,
+        target,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        manifest.layout.sequenceMaxCount,
       );
     } else if (
       route.operationId ===

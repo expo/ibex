@@ -2181,6 +2181,25 @@ describe('generated injection-only WebGPU executable codecs', () => {
       }],
       layout: reference('GPUBindGroupLayout'),
     });
+
+    const zeroSizeConverted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments('GPUDevice.createBindGroup', [{
+        label: 'zero-size-is-structural',
+        entries: [{
+          binding: 0,
+          resource: { buffer: gpuBuffer, offset: 0, size: 0 },
+        }],
+        layout: bindGroupLayout,
+      }], wrappers);
+    expect(zeroSizeConverted).toMatchObject({
+      entries: [{ resource: { offset: 0, size: 0 } }],
+    });
+    const zeroSizeBytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(
+        serviceInput('GPUDevice.createBindGroup', zeroSizeConverted),
+      );
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(zeroSizeBytes))
+      .toMatchObject({ convertedArguments: zeroSizeConverted });
   });
 
   test('stops createBindGroup conversion before later getters, allocation, ingress, or provider work', () => {
@@ -2260,6 +2279,22 @@ describe('generated injection-only WebGPU executable codecs', () => {
     );
     expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(bytes))
       .toMatchObject({ convertedArguments: converted });
+    const wrongTargetKind = bytes.slice();
+    wrongTargetKind[54] = 5;
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .inspectServiceRequest(wrongTargetKind))
+      .toThrow('authenticated device provenance');
+    for (const identityOffset of [13, 21, 29, 37, 45, 55, 63, 71, 79, 87]) {
+      const zeroIdentity = bytes.slice();
+      zeroIdentity.fill(0, identityOffset, identityOffset + 8);
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .inspectServiceRequest(zeroIdentity)).toThrow();
+    }
+    const foreignTargetDevice = bytes.slice();
+    foreignTargetDevice[71] ^= 1;
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .inspectServiceRequest(foreignTargetDevice))
+      .toThrow('authenticated device provenance');
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.typeGpuBindGroupWorkloadEvidence)
       .toMatchObject({
         callCount: 18,
