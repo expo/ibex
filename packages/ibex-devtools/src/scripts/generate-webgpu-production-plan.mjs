@@ -73,6 +73,20 @@ const WRAPPER_LOCAL_METADATA_OPERATION_IDS = Object.freeze([
   "GPUTexture.height",
   "GPUTexture.width",
 ]);
+const STAGED_LOCAL_RECORD_ID_DOMAIN = "exact/webgpu-staged-local-record/v1";
+const STAGED_LOCAL_RECORD_LIMIT = 1_024;
+const STAGED_LOCAL_RECORDING_OPERATION_IDS = Object.freeze([
+  "GPUCommandEncoder.beginComputePass",
+  "GPUCommandEncoder.clearBuffer",
+  "GPUCommandEncoder.copyBufferToBuffer",
+  "GPUCommandEncoder.copyTextureToTexture",
+  "GPUComputePassEncoder.dispatchWorkgroups",
+  "GPUComputePassEncoder.end",
+  "GPUComputePassEncoder.setBindGroup",
+  "GPUComputePassEncoder.setPipeline",
+  "GPURenderPassEncoder.setBindGroup",
+  "GPURenderPassEncoder.setVertexBuffer",
+]);
 const PRODUCT_SELECTED_METADATA_OPERATION_IDS = Object.freeze([
   "GPUAdapter.features",
   "GPUBuffer.size",
@@ -226,7 +240,7 @@ function stagingProjectionSha256(staging) {
     .digest("hex");
 }
 
-function validateWorkloadStaging(staging, routeIds) {
+function validateWorkloadStaging(staging, routeIds, activeWireIds) {
   if (
     staging?.schema !== "ibex/webgpu-typegpu-workload-staging/1" ||
     staging.artifactVersion !== 1 ||
@@ -265,6 +279,63 @@ function validateWorkloadStaging(staging, routeIds) {
     routeIds,
     "TypeGPU active route subset",
   );
+  const localRecording = staging.localRecordingSubset;
+  if (
+    localRecording?.scopeId !==
+      "typegpu-private-wrapper-local-recording-v1" ||
+    localRecording.identityDomain !== STAGED_LOCAL_RECORD_ID_DOMAIN ||
+    localRecording.recordLimit !== STAGED_LOCAL_RECORD_LIMIT ||
+    localRecording.operationCount !==
+      STAGED_LOCAL_RECORDING_OPERATION_IDS.length ||
+    !Array.isArray(localRecording.operations) ||
+    localRecording.operations.length !== localRecording.operationCount
+  ) {
+    throw new Error("invalid TypeGPU staged local recording subset");
+  }
+  exactSet(
+    localRecording.operations.map((operation) => operation.operationId),
+    STAGED_LOCAL_RECORDING_OPERATION_IDS,
+    "TypeGPU staged local recording operation set",
+  );
+  const localRecordIds = new Set();
+  for (const operation of localRecording.operations) {
+    const identityMaterial = {
+      operationId: operation.operationId,
+      memberKind: operation.memberKind,
+      logicalExecutionKind: operation.logicalExecutionKind,
+      terminalDisposition: operation.terminalDisposition,
+      routingDisposition: operation.routingDisposition,
+      sourceEvidenceSha256: operation.sourceEvidenceSha256,
+    };
+    const digest = crypto
+      .createHash("sha256")
+      .update(
+        `${STAGED_LOCAL_RECORD_ID_DOMAIN}\n${canonicalJson(identityMaterial)}\n`,
+        "utf8",
+      )
+      .digest();
+    if (
+      operation.memberKind !== "method" ||
+      operation.logicalExecutionKind !== "wrapper-local-recording" ||
+      operation.terminalDisposition !==
+        "sealed-logical-record-no-provider-submit" ||
+      operation.routingDisposition !==
+        "construction-private-non-installing-non-routing" ||
+      !/^[0-9a-f]{64}$/u.test(operation.sourceEvidenceSha256) ||
+      operation.recordIdentitySha256 !== digest.toString("hex") ||
+      operation.localRecordId !== digest.readUInt32LE(0) ||
+      !Number.isInteger(operation.localRecordId) ||
+      operation.localRecordId <= 0 ||
+      operation.localRecordId > 0xffff_ffff ||
+      activeWireIds.has(operation.localRecordId) ||
+      localRecordIds.has(operation.localRecordId)
+    ) {
+      throw new Error(
+        `invalid staged local record identity for ${operation.operationId}`,
+      );
+    }
+    localRecordIds.add(operation.localRecordId);
+  }
   const operations = staging.workloadClosure?.operations;
   if (!Array.isArray(operations)) {
     throw new Error("TypeGPU workload operation closure is missing");
@@ -327,12 +398,24 @@ function validateWorkloadStaging(staging, routeIds) {
       ? "active-private-triangle-route"
       : graduatedRouteSet.has(operation.operationId)
         ? "active-private-graduated-route"
-        : wrapperLocalMetadataSet.has(operation.operationId)
+      : wrapperLocalMetadataSet.has(operation.operationId)
           ? "private-wrapper-local-metadata-read-no-dispatch"
-        : "staged-unroutable-no-prototype-member";
+        : STAGED_LOCAL_RECORDING_OPERATION_IDS.includes(operation.operationId)
+          ? "private-wrapper-local-recording-no-dispatch"
+          : "staged-unroutable-no-prototype-member";
+    const localRecordingRow = localRecording.operations.find(
+      (candidate) => candidate.operationId === operation.operationId,
+    );
     if (
       !["method", "property"].includes(operation.memberKind) ||
-      operation.disposition !== expectedDisposition
+      operation.disposition !== expectedDisposition ||
+      (localRecordingRow !== undefined &&
+        (operation.localRecordId !== localRecordingRow.localRecordId ||
+          operation.recordIdentitySha256 !==
+            localRecordingRow.recordIdentitySha256)) ||
+      (localRecordingRow === undefined &&
+        (operation.localRecordId !== undefined ||
+          operation.recordIdentitySha256 !== undefined))
     ) {
       throw new Error(`invalid TypeGPU staging disposition for ${operation.operationId}`);
     }
@@ -347,6 +430,7 @@ function validateWorkloadStaging(staging, routeIds) {
     operationCount: operations.length,
     additionalOperationCount: additional.length,
     additionalOperations: additional,
+    localRecordingSubset: localRecording,
     properties: staging.workloadClosure.properties,
     constants: staging.workloadClosure.constants,
     hostExtensions: staging.workloadClosure.hostExtensions,
@@ -441,6 +525,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
   const stagedWorkloadClosure = validateWorkloadStaging(
     workloadStaging,
     typeGpuRouteIds,
+    new Set(routes.map((candidate) => candidate.wireId)),
   );
   const plan = {
     schema: "ibex/webgpu-production-wrapper-plan/1",

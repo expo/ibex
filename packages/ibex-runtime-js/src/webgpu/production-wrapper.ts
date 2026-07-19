@@ -37,6 +37,15 @@ const ROUTES = new Map<string, ProductionRoute>(
 const ROUTES_BY_WIRE = new Map<number, ProductionRoute>(
   WEBGPU_PRODUCTION_PLAN.routes.map((route) => [route.wireId, route]),
 );
+const STAGED_LOCAL_RECORDS: ReadonlyMap<
+  string,
+  (typeof WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.operations)[number]
+> = new Map(
+  WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.operations
+    .map((operation) => [operation.operationId, operation] as const),
+);
+const MAX_LOCAL_RECORDS =
+  WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.recordLimit;
 
 const OBJECT_KINDS: Readonly<
   Record<ProductionGpuAllocatedWrapperKind, number>
@@ -49,8 +58,20 @@ const OBJECT_KINDS: Readonly<
 const INTRINSIC_ARRAY_BUFFER = ArrayBuffer;
 const INTRINSIC_ARRAY_BUFFER_IS_VIEW = INTRINSIC_ARRAY_BUFFER.isView;
 const INTRINSIC_UINT8_ARRAY = Uint8Array;
+const INTRINSIC_UINT32_ARRAY = Uint32Array;
 const INTRINSIC_REFLECT_APPLY = Reflect.apply;
 const INTRINSIC_REFLECT_CONSTRUCT = Reflect.construct;
+const INTRINSIC_TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(
+  INTRINSIC_UINT32_ARRAY.prototype,
+) as object;
+const INTRINSIC_TYPED_ARRAY_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  INTRINSIC_TYPED_ARRAY_PROTOTYPE,
+  'length',
+)?.get;
+const INTRINSIC_TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
+  INTRINSIC_TYPED_ARRAY_PROTOTYPE,
+  Symbol.toStringTag,
+)?.get;
 
 // This is a construction-private memory-safety guard, deliberately no larger
 // than the authenticated structural per-descriptor ceiling. It is not the
@@ -111,6 +132,13 @@ interface WrapperState {
   activePass: WrapperState | undefined;
   encoder: WrapperState | undefined;
   records: unknown[];
+  debugGroupDepth: number;
+  readonly boundBindGroups: Map<number, BoundBindGroupState>;
+  readonly usedBindGroups: Set<WrapperState>;
+  currentPipeline: WrapperState | undefined;
+  bindGroupLayoutEntries: readonly BindGroupLayoutBufferEntry[] | undefined;
+  bindGroupLayout: WrapperState | undefined;
+  bindGroupBufferBindings: readonly BindGroupBufferBinding[] | undefined;
   submitted: boolean;
   configuration: Record<string, unknown> | undefined;
   configurationGeneration: string;
@@ -132,11 +160,29 @@ interface WrapperState {
   bufferMappedBytes: ArrayBuffer | undefined;
   textureDimension: '1d' | '2d' | '3d' | undefined;
   textureFormat: string | undefined;
+  textureUsage: number | undefined;
   textureWidth: number | undefined;
   textureHeight: number | undefined;
   textureDepthOrArrayLayers: number | undefined;
   drawingBufferWidth: number | undefined;
   drawingBufferHeight: number | undefined;
+}
+
+interface BindGroupLayoutBufferEntry {
+  readonly binding: number;
+  readonly hasDynamicOffset: boolean;
+  readonly minBindingSize: number;
+}
+
+interface BindGroupBufferBinding {
+  readonly binding: number;
+  readonly buffer: WrapperState;
+  readonly offset: number;
+}
+
+interface BoundBindGroupState {
+  readonly bindGroup: WrapperState | null;
+  readonly dynamicOffsets: readonly number[];
 }
 
 /** Host-authenticated, construction-private canvas identity and authority. */
@@ -176,6 +222,7 @@ interface RealmState {
   readonly privateMappedAllocationGuardLimitBytes: number;
   privateMappedAllocationGuardBytes: number;
   canvasLossTransitionCount: number;
+  activePassCount: number;
   closeReason: string | undefined;
   lastCloseSnapshot: ProductionWebGpuPrivateBindingInspection | undefined;
   active: boolean;
@@ -188,6 +235,7 @@ export interface ProductionWebGpuPrivateBindingInspection {
   readonly privateMappedAllocationGuardLimitBytes: number;
   readonly privateMappedAllocationGuardBytes: number;
   readonly canvasLossTransitionCount: number;
+  readonly activePassCount: number;
   readonly routedDeviceCount: number;
   readonly indexedCanvasContextCount: number;
   readonly indexedCanvasObjectCount: number;
@@ -250,6 +298,13 @@ const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
       (operation) => Object.freeze({ ...operation }),
     ),
   ),
+  localRecordingSubset: Object.freeze({
+    ...WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset,
+    operations: Object.freeze(
+      WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.operations
+        .map((operation) => Object.freeze({ ...operation })),
+    ),
+  }),
   blockers: Object.freeze([
     ...WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.blockers,
   ]),
@@ -261,8 +316,9 @@ const TYPEGPU_WORKLOAD_STAGING = Object.freeze({
 
 /**
  * Construction-private planning evidence for the pinned TypeGPU workloads.
- * Additional members are intentionally descriptive only: they have no route,
- * codec, prototype entry, or install path until every listed blocker closes.
+ * Additional members remain non-routing and non-installing. The authenticated
+ * local-recording subset has construction-private prototype plumbing only; it
+ * has no service codec, native route, CapSec edge, or support claim.
  */
 export function describeProductionWebGpuWorkloadStaging() {
   return TYPEGPU_WORKLOAD_STAGING;
@@ -614,6 +670,7 @@ function createPrototypeTable(): Record<
     GPUCanvasContext: Object.create(null),
     GPUCommandBuffer: Object.create(null),
     GPUCommandEncoder: Object.create(null),
+    GPUComputePassEncoder: Object.create(null),
     GPUDevice: Object.create(EventTarget.prototype),
     GPUQueue: Object.create(null),
     GPURenderPassEncoder: Object.create(null),
@@ -650,6 +707,189 @@ function asRecord(value: unknown, label: string): Record<string, unknown> {
     throw new TypeError(`${label} must be a dictionary`);
   }
   return value as Record<string, unknown>;
+}
+
+function stagedDictionary(
+  value: unknown,
+  label: string,
+): Record<PropertyKey, unknown> {
+  if (value === undefined || value === null) return Object.create(null);
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+    throw new TypeError(`${label} must be a dictionary`);
+  }
+  return value as Record<PropertyKey, unknown>;
+}
+
+function stagedU32(value: unknown, label: string, defaultValue?: number): number {
+  if (value === undefined && defaultValue !== undefined) return defaultValue;
+  const converted = +(value as number);
+  if (!Number.isFinite(converted)) {
+    throw new TypeError(`${label} must be an unsigned 32-bit integer`);
+  }
+  const integer = Math.trunc(converted);
+  if (integer < 0 || integer >= 0x1_0000_0000) {
+    throw new TypeError(`${label} must be an unsigned 32-bit integer`);
+  }
+  return Object.is(integer, -0) ? 0 : integer;
+}
+
+function stagedU64(value: unknown, label: string, defaultValue?: number): number {
+  if (value === undefined && defaultValue !== undefined) return defaultValue;
+  const converted = +(value as number);
+  if (!Number.isFinite(converted)) {
+    throw new TypeError(`${label} must be an unsigned 64-bit integer`);
+  }
+  const integer = Math.trunc(converted);
+  if (integer < 0 || integer > Number.MAX_SAFE_INTEGER) {
+    throw new TypeError(`${label} must be an unsigned 64-bit integer`);
+  }
+  return Object.is(integer, -0) ? 0 : integer;
+}
+
+function stagedString(value: unknown, label: string): string {
+  if (typeof value === 'symbol') throw new TypeError(`${label} cannot be a Symbol`);
+  return String(value);
+}
+
+function stagedEnum(
+  value: unknown,
+  allowed: readonly string[],
+  label: string,
+): string {
+  const converted = stagedString(value, label);
+  if (!allowed.includes(converted)) {
+    throw new TypeError(`${label} is not a supported enum value`);
+  }
+  return converted;
+}
+
+function stagedSequence(
+  value: unknown,
+  label: string,
+  convertMember: (member: unknown, index: number) => unknown,
+): readonly unknown[] {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+    throw new TypeError(`${label} must be iterable`);
+  }
+  const iteratorMethod = (value as { [Symbol.iterator]?: unknown })[Symbol.iterator];
+  if (typeof iteratorMethod !== 'function') {
+    throw new TypeError(`${label} must be iterable`);
+  }
+  const iterator = INTRINSIC_REFLECT_APPLY(iteratorMethod, value, []);
+  if ((typeof iterator !== 'object' && typeof iterator !== 'function') || iterator === null) {
+    throw new TypeError(`${label} iterator must be an object`);
+  }
+  const output: unknown[] = [];
+  const iterable = {
+    [Symbol.iterator]() {
+      return iterator as Iterator<unknown>;
+    },
+  };
+  for (const member of iterable) {
+    if (output.length >= MAX_LOCAL_RECORDS) {
+      throw new TypeError(`${label} exceeds the staged local record bound`);
+    }
+    output.push(convertMember(member, output.length));
+  }
+  return Object.freeze(output);
+}
+
+function snapshotUint32Range(
+  value: unknown,
+  start: number,
+  length: number,
+): readonly number[] {
+  if (!INTRINSIC_TYPED_ARRAY_LENGTH_GETTER || !INTRINSIC_TYPED_ARRAY_TAG_GETTER) {
+    throw new Error('Trusted typed-array intrinsics are unavailable');
+  }
+  let sourceLength: number;
+  let sourceTag: unknown;
+  try {
+    sourceLength = INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_TYPED_ARRAY_LENGTH_GETTER,
+      value,
+      [],
+    ) as number;
+    sourceTag = INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_TYPED_ARRAY_TAG_GETTER,
+      value,
+      [],
+    );
+  } catch {
+    throw new TypeError('dynamicOffsetsData must be a Uint32Array');
+  }
+  if (sourceTag !== 'Uint32Array') {
+    throw new TypeError('dynamicOffsetsData must be a Uint32Array');
+  }
+  if (start > sourceLength || length > sourceLength - start) {
+    throw new RangeError('dynamicOffsetsData range exceeds the source Uint32Array');
+  }
+  if (length > MAX_LOCAL_RECORDS) {
+    throw new RangeError('dynamicOffsetsData range exceeds the staged local record bound');
+  }
+  const source = value as Readonly<Record<number, number>>;
+  const copied: number[] = [];
+  for (let index = 0; index < length; index += 1) {
+    copied.push(source[start + index]);
+  }
+  return Object.freeze(copied);
+}
+
+function sealLocalValue(value: unknown, depth = 0): unknown {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new TypeError('WebGPU local records require finite numeric values');
+    }
+    return Object.is(value, -0) ? 0 : value;
+  }
+  if (depth >= 16 || typeof value !== 'object' || value === null) {
+    throw new TypeError('WebGPU local record value is not canonically sealable');
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Array.isArray(value)) {
+    if (value.length > MAX_LOCAL_RECORDS) {
+      throw new TypeError('WebGPU local record sequence exceeds its bound');
+    }
+    const keys = Reflect.ownKeys(descriptors);
+    if (
+      keys.some((key) =>
+        typeof key !== 'string' ||
+        (key !== 'length' && !/^(?:0|[1-9][0-9]*)$/u.test(key))
+      )
+    ) {
+      throw new TypeError('WebGPU local record sequence has extra properties');
+    }
+    const result: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) {
+        throw new TypeError('WebGPU local record sequence must be dense data');
+      }
+      result.push(sealLocalValue(descriptor.value, depth + 1));
+    }
+    return Object.freeze(result);
+  }
+  const ownKeys = Reflect.ownKeys(descriptors);
+  if (ownKeys.length > 128 || ownKeys.some((key) => typeof key !== 'string')) {
+    throw new TypeError('WebGPU local record dictionary exceeds its bound');
+  }
+  const keys = (ownKeys as string[]).slice().sort();
+  const result: Record<string, unknown> = Object.create(null);
+  for (const key of keys as string[]) {
+    const descriptor = descriptors[key];
+    if (!descriptor?.enumerable || !('value' in descriptor)) {
+      throw new TypeError('WebGPU local record dictionary must contain data properties');
+    }
+    result[key] = sealLocalValue(descriptor.value, depth + 1);
+  }
+  return Object.freeze(result);
 }
 
 function drawingBufferCoordinate(value: unknown, label: string): number {
@@ -849,6 +1089,7 @@ export function createProductionWebGpuPrivateBinding(
       capturedTestOptions.privateMappedAllocationGuardLimitBytes,
     privateMappedAllocationGuardBytes: 0,
     canvasLossTransitionCount: 0,
+    activePassCount: 0,
     closeReason: undefined,
     lastCloseSnapshot: undefined,
     active: true,
@@ -909,6 +1150,7 @@ export function createProductionWebGpuPrivateBinding(
       privateMappedAllocationGuardBytes:
         realm.privateMappedAllocationGuardBytes,
       canvasLossTransitionCount: realm.canvasLossTransitionCount,
+      activePassCount: realm.activePassCount,
       routedDeviceCount: realm.devices.size,
       indexedCanvasContextCount: realm.hostCanvasContextsByIdentity.size,
       indexedCanvasObjectCount: realm.currentHostCanvasContextByObject.size,
@@ -950,6 +1192,7 @@ export function createProductionWebGpuPrivateBinding(
       privateMappedAllocationGuardBytes:
         realm.privateMappedAllocationGuardBytes,
       canvasLossTransitionCount: realm.canvasLossTransitionCount,
+      activePassCount: realm.activePassCount,
       routedDeviceCount: devices.length,
       indexedCanvasContextCount: contexts.length,
       indexedCanvasObjectCount: realm.currentHostCanvasContextByObject.size,
@@ -973,6 +1216,7 @@ export function createProductionWebGpuPrivateBinding(
     realm.devices.clear();
     realm.pendingPromiseCalls.clear();
     realm.resultEvents.clear();
+    realm.activePassCount = 0;
     realm.lastCloseSnapshot = snapshot;
     for (const context of contexts) {
       context.configuredDevice?.configuredCanvasContexts.delete(context);
@@ -1093,6 +1337,13 @@ export function createProductionWebGpuPrivateBinding(
       activePass: undefined,
       encoder: undefined,
       records: [],
+      debugGroupDepth: 0,
+      boundBindGroups: new Map(),
+      usedBindGroups: new Set(),
+      currentPipeline: undefined,
+      bindGroupLayoutEntries: undefined,
+      bindGroupLayout: undefined,
+      bindGroupBufferBindings: undefined,
       submitted: false,
       configuration: undefined,
       configurationGeneration: counterSeed(
@@ -1118,6 +1369,7 @@ export function createProductionWebGpuPrivateBinding(
       bufferMappedBytes: undefined,
       textureDimension: undefined,
       textureFormat: undefined,
+      textureUsage: undefined,
       textureWidth: undefined,
       textureHeight: undefined,
       textureDepthOrArrayLayers: undefined,
@@ -1136,6 +1388,195 @@ export function createProductionWebGpuPrivateBinding(
   const convert = (operationId: string, args: readonly unknown[]): unknown => {
     route(operationId);
     return codecs.convertPublicArguments(operationId, args, { reference });
+  };
+
+  const referenceKey = (
+    value: Readonly<ProductionGpuFullObjectReference>,
+  ): string => [
+    value.kind,
+    value.objectId,
+    value.objectGeneration,
+    value.logicalDeviceId,
+    value.logicalDeviceGeneration,
+    value.providerGeneration,
+  ].join('/');
+
+  const convertWithCapturedStates = (
+    operationId: string,
+    args: readonly unknown[],
+  ): Readonly<{
+    converted: unknown;
+    statesByReference: ReadonlyMap<string, WrapperState>;
+  }> => {
+    route(operationId);
+    const statesByReference = new Map<string, WrapperState>();
+    const converted = codecs.convertPublicArguments(operationId, args, {
+      reference(value, expectedKind) {
+        const state = requireState(value, expectedKind);
+        const projected = reference(value, expectedKind);
+        statesByReference.set(referenceKey(projected), state);
+        return projected;
+      },
+    });
+    return Object.freeze({ converted, statesByReference });
+  };
+
+  const stateForCapturedReference = (
+    statesByReference: ReadonlyMap<string, WrapperState>,
+    value: unknown,
+    label: string,
+  ): WrapperState => {
+    const record = asRecord(value, label) as unknown as ProductionGpuFullObjectReference;
+    const state = statesByReference.get(referenceKey(record));
+    if (!state) throw new TypeError(`${label} was not captured from a branded wrapper`);
+    return state;
+  };
+
+  const convertOrigin3D = (
+    value: unknown,
+    label: string,
+  ): Readonly<{ x: number; y: number; z: number }> => {
+    if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+      throw new TypeError(`${label} must be an iterable or dictionary`);
+    }
+    const iteratorMethod = (value as { [Symbol.iterator]?: unknown })[Symbol.iterator];
+    if (iteratorMethod !== undefined && iteratorMethod !== null) {
+      const values = stagedSequence(
+        value,
+        label,
+        (member, index) => stagedU32(member, `${label}[${index}]`),
+      ) as readonly number[];
+      if (values.length > 3) throw new TypeError(`${label} has too many members`);
+      return Object.freeze({
+        x: values[0] ?? 0,
+        y: values[1] ?? 0,
+        z: values[2] ?? 0,
+      });
+    }
+    const source = stagedDictionary(value, label);
+    // Web IDL dictionary members are observed lexicographically.
+    const x = stagedU32(source.x, `${label}.x`, 0);
+    const y = stagedU32(source.y, `${label}.y`, 0);
+    const z = stagedU32(source.z, `${label}.z`, 0);
+    return Object.freeze({ x, y, z });
+  };
+
+  const convertExtent3D = (
+    value: unknown,
+    label: string,
+  ): Readonly<{ width: number; height: number; depthOrArrayLayers: number }> => {
+    if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+      throw new TypeError(`${label} must be an iterable or dictionary`);
+    }
+    const iteratorMethod = (value as { [Symbol.iterator]?: unknown })[Symbol.iterator];
+    if (iteratorMethod !== undefined && iteratorMethod !== null) {
+      const values = stagedSequence(
+        value,
+        label,
+        (member, index) => stagedU32(member, `${label}[${index}]`),
+      ) as readonly number[];
+      if (values.length === 0 || values.length > 3) {
+        throw new TypeError(`${label} must contain one to three members`);
+      }
+      return Object.freeze({
+        width: values[0],
+        height: values[1] ?? 1,
+        depthOrArrayLayers: values[2] ?? 1,
+      });
+    }
+    const source = stagedDictionary(value, label);
+    // depthOrArrayLayers, height, width is the Web IDL dictionary order.
+    const depthOrArrayLayers = stagedU32(
+      source.depthOrArrayLayers,
+      `${label}.depthOrArrayLayers`,
+      1,
+    );
+    const height = stagedU32(source.height, `${label}.height`, 1);
+    if (source.width === undefined) throw new TypeError(`${label}.width is required`);
+    const width = stagedU32(source.width, `${label}.width`);
+    return Object.freeze({ width, height, depthOrArrayLayers });
+  };
+
+  const convertTexelCopyTextureInfo = (
+    value: unknown,
+    label: string,
+  ): Readonly<{
+    aspect: string;
+    mipLevel: number;
+    origin: Readonly<{ x: number; y: number; z: number }>;
+    texture: Readonly<ProductionGpuFullObjectReference>;
+    textureState: WrapperState;
+  }> => {
+    const source = stagedDictionary(value, label);
+    const aspect = source.aspect === undefined
+      ? 'all'
+      : stagedEnum(
+        source.aspect,
+        ['all', 'stencil-only', 'depth-only'],
+        `${label}.aspect`,
+      );
+    const mipLevel = stagedU32(source.mipLevel, `${label}.mipLevel`, 0);
+    const origin = source.origin === undefined
+      ? Object.freeze({ x: 0, y: 0, z: 0 })
+      : convertOrigin3D(source.origin, `${label}.origin`);
+    if (source.texture === undefined) throw new TypeError(`${label}.texture is required`);
+    const textureState = requireState(source.texture, 'GPUTexture');
+    return Object.freeze({
+      aspect,
+      mipLevel,
+      origin,
+      texture: reference(source.texture, 'GPUTexture'),
+      textureState,
+    });
+  };
+
+  const convertSetBindGroupArguments = (
+    args: readonly unknown[],
+  ): Readonly<{
+    index: number;
+    bindGroup: WrapperState | null;
+    bindGroupRef: Readonly<ProductionGpuFullObjectReference> | null;
+    dynamicOffsets: readonly number[];
+    overload: 'iterable' | 'uint32-range';
+  }> => {
+    if (args.length < 2) throw new TypeError('setBindGroup requires index and bindGroup');
+    const index = stagedU32(args[0], 'setBindGroup index');
+    const bindGroupValue = args[1];
+    const bindGroup = bindGroupValue === null || bindGroupValue === undefined
+      ? null
+      : requireState(bindGroupValue, 'GPUBindGroup');
+    const bindGroupRef = bindGroup === null
+      ? null
+      : reference(bindGroupValue, 'GPUBindGroup');
+    if (args.length >= 5) {
+      const start = stagedU64(args[3], 'dynamicOffsetsDataStart');
+      const length = stagedU32(args[4], 'dynamicOffsetsDataLength');
+      return Object.freeze({
+        index,
+        bindGroup,
+        bindGroupRef,
+        dynamicOffsets: snapshotUint32Range(args[2], start, length),
+        overload: 'uint32-range',
+      });
+    }
+    if (args.length === 4) {
+      throw new TypeError('setBindGroup overload requires either three or five arguments');
+    }
+    const dynamicOffsets = args[2] === undefined
+      ? Object.freeze([]) as readonly number[]
+      : stagedSequence(
+        args[2],
+        'dynamicOffsets',
+        (member, offsetIndex) =>
+          stagedU32(member, `dynamicOffsets[${offsetIndex}]`),
+      ) as readonly number[];
+    return Object.freeze({
+      index,
+      bindGroup,
+      bindGroupRef,
+      dynamicOffsets,
+      overload: 'iterable',
+    });
   };
 
   const expireCurrentTexture = (context: WrapperState): void => {
@@ -1258,7 +1699,10 @@ export function createProductionWebGpuPrivateBinding(
   };
 
   interface LocalRecordPlan {
-    readonly selected: ProductionRoute;
+    readonly operationName: string;
+    readonly recordOperationId: number;
+    readonly recordIdentitySha256: string | null;
+    readonly recordIdentityClass: 'active-route' | 'staged-local';
     readonly device: DeviceState;
     readonly operationInstanceId: string;
     readonly nextOperationInstanceId: string;
@@ -1275,18 +1719,34 @@ export function createProductionWebGpuPrivateBinding(
     targetDevice?: DeviceState,
   ): LocalRecordPlan => {
     if (!realm.active) throw namedError('SecurityError', 'WebGPU realm is revoked');
-    const selected = route(operationId);
-    if (selected.providerSubmission !== 'none') {
-      throw new Error(`${operationId} is not wrapper-local`);
+    if (receiver.retired) {
+      throw namedError('InvalidStateError', `${receiver.kind} identity is stale`);
     }
-    if (
-      selected.operationInstanceIdentity !==
-        'wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record'
+    const staged = STAGED_LOCAL_RECORDS.get(operationId);
+    const selected = staged === undefined ? route(operationId) : undefined;
+    if (selected !== undefined) {
+      if (selected.providerSubmission !== 'none') {
+        throw new Error(`${operationId} is not wrapper-local`);
+      }
+      if (
+        selected.operationInstanceIdentity !==
+          'wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record'
+      ) {
+        throw new Error(`${operationId} has no sealed local operation identity`);
+      }
+    } else if (
+      staged?.logicalExecutionKind !== 'wrapper-local-recording' ||
+      staged.terminalDisposition !== 'sealed-logical-record-no-provider-submit' ||
+      staged.routingDisposition !==
+        'construction-private-non-installing-non-routing'
     ) {
-      throw new Error(`${operationId} has no sealed local operation identity`);
+      throw new Error(`${operationId} is not an authenticated staged local record`);
     }
     const device = receiver.device ?? targetDevice;
     if (!device) throw new Error(`${operationId} lacks a logical device`);
+    if (device.pendingLocalTimeline.length >= MAX_LOCAL_RECORDS) {
+      throw new RangeError('WebGPU pending local timeline exceeds its authenticated bound');
+    }
     const operationPlan = consumeNextCounterOrClose(
       realm.nextLocalOperationInstanceId,
       realm.localOperationInstanceIdExhausted,
@@ -1298,7 +1758,10 @@ export function createProductionWebGpuPrivateBinding(
       'device ingress ordinal',
     );
     return Object.freeze({
-      selected,
+      operationName: operationId,
+      recordOperationId: staged?.localRecordId ?? selected!.wireId,
+      recordIdentitySha256: staged?.recordIdentitySha256 ?? null,
+      recordIdentityClass: staged === undefined ? 'active-route' : 'staged-local',
       device,
       operationInstanceId: operationPlan.value,
       nextOperationInstanceId: operationPlan.next,
@@ -1319,9 +1782,13 @@ export function createProductionWebGpuPrivateBinding(
   ): Readonly<{
     operationInstanceId: string;
     deviceIngressOrdinal: string;
+    sealedRecord: Readonly<Record<string, unknown>>;
   }> => {
     const {
-      selected,
+      operationName,
+      recordOperationId,
+      recordIdentitySha256,
+      recordIdentityClass,
       device,
       operationInstanceId,
       nextOperationInstanceId,
@@ -1331,6 +1798,38 @@ export function createProductionWebGpuPrivateBinding(
       deviceIngressExhaustedAfter,
       capturedScopeId,
     } = plan;
+    const receiverRef = referenceWithDevice(receiver, device);
+    const pass = receiver.kind === 'GPUComputePassEncoder' ||
+      receiver.kind === 'GPURenderPassEncoder'
+      ? receiver
+      : target?.kind === 'GPUComputePassEncoder' ||
+          target?.kind === 'GPURenderPassEncoder'
+        ? target
+        : undefined;
+    const commandEncoder = receiver.kind === 'GPUCommandEncoder'
+      ? receiver
+      : pass?.encoder;
+    const sealedRecord = sealLocalValue({
+      recordIdentityClass,
+      operationId: recordOperationId,
+      operationName,
+      operationIdentitySha256: recordIdentitySha256,
+      operationInstanceId,
+      deviceIngressOrdinal,
+      capturedScopeId,
+      receiverRef,
+      commandEncoderRef: commandEncoder
+        ? referenceWithDevice(commandEncoder, device)
+        : null,
+      passRef: pass ? referenceWithDevice(pass, device) : null,
+      wrapperAllocatedTargetRef: target
+        ? referenceWithDevice(target, device)
+        : null,
+      argumentBody: convertedArguments,
+      logicalError: error
+        ? Object.freeze({ name: error.name, message: error.message })
+        : null,
+    }) as Readonly<Record<string, unknown>>;
     if (
       !realm.active ||
       realm.closeReason !== undefined ||
@@ -1350,24 +1849,12 @@ export function createProductionWebGpuPrivateBinding(
       operationInstanceIdExhaustedAfter;
     device.nextIngress = nextDeviceIngress;
     device.ingressExhausted = deviceIngressExhaustedAfter;
-    device.pendingLocalTimeline.push(
-      Object.freeze({
-        operationId: selected.wireId,
-        operationName: selected.operationId,
-        operationInstanceId,
-        deviceIngressOrdinal,
-        capturedScopeId,
-        receiverRef: referenceWithDevice(receiver, device),
-        wrapperAllocatedTargetRef: target
-          ? referenceWithDevice(target, device)
-          : null,
-        argumentBody: convertedArguments,
-        logicalError: error
-          ? Object.freeze({ name: error.name, message: error.message })
-          : null,
-      }),
-    );
-    return Object.freeze({ operationInstanceId, deviceIngressOrdinal });
+    device.pendingLocalTimeline.push(sealedRecord);
+    return Object.freeze({
+      operationInstanceId,
+      deviceIngressOrdinal,
+      sealedRecord,
+    });
   };
 
   const recordLocal = (
@@ -1386,6 +1873,25 @@ export function createProductionWebGpuPrivateBinding(
     convertedArguments,
     error,
   );
+
+  const preflightCommandRecordCapacity = (
+    states: readonly (WrapperState | undefined)[],
+  ): readonly WrapperState[] => {
+    const unique = [...new Set(states.filter(
+      (state): state is WrapperState => state !== undefined,
+    ))];
+    if (unique.some((state) => state.records.length >= MAX_LOCAL_RECORDS)) {
+      throw new RangeError('WebGPU command program exceeds its authenticated bound');
+    }
+    return unique;
+  };
+
+  const appendCommandRecord = (
+    states: readonly WrapperState[],
+    record: Readonly<Record<string, unknown>>,
+  ): void => {
+    for (const state of states) state.records.push(record);
+  };
 
   const nativeReference = (
     state: WrapperState | undefined,
@@ -1515,7 +2021,9 @@ export function createProductionWebGpuPrivateBinding(
     if ((receiver.device ?? target?.device) !== device) {
       throw new Error(`${operationId} counter plan changed logical device`);
     }
-    const sealedLocalTimeline = device?.pendingLocalTimeline.slice() ?? [];
+    const sealedLocalTimeline = Object.freeze(
+      device?.pendingLocalTimeline.slice() ?? [],
+    );
     const receiverReference = singleton
       ? Object.freeze({
         kind: 'GPU' as const,
@@ -2180,13 +2688,17 @@ export function createProductionWebGpuPrivateBinding(
         texture.invalid = true;
         texture.status = 'invalid-device';
       }
-      const mintOperationProvenance = commitLocalRecord(
+      const committedMintRecord = commitLocalRecord(
         localRecordPlan,
         context,
         texture,
         converted,
         undefined,
       );
+      const mintOperationProvenance = Object.freeze({
+        operationInstanceId: committedMintRecord.operationInstanceId,
+        deviceIngressOrdinal: committedMintRecord.deviceIngressOrdinal,
+      });
       const authority = context.canvasAuthority;
       const receiverTextureRef = reference(texture.wrapper, 'GPUTexture');
       const contextRef = referenceWithDevice(context, context.configuredDevice);
@@ -2287,6 +2799,32 @@ export function createProductionWebGpuPrivateBinding(
       state.device,
     );
     const layout = allocateWrapper('GPUBindGroupLayout', state.device);
+    const convertedRecord = asRecord(
+      converted,
+      'converted GPUBindGroupLayoutDescriptor',
+    );
+    if (!Array.isArray(convertedRecord.entries)) {
+      throw new TypeError('converted GPUBindGroupLayoutDescriptor entries are missing');
+    }
+    layout.bindGroupLayoutEntries = Object.freeze(
+      convertedRecord.entries.flatMap((entryValue, index) => {
+        const entry = asRecord(entryValue, `converted layout entry ${index}`);
+        if (entry.buffer === undefined) return [];
+        const buffer = asRecord(
+          entry.buffer,
+          `converted layout buffer entry ${index}`,
+        );
+        return [Object.freeze({
+          binding: stagedU32(entry.binding, `converted layout entry ${index}.binding`),
+          hasDynamicOffset: Boolean(buffer.hasDynamicOffset),
+          minBindingSize: stagedU64(
+            buffer.minBindingSize,
+            `converted layout entry ${index}.minBindingSize`,
+            0,
+          ),
+        })];
+      }),
+    );
     submitService(
       'GPUDevice.createBindGroupLayout',
       state,
@@ -2296,6 +2834,69 @@ export function createProductionWebGpuPrivateBinding(
       servicePlan,
     );
     return layout.wrapper;
+  });
+
+  defineMethod(mutablePrototypes.GPUDevice, 'createBindGroup', function (
+    this: object,
+    descriptor: unknown,
+  ) {
+    const state = requireState(this, 'GPUDevice');
+    const { converted, statesByReference } = convertWithCapturedStates(
+      'GPUDevice.createBindGroup',
+      [descriptor],
+    );
+    const convertedRecord = asRecord(converted, 'converted GPUBindGroupDescriptor');
+    if (!Array.isArray(convertedRecord.entries)) {
+      throw new TypeError('converted GPUBindGroupDescriptor entries are missing');
+    }
+    const layout = stateForCapturedReference(
+      statesByReference,
+      convertedRecord.layout,
+      'converted GPUBindGroupDescriptor layout',
+    );
+    const bufferBindings: BindGroupBufferBinding[] = [];
+    for (let index = 0; index < convertedRecord.entries.length; index += 1) {
+      const entry = asRecord(
+        convertedRecord.entries[index],
+        `converted bind group entry ${index}`,
+      );
+      const resource = asRecord(
+        entry.resource,
+        `converted bind group resource ${index}`,
+      );
+      if (resource.resourceKind !== 'GPUBufferBinding') continue;
+      const buffer = stateForCapturedReference(
+        statesByReference,
+        resource.buffer,
+        `converted bind group buffer ${index}`,
+      );
+      bufferBindings.push(Object.freeze({
+        binding: stagedU32(entry.binding, `converted bind group entry ${index}.binding`),
+        buffer,
+        offset: stagedU64(
+          resource.offset,
+          `converted bind group resource ${index}.offset`,
+          0,
+        ),
+      }));
+    }
+    const servicePlan = prepareServiceCounters(
+      'GPUDevice.createBindGroup',
+      state,
+      state.device,
+    );
+    const bindGroup = allocateWrapper('GPUBindGroup', state.device);
+    bindGroup.bindGroupLayout = layout;
+    bindGroup.bindGroupBufferBindings = Object.freeze(bufferBindings);
+    submitService(
+      'GPUDevice.createBindGroup',
+      state,
+      bindGroup,
+      converted,
+      false,
+      servicePlan,
+    );
+    return bindGroup.wrapper;
   });
 
   defineMethod(mutablePrototypes.GPUDevice, 'createBuffer', function (
@@ -2417,6 +3018,7 @@ export function createProductionWebGpuPrivateBinding(
     const converted = convert('GPUDevice.createTexture', [descriptor]) as Readonly<{
       dimension: '1d' | '2d' | '3d';
       format: string;
+      usage: number;
       size: Readonly<{
         width: number;
         height: number;
@@ -2424,7 +3026,7 @@ export function createProductionWebGpuPrivateBinding(
       }>;
       viewFormats: readonly string[];
     }>;
-    const requiredFeatures =
+    const requiredFeatures: Readonly<Record<string, string | null>> =
       WEBGPU_PRODUCTION_PLAN.webIdlVocabulary.gpuTextureFormatRequiredFeatures;
     for (const format of [converted.format, ...converted.viewFormats]) {
       if (!Object.prototype.hasOwnProperty.call(requiredFeatures, format)) {
@@ -2448,6 +3050,7 @@ export function createProductionWebGpuPrivateBinding(
     const texture = allocateWrapper('GPUTexture', logicalDevice);
     texture.textureDimension = converted.dimension;
     texture.textureFormat = converted.format;
+    texture.textureUsage = converted.usage;
     texture.textureWidth = converted.size.width;
     texture.textureHeight = converted.size.height;
     texture.textureDepthOrArrayLayers = converted.size.depthOrArrayLayers;
@@ -2667,12 +3270,502 @@ export function createProductionWebGpuPrivateBinding(
     });
   });
 
+  const stateIsUsableOnDevice = (
+    state: WrapperState,
+    device: DeviceState | undefined,
+  ): boolean =>
+    device !== undefined &&
+    state.device === device &&
+    !state.retired &&
+    !state.destroyed &&
+    !device.destroyed &&
+    !device.lost.settled;
+
+  const invalidatePass = (pass: WrapperState): void => {
+    pass.invalid = true;
+    if (pass.encoder) pass.encoder.invalid = true;
+  };
+
+  const bindGroupValidationError = (
+    pass: WrapperState,
+    index: number,
+    bindGroup: WrapperState | null,
+    dynamicOffsets: readonly number[],
+  ): Error | undefined => {
+    if (pass.status !== 'open' || pass.invalid) {
+      return namedError('GPUValidationError', `${pass.kind} is not open`);
+    }
+    const device = pass.device;
+    if (!device || device.destroyed || device.lost.settled) {
+      return namedError('GPUValidationError', 'The pass device is unavailable');
+    }
+    const maxBindGroups = device.limits.maxBindGroups;
+    if (typeof maxBindGroups === 'number' && index >= maxBindGroups) {
+      return namedError('GPUValidationError', 'Bind group index exceeds maxBindGroups');
+    }
+    if (bindGroup === null) {
+      return dynamicOffsets.length === 0
+        ? undefined
+        : namedError(
+          'GPUValidationError',
+          'A null bind group requires an empty dynamic offset sequence',
+        );
+    }
+    if (!stateIsUsableOnDevice(bindGroup, device)) {
+      return namedError(
+        'GPUValidationError',
+        'Bind group belongs to another or unavailable logical device',
+      );
+    }
+    const layoutEntries = bindGroup.bindGroupLayout?.bindGroupLayoutEntries;
+    const bufferBindings = bindGroup.bindGroupBufferBindings;
+    if (!layoutEntries || !bufferBindings) {
+      return namedError('GPUValidationError', 'Bind group metadata is unavailable');
+    }
+    const dynamicEntries = layoutEntries
+      .filter((entry) => entry.hasDynamicOffset)
+      .slice()
+      .sort((left, right) => left.binding - right.binding);
+    if (dynamicOffsets.length !== dynamicEntries.length) {
+      return namedError(
+        'GPUValidationError',
+        'Dynamic offset count does not match the bind group layout',
+      );
+    }
+    for (let dynamicIndex = 0; dynamicIndex < dynamicEntries.length; dynamicIndex += 1) {
+      const layout = dynamicEntries[dynamicIndex];
+      const binding = bufferBindings.find(
+        (candidate) => candidate.binding === layout.binding,
+      );
+      if (
+        !binding ||
+        binding.buffer.kind !== 'GPUBuffer' ||
+        !stateIsUsableOnDevice(binding.buffer, device) ||
+        binding.buffer.bufferSize === undefined
+      ) {
+        return namedError(
+          'GPUValidationError',
+          'Dynamic buffer binding metadata is unavailable',
+        );
+      }
+      const bufferSize = binding.buffer.bufferSize;
+      const dynamicOffset = dynamicOffsets[dynamicIndex];
+      // This is intentionally the sole dynamic range predicate. In
+      // particular, GPUBindingResource.size does not participate here:
+      // binding.offset + dynamicOffset + layout.minBindingSize <= buffer.size.
+      if (
+        binding.offset > bufferSize ||
+        dynamicOffset > bufferSize - binding.offset ||
+        layout.minBindingSize > bufferSize - binding.offset - dynamicOffset
+      ) {
+        return namedError(
+          'GPUValidationError',
+          'Dynamic buffer binding exceeds the backing buffer size',
+        );
+      }
+    }
+    return undefined;
+  };
+
+  const recordSetBindGroup = (
+    pass: WrapperState,
+    args: readonly unknown[],
+    mergeUsageImmediately: boolean,
+  ): void => {
+    const converted = convertSetBindGroupArguments(args);
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      `${pass.kind}.setBindGroup`,
+      pass,
+      pass.device,
+    );
+    pass.boundBindGroups.set(
+      converted.index,
+      Object.freeze({
+        bindGroup: converted.bindGroup,
+        dynamicOffsets: converted.dynamicOffsets,
+      }),
+    );
+    if (mergeUsageImmediately && converted.bindGroup !== null && pass.encoder) {
+      for (const bound of pass.boundBindGroups.values()) {
+        if (bound.bindGroup !== null) pass.encoder.usedBindGroups.add(bound.bindGroup);
+      }
+    }
+    const error = bindGroupValidationError(
+      pass,
+      converted.index,
+      converted.bindGroup,
+      converted.dynamicOffsets,
+    );
+    if (error) invalidatePass(pass);
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      pass,
+      undefined,
+      Object.freeze({
+        index: converted.index,
+        bindGroup: converted.bindGroupRef,
+        dynamicOffsets: converted.dynamicOffsets,
+        overload: converted.overload,
+      }),
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+  };
+
+  defineMethod(mutablePrototypes.GPUCommandEncoder, 'beginComputePass', function (
+    this: object,
+    descriptor?: unknown,
+  ) {
+    const encoder = requireState(this, 'GPUCommandEncoder');
+    const source = stagedDictionary(descriptor, 'GPUComputePassDescriptor');
+    const label = source.label === undefined
+      ? ''
+      : stagedString(source.label, 'GPUComputePassDescriptor.label');
+    const timestampWritesValue = source.timestampWrites;
+    let timestampQuerySet: WrapperState | undefined;
+    let timestampWrites: Readonly<Record<string, unknown>> | null = null;
+    if (timestampWritesValue !== undefined) {
+      const timestampSource = stagedDictionary(
+        timestampWritesValue,
+        'GPUComputePassTimestampWrites',
+      );
+      const beginningOfPassWriteIndex = timestampSource.beginningOfPassWriteIndex ===
+          undefined
+        ? null
+        : stagedU32(
+          timestampSource.beginningOfPassWriteIndex,
+          'GPUComputePassTimestampWrites.beginningOfPassWriteIndex',
+        );
+      const endOfPassWriteIndex = timestampSource.endOfPassWriteIndex === undefined
+        ? null
+        : stagedU32(
+          timestampSource.endOfPassWriteIndex,
+          'GPUComputePassTimestampWrites.endOfPassWriteIndex',
+        );
+      const querySetValue = timestampSource.querySet;
+      if (querySetValue !== undefined) {
+        try {
+          timestampQuerySet = requireState(querySetValue);
+        } catch (error) {
+          if (!(error instanceof TypeError)) throw error;
+        }
+      }
+      timestampWrites = Object.freeze({
+        beginningOfPassWriteIndex,
+        endOfPassWriteIndex,
+        querySet: timestampQuerySet
+          ? reference(timestampQuerySet.wrapper)
+          : null,
+      });
+    }
+    const converted = Object.freeze({ label, timestampWrites });
+    const commandTargets = preflightCommandRecordCapacity([encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      'GPUCommandEncoder.beginComputePass',
+      encoder,
+      encoder.device,
+    );
+    const canLock =
+      encoder.status === 'recording' && !encoder.activePass && !encoder.invalid;
+    const pass = allocateWrapper('GPUComputePassEncoder', encoder.device);
+    pass.encoder = encoder;
+    pass.status = canLock ? 'open' : 'invalid';
+    pass.invalid = !canLock;
+    // The parent is locked before timestamp validation. Even an invalid
+    // timestamp pass owns this lock until its mandatory end transition.
+    if (canLock) {
+      encoder.activePass = pass;
+      realm.activePassCount += 1;
+    }
+    const timestampInvalid = timestampWrites !== null && (
+      timestampQuerySet === undefined ||
+      (timestampQuerySet.kind as string) !== 'GPUQuerySet' ||
+      !stateIsUsableOnDevice(timestampQuerySet, encoder.device)
+    );
+    const error = !canLock
+      ? namedError('GPUValidationError', 'Command encoder cannot begin a compute pass')
+      : timestampInvalid
+        ? namedError(
+          'GPUValidationError',
+          'Compute pass timestamp writes are unavailable or invalid',
+        )
+        : undefined;
+    if (error) {
+      pass.invalid = true;
+      // A timestamp error belongs to the newly locked pass. Defer poisoning
+      // the parent until end() has first performed its mandatory unlock and
+      // used-bind-group transition.
+      if (!canLock) encoder.invalid = true;
+    }
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      encoder,
+      pass,
+      converted,
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+    return pass.wrapper;
+  });
+
+  defineMethod(mutablePrototypes.GPUCommandEncoder, 'clearBuffer', function (
+    this: object,
+    bufferValue: unknown,
+    offsetValue?: unknown,
+    sizeValue?: unknown,
+  ) {
+    const encoder = requireState(this, 'GPUCommandEncoder');
+    const buffer = requireState(bufferValue, 'GPUBuffer');
+    const offset = stagedU64(offsetValue, 'GPUCommandEncoder.clearBuffer offset', 0);
+    const size = sizeValue === undefined
+      ? null
+      : stagedU64(sizeValue, 'GPUCommandEncoder.clearBuffer size');
+    const converted = Object.freeze({
+      buffer: reference(bufferValue, 'GPUBuffer'),
+      offset,
+      size,
+    });
+    const commandTargets = preflightCommandRecordCapacity([encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      'GPUCommandEncoder.clearBuffer',
+      encoder,
+      encoder.device,
+    );
+    const remaining = buffer.bufferSize === undefined || offset > buffer.bufferSize
+      ? -1
+      : buffer.bufferSize - offset;
+    const invalid =
+      encoder.status !== 'recording' ||
+      Boolean(encoder.activePass) ||
+      encoder.invalid ||
+      !stateIsUsableOnDevice(buffer, encoder.device) ||
+      buffer.bufferSize === undefined ||
+      (buffer.bufferUsage !== undefined && (buffer.bufferUsage & 8) === 0) ||
+      offset % 4 !== 0 ||
+      (size !== null && size % 4 !== 0) ||
+      remaining < 0 ||
+      (size !== null && size > remaining);
+    const error = invalid
+      ? namedError('GPUValidationError', 'Buffer clear is invalid for this encoder')
+      : undefined;
+    if (invalid) encoder.invalid = true;
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      encoder,
+      undefined,
+      converted,
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+  });
+
+  defineMethod(
+    mutablePrototypes.GPUCommandEncoder,
+    'copyBufferToBuffer',
+    function (this: object, ...args: unknown[]) {
+      const encoder = requireState(this, 'GPUCommandEncoder');
+      if (args.length < 2) {
+        throw new TypeError('copyBufferToBuffer requires source and destination');
+      }
+      const source = requireState(args[0], 'GPUBuffer');
+      let sourceOffset = 0;
+      let destinationValue: unknown;
+      let destination: WrapperState;
+      let destinationOffset = 0;
+      let sizeValue: unknown;
+      let overload: 'short' | 'full';
+      try {
+        destination = requireState(args[1], 'GPUBuffer');
+        destinationValue = args[1];
+        sizeValue = args[2];
+        overload = 'short';
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+        if (args.length < 3) throw error;
+        sourceOffset = stagedU64(
+          args[1],
+          'GPUCommandEncoder.copyBufferToBuffer sourceOffset',
+        );
+        destinationValue = args[2];
+        destination = requireState(destinationValue, 'GPUBuffer');
+        destinationOffset = stagedU64(
+          args[3],
+          'GPUCommandEncoder.copyBufferToBuffer destinationOffset',
+        );
+        sizeValue = args[4];
+        overload = 'full';
+      }
+      const size = sizeValue === undefined
+        ? null
+        : stagedU64(sizeValue, 'GPUCommandEncoder.copyBufferToBuffer size');
+      const converted = Object.freeze({
+        source: reference(args[0], 'GPUBuffer'),
+        sourceOffset,
+        destination: reference(destinationValue, 'GPUBuffer'),
+        destinationOffset,
+        size,
+        overload,
+      });
+      const commandTargets = preflightCommandRecordCapacity([encoder]);
+      const localRecordPlan = prepareLocalRecord(
+        'GPUCommandEncoder.copyBufferToBuffer',
+        encoder,
+        encoder.device,
+      );
+      const sourceRemaining = source.bufferSize === undefined ||
+          sourceOffset > source.bufferSize
+        ? -1
+        : source.bufferSize - sourceOffset;
+      const destinationRemaining = destination.bufferSize === undefined ||
+          destinationOffset > destination.bufferSize
+        ? -1
+        : destination.bufferSize - destinationOffset;
+      const effectiveSize = size ?? sourceRemaining;
+      const invalid =
+        encoder.status !== 'recording' ||
+        Boolean(encoder.activePass) ||
+        encoder.invalid ||
+        !stateIsUsableOnDevice(source, encoder.device) ||
+        !stateIsUsableOnDevice(destination, encoder.device) ||
+        source.bufferSize === undefined ||
+        destination.bufferSize === undefined ||
+        (source.bufferUsage !== undefined && (source.bufferUsage & 4) === 0) ||
+        (destination.bufferUsage !== undefined &&
+          (destination.bufferUsage & 8) === 0) ||
+        source === destination ||
+        sourceOffset % 4 !== 0 ||
+        destinationOffset % 4 !== 0 ||
+        effectiveSize < 0 ||
+        effectiveSize % 4 !== 0 ||
+        effectiveSize > sourceRemaining ||
+        effectiveSize > destinationRemaining;
+      const error = invalid
+        ? namedError('GPUValidationError', 'Buffer copy is invalid for this encoder')
+        : undefined;
+      if (invalid) encoder.invalid = true;
+      const committed = commitLocalRecord(
+        localRecordPlan,
+        encoder,
+        undefined,
+        converted,
+        error,
+      );
+      appendCommandRecord(commandTargets, committed.sealedRecord);
+    },
+  );
+
+  defineMethod(
+    mutablePrototypes.GPUCommandEncoder,
+    'copyTextureToTexture',
+    function (
+      this: object,
+      sourceValue: unknown,
+      destinationValue: unknown,
+      copySizeValue: unknown,
+    ) {
+      const encoder = requireState(this, 'GPUCommandEncoder');
+      const source = convertTexelCopyTextureInfo(
+        sourceValue,
+        'GPUCommandEncoder.copyTextureToTexture source',
+      );
+      const destination = convertTexelCopyTextureInfo(
+        destinationValue,
+        'GPUCommandEncoder.copyTextureToTexture destination',
+      );
+      const copySize = convertExtent3D(
+        copySizeValue,
+        'GPUCommandEncoder.copyTextureToTexture copySize',
+      );
+      const converted = Object.freeze({
+        source: Object.freeze({
+          aspect: source.aspect,
+          mipLevel: source.mipLevel,
+          origin: source.origin,
+          texture: source.texture,
+        }),
+        destination: Object.freeze({
+          aspect: destination.aspect,
+          mipLevel: destination.mipLevel,
+          origin: destination.origin,
+          texture: destination.texture,
+        }),
+        copySize,
+      });
+      const commandTargets = preflightCommandRecordCapacity([encoder]);
+      const localRecordPlan = prepareLocalRecord(
+        'GPUCommandEncoder.copyTextureToTexture',
+        encoder,
+        encoder.device,
+      );
+      const textureRangeIsValid = (
+        texture: WrapperState,
+        mipLevel: number,
+        origin: Readonly<{ x: number; y: number; z: number }>,
+      ): boolean => {
+        if (
+          texture.textureWidth === undefined ||
+          texture.textureHeight === undefined ||
+          texture.textureDepthOrArrayLayers === undefined
+        ) return false;
+        const divisor = 2 ** Math.min(mipLevel, 1_024);
+        const width = Math.max(1, Math.floor(texture.textureWidth / divisor));
+        const height = texture.textureDimension === '1d'
+          ? 1
+          : Math.max(1, Math.floor(texture.textureHeight / divisor));
+        const depth = texture.textureDimension === '3d'
+          ? Math.max(
+            1,
+            Math.floor(texture.textureDepthOrArrayLayers / divisor),
+          )
+          : texture.textureDepthOrArrayLayers;
+        return origin.x <= width &&
+          copySize.width <= width - origin.x &&
+          origin.y <= height &&
+          copySize.height <= height - origin.y &&
+          origin.z <= depth &&
+          copySize.depthOrArrayLayers <= depth - origin.z;
+      };
+      const invalid =
+        encoder.status !== 'recording' ||
+        Boolean(encoder.activePass) ||
+        encoder.invalid ||
+        !stateIsUsableOnDevice(source.textureState, encoder.device) ||
+        !stateIsUsableOnDevice(destination.textureState, encoder.device) ||
+        source.textureState.textureExpired ||
+        destination.textureState.textureExpired ||
+        (source.textureState.textureUsage !== undefined &&
+          (source.textureState.textureUsage & 1) === 0) ||
+        (destination.textureState.textureUsage !== undefined &&
+          (destination.textureState.textureUsage & 2) === 0) ||
+        !textureRangeIsValid(source.textureState, source.mipLevel, source.origin) ||
+        !textureRangeIsValid(
+          destination.textureState,
+          destination.mipLevel,
+          destination.origin,
+        );
+      const error = invalid
+        ? namedError('GPUValidationError', 'Texture copy is invalid for this encoder')
+        : undefined;
+      if (invalid) encoder.invalid = true;
+      const committed = commitLocalRecord(
+        localRecordPlan,
+        encoder,
+        undefined,
+        converted,
+        error,
+      );
+      appendCommandRecord(commandTargets, committed.sealedRecord);
+    },
+  );
+
   defineMethod(mutablePrototypes.GPUCommandEncoder, 'beginRenderPass', function (
     this: object,
     descriptor: unknown,
   ) {
     const encoder = requireState(this, 'GPUCommandEncoder');
     const converted = convert('GPUCommandEncoder.beginRenderPass', [descriptor]);
+    const commandTargets = preflightCommandRecordCapacity([encoder]);
     const localRecordPlan = prepareLocalRecord(
       'GPUCommandEncoder.beginRenderPass',
       encoder,
@@ -2687,18 +3780,19 @@ export function createProductionWebGpuPrivateBinding(
     const error = canOpen
       ? undefined
       : namedError('GPUValidationError', 'Command encoder cannot begin a pass');
-    if (canOpen) encoder.activePass = pass;
+    if (canOpen) {
+      encoder.activePass = pass;
+      realm.activePassCount += 1;
+    }
     else encoder.invalid = true;
-    encoder.records.push(
-      Object.freeze({ operation: 'beginRenderPass', arguments: converted }),
-    );
-    commitLocalRecord(
+    const committed = commitLocalRecord(
       localRecordPlan,
       encoder,
       pass,
       converted,
       error,
     );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
     return pass.wrapper;
   });
 
@@ -2708,6 +3802,7 @@ export function createProductionWebGpuPrivateBinding(
   ) {
     const encoder = requireState(this, 'GPUCommandEncoder');
     const converted = convert('GPUCommandEncoder.finish', [descriptor]);
+    const commandTargets = preflightCommandRecordCapacity([encoder]);
     const localRecordPlan = prepareLocalRecord(
       'GPUCommandEncoder.finish',
       encoder,
@@ -2719,19 +3814,26 @@ export function createProductionWebGpuPrivateBinding(
       ? namedError('GPUValidationError', 'Command encoder cannot finish')
       : undefined;
     encoder.status = 'finished';
-    encoder.records.push(
-      Object.freeze({ operation: 'finish', arguments: converted }),
-    );
     const commandBuffer = allocateWrapper('GPUCommandBuffer', encoder.device);
     commandBuffer.invalid = invalid;
-    commandBuffer.records = encoder.records.slice();
-    commitLocalRecord(
+    const usedBindGroups = Object.freeze(
+      [...encoder.usedBindGroups]
+        .map((bindGroup) => reference(bindGroup.wrapper, 'GPUBindGroup'))
+        .sort((left, right) => {
+          const leftKey = `${left.objectId}/${left.objectGeneration}`;
+          const rightKey = `${right.objectId}/${right.objectGeneration}`;
+          return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+        }),
+    );
+    const committed = commitLocalRecord(
       localRecordPlan,
       encoder,
       commandBuffer,
-      converted,
+      Object.freeze({ descriptor: converted, usedBindGroups }),
       error,
     );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+    commandBuffer.records = Object.freeze(encoder.records.slice()) as unknown[];
     return commandBuffer.wrapper;
   });
 
@@ -2749,6 +3851,7 @@ export function createProductionWebGpuPrivateBinding(
       firstVertex,
       firstInstance,
     ]);
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
     const localRecordPlan = prepareLocalRecord(
       'GPURenderPassEncoder.draw',
       pass,
@@ -2758,21 +3861,18 @@ export function createProductionWebGpuPrivateBinding(
     const error = invalid
       ? namedError('GPUValidationError', 'Render pass has ended')
       : undefined;
-    pass.records.push(Object.freeze({ operation: 'draw', arguments: converted }));
-    pass.encoder?.records.push(
-      Object.freeze({ operation: 'draw', arguments: converted }),
-    );
     if (invalid) {
       pass.invalid = true;
       if (pass.encoder) pass.encoder.invalid = true;
     }
-    commitLocalRecord(
+    const committed = commitLocalRecord(
       localRecordPlan,
       pass,
       undefined,
       converted,
       error,
     );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
   });
 
   defineMethod(mutablePrototypes.GPURenderPassEncoder, 'setPipeline', function (
@@ -2781,6 +3881,7 @@ export function createProductionWebGpuPrivateBinding(
   ) {
     const pass = requireState(this, 'GPURenderPassEncoder');
     const converted = convert('GPURenderPassEncoder.setPipeline', [pipelineValue]);
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
     const localRecordPlan = prepareLocalRecord(
       'GPURenderPassEncoder.setPipeline',
       pass,
@@ -2794,23 +3895,250 @@ export function createProductionWebGpuPrivateBinding(
     const error = invalid
       ? namedError('GPUValidationError', 'Pipeline is invalid for this render pass')
       : undefined;
-    pass.records.push(
-      Object.freeze({ operation: 'setPipeline', pipeline: reference(pipelineValue) }),
-    );
-    pass.encoder?.records.push(
-      Object.freeze({ operation: 'setPipeline', pipeline: reference(pipelineValue) }),
-    );
     if (invalid) {
       pass.invalid = true;
       if (pass.encoder) pass.encoder.invalid = true;
     }
-    commitLocalRecord(
+    const committed = commitLocalRecord(
       localRecordPlan,
       pass,
       undefined,
       converted,
       error,
     );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+  });
+
+  defineMethod(
+    mutablePrototypes.GPURenderPassEncoder,
+    'setBindGroup',
+    function (this: object, ...args: unknown[]) {
+      recordSetBindGroup(
+        requireState(this, 'GPURenderPassEncoder'),
+        args,
+        true,
+      );
+    },
+  );
+
+  defineMethod(mutablePrototypes.GPURenderPassEncoder, 'setVertexBuffer', function (
+    this: object,
+    slotValue: unknown,
+    bufferValue: unknown,
+    offsetValue?: unknown,
+    sizeValue?: unknown,
+  ) {
+    const pass = requireState(this, 'GPURenderPassEncoder');
+    const slot = stagedU32(slotValue, 'GPURenderPassEncoder.setVertexBuffer slot');
+    const buffer = bufferValue === null || bufferValue === undefined
+      ? null
+      : requireState(bufferValue, 'GPUBuffer');
+    const offset = stagedU64(
+      offsetValue,
+      'GPURenderPassEncoder.setVertexBuffer offset',
+      0,
+    );
+    const size = sizeValue === undefined
+      ? null
+      : stagedU64(sizeValue, 'GPURenderPassEncoder.setVertexBuffer size');
+    const converted = Object.freeze({
+      slot,
+      buffer: buffer === null ? null : reference(bufferValue, 'GPUBuffer'),
+      offset,
+      size,
+    });
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      'GPURenderPassEncoder.setVertexBuffer',
+      pass,
+      pass.device,
+    );
+    const maxVertexBuffers = pass.device?.limits.maxVertexBuffers;
+    const remaining = buffer?.bufferSize === undefined ||
+        offset > buffer.bufferSize
+      ? -1
+      : buffer.bufferSize - offset;
+    const invalid =
+      pass.status !== 'open' ||
+      pass.invalid ||
+      (typeof maxVertexBuffers === 'number' && slot >= maxVertexBuffers) ||
+      (buffer === null
+        ? offset !== 0 || size !== null
+        : !stateIsUsableOnDevice(buffer, pass.device) ||
+          buffer.bufferSize === undefined ||
+          (buffer.bufferUsage !== undefined && (buffer.bufferUsage & 32) === 0) ||
+          remaining < 0 ||
+          (size !== null && size > remaining));
+    const error = invalid
+      ? namedError('GPUValidationError', 'Vertex buffer is invalid for this render pass')
+      : undefined;
+    if (invalid) invalidatePass(pass);
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      pass,
+      undefined,
+      converted,
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+  });
+
+  defineMethod(
+    mutablePrototypes.GPUComputePassEncoder,
+    'setBindGroup',
+    function (this: object, ...args: unknown[]) {
+      recordSetBindGroup(
+        requireState(this, 'GPUComputePassEncoder'),
+        args,
+        false,
+      );
+    },
+  );
+
+  defineMethod(mutablePrototypes.GPUComputePassEncoder, 'setPipeline', function (
+    this: object,
+    pipelineValue: unknown,
+  ) {
+    const pass = requireState(this, 'GPUComputePassEncoder');
+    const pipeline = requireState(pipelineValue);
+    const pipelineRef = reference(pipelineValue);
+    const converted = Object.freeze({ pipeline: pipelineRef });
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      'GPUComputePassEncoder.setPipeline',
+      pass,
+      pass.device,
+    );
+    pass.currentPipeline = pipeline;
+    const invalid =
+      pass.status !== 'open' ||
+      pass.invalid ||
+      (pipeline.kind as string) !== 'GPUComputePipeline' ||
+      !stateIsUsableOnDevice(pipeline, pass.device);
+    const error = invalid
+      ? namedError('GPUValidationError', 'Pipeline is invalid for this compute pass')
+      : undefined;
+    if (invalid) invalidatePass(pass);
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      pass,
+      undefined,
+      converted,
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
+  });
+
+  defineMethod(
+    mutablePrototypes.GPUComputePassEncoder,
+    'dispatchWorkgroups',
+    function (
+      this: object,
+      workgroupCountXValue: unknown,
+      workgroupCountYValue?: unknown,
+      workgroupCountZValue?: unknown,
+    ) {
+      const pass = requireState(this, 'GPUComputePassEncoder');
+      const converted = Object.freeze({
+        workgroupCountX: stagedU32(
+          workgroupCountXValue,
+          'GPUComputePassEncoder.dispatchWorkgroups workgroupCountX',
+        ),
+        workgroupCountY: stagedU32(
+          workgroupCountYValue,
+          'GPUComputePassEncoder.dispatchWorkgroups workgroupCountY',
+          1,
+        ),
+        workgroupCountZ: stagedU32(
+          workgroupCountZValue,
+          'GPUComputePassEncoder.dispatchWorkgroups workgroupCountZ',
+          1,
+        ),
+      });
+      const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
+      const localRecordPlan = prepareLocalRecord(
+        'GPUComputePassEncoder.dispatchWorkgroups',
+        pass,
+        pass.device,
+      );
+      const limit = pass.device?.limits.maxComputeWorkgroupsPerDimension;
+      const invalid =
+        pass.status !== 'open' ||
+        pass.invalid ||
+        !pass.currentPipeline ||
+        (pass.currentPipeline.kind as string) !== 'GPUComputePipeline' ||
+        (typeof limit === 'number' && (
+          converted.workgroupCountX > limit ||
+          converted.workgroupCountY > limit ||
+          converted.workgroupCountZ > limit
+        ));
+      const error = invalid
+        ? namedError('GPUValidationError', 'Compute dispatch is invalid for this pass')
+        : undefined;
+      if (invalid) invalidatePass(pass);
+      const committed = commitLocalRecord(
+        localRecordPlan,
+        pass,
+        undefined,
+        converted,
+        error,
+      );
+      appendCommandRecord(commandTargets, committed.sealedRecord);
+    },
+  );
+
+  defineMethod(mutablePrototypes.GPUComputePassEncoder, 'end', function (
+    this: object,
+  ) {
+    const pass = requireState(this, 'GPUComputePassEncoder');
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
+    const localRecordPlan = prepareLocalRecord(
+      'GPUComputePassEncoder.end',
+      pass,
+      pass.device,
+    );
+    const wasOpen = pass.status === 'open';
+    // The end/unlock/used-group transition is mandatory and precedes every
+    // invalid-pass or unbalanced-debug-group check, including a second end().
+    pass.status = 'ended';
+    if (pass.encoder?.activePass === pass) {
+      pass.encoder.activePass = undefined;
+      realm.activePassCount -= 1;
+    }
+    if (pass.encoder) {
+      for (const bound of pass.boundBindGroups.values()) {
+        if (bound.bindGroup !== null) pass.encoder.usedBindGroups.add(bound.bindGroup);
+      }
+    }
+    const usedBindGroups = Object.freeze(
+      [...(pass.encoder?.usedBindGroups ?? [])]
+        .map((bindGroup) => reference(bindGroup.wrapper, 'GPUBindGroup'))
+        .sort((left, right) => {
+          const leftKey = `${left.objectId}/${left.objectGeneration}`;
+          const rightKey = `${right.objectId}/${right.objectGeneration}`;
+          return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+        }),
+    );
+    const invalid = !wasOpen || pass.invalid || pass.debugGroupDepth !== 0;
+    const error = invalid
+      ? namedError(
+        'GPUValidationError',
+        !wasOpen
+          ? 'Compute pass already ended'
+          : pass.debugGroupDepth !== 0
+            ? 'Compute pass has unbalanced debug groups'
+            : 'Compute pass is invalid',
+      )
+      : undefined;
+    if (invalid) invalidatePass(pass);
+    const committed = commitLocalRecord(
+      localRecordPlan,
+      pass,
+      undefined,
+      Object.freeze({ usedBindGroups }),
+      error,
+    );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
   });
 
   defineMethod(mutablePrototypes.GPURenderPassEncoder, 'end', function (
@@ -2818,6 +4146,7 @@ export function createProductionWebGpuPrivateBinding(
   ) {
     const pass = requireState(this, 'GPURenderPassEncoder');
     const converted = convert('GPURenderPassEncoder.end', []);
+    const commandTargets = preflightCommandRecordCapacity([pass, pass.encoder]);
     const localRecordPlan = prepareLocalRecord(
       'GPURenderPassEncoder.end',
       pass,
@@ -2828,20 +4157,22 @@ export function createProductionWebGpuPrivateBinding(
       ? namedError('GPUValidationError', 'Render pass already ended')
       : undefined;
     pass.status = 'ended';
-    if (pass.encoder?.activePass === pass) pass.encoder.activePass = undefined;
-    pass.records.push(Object.freeze({ operation: 'end' }));
-    pass.encoder?.records.push(Object.freeze({ operation: 'end' }));
+    if (pass.encoder?.activePass === pass) {
+      pass.encoder.activePass = undefined;
+      realm.activePassCount -= 1;
+    }
     if (invalid) {
       pass.invalid = true;
       if (pass.encoder) pass.encoder.invalid = true;
     }
-    commitLocalRecord(
+    const committed = commitLocalRecord(
       localRecordPlan,
       pass,
       undefined,
       converted,
       error,
     );
+    appendCommandRecord(commandTargets, committed.sealedRecord);
   });
 
   defineMethod(mutablePrototypes.GPUQueue, 'submit', function (
@@ -2853,8 +4184,12 @@ export function createProductionWebGpuPrivateBinding(
     if (!Array.isArray(converted)) {
       throw new TypeError('GPUQueue.submit conversion must produce a sequence');
     }
+    if (converted.length > MAX_LOCAL_RECORDS) {
+      throw new RangeError('GPUQueue.submit command buffer sequence exceeds its bound');
+    }
     const sealedPrograms: unknown[] = [];
     const states: WrapperState[] = [];
+    let totalProgramRecordCount = 0;
     let wrapperValidationError: Readonly<{ name: string; message: string }> | undefined;
     for (const value of converted) {
       const buffer = requireState(value, 'GPUCommandBuffer');
@@ -2877,11 +4212,18 @@ export function createProductionWebGpuPrivateBinding(
         });
       }
       states.push(buffer);
+      if (buffer.records.length > MAX_LOCAL_RECORDS - totalProgramRecordCount) {
+        throw new RangeError(
+          'GPUQueue.submit command programs exceed their authenticated record bound',
+        );
+      }
+      totalProgramRecordCount += buffer.records.length;
+      const records = Object.freeze(buffer.records.slice());
       sealedPrograms.push(
         Object.freeze({
           commandBuffer: reference(value, 'GPUCommandBuffer'),
           invalid: buffer.invalid,
-          records: buffer.invalid ? [] : buffer.records.slice(),
+          records,
         }),
       );
     }
@@ -2890,7 +4232,7 @@ export function createProductionWebGpuPrivateBinding(
       queue,
       undefined,
       Object.freeze({
-        commandBuffers: sealedPrograms,
+        commandBuffers: Object.freeze(sealedPrograms),
         wrapperValidationError,
       }),
       false,
@@ -3050,6 +4392,10 @@ export function createProductionWebGpuPrivateBinding(
     GPUCommandEncoder: makeIllegalConstructor(
       'GPUCommandEncoder',
       mutablePrototypes.GPUCommandEncoder,
+    ),
+    GPUComputePassEncoder: makeIllegalConstructor(
+      'GPUComputePassEncoder',
+      mutablePrototypes.GPUComputePassEncoder,
     ),
     GPUDevice: makeIllegalConstructor('GPUDevice', mutablePrototypes.GPUDevice),
     GPUDeviceLostInfo: makeIllegalConstructor(

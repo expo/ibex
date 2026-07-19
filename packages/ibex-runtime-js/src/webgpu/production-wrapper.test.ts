@@ -36,6 +36,59 @@ const U64_MAX = '18446744073709551615';
 const U64_MAX_MINUS_ONE = '18446744073709551614';
 const U64_MAX_MINUS_TWO = '18446744073709551613';
 
+const EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES = Object.freeze({
+  'GPUCommandEncoder.beginComputePass': Object.freeze({
+    localRecordId: 3972379000,
+    recordIdentitySha256:
+      '78b1c5ec959456d753b7e069c05fbad63bccf2c38f6f1344493a37dbac5aa05c',
+  }),
+  'GPUCommandEncoder.clearBuffer': Object.freeze({
+    localRecordId: 1489307075,
+    recordIdentitySha256:
+      'c305c5588286220ea45b37492f859869004975baf40ad890670fbb276cfc1d87',
+  }),
+  'GPUCommandEncoder.copyBufferToBuffer': Object.freeze({
+    localRecordId: 3780386829,
+    recordIdentitySha256:
+      '0d2054e1f453d4da12854ecbfd53b9f50e72523f84ce215e6a954ca95cebf117',
+  }),
+  'GPUCommandEncoder.copyTextureToTexture': Object.freeze({
+    localRecordId: 1093035147,
+    recordIdentitySha256:
+      '8b6426411e4687ef0101458c6cbf4027644377a30a04bd67502c44f0adae9351',
+  }),
+  'GPUComputePassEncoder.dispatchWorkgroups': Object.freeze({
+    localRecordId: 798975729,
+    recordIdentitySha256:
+      'f1669f2f242031f01751e6fe6a9c46c9b45202d9352c260103681697e490a48e',
+  }),
+  'GPUComputePassEncoder.end': Object.freeze({
+    localRecordId: 2606083284,
+    recordIdentitySha256:
+      'd4ac559b4e01c07b75295819f1ca676a57babf7674bc3df96346b0e47b4556f0',
+  }),
+  'GPUComputePassEncoder.setBindGroup': Object.freeze({
+    localRecordId: 3255367035,
+    recordIdentitySha256:
+      '7bf508c2ea974f8b92473f5aab528422f0e9c52c18e371b71e6976971c4d0114',
+  }),
+  'GPUComputePassEncoder.setPipeline': Object.freeze({
+    localRecordId: 239771785,
+    recordIdentitySha256:
+      '89a04a0e46b88cbbb2318f3708977ef6c630224c715bb0bb874aa168e29de8e6',
+  }),
+  'GPURenderPassEncoder.setBindGroup': Object.freeze({
+    localRecordId: 2060088642,
+    recordIdentitySha256:
+      '4275ca7ab6045fbeb9b5ab1811d121d101e071ae365500ec4f2623073b3e97f0',
+  }),
+  'GPURenderPassEncoder.setVertexBuffer': Object.freeze({
+    localRecordId: 2349223254,
+    recordIdentitySha256:
+      '564d068ca63aee652e7571913e8a9a3dc13f764a907bdb0546fa8b98710a212c',
+  }),
+});
+
 type OperationResultEvent = Extract<NativeGpuEventV2, { kind: 1 }>;
 
 interface RecordedSubmission {
@@ -182,8 +235,11 @@ function createFakeCodecs(
       log.push(`convert:${operationId}`);
       if (
         operationId === 'GPUDevice.createTexture' ||
+        operationId === 'GPUDevice.createBindGroup' ||
+        operationId === 'GPUDevice.createBindGroupLayout' ||
         operationId === 'GPUTexture.createView' ||
-        operationId === 'GPUCanvasContext.configure'
+        operationId === 'GPUCanvasContext.configure' ||
+        operationId === 'GPURenderPassEncoder.setPipeline'
       ) {
         return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
           operationId,
@@ -382,6 +438,118 @@ interface TestGpuDevice {
   destroy(): void;
 }
 
+interface TestBuffer {
+  readonly size: number;
+  readonly usage: number;
+}
+
+interface TestRenderPassEncoder {
+  setBindGroup(
+    index: number,
+    bindGroup: unknown,
+    dynamicOffsets?: Iterable<number>,
+  ): void;
+  setBindGroup(
+    index: number,
+    bindGroup: unknown,
+    dynamicOffsetsData: Uint32Array,
+    dynamicOffsetsDataStart: number,
+    dynamicOffsetsDataLength: number,
+  ): void;
+  setVertexBuffer(
+    slot: number,
+    buffer: unknown,
+    offset?: number,
+    size?: number,
+  ): void;
+  end(): void;
+}
+
+interface TestComputePassEncoder {
+  setBindGroup(
+    index: number,
+    bindGroup: unknown,
+    dynamicOffsets?: Iterable<number>,
+  ): void;
+  setBindGroup(
+    index: number,
+    bindGroup: unknown,
+    dynamicOffsetsData: Uint32Array,
+    dynamicOffsetsDataStart: number,
+    dynamicOffsetsDataLength: number,
+  ): void;
+  setPipeline(pipeline: unknown): void;
+  dispatchWorkgroups(x: number, y?: number, z?: number): void;
+  end(): void;
+}
+
+interface TestCommandEncoder {
+  beginComputePass(descriptor?: unknown): TestComputePassEncoder;
+  beginRenderPass(descriptor: unknown): TestRenderPassEncoder;
+  clearBuffer(buffer: unknown, offset?: number, size?: number): void;
+  copyBufferToBuffer(source: unknown, destination: unknown, size?: number): void;
+  copyBufferToBuffer(
+    source: unknown,
+    sourceOffset: number,
+    destination: unknown,
+    destinationOffset: number,
+    size?: number,
+  ): void;
+  copyTextureToTexture(
+    source: unknown,
+    destination: unknown,
+    copySize: unknown,
+  ): void;
+  finish(descriptor?: unknown): object;
+}
+
+interface TestRecordingDevice extends TestGpuDevice {
+  readonly queue: { submit(commandBuffers: Iterable<unknown>): void };
+  createBindGroupLayout(descriptor: unknown): object;
+  createBindGroup(descriptor: unknown): object;
+  createBuffer(descriptor: unknown): TestBuffer;
+  createCommandEncoder(descriptor?: unknown): TestCommandEncoder;
+  createRenderPipeline(descriptor: unknown): object;
+  createShaderModule(descriptor: unknown): object;
+  createTexture(descriptor: unknown): object;
+}
+
+interface TestSealedLocalRecord {
+  readonly recordIdentityClass: 'active-route' | 'staged-local';
+  readonly operationId: number;
+  readonly operationName: string;
+  readonly operationIdentitySha256: string | null;
+  readonly operationInstanceId: string;
+  readonly deviceIngressOrdinal: string;
+  readonly capturedScopeId: string;
+  readonly receiverRef: Readonly<Record<string, unknown>>;
+  readonly commandEncoderRef: Readonly<Record<string, unknown>> | null;
+  readonly passRef: Readonly<Record<string, unknown>> | null;
+  readonly wrapperAllocatedTargetRef: Readonly<Record<string, unknown>> | null;
+  readonly argumentBody: Readonly<Record<string, unknown>>;
+  readonly logicalError: Readonly<{ name: string; message: string }> | null;
+}
+
+interface TestSealedCommandProgram {
+  readonly commandBuffer: Readonly<Record<string, unknown>>;
+  readonly invalid: boolean;
+  readonly records: readonly TestSealedLocalRecord[];
+}
+
+function localRecords(
+  encoding: ProductionGpuServiceEncodingInput,
+): readonly TestSealedLocalRecord[] {
+  return encoding.sealedLocalTimeline as readonly TestSealedLocalRecord[];
+}
+
+function commandPrograms(
+  encoding: ProductionGpuServiceEncodingInput,
+): readonly TestSealedCommandProgram[] {
+  return (encoding.convertedArguments as Readonly<{
+    commandBuffers: readonly TestSealedCommandProgram[];
+  }>).commandBuffers;
+}
+
 interface TestCanvasTexture {
   createView(): object;
 }
@@ -402,6 +570,12 @@ async function requestTestDevice(
     requestDevice(): Promise<unknown>;
   };
   return await adapter.requestDevice() as TestGpuDevice;
+}
+
+async function requestTestRecordingDevice(
+  binding: ReturnType<typeof createProductionWebGpuPrivateBinding>,
+): Promise<TestRecordingDevice> {
+  return await requestTestDevice(binding) as TestRecordingDevice;
 }
 
 function mintTestCanvasContext(
@@ -1042,7 +1216,18 @@ describe('production-private WebGPU wrapper factory', () => {
     );
     expect(Object.isFrozen(staging)).toBe(true);
     expect(Object.isFrozen(staging.additionalOperations)).toBe(true);
+    expect(Object.isFrozen(staging.localRecordingSubset)).toBe(true);
+    expect(Object.isFrozen(staging.localRecordingSubset.operations)).toBe(true);
     expect(Object.isFrozen(staging.blockers)).toBe(true);
+    expect(Object.fromEntries(
+      staging.localRecordingSubset.operations.map((operation) => [
+        operation.operationId,
+        {
+          localRecordId: operation.localRecordId,
+          recordIdentitySha256: operation.recordIdentitySha256,
+        },
+      ]),
+    )).toEqual(EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES);
 
     const binding = createProductionWebGpuPrivateBinding(
       createFakeBridge(),
@@ -1058,8 +1243,15 @@ describe('production-private WebGPU wrapper factory', () => {
       const descriptor = interfaceObject === undefined
         ? undefined
         : Object.getOwnPropertyDescriptor(interfaceObject.prototype, memberName);
-      expect(operation.disposition).toBe('staged-unroutable-no-prototype-member');
-      expect(descriptor).toBeUndefined();
+      if (operation.disposition === 'private-wrapper-local-recording-no-dispatch') {
+        expect(descriptor?.value).toBeFunction();
+        expect(WEBGPU_PRODUCTION_PLAN.routes).not.toContainEqual(
+          expect.objectContaining({ operationId: operation.operationId }),
+        );
+      } else {
+        expect(operation.disposition).toBe('staged-unroutable-no-prototype-member');
+        expect(descriptor).toBeUndefined();
+      }
     }
     binding.revoke();
   });
@@ -1070,10 +1262,9 @@ describe('production-private WebGPU wrapper factory', () => {
       createFakeCodecs(),
     );
     expect(WEBGPU_PRODUCTION_PLAN.routes.length).toBeGreaterThanOrEqual(41);
-    expect(Object.keys(binding.interfaceObjects)).toHaveLength(24);
+    expect(Object.keys(binding.interfaceObjects)).toHaveLength(25);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
     const uninstalledPrivateRoutes = new Set([
-      'GPUDevice.createBindGroup',
       'GPUBuffer.destroy',
       'GPUBuffer.getMappedRange',
       'GPUBuffer.mapAsync',
@@ -1416,6 +1607,615 @@ describe('production-private WebGPU wrapper factory', () => {
     installation.status === 'installed' && installation.revoke();
     expect('gpu' in globalObject.navigator).toBe(false);
     expect('GPUDevice' in globalObject).toBe(false);
+  });
+
+  test('seals the staged command program with copied overloads and full lineage without provider dispatch', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const layout = device.createBindGroupLayout({
+      entries: [{
+        binding: 0,
+        visibility: 7,
+        buffer: { hasDynamicOffset: true, minBindingSize: 16 },
+      }],
+    });
+    const uniformBuffer = device.createBuffer({ size: 64, usage: 64 });
+    const bindGroup = device.createBindGroup({
+      layout,
+      entries: [{
+        binding: 0,
+        resource: { buffer: uniformBuffer, offset: 8, size: 4 },
+      }],
+    });
+    const copySource = device.createBuffer({ size: 64, usage: 4 });
+    const copyDestination = device.createBuffer({ size: 64, usage: 40 });
+    const sourceTexture = device.createTexture({
+      format: 'rgba8unorm',
+      size: [16, 16, 1],
+      usage: 1,
+    });
+    const destinationTexture = device.createTexture({
+      format: 'rgba8unorm',
+      size: [16, 16, 1],
+      usage: 2,
+    });
+    const shader = device.createShaderModule({ code: '@vertex fn main() {}' });
+    const renderPipeline = device.createRenderPipeline({
+      vertex: { module: shader },
+    });
+    const encoder = device.createCommandEncoder({ label: 'staged-program' });
+    const submissionsBeforeRecording = bridge.submissions.length;
+
+    encoder.clearBuffer(copyDestination, 0, 4);
+    encoder.copyBufferToBuffer(copySource, copyDestination, 8);
+    encoder.copyBufferToBuffer(copySource, 4, copyDestination, 8, 4);
+    const sourceOrigin = [1, 2, 0];
+    const copyExtent = [4, 5, 1];
+    encoder.copyTextureToTexture(
+      { texture: sourceTexture, origin: sourceOrigin },
+      { texture: destinationTexture, origin: { x: 2, y: 1, z: 0 } },
+      copyExtent,
+    );
+    sourceOrigin[0] = 9;
+    copyExtent[0] = 10;
+
+    const renderPass = encoder.beginRenderPass({ colorAttachments: [] });
+    const renderOffsets = new Uint32Array([99, 40, 99]);
+    renderPass.setBindGroup(0, bindGroup, renderOffsets, 1, 1);
+    renderOffsets[1] = 41;
+    renderPass.setVertexBuffer(0, copyDestination, 0, 8);
+    renderPass.end();
+
+    const computePass = encoder.beginComputePass({ label: 'dormant-compute' });
+    const computeOffsets = [40];
+    computePass.setBindGroup(0, bindGroup, computeOffsets);
+    computeOffsets[0] = 41;
+    // No compute-pipeline wrapper is mintable in this staged milestone. A
+    // branded render pipeline is captured but fails closed as a logical error.
+    computePass.setPipeline(renderPipeline);
+    computePass.dispatchWorkgroups(2, 3, 4);
+    computePass.end();
+    const commandBuffer = encoder.finish();
+
+    expect(bridge.submissions).toHaveLength(submissionsBeforeRecording);
+    expect(inspectBinding(binding).current.activePassCount).toBe(0);
+    device.queue.submit([commandBuffer]);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeRecording + 1);
+
+    const submitEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!submitEncoding) throw new Error('missing queue submit encoding');
+    const timeline = localRecords(submitEncoding);
+    const programs = commandPrograms(submitEncoding);
+    expect(Object.isFrozen(timeline)).toBe(true);
+    expect(Object.isFrozen(programs)).toBe(true);
+    expect(programs).toHaveLength(1);
+    const program = programs[0];
+    expect(Object.isFrozen(program)).toBe(true);
+    expect(Object.isFrozen(program.commandBuffer)).toBe(true);
+    expect(Object.isFrozen(program.records)).toBe(true);
+    expect(program.invalid).toBe(true);
+    expect(program.records).toHaveLength(timeline.length);
+    for (let index = 0; index < timeline.length; index += 1) {
+      expect(program.records[index]).toBe(timeline[index]);
+    }
+
+    const stagedRecords = timeline.filter(
+      (record) => record.recordIdentityClass === 'staged-local',
+    );
+    expect(new Set(stagedRecords.map((record) => record.operationName))).toEqual(
+      new Set(Object.keys(EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES)),
+    );
+    for (const record of stagedRecords) {
+      const expected = EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES[
+        record.operationName as keyof typeof EXPECTED_STAGED_LOCAL_RECORD_IDENTITIES
+      ];
+      expect(record.operationId).toBe(expected.localRecordId);
+      expect(record.operationIdentitySha256).toBe(expected.recordIdentitySha256);
+      expect(record.operationInstanceId).toMatch(/^[1-9][0-9]*$/);
+      expect(record.deviceIngressOrdinal).toMatch(/^[1-9][0-9]*$/);
+      expect(record.capturedScopeId).toBe('0');
+      expect(Object.isFrozen(record)).toBe(true);
+      expect(Object.isFrozen(record.argumentBody)).toBe(true);
+      expect(record.receiverRef).toEqual({
+        kind: expect.any(String),
+        objectId: expect.any(String),
+        objectGeneration: expect.any(String),
+        logicalDeviceId: '301',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      });
+      expect(WEBGPU_PRODUCTION_PLAN.routes.some(
+        (route) => route.wireId === record.operationId,
+      )).toBe(false);
+    }
+
+    const beginCompute = stagedRecords.find(
+      (record) => record.operationName === 'GPUCommandEncoder.beginComputePass',
+    );
+    if (!beginCompute) throw new Error('missing beginComputePass record');
+    expect(beginCompute.commandEncoderRef).toEqual(beginCompute.receiverRef);
+    expect(beginCompute.passRef).toEqual(beginCompute.wrapperAllocatedTargetRef);
+    expect(beginCompute.passRef).toMatchObject({
+      kind: 'GPUComputePassEncoder',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    for (const record of stagedRecords.filter(
+      (candidate) => candidate.operationName.startsWith('GPUComputePassEncoder.'),
+    )) {
+      expect(record.commandEncoderRef).toEqual(beginCompute.commandEncoderRef);
+      expect(record.passRef).toEqual(beginCompute.passRef);
+    }
+
+    const bufferCopies = stagedRecords.filter(
+      (record) => record.operationName === 'GPUCommandEncoder.copyBufferToBuffer',
+    );
+    expect(bufferCopies.map((record) => record.argumentBody.overload)).toEqual([
+      'short',
+      'full',
+    ]);
+    const textureCopy = stagedRecords.find(
+      (record) => record.operationName === 'GPUCommandEncoder.copyTextureToTexture',
+    );
+    expect(textureCopy?.argumentBody).toMatchObject({
+      source: { origin: { x: 1, y: 2, z: 0 } },
+      copySize: { width: 4, height: 5, depthOrArrayLayers: 1 },
+    });
+    const renderBind = stagedRecords.find(
+      (record) => record.operationName === 'GPURenderPassEncoder.setBindGroup',
+    );
+    expect(renderBind?.argumentBody).toMatchObject({
+      dynamicOffsets: [40],
+      overload: 'uint32-range',
+    });
+    // The backing-buffer predicate succeeds exactly at 8 + 40 + 16 = 64;
+    // the GPUBindingResource.size of 4 is intentionally irrelevant here.
+    expect(renderBind?.logicalError).toBeNull();
+    const computeBind = stagedRecords.find(
+      (record) => record.operationName === 'GPUComputePassEncoder.setBindGroup',
+    );
+    expect(computeBind?.argumentBody).toMatchObject({
+      dynamicOffsets: [40],
+      overload: 'iterable',
+    });
+    const computeEnd = stagedRecords.find(
+      (record) => record.operationName === 'GPUComputePassEncoder.end',
+    );
+    expect(computeEnd?.logicalError).toMatchObject({ name: 'GPUValidationError' });
+    expect(computeEnd?.argumentBody.usedBindGroups).toContainEqual(
+      computeBind?.argumentBody.bindGroup,
+    );
+    expect(stagedRecords.find(
+      (record) => record.operationName === 'GPUComputePassEncoder.setPipeline',
+    )?.logicalError).toMatchObject({ name: 'GPUValidationError' });
+    expect(stagedRecords.find(
+      (record) => record.operationName === 'GPUComputePassEncoder.dispatchWorkgroups',
+    )?.logicalError).toMatchObject({ name: 'GPUValidationError' });
+
+    const submitRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUQueue.submit',
+    );
+    if (!submitRoute) throw new Error('missing queue submit route');
+    const serviceSubmission = bridge.submissions.findLast(
+      (submission) => submission.operationId === submitRoute.wireId,
+    );
+    if (!serviceSubmission) throw new Error('missing queue service submission');
+    expect(serviceSubmission.metadata).toMatchObject({
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+      deviceIngressOrdinal: submitEncoding.deviceIngressOrdinal,
+      queueIngressOrdinal: submitEncoding.queueIngressOrdinal,
+      receiverId: '202',
+      receiverGeneration: '1',
+    });
+    expect(stagedRecords.every(
+      (record) => record.operationId !== serviceSubmission.operationId,
+    )).toBe(true);
+    binding.revoke();
+  });
+
+  test('locks before compute timestamp validation and unlocks before invalid and second-end checks', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const encoder = device.createCommandEncoder();
+    const submissionsBeforeRecording = bridge.submissions.length;
+    const pass = encoder.beginComputePass({
+      timestampWrites: {
+        querySet: Object.freeze({}),
+        beginningOfPassWriteIndex: 0,
+      },
+    });
+    expect(inspectBinding(binding).current.activePassCount).toBe(1);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeRecording);
+    pass.end();
+    expect(inspectBinding(binding).current.activePassCount).toBe(0);
+    pass.end();
+    expect(inspectBinding(binding).current.activePassCount).toBe(0);
+    const commandBuffer = encoder.finish();
+    device.queue.submit([commandBuffer]);
+
+    const submitEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!submitEncoding) throw new Error('missing queue submit encoding');
+    const computeRecords = localRecords(submitEncoding).filter(
+      (record) => record.recordIdentityClass === 'staged-local',
+    );
+    expect(computeRecords.map((record) => record.operationName)).toEqual([
+      'GPUCommandEncoder.beginComputePass',
+      'GPUComputePassEncoder.end',
+      'GPUComputePassEncoder.end',
+    ]);
+    expect(computeRecords[0].logicalError).toMatchObject({
+      name: 'GPUValidationError',
+      message: expect.stringContaining('timestamp'),
+    });
+    expect(computeRecords[1].logicalError).toMatchObject({
+      name: 'GPUValidationError',
+      message: 'Compute pass is invalid',
+    });
+    expect(computeRecords[2].logicalError).toMatchObject({
+      name: 'GPUValidationError',
+      message: 'Compute pass already ended',
+    });
+    expect(computeRecords[1].passRef).toEqual(computeRecords[0].passRef);
+    expect(computeRecords[2].passRef).toEqual(computeRecords[0].passRef);
+    binding.revoke();
+  });
+
+  test('preserves the exact sealed prefix and command program across bridge rejection', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const buffer = device.createBuffer({ size: 64, usage: 8 });
+    const encoder = device.createCommandEncoder();
+    const suffixEncoder = device.createCommandEncoder();
+    encoder.clearBuffer(buffer, 0, 4);
+    const commandBuffer = encoder.finish();
+    const pendingPrefixLength = inspectBinding(binding).current.pendingLocalRecordCount;
+    expect(pendingPrefixLength).toBe(2);
+    const submitRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUQueue.submit',
+    );
+    if (!submitRoute) throw new Error('missing queue submit route');
+    bridge.setSubmitHook((operationId) =>
+      operationId === submitRoute.wireId ? 7 : undefined
+    );
+    expect(() => device.queue.submit([commandBuffer])).toThrow(
+      'semantic service rejected GPUQueue.submit (7)',
+    );
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(
+      pendingPrefixLength,
+    );
+    const rejected = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!rejected) throw new Error('missing rejected queue encoding');
+
+    let appendedDuringAcceptedSubmit = false;
+    bridge.setSubmitHook((operationId) => {
+      if (
+        operationId === submitRoute.wireId &&
+        !appendedDuringAcceptedSubmit
+      ) {
+        appendedDuringAcceptedSubmit = true;
+        suffixEncoder.clearBuffer(buffer, 0, 4);
+      }
+      return undefined;
+    });
+    device.queue.submit([commandBuffer]);
+    const accepted = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!accepted || accepted === rejected) {
+      throw new Error('missing accepted queue encoding');
+    }
+    expect(appendedDuringAcceptedSubmit).toBe(true);
+    // Acceptance removes exactly the immutable prefix captured for that
+    // submission. A record appended synchronously after capture survives.
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(1);
+    expect(accepted.deviceIngressOrdinal).not.toBe(rejected.deviceIngressOrdinal);
+    expect(accepted.queueIngressOrdinal).not.toBe(rejected.queueIngressOrdinal);
+    expect(localRecords(accepted)).toEqual(localRecords(rejected));
+    expect(commandPrograms(accepted)).toEqual(commandPrograms(rejected));
+    for (let index = 0; index < localRecords(rejected).length; index += 1) {
+      expect(localRecords(accepted)[index]).toBe(localRecords(rejected)[index]);
+      expect(commandPrograms(accepted)[0].records[index]).toBe(
+        commandPrograms(rejected)[0].records[index],
+      );
+    }
+    const queueSubmissions = bridge.submissions.filter(
+      (submission) => submission.operationId === submitRoute.wireId,
+    );
+    expect(queueSubmissions).toHaveLength(2);
+    expect(queueSubmissions[0].metadata).toMatchObject({
+      deviceIngressOrdinal: rejected.deviceIngressOrdinal,
+      queueIngressOrdinal: rejected.queueIngressOrdinal,
+      receiverId: '202',
+    });
+    expect(queueSubmissions[1].metadata).toMatchObject({
+      deviceIngressOrdinal: accepted.deviceIngressOrdinal,
+      queueIngressOrdinal: accepted.queueIngressOrdinal,
+      receiverId: '202',
+    });
+    bridge.setSubmitHook(undefined);
+    device.queue.submit([]);
+    const suffixFlush = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!suffixFlush || suffixFlush === accepted) {
+      throw new Error('missing suffix flush');
+    }
+    expect(localRecords(suffixFlush)).toHaveLength(1);
+    expect(localRecords(suffixFlush)[0].operationName).toBe(
+      'GPUCommandEncoder.clearBuffer',
+    );
+    expect(localRecords(suffixFlush)[0]).not.toBe(localRecords(accepted)[0]);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+    binding.revoke();
+  });
+
+  test('records cross-device and expired references as logical errors while rejecting foreign brands and bad ranges before counters', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs([], { distinctLiveDevices: true });
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const firstDevice = await requestTestRecordingDevice(binding);
+    const secondDevice = await requestTestRecordingDevice(binding);
+    const firstLayout = firstDevice.createBindGroupLayout({
+      entries: [{
+        binding: 0,
+        visibility: 7,
+        buffer: { hasDynamicOffset: true, minBindingSize: 16 },
+      }],
+    });
+    const firstUniform = firstDevice.createBuffer({ size: 64, usage: 64 });
+    const firstGroup = firstDevice.createBindGroup({
+      layout: firstLayout,
+      entries: [{ binding: 0, resource: { buffer: firstUniform, offset: 8 } }],
+    });
+    const secondLayout = secondDevice.createBindGroupLayout({
+      entries: [{
+        binding: 0,
+        visibility: 7,
+        buffer: { hasDynamicOffset: true, minBindingSize: 16 },
+      }],
+    });
+    const secondBuffer = secondDevice.createBuffer({ size: 64, usage: 96 });
+    const secondGroup = secondDevice.createBindGroup({
+      layout: secondLayout,
+      entries: [{ binding: 0, resource: { buffer: secondBuffer, offset: 8 } }],
+    });
+    const encoder = firstDevice.createCommandEncoder();
+    const pass = encoder.beginRenderPass({ colorAttachments: [] });
+    const badRange = new Uint32Array([40]);
+    const beforeBadRange = inspectBinding(binding).current.pendingLocalRecordCount;
+    expect(() => pass.setBindGroup(0, firstGroup, badRange, 1, 1)).toThrow(
+      RangeError,
+    );
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(
+      beforeBadRange,
+    );
+    pass.setBindGroup(0, firstGroup, [41]);
+    pass.setBindGroup(1, secondGroup, [40]);
+    pass.setVertexBuffer(0, secondBuffer, 0, 8);
+
+    const foreignBinding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const foreignDevice = await requestTestRecordingDevice(foreignBinding);
+    const foreignBuffer = foreignDevice.createBuffer({ size: 64, usage: 32 });
+    const beforeForeignBrand = inspectBinding(binding).current.pendingLocalRecordCount;
+    expect(() => pass.setVertexBuffer(0, foreignBuffer, 0, 8)).toThrow(TypeError);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(
+      beforeForeignBrand,
+    );
+    pass.end();
+    const commandBuffer = encoder.finish();
+    firstDevice.queue.submit([commandBuffer]);
+    const crossDeviceEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!crossDeviceEncoding) throw new Error('missing cross-device submit');
+    const renderRecords = localRecords(crossDeviceEncoding).filter(
+      (record) => record.recordIdentityClass === 'staged-local',
+    );
+    const bindRecords = renderRecords.filter(
+      (record) => record.operationName === 'GPURenderPassEncoder.setBindGroup',
+    );
+    expect(bindRecords).toHaveLength(2);
+    expect(bindRecords[0].logicalError).toMatchObject({ name: 'GPUValidationError' });
+    expect(bindRecords[0].argumentBody).toMatchObject({ dynamicOffsets: [41] });
+    expect(bindRecords[1].logicalError).toMatchObject({ name: 'GPUValidationError' });
+    expect(bindRecords[1].argumentBody.bindGroup).toMatchObject({
+      kind: 'GPUBindGroup',
+      logicalDeviceId: '311',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    const crossVertex = renderRecords.find(
+      (record) => record.operationName === 'GPURenderPassEncoder.setVertexBuffer',
+    );
+    expect(crossVertex?.logicalError).toMatchObject({ name: 'GPUValidationError' });
+    expect(crossVertex?.argumentBody.buffer).toMatchObject({
+      kind: 'GPUBuffer',
+      logicalDeviceId: '311',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+
+    const context = mintTestCanvasContext(binding);
+    context.configure({
+      device: firstDevice,
+      format: 'bgra8unorm',
+      usage: 17,
+    });
+    const expiredTexture = context.getCurrentTexture();
+    context.configure({
+      device: firstDevice,
+      format: 'bgra8unorm',
+      usage: 17,
+    });
+    const copyDestination = firstDevice.createTexture({
+      format: 'rgba8unorm',
+      size: [8, 8, 1],
+      usage: 2,
+    });
+    const staleEncoder = firstDevice.createCommandEncoder();
+    staleEncoder.copyTextureToTexture(
+      { texture: expiredTexture },
+      { texture: copyDestination },
+      [1, 1, 1],
+    );
+    const staleCommandBuffer = staleEncoder.finish();
+    firstDevice.queue.submit([staleCommandBuffer]);
+    const staleEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.submit',
+    );
+    if (!staleEncoding || staleEncoding === crossDeviceEncoding) {
+      throw new Error('missing stale-reference submit');
+    }
+    const staleCopy = localRecords(staleEncoding).find(
+      (record) => record.operationName === 'GPUCommandEncoder.copyTextureToTexture',
+    );
+    expect(staleCopy?.logicalError).toMatchObject({ name: 'GPUValidationError' });
+    expect(staleCopy?.argumentBody.source).toMatchObject({
+      texture: {
+        kind: 'GPUTexture',
+        logicalDeviceId: '301',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+    });
+    foreignBinding.revoke();
+    binding.revoke();
+  });
+
+  test('enforces the authenticated 1,024-record bound before counter mutation or provider work', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const buffer = device.createBuffer({ size: 4, usage: 8 });
+    const encoder = device.createCommandEncoder();
+    const submissionsBeforeRecording = bridge.submissions.length;
+    for (let index = 0; index < 1_024; index += 1) {
+      encoder.clearBuffer(buffer, 0, 4);
+    }
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(1_024);
+    expect(() => encoder.clearBuffer(buffer, 0, 4)).toThrow(RangeError);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(1_024);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeRecording);
+    binding.revoke();
+  });
+
+  test('uses the final staged identity once and closes before a second staged record', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+      {
+        counterSeeds: { nextLocalOperationInstanceId: U64_MAX },
+        enableStateInspection: true,
+      },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const buffer = device.createBuffer({ size: 4, usage: 8 });
+    const encoder = device.createCommandEncoder();
+    const submissionsBeforeRecording = bridge.submissions.length;
+    encoder.clearBuffer(buffer, 0, 4);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(1);
+    expect(() => encoder.clearBuffer(buffer, 0, 4)).toThrow(RangeError);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeRecording);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+    expect(inspectBinding(binding).lastClose).toMatchObject({
+      closeReason: 'counter-exhausted:local operation identity',
+      pendingLocalRecordCount: 1,
+    });
+    binding.revoke();
+  });
+
+  test('fails closed on a re-entrant local counter-plan conflict', async () => {
+    const bridge = createFakeBridge();
+    const baseCodecs = createFakeCodecs();
+    let encoder: TestCommandEncoder | undefined;
+    let buffer: TestBuffer | undefined;
+    let armed = false;
+    let reentered = false;
+    const codecs: ExecutableWebGpuCodecBundle & {
+      readonly encodings: ProductionGpuServiceEncodingInput[];
+    } = {
+      ...baseCodecs,
+      convertPublicArguments(operationId, args, wrappers) {
+        if (operationId !== 'GPUCommandEncoder.finish' || !armed) {
+          return baseCodecs.convertPublicArguments(operationId, args, wrappers);
+        }
+        const target = { label: 'outer-finish' };
+        return new Proxy(target, {
+          ownKeys(value) {
+            if (!reentered) {
+              reentered = true;
+              if (!encoder || !buffer) throw new Error('missing reentry fixtures');
+              encoder.clearBuffer(buffer, 0, 4);
+            }
+            return Reflect.ownKeys(value);
+          },
+          getOwnPropertyDescriptor(value, property) {
+            return Reflect.getOwnPropertyDescriptor(value, property);
+          },
+        });
+      },
+    };
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    buffer = device.createBuffer({ size: 4, usage: 8 });
+    encoder = device.createCommandEncoder();
+    const submissionsBeforeRecording = bridge.submissions.length;
+    armed = true;
+    expect(() => encoder?.finish()).toThrow(
+      'WebGPU local counter plan is stale',
+    );
+    expect(reentered).toBe(true);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeRecording);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+    expect(inspectBinding(binding).lastClose).toMatchObject({
+      closeReason: 'counter-plan-conflict',
+      pendingLocalRecordCount: 1,
+    });
+    binding.revoke();
   });
 
   test('inherits a route-free EventTarget surface on GPUDevice', async () => {
