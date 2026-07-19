@@ -663,8 +663,8 @@ bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalogs are target-specific:
 Apple has 22,915 required fixtures, 5,214 fully executable recipes, and 17,701
-unresolved fixtures; Windows has 22,625 required fixtures, 4,894 executable,
-and 17,731 unresolved. The build graph excludes 260 POSIX-only enforcement
+unresolved fixtures; Windows has 22,625 required fixtures, 4,728 executable,
+and 17,897 unresolved. The build graph excludes 260 POSIX-only enforcement
 fixtures from Windows instead of treating their translation units as fallback
 implementations. Windows executes 92 source-bound native target-absence probes;
 69 additional target-absence source invocations remain unavailable, alongside
@@ -1846,6 +1846,11 @@ object. Public probes may execute the 15 installed root exports (and their
 reviewed members), but source-union exports outside that implementation remain
 explicitly unresolved; importing the module and discovering a missing member
 does not prove that member's non-capability source branch executed.
+Windows installs the JavaScript `node:zlib` surface but not its native deflate,
+Brotli, Zstd, or streaming bridges. Pure `crc32`, wrapper construction, and
+factory construction remain executable; 166 backend-dependent calls remain
+residual rather than accepting a predictable unsupported-platform throw as
+normal-return evidence.
 The same independent validator recognizes the reviewed worklet-only closure
 forms (direct JSI globals and the evaluated `kPrelude` namespace) and the
 reviewed shared-runtime root families. Their single installation branch must
@@ -1868,8 +1873,8 @@ without canceling an in-flight full-matrix run. Scheduled, pull-request, and
 `main` executions still require both physical targets; manual selection changes
 only job scheduling, never the target catalog, validators, retained evidence,
 or promotion criteria.
-Its current catalog has 22,625 required fixtures, 4,894 executable recipes, and
-17,731 unresolved fixtures. The
+Its current catalog has 22,625 required fixtures, 4,728 executable recipes, and
+17,897 unresolved fixtures. The
 source-derived class-factory traversal is path-cycle safe: a uniquely resolved
 factory may be revisited after its current return chain unwinds, but a mutually
 recursive return chain cannot recurse forever or invent a class shape. The

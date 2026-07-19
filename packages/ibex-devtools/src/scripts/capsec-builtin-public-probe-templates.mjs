@@ -1539,6 +1539,12 @@ const WINDOWS_CRYPTO_MEMBER_EXPORTS = new Set([
   "Hmac.digest",
   "Hmac.update",
 ]);
+const WINDOWS_ZLIB_CONSTRUCTION_EXPORTS = new Set([
+  "crc32",
+  ...ZLIB_OWNER_NAMES,
+  ...ZLIB_OWNER_NAMES.map((owner) => `create${owner}`),
+  ...ZLIB_OWNER_NAMES.map((owner) => `${owner}.constructor`),
+]);
 
 function targetSourceUnavailableReason(surface, target) {
   const triple =
@@ -1560,6 +1566,30 @@ function targetSourceUnavailableReason(surface, target) {
     ? WINDOWS_CRYPTO_MEMBER_EXPORTS.has(metadata.exportName)
     : WINDOWS_CRYPTO_EXPORT_ROOTS.has(rootExportName);
   return installed ? null : "builtin-export-not-installed-on-target";
+}
+
+function targetCallUnavailableReason(surface, target) {
+  const triple =
+    typeof target === "string"
+      ? target
+      : typeof target?.triple === "string"
+        ? target.triple
+        : null;
+  const metadata = surface?.metadata;
+  if (
+    !triple?.includes("-windows-") ||
+    metadata?.sourceKey !== "node_zlib" ||
+    metadata.valueShape !== "callable" ||
+    typeof metadata.exportName !== "string" ||
+    WINDOWS_ZLIB_CONSTRUCTION_EXPORTS.has(metadata.exportName)
+  ) {
+    return null;
+  }
+  // The JS module is installed on Windows, but its native deflate, Brotli,
+  // Zstd, and stream bridges are not. Constructors remain valid public
+  // no-decision evidence; exercising backend-dependent methods does not.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+  return "builtin-call-backend-not-installed-on-target";
 }
 
 function platformForTarget(target) {
@@ -1724,7 +1754,12 @@ export function authoredNonCapabilityBuiltinProbe({
   if (!surfaceObservedKey.startsWith("builtin:export:")) {
     return null;
   }
-  if (targetSourceUnavailableReason(surface, target)) return null;
+  if (
+    targetSourceUnavailableReason(surface, target) ||
+    targetCallUnavailableReason(surface, target)
+  ) {
+    return null;
+  }
   const availability = platformAvailability(surface?.metadata);
   const targetPlatform = platformForTarget(target);
   const targetAbsent =
@@ -1824,6 +1859,8 @@ export function nonCapabilityBuiltinProbeResidualReason({
   }
   const targetUnavailable = targetSourceUnavailableReason(surface, target);
   if (targetUnavailable) return targetUnavailable;
+  const targetCallUnavailable = targetCallUnavailableReason(surface, target);
+  if (targetCallUnavailable) return targetCallUnavailable;
   const availability = platformAvailability(surface?.metadata);
   const targetPlatform = platformForTarget(target);
   if (

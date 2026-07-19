@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_625);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_894);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_731);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_728);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_897);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -289,6 +289,25 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.terminalObservedKey ===
           "builtin:export:exact_crypto:Hash.digest",
+      )?.publicSurfaceProbe,
+    ).not.toBeNull();
+    const unavailableZlibCalls = windowsRecipes.recipes.filter((recipe) =>
+      recipe.residualReasons.includes(
+        "builtin-call-backend-not-installed-on-target",
+      ),
+    );
+    expect(
+      unavailableZlibCalls.some(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "builtin:export:node_zlib:BrotliCompress._processChunk",
+      ),
+    ).toBe(true);
+    expect(
+      windowsRecipes.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "builtin:export:node_zlib:createBrotliCompress",
       )?.publicSurfaceProbe,
     ).not.toBeNull();
   });

@@ -267,6 +267,25 @@ describe("source-bound builtin public probes", () => {
         valueShape: "callable",
       }),
     ).toBeNull();
+    expect(
+      probeFor({
+        sourceKey: "node_zlib",
+        exportName: "BrotliCompress._processChunk",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:zlib", "zlib"],
+        target: "x86_64-pc-windows-msvc",
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    expect(
+      probeFor({
+        sourceKey: "node_zlib",
+        exportName: "createBrotliCompress",
+        moduleSpecifiers: ["node:zlib", "zlib"],
+        target: "x86_64-pc-windows-msvc",
+        valueShape: "callable",
+      }),
+    ).not.toBeNull();
   });
 
   test("authors configured stream receivers but leaves throwing base methods residual", () => {
