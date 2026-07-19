@@ -53,7 +53,11 @@ interface NativeCodecField {
     'canonicalValueV1' |
     'sortedUniqueFeatureSequenceV1' |
     'completeDeviceLimitsV1' |
-    'gpuDeviceCompletionBodyV1';
+    'gpuDeviceCompletionBodyV1' |
+    'bufferCleanupRequestBodyV1' |
+    'bufferMapAsyncRequestBodyV1' |
+    'bufferMapAsyncCompletionBodyV1' |
+    'ownedBytesV1';
   readonly catalog?: 'objectKindTags';
   readonly constraintType?:
     | 'requestAdapterOptionsV1'
@@ -70,7 +74,7 @@ interface NativeCodecField {
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 24;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24;
     operationWireId:
       | 1660448199
       | 194635792
@@ -83,7 +87,10 @@ interface NativeCodecField {
       | 1853125118
       | 599085487
       | 4055478657
-      | 1199806466;
+      | 1199806466
+      | 3314731466
+      | 1760273919
+      | 1228615721;
   }>;
   readonly constant?: 1;
   readonly constraint?: 'positive' | 'boolean-zero-or-one';
@@ -171,7 +178,8 @@ interface NativeCodecCarrierConstraint {
     | 'EXACT_GPU_DEVICE_LOSS_UNKNOWN_V2'
     | 'EXACT_GPU_BACKEND_NONE_V2'
     | 'EXACT_GPU_RESULT_NONE_V2'
-    | 'EXACT_GPU_RESULT_OBJECT_V2';
+    | 'EXACT_GPU_RESULT_OBJECT_V2'
+    | 'EXACT_GPU_RESULT_BYTES_V2';
 }
 
 interface NativeCodecCatalogReference {
@@ -191,8 +199,12 @@ interface NativeCodecCatalogReference {
     | 'gpu-create-command-encoder-service-request-v1'
     | 'gpu-create-shader-module-service-request-v1'
     | 'gpu-device-cleanup-service-request-v1'
+    | 'gpu-buffer-destroy-service-request-v1'
+    | 'gpu-buffer-map-async-service-request-v1'
+    | 'gpu-buffer-unmap-service-request-v1'
+    | 'gpu-buffer-map-async-service-completion-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 24;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24;
 }
 
 interface NativeCodecCompletionVariant {
@@ -458,10 +470,46 @@ interface NativeCodecDeviceDestroyRoute {
   }>;
 }
 
+interface NativeCodecBufferLifecycleRoute {
+  readonly operationId: 'GPUBuffer.destroy' | 'GPUBuffer.mapAsync' | 'GPUBuffer.unmap';
+  readonly wireId: 3314731466 | 1760273919 | 1228615721;
+  readonly request: Readonly<{
+    payloadRole:
+      'service-request-payload-decoder-plus-operation-specific-call-joins';
+    catalog: NativeCodecCatalogReference;
+    payload: Readonly<{
+      kind: 'struct';
+      fields: readonly NativeCodecField[];
+    }>;
+    carrierJoins: readonly NativeCodecJoin[];
+    carrierConstraints: readonly NativeCodecCarrierConstraint[];
+    valueConstraints: readonly Readonly<Record<string, unknown>>[];
+    semanticServiceBoundary: Readonly<Record<string, unknown>>;
+    executablePrerequisites: readonly [];
+    noTrailingBytes: true;
+  }>;
+  readonly completion: Readonly<{
+    payloadRole:
+      'service-completion-payload-codec-plus-operation-specific-event-joins';
+    catalog: NativeCodecCatalogReference;
+    commonCarrierConstraints: readonly NativeCodecCarrierConstraint[];
+    payload: Readonly<Record<string, unknown>>;
+    semanticTerminalMapping: Readonly<Record<string, unknown>>;
+    variants: readonly Readonly<{
+      name: string;
+      carrierConstraints: readonly NativeCodecCarrierConstraint[];
+      serviceResultConstraints?: readonly Readonly<Record<string, unknown>>[];
+    }>[];
+    carrierJoins?: readonly NativeCodecJoin[];
+    serviceResultJoins: readonly Readonly<Record<string, unknown>>[];
+    noTrailingBytes: true;
+  }>;
+}
+
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -542,6 +590,10 @@ export interface NativeCodecProgramsV2 {
     samplerDescriptorV1: Readonly<Record<string, unknown>>;
     textureDescriptorV1: Readonly<Record<string, unknown>>;
     textureViewRequestV1: Readonly<Record<string, unknown>>;
+    ownedBytesV1: Readonly<Record<string, unknown>>;
+    bufferCleanupRequestBodyV1: Readonly<Record<string, unknown>>;
+    bufferMapAsyncRequestBodyV1: Readonly<Record<string, unknown>>;
+    bufferMapAsyncCompletionBodyV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
     shaderModuleDescriptorV1: Readonly<Record<string, unknown>>;
     sortedUniqueFeatureSequenceV1: Readonly<Record<string, unknown>>;
@@ -564,6 +616,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecCreateCommandEncoderRoute
     | NativeCodecCreateShaderModuleRoute
     | NativeCodecDeviceDestroyRoute
+    | NativeCodecBufferLifecycleRoute
   )[];
 }
 
@@ -580,6 +633,7 @@ export interface WebGpuCarrierConstants {
   readonly EXACT_GPU_RESULT_NONE_V2: 0;
   readonly EXACT_GPU_RESULT_NULL_V2: 2;
   readonly EXACT_GPU_RESULT_OBJECT_V2: 3;
+  readonly EXACT_GPU_RESULT_BYTES_V2: 4;
 }
 
 export interface ExecutableWebGpuCodecManifest {
@@ -783,6 +837,20 @@ const DEVICE_DESTROY_WIRE_ID = 206890944;
 const DEVICE_DESTROY_REQUEST_CODEC = 'gpu-device-cleanup-service-request-v1';
 const DEVICE_DESTROY_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
+const BUFFER_DESTROY_OPERATION_ID = 'GPUBuffer.destroy';
+const BUFFER_DESTROY_WIRE_ID = 3314731466;
+const BUFFER_DESTROY_REQUEST_CODEC = 'gpu-buffer-destroy-service-request-v1';
+const BUFFER_MAP_ASYNC_OPERATION_ID = 'GPUBuffer.mapAsync';
+const BUFFER_MAP_ASYNC_WIRE_ID = 1760273919;
+const BUFFER_MAP_ASYNC_REQUEST_CODEC =
+  'gpu-buffer-map-async-service-request-v1';
+const BUFFER_MAP_ASYNC_COMPLETION_CODEC =
+  'gpu-buffer-map-async-service-completion-v1';
+const BUFFER_UNMAP_OPERATION_ID = 'GPUBuffer.unmap';
+const BUFFER_UNMAP_WIRE_ID = 1228615721;
+const BUFFER_UNMAP_REQUEST_CODEC = 'gpu-buffer-unmap-service-request-v1';
+const BUFFER_CLEANUP_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
 
 const EXPECTED_WEBGPU_CARRIER_CONSTANTS = Object.freeze({
   EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: 1,
@@ -797,7 +865,10 @@ const EXPECTED_WEBGPU_CARRIER_CONSTANTS = Object.freeze({
   EXACT_GPU_RESULT_NONE_V2: 0,
   EXACT_GPU_RESULT_NULL_V2: 2,
   EXACT_GPU_RESULT_OBJECT_V2: 3,
+  EXACT_GPU_RESULT_BYTES_V2: 4,
 } as const satisfies WebGpuCarrierConstants);
+const EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256 =
+  '371b04e7963c5e5c62c110134573aa4dae3a804389ea0df021c636ea1ec27063';
 
 const EXPECTED_COMPLETE_LIMIT_NAMES = Object.freeze([
   'maxTextureDimension1D',
@@ -850,7 +921,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -2907,9 +2978,13 @@ interface ValidatedNativeCodecProgram {
   readonly createCommandEncoderRoute: NativeCodecCreateCommandEncoderRoute;
   readonly createShaderModuleRoute: NativeCodecCreateShaderModuleRoute;
   readonly deviceDestroyRoute: NativeCodecDeviceDestroyRoute;
+  readonly bufferDestroyRoute: NativeCodecBufferLifecycleRoute;
+  readonly bufferMapAsyncRoute: NativeCodecBufferLifecycleRoute;
+  readonly bufferUnmapRoute: NativeCodecBufferLifecycleRoute;
   readonly noneResultKind: 0;
   readonly nullResultKind: 2;
   readonly objectResultKind: 3;
+  readonly bytesResultKind: 4;
   readonly operationResultEventKind: 1;
   readonly unchangedDeviceTransition: 0;
   readonly assignedDeviceTransition: 1;
@@ -3113,6 +3188,16 @@ function validateNativeCodecProgram(
 ): ValidatedNativeCodecProgram {
   const programWithoutDeviceObjectCreationRoutes = {
     ...manifest.nativeCodecPrograms,
+    types: Object.fromEntries(
+      Object.entries(manifest.nativeCodecPrograms.types).filter(
+        ([name]) => ![
+          'ownedBytesV1',
+          'bufferCleanupRequestBodyV1',
+          'bufferMapAsyncRequestBodyV1',
+          'bufferMapAsyncCompletionBodyV1',
+        ].includes(name),
+      ),
+    ),
     routes: manifest.nativeCodecPrograms.routes.filter(
       (candidate) =>
         candidate.operationId !== CREATE_BIND_GROUP_OPERATION_ID &&
@@ -3123,7 +3208,10 @@ function validateNativeCodecProgram(
         candidate.operationId !== CREATE_TEXTURE_OPERATION_ID &&
         candidate.operationId !== CREATE_TEXTURE_VIEW_OPERATION_ID &&
         candidate.operationId !== CREATE_COMMAND_ENCODER_OPERATION_ID &&
-        candidate.operationId !== CREATE_SHADER_MODULE_OPERATION_ID,
+        candidate.operationId !== CREATE_SHADER_MODULE_OPERATION_ID &&
+        candidate.operationId !== BUFFER_DESTROY_OPERATION_ID &&
+        candidate.operationId !== BUFFER_MAP_ASYNC_OPERATION_ID &&
+        candidate.operationId !== BUFFER_UNMAP_OPERATION_ID,
     ),
   };
   if (
@@ -3133,6 +3221,28 @@ function validateNativeCodecProgram(
       canonicalManifestJson(EXPECTED_WEBGPU_CARRIER_CONSTANTS)
   ) {
     throw new Error('Invalid generated WebGPU native codec program');
+  }
+  const lifecycleProgram = {
+    types: {
+      ownedBytesV1: manifest.nativeCodecPrograms.types.ownedBytesV1,
+      bufferCleanupRequestBodyV1:
+        manifest.nativeCodecPrograms.types.bufferCleanupRequestBodyV1,
+      bufferMapAsyncRequestBodyV1:
+        manifest.nativeCodecPrograms.types.bufferMapAsyncRequestBodyV1,
+      bufferMapAsyncCompletionBodyV1:
+        manifest.nativeCodecPrograms.types.bufferMapAsyncCompletionBodyV1,
+    },
+    routes: manifest.nativeCodecPrograms.routes.filter((candidate) =>
+      candidate.operationId === BUFFER_DESTROY_OPERATION_ID ||
+      candidate.operationId === BUFFER_MAP_ASYNC_OPERATION_ID ||
+      candidate.operationId === BUFFER_UNMAP_OPERATION_ID
+    ),
+  };
+  if (
+    sha256HexUtf8(canonicalManifestJson(lifecycleProgram)) !==
+      EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256
+  ) {
+    throw new Error('Invalid authenticated GPUBuffer lifecycle codec program');
   }
   const route = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecRequestAdapterRoute =>
@@ -3181,6 +3291,18 @@ function validateNativeCodecProgram(
   const deviceDestroyRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecDeviceDestroyRoute =>
       candidate.operationId === DEVICE_DESTROY_OPERATION_ID,
+  );
+  const bufferDestroyRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecBufferLifecycleRoute =>
+      candidate.operationId === BUFFER_DESTROY_OPERATION_ID,
+  );
+  const bufferMapAsyncRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecBufferLifecycleRoute =>
+      candidate.operationId === BUFFER_MAP_ASYNC_OPERATION_ID,
+  );
+  const bufferUnmapRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecBufferLifecycleRoute =>
+      candidate.operationId === BUFFER_UNMAP_OPERATION_ID,
   );
   const planRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === REQUEST_ADAPTER_OPERATION_ID,
@@ -3289,6 +3411,30 @@ function validateNativeCodecProgram(
   );
   const deviceDestroyCompletionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === DEVICE_DESTROY_COMPLETION_CODEC,
+  );
+  const bufferDestroyPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === BUFFER_DESTROY_OPERATION_ID,
+  );
+  const bufferDestroyRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === BUFFER_DESTROY_REQUEST_CODEC,
+  );
+  const bufferMapAsyncPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === BUFFER_MAP_ASYNC_OPERATION_ID,
+  );
+  const bufferMapAsyncRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === BUFFER_MAP_ASYNC_REQUEST_CODEC,
+  );
+  const bufferMapAsyncCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === BUFFER_MAP_ASYNC_COMPLETION_CODEC,
+  );
+  const bufferUnmapPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === BUFFER_UNMAP_OPERATION_ID,
+  );
+  const bufferUnmapRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === BUFFER_UNMAP_REQUEST_CODEC,
+  );
+  const bufferCleanupCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === BUFFER_CLEANUP_COMPLETION_CODEC,
   );
   const nullVariant = route?.completion.variants.find(
     (variant) => variant.name === 'null',
@@ -3973,10 +4119,10 @@ function validateNativeCodecProgram(
     )
     .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
-    manifest.nativeCodecPrograms.routes.length !== 12 ||
+    manifest.nativeCodecPrograms.routes.length !== 15 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 12 ||
+    ).size !== 15 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupRoute ||
@@ -3989,6 +4135,9 @@ function validateNativeCodecProgram(
     !createCommandEncoderRoute ||
     !createShaderModuleRoute ||
     !deviceDestroyRoute ||
+    !bufferDestroyRoute ||
+    !bufferMapAsyncRoute ||
+    !bufferUnmapRoute ||
     canonicalManifestJson(createCommandEncoderRoute) !==
       canonicalManifestJson(expectedCreateCommandEncoderRoute) ||
     canonicalManifestJson(createShaderModuleRoute) !==
@@ -4155,6 +4304,33 @@ function validateNativeCodecProgram(
     deviceDestroyRequestCodec.unavailableSemanticFields.length !== 0 ||
     deviceDestroyCompletionCodec?.wireTag !==
       deviceDestroyRoute.completion.catalog.wireTag ||
+    !bufferDestroyPlanRoute ||
+    bufferDestroyPlanRoute.wireId !== BUFFER_DESTROY_WIRE_ID ||
+    bufferDestroyPlanRoute.serviceArgumentCodec !== BUFFER_DESTROY_REQUEST_CODEC ||
+    bufferDestroyPlanRoute.serviceCompletionCodec !== BUFFER_CLEANUP_COMPLETION_CODEC ||
+    bufferDestroyRequestCodec?.wireTag !== bufferDestroyRoute.request.catalog.wireTag ||
+    bufferDestroyRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    bufferDestroyRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    bufferDestroyRequestCodec.unavailableSemanticFields.length !== 0 ||
+    bufferCleanupCompletionCodec?.wireTag !== bufferDestroyRoute.completion.catalog.wireTag ||
+    !bufferMapAsyncPlanRoute ||
+    bufferMapAsyncPlanRoute.wireId !== BUFFER_MAP_ASYNC_WIRE_ID ||
+    bufferMapAsyncPlanRoute.serviceArgumentCodec !== BUFFER_MAP_ASYNC_REQUEST_CODEC ||
+    bufferMapAsyncPlanRoute.serviceCompletionCodec !== BUFFER_MAP_ASYNC_COMPLETION_CODEC ||
+    bufferMapAsyncRequestCodec?.wireTag !== bufferMapAsyncRoute.request.catalog.wireTag ||
+    bufferMapAsyncRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    bufferMapAsyncRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    bufferMapAsyncRequestCodec.unavailableSemanticFields.length !== 0 ||
+    bufferMapAsyncCompletionCodec?.wireTag !== bufferMapAsyncRoute.completion.catalog.wireTag ||
+    !bufferUnmapPlanRoute ||
+    bufferUnmapPlanRoute.wireId !== BUFFER_UNMAP_WIRE_ID ||
+    bufferUnmapPlanRoute.serviceArgumentCodec !== BUFFER_UNMAP_REQUEST_CODEC ||
+    bufferUnmapPlanRoute.serviceCompletionCodec !== BUFFER_CLEANUP_COMPLETION_CODEC ||
+    bufferUnmapRequestCodec?.wireTag !== bufferUnmapRoute.request.catalog.wireTag ||
+    bufferUnmapRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    bufferUnmapRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    bufferUnmapRequestCodec.unavailableSemanticFields.length !== 0 ||
+    bufferCleanupCompletionCodec?.wireTag !== bufferUnmapRoute.completion.catalog.wireTag ||
     manifest.layout.requestMagic !== 'IBGQ' ||
     manifest.layout.resultMagic !== 'IBGR' ||
     manifest.layout.version !== 1 ||
@@ -4205,6 +4381,12 @@ function validateNativeCodecProgram(
     createTextureViewRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     createShaderModuleRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    bufferDestroyRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    bufferMapAsyncRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_BYTES_V2 ||
+    bufferUnmapRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
     throw new Error('Generated WebGPU native codec program cross-link drifted');
@@ -4222,9 +4404,13 @@ function validateNativeCodecProgram(
     createCommandEncoderRoute,
     createShaderModuleRoute,
     deviceDestroyRoute,
+    bufferDestroyRoute,
+    bufferMapAsyncRoute,
+    bufferUnmapRoute,
     noneResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
     nullResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NULL_V2,
     objectResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_OBJECT_V2,
+    bytesResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_BYTES_V2,
     operationResultEventKind:
       manifest.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2,
     unchangedDeviceTransition:
@@ -5970,6 +6156,16 @@ class Reader {
     return result;
   }
 
+  raw(count: number): Uint8Array {
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new TypeError('Invalid WebGPU owned byte length');
+    }
+    this.require(count);
+    const result = this.bytes.slice(this.offset, this.offset + count);
+    this.offset += count;
+    return result;
+  }
+
   value(
     limits: ExecutableWebGpuCodecManifest['layout'],
     depth = 0,
@@ -6025,6 +6221,279 @@ class Reader {
   }
 }
 
+type BufferLifecycleBody = NonNullable<
+  ProductionGpuServiceEncodingInput['bufferLifecycle']
+>;
+
+function arrayBufferViewBytes(value: ArrayBufferView, label: string): Uint8Array {
+  if (!ArrayBuffer.isView(value)) {
+    throw new TypeError(`${label} must be an owned byte view`);
+  }
+  return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+}
+
+function writeOwnedBytes(
+  writer: Writer,
+  value: ArrayBufferView,
+  maximum: number,
+  label: string,
+): void {
+  const bytes = arrayBufferViewBytes(value, label);
+  if (bytes.byteLength > maximum) {
+    throw new TypeError(`${label} exceeds the reviewed byte bound`);
+  }
+  writer.u64(String(bytes.byteLength));
+  writer.raw(bytes);
+}
+
+function readOwnedBytes(
+  reader: Reader,
+  maximum: number,
+  label: string,
+): Uint8Array {
+  const length = u64Number(reader.u64(), `${label} length`);
+  if (length > maximum) {
+    throw new TypeError(`${label} exceeds the reviewed byte bound`);
+  }
+  return reader.raw(length);
+}
+
+function exactLifecycleKeys(
+  value: object,
+  expected: readonly string[],
+  label: string,
+): void {
+  const actual = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  if (actual.join('|') !== sortedExpected.join('|')) {
+    throw new TypeError(`${label} is not a closed lifecycle body`);
+  }
+}
+
+function validateBufferLifecycleBody(
+  operationId: string,
+  body: BufferLifecycleBody,
+  maximum: number,
+): void {
+  if (operationId === BUFFER_MAP_ASYNC_OPERATION_ID) {
+    if (body.kind !== 'map-async-v1') {
+      throw new TypeError('GPUBuffer.mapAsync requires the map-async-v1 body');
+    }
+    exactLifecycleKeys(body, [
+      'kind',
+      'pendingMapGeneration',
+      'mode',
+      'offset',
+      'requestedSizePresent',
+      'requestedSize',
+    ], 'GPUBuffer.mapAsync body');
+    positiveIdentity(body.pendingMapGeneration, 'pendingMapGeneration');
+    u64Number(body.offset, 'GPUBuffer.mapAsync offset');
+    u64Number(body.requestedSize, 'GPUBuffer.mapAsync requested size');
+    if (
+      (body.mode !== 1 && body.mode !== 2) ||
+      (body.requestedSizePresent !== 0 && body.requestedSizePresent !== 1) ||
+      (body.requestedSizePresent === 0 && body.requestedSize !== '0')
+    ) {
+      throw new TypeError('GPUBuffer.mapAsync body violates its closed mode/range form');
+    }
+    return;
+  }
+  if (body.kind !== 'cleanup-v1') {
+    throw new TypeError(`${operationId} requires the cleanup-v1 body`);
+  }
+  exactLifecycleKeys(body, [
+    'kind',
+    'cleanupAction',
+    'cleanupGeneration',
+    'cancelledMapGeneration',
+    'activeMapGeneration',
+    'activeMapMode',
+    'mappedOffset',
+    'mappedSize',
+    'writeback',
+  ], `${operationId} body`);
+  for (const [name, value] of [
+    ['cleanupGeneration', body.cleanupGeneration],
+    ['cancelledMapGeneration', body.cancelledMapGeneration],
+    ['activeMapGeneration', body.activeMapGeneration],
+    ['mappedOffset', body.mappedOffset],
+    ['mappedSize', body.mappedSize],
+  ] as const) {
+    parseU64Decimal(value);
+  }
+  const writeback = arrayBufferViewBytes(body.writeback, 'GPUBuffer cleanup writeback');
+  if (writeback.byteLength > maximum) {
+    throw new TypeError('GPUBuffer cleanup writeback exceeds the reviewed byte bound');
+  }
+  const allowedAction = operationId === BUFFER_DESTROY_OPERATION_ID
+    ? body.cleanupAction === 0 || body.cleanupAction === 2
+    : operationId === BUFFER_UNMAP_OPERATION_ID
+    ? body.cleanupAction === 0 || body.cleanupAction === 1
+    : false;
+  if (!allowedAction) {
+    throw new TypeError(`${operationId} cleanup action is invalid`);
+  }
+  if (body.cleanupAction === 0) {
+    if (
+      body.cleanupGeneration !== '0' ||
+      body.cancelledMapGeneration !== '0' ||
+      body.activeMapGeneration !== '0' ||
+      body.activeMapMode !== 0 ||
+      body.mappedOffset !== '0' ||
+      body.mappedSize !== '0' ||
+      writeback.byteLength !== 0
+    ) {
+      throw new TypeError('GPUBuffer cleanup no-op body is not empty');
+    }
+    return;
+  }
+  positiveIdentity(body.cleanupGeneration, 'cleanupGeneration');
+  if (body.activeMapGeneration === '0') {
+    if (
+      body.activeMapMode !== 0 ||
+      body.mappedOffset !== '0' ||
+      body.mappedSize !== '0' ||
+      writeback.byteLength !== 0
+    ) {
+      throw new TypeError('GPUBuffer cleanup empty active-map state is inconsistent');
+    }
+    return;
+  }
+  if (body.activeMapMode !== 1 && body.activeMapMode !== 2) {
+    throw new TypeError('GPUBuffer cleanup active map mode is invalid');
+  }
+  if (body.activeMapMode === 1 && writeback.byteLength !== 0) {
+    throw new TypeError('GPUBuffer MAP_READ cleanup may not carry writeback bytes');
+  }
+  if (
+    body.activeMapMode === 2 &&
+    String(writeback.byteLength) !== body.mappedSize
+  ) {
+    throw new TypeError('GPUBuffer MAP_WRITE cleanup must own the exact mapped extent');
+  }
+}
+
+function writeBufferLifecycleBody(
+  writer: Writer,
+  operationId: string,
+  body: BufferLifecycleBody,
+  maximum: number,
+): void {
+  validateBufferLifecycleBody(operationId, body, maximum);
+  if (body.kind === 'map-async-v1') {
+    writer.u64(body.pendingMapGeneration);
+    writer.u32(body.mode);
+    writer.u64(body.offset);
+    writer.u8(body.requestedSizePresent);
+    writer.u64(body.requestedSize);
+    return;
+  }
+  writer.u8(body.cleanupAction);
+  writer.u64(body.cleanupGeneration);
+  writer.u64(body.cancelledMapGeneration);
+  writer.u64(body.activeMapGeneration);
+  writer.u32(body.activeMapMode);
+  writer.u64(body.mappedOffset);
+  writer.u64(body.mappedSize);
+  writeOwnedBytes(writer, body.writeback, maximum, 'GPUBuffer cleanup writeback');
+}
+
+function readBufferLifecycleBody(
+  reader: Reader,
+  operationId: string,
+  maximum: number,
+): BufferLifecycleBody {
+  if (operationId === BUFFER_MAP_ASYNC_OPERATION_ID) {
+    const body = {
+      kind: 'map-async-v1',
+      pendingMapGeneration: reader.u64(),
+      mode: reader.u32(),
+      offset: reader.u64(),
+      requestedSizePresent: reader.u8(),
+      requestedSize: reader.u64(),
+    } as const as BufferLifecycleBody;
+    validateBufferLifecycleBody(operationId, body, maximum);
+    return body;
+  }
+  const body = {
+    kind: 'cleanup-v1',
+    cleanupAction: reader.u8(),
+    cleanupGeneration: reader.u64(),
+    cancelledMapGeneration: reader.u64(),
+    activeMapGeneration: reader.u64(),
+    activeMapMode: reader.u32(),
+    mappedOffset: reader.u64(),
+    mappedSize: reader.u64(),
+    writeback: readOwnedBytes(
+      reader,
+      maximum,
+      'GPUBuffer cleanup writeback',
+    ),
+  } as const as BufferLifecycleBody;
+  validateBufferLifecycleBody(operationId, body, maximum);
+  return body;
+}
+
+function validateBufferLifecycleRequestFields(
+  input: ProductionGpuServiceEncodingInput,
+  maximum: number,
+): BufferLifecycleBody {
+  if (
+    input.receiver.kind !== 'GPUBuffer' ||
+    input.target !== undefined ||
+    input.adapterOrdinal !== '0' ||
+    input.queueIngressOrdinal !== '0' ||
+    !Array.isArray(input.sealedLocalTimeline) ||
+    input.sealedLocalTimeline.length !== 0
+  ) {
+    throw new TypeError(
+      `${input.operationId} lifecycle request violates its carrier projection`,
+    );
+  }
+  positiveIdentity(input.receiver.objectId, 'GPUBuffer.objectId');
+  positiveIdentity(input.receiver.objectGeneration, 'GPUBuffer.objectGeneration');
+  positiveIdentity(input.receiver.logicalDeviceId, 'GPUBuffer.logicalDeviceId');
+  positiveIdentity(
+    input.receiver.logicalDeviceGeneration,
+    'GPUBuffer.logicalDeviceGeneration',
+  );
+  positiveIdentity(input.receiver.providerGeneration, 'GPUBuffer.providerGeneration');
+  parseU64Decimal(input.capturedScopeId);
+  positiveIdentity(input.deviceIngressOrdinal, 'GPUBuffer.deviceIngressOrdinal');
+  if (!input.bufferLifecycle) {
+    throw new TypeError(`${input.operationId} lifecycle body is missing`);
+  }
+  validateBufferLifecycleBody(input.operationId, input.bufferLifecycle, maximum);
+  if (input.bufferLifecycle.kind === 'map-async-v1') {
+    if (
+      typeof input.convertedArguments !== 'object' ||
+      input.convertedArguments === null ||
+      Array.isArray(input.convertedArguments)
+    ) {
+      throw new TypeError('GPUBuffer.mapAsync converted arguments are missing');
+    }
+    const converted = input.convertedArguments as Readonly<Record<string, unknown>>;
+    const expectedKeys = input.bufferLifecycle.requestedSizePresent === 1
+      ? ['mode', 'offset', 'size']
+      : ['mode', 'offset'];
+    exactLifecycleKeys(converted, expectedKeys, 'GPUBuffer.mapAsync converted arguments');
+    if (
+      converted.mode !== input.bufferLifecycle.mode ||
+      String(converted.offset) !== input.bufferLifecycle.offset ||
+      (input.bufferLifecycle.requestedSizePresent === 1 &&
+        String(converted.size) !== input.bufferLifecycle.requestedSize)
+    ) {
+      throw new TypeError(
+        'GPUBuffer.mapAsync lifecycle body disagrees with converted arguments',
+      );
+    }
+  } else if (input.convertedArguments !== null) {
+    throw new TypeError(`${input.operationId} cleanup arguments must be null`);
+  }
+  return input.bufferLifecycle;
+}
+
 function writeReference(
   writer: Writer,
   reference: ProductionGpuServiceEncodingInput['receiver'],
@@ -6043,7 +6512,7 @@ function writeReference(
 function readReference(
   reader: Reader,
   objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
-): Readonly<Record<string, string | number>> {
+): ProductionGpuServiceEncodingInput['receiver'] {
   const kindTag = reader.u8();
   const kind = objectKindsByTag.get(kindTag);
   if (!kind) throw new TypeError(`Unknown WebGPU object kind tag: ${kindTag}`);
@@ -7992,12 +8461,39 @@ export interface WebGpuCodecTestErrorResult {
   readonly message: string;
 }
 
+export interface WebGpuCodecTestBufferCleanupResult {
+  readonly kind: 'buffer-cleanup';
+  readonly terminal:
+    | 'repeat-cleanup-noop'
+    | 'first-cleanup-rejection'
+    | 'first-cleanup-provider'
+    | 'unmapped-noop'
+    | 'cleanup-rejection'
+    | 'cleanup-provider';
+}
+
+export interface WebGpuCodecTestBufferMapResult {
+  readonly kind: 'buffer-map';
+  readonly variant:
+    | 'mapped-bytes'
+    | 'provider-operation-error'
+    | 'allocation-range-error'
+    | 'late-cancelled-cleanup';
+  readonly pendingMapGeneration: string;
+  readonly mode: 1 | 2;
+  readonly offset: string;
+  readonly size: string;
+  readonly ownedBytes: ArrayBufferView;
+}
+
 export type WebGpuCodecTestServiceResult =
   | Readonly<{ kind: 'none' }>
   | Readonly<{ kind: 'null' }>
   | WebGpuCodecTestAdapterResult
   | WebGpuCodecTestDeviceResult
-  | WebGpuCodecTestErrorResult;
+  | WebGpuCodecTestErrorResult
+  | WebGpuCodecTestBufferCleanupResult
+  | WebGpuCodecTestBufferMapResult;
 
 export function createExecutableWebGpuCodecs(
   manifest: ExecutableWebGpuCodecManifest,
@@ -8028,7 +8524,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -8305,6 +8801,7 @@ export function createExecutableWebGpuCodecs(
     }
     const codec = serviceCodecs.get(route.serviceArgumentCodec);
     if (!codec) throw new TypeError('Unknown WebGPU service request codec');
+    let bufferLifecycleBody: BufferLifecycleBody | undefined;
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
       validateRequestAdapterRequestFields(
         input.receiver,
@@ -8480,6 +8977,17 @@ export function createExecutableWebGpuCodecs(
         input.convertedArguments,
         manifest.layout.sequenceMaxCount,
       );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.bufferDestroyRoute.operationId ||
+      route.operationId ===
+        requestAdapterNativeProgram.bufferMapAsyncRoute.operationId ||
+      route.operationId === requestAdapterNativeProgram.bufferUnmapRoute.operationId
+    ) {
+      bufferLifecycleBody = validateBufferLifecycleRequestFields(
+        input,
+        manifest.maxPayloadBytes,
+      );
     }
     const writer = new Writer(manifest.maxPayloadBytes);
     writeHeader(
@@ -8496,6 +9004,15 @@ export function createExecutableWebGpuCodecs(
     writer.u64(input.adapterOrdinal);
     writer.u64(input.deviceIngressOrdinal);
     writer.u64(input.queueIngressOrdinal);
+    if (bufferLifecycleBody) {
+      writeBufferLifecycleBody(
+        writer,
+        route.operationId,
+        bufferLifecycleBody,
+        manifest.maxPayloadBytes,
+      );
+      return writer.finish();
+    }
     writer.value(input.sealedLocalTimeline, manifest.layout);
     writer.value(input.convertedArguments, manifest.layout);
     return writer.finish();
@@ -8547,7 +9064,12 @@ export function createExecutableWebGpuCodecs(
       input.operationId !==
         requestAdapterNativeProgram.createShaderModuleRoute.operationId &&
       input.operationId !==
-        requestAdapterNativeProgram.deviceDestroyRoute.operationId
+        requestAdapterNativeProgram.deviceDestroyRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.bufferDestroyRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.bufferMapAsyncRoute.operationId &&
+      input.operationId !== requestAdapterNativeProgram.bufferUnmapRoute.operationId
     ) {
       throw new TypeError(
         `${input.operationId} has no reviewed native codegen request program`,
@@ -8748,6 +9270,77 @@ export function createExecutableWebGpuCodecs(
         }),
       });
     }
+    if (
+      route.operationId === BUFFER_MAP_ASYNC_OPERATION_ID &&
+      route.serviceCompletionCodec === BUFFER_MAP_ASYNC_COMPLETION_CODEC
+    ) {
+      if (
+        event.resultKind !== requestAdapterNativeProgram.bytesResultKind ||
+        event.deviceTransition !==
+          requestAdapterNativeProgram.unchangedDeviceTransition ||
+        event.promiseId === '0' ||
+        event.providerAdmission !== requestAdapterNativeProgram.providerAdmitted ||
+        event.physicalSequence === '0' ||
+        event.receiverKind !== objectKinds.GPUBuffer ||
+        event.receiverFlags !== 0 ||
+        event.receiverId === '0' ||
+        event.receiverGeneration === '0' ||
+        event.targetKind !== 0 ||
+        event.targetFlags !== 0 ||
+        event.targetId !== '0' ||
+        event.targetGeneration !== '0' ||
+        event.adapterOrdinal !== '0' ||
+        event.deviceIngressOrdinal === '0' ||
+        event.queueIngressOrdinal !== '0' ||
+        event.ingressLogicalDeviceId === '0' ||
+        event.ingressLogicalDeviceGeneration === '0' ||
+        event.ingressProviderGeneration === '0' ||
+        event.logicalDeviceId === '0' ||
+        event.logicalDeviceGeneration === '0' ||
+        event.providerGeneration === '0' ||
+        event.operationProviderGeneration === '0'
+      ) {
+        throw new TypeError('GPUBuffer.mapAsync completion carrier is invalid');
+      }
+      const variantTag = reader.u8();
+      const variant = new Map<number, WebGpuCodecTestBufferMapResult['variant']>([
+        [1, 'mapped-bytes'],
+        [2, 'provider-operation-error'],
+        [3, 'allocation-range-error'],
+        [4, 'late-cancelled-cleanup'],
+      ]).get(variantTag);
+      if (!variant) {
+        throw new TypeError('GPUBuffer.mapAsync completion variant is unknown');
+      }
+      const pendingMapGeneration = positiveIdentity(
+        reader.u64(),
+        'GPUBuffer.mapAsync completion generation',
+      );
+      const mode = reader.u32();
+      const offset = reader.u64();
+      const size = reader.u64();
+      if (mode !== 1 && mode !== 2) {
+        throw new TypeError('GPUBuffer.mapAsync completion mode is invalid');
+      }
+      const ownedBytes = variant === 'mapped-bytes'
+        ? readOwnedBytes(reader, manifest.maxPayloadBytes, 'GPUBuffer mapped bytes')
+        : new Uint8Array(0);
+      if (variant === 'mapped-bytes' && String(ownedBytes.byteLength) !== size) {
+        throw new TypeError('GPUBuffer mapped byte extent does not match completion size');
+      }
+      reader.done();
+      return Object.freeze({
+        kind: 'value',
+        value: Object.freeze({
+          variant,
+          pendingMapGeneration,
+          mode,
+          offset,
+          size,
+          ownedBytes,
+        }),
+      });
+    }
     if (route.serviceCompletionCodec === 'nullable-gpu-error-service-completion-v1') {
       const present = reader.u8();
       if (present !== 1 || event.resultKind !== 4) {
@@ -8818,8 +9411,36 @@ export function createExecutableWebGpuCodecs(
     const adapterOrdinal = reader.u64();
     const deviceIngressOrdinal = reader.u64();
     const queueIngressOrdinal = reader.u64();
-    const sealedLocalTimeline = reader.value(manifest.layout);
-    const convertedArguments = reader.value(manifest.layout);
+    const bufferLifecycleRoute =
+      route.operationId === BUFFER_DESTROY_OPERATION_ID ||
+      route.operationId === BUFFER_MAP_ASYNC_OPERATION_ID ||
+      route.operationId === BUFFER_UNMAP_OPERATION_ID;
+    const bufferLifecycle = bufferLifecycleRoute
+      ? readBufferLifecycleBody(
+          reader,
+          route.operationId,
+          manifest.maxPayloadBytes,
+        )
+      : undefined;
+    const sealedLocalTimeline = bufferLifecycleRoute
+      ? Object.freeze([])
+      : reader.value(manifest.layout);
+    const convertedArguments = bufferLifecycle?.kind === 'map-async-v1'
+      ? Object.freeze({
+          mode: bufferLifecycle.mode,
+          offset: u64Number(bufferLifecycle.offset, 'GPUBuffer.mapAsync offset'),
+          ...(bufferLifecycle.requestedSizePresent === 1
+            ? {
+                size: u64Number(
+                  bufferLifecycle.requestedSize,
+                  'GPUBuffer.mapAsync requested size',
+                ),
+              }
+            : {}),
+        })
+      : bufferLifecycleRoute
+      ? null
+      : reader.value(manifest.layout);
     reader.done();
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
       validateRequestAdapterRequestFields(
@@ -8991,7 +9612,32 @@ export function createExecutableWebGpuCodecs(
         convertedArguments,
         manifest.layout.sequenceMaxCount,
       );
+    } else if (bufferLifecycle) {
+      validateBufferLifecycleRequestFields({
+        operationId: route.operationId,
+        wireId: route.wireId,
+        receiver,
+        target: target ?? undefined,
+        capturedScopeId,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        bufferLifecycle,
+      }, manifest.maxPayloadBytes);
     }
+    const inspectedBufferLifecycle = bufferLifecycle?.kind === 'cleanup-v1'
+      ? Object.freeze({
+          ...bufferLifecycle,
+          writeback: Object.freeze(Array.from(
+            arrayBufferViewBytes(
+              bufferLifecycle.writeback,
+              'GPUBuffer cleanup writeback',
+            ),
+          )),
+        })
+      : bufferLifecycle;
     const result = frozenRecord({
       operationId: route.operationId,
       codec: codec.tag,
@@ -9003,6 +9649,9 @@ export function createExecutableWebGpuCodecs(
       queueIngressOrdinal,
       sealedLocalTimeline,
       convertedArguments,
+      ...(inspectedBufferLifecycle
+        ? { bufferLifecycle: inspectedBufferLifecycle }
+        : {}),
     });
     return result;
   };
@@ -9023,6 +9672,32 @@ export function createExecutableWebGpuCodecs(
         route.serviceCompletionCodec ===
           'nullable-gpu-error-service-completion-v1')
     ) {
+      return new Uint8Array(0);
+    }
+    if (
+      route.operationId === BUFFER_DESTROY_OPERATION_ID ||
+      route.operationId === BUFFER_UNMAP_OPERATION_ID
+    ) {
+      if (result.kind !== 'buffer-cleanup') {
+        throw new TypeError(
+          `${route.operationId} completion test value has the wrong shape`,
+        );
+      }
+      exactLifecycleKeys(
+        result,
+        ['kind', 'terminal'],
+        `${route.operationId} completion`,
+      );
+      const allowed = route.operationId === BUFFER_DESTROY_OPERATION_ID
+        ? [
+            'repeat-cleanup-noop',
+            'first-cleanup-rejection',
+            'first-cleanup-provider',
+          ]
+        : ['unmapped-noop', 'cleanup-rejection', 'cleanup-provider'];
+      if (!allowed.includes(result.terminal)) {
+        throw new TypeError(`${route.operationId} cleanup terminal is invalid`);
+      }
       return new Uint8Array(0);
     }
     if (
@@ -9062,6 +9737,62 @@ export function createExecutableWebGpuCodecs(
       codec.wireTag,
       route.wireId,
     );
+    if (route.operationId === BUFFER_MAP_ASYNC_OPERATION_ID) {
+      if (result.kind !== 'buffer-map') {
+        throw new TypeError('GPUBuffer.mapAsync completion test value has the wrong shape');
+      }
+      exactLifecycleKeys(result, [
+        'kind',
+        'variant',
+        'pendingMapGeneration',
+        'mode',
+        'offset',
+        'size',
+        'ownedBytes',
+      ], 'GPUBuffer.mapAsync completion');
+      const tag = {
+        'mapped-bytes': 1,
+        'provider-operation-error': 2,
+        'allocation-range-error': 3,
+        'late-cancelled-cleanup': 4,
+      }[result.variant];
+      positiveIdentity(
+        result.pendingMapGeneration,
+        'GPUBuffer.mapAsync completion generation',
+      );
+      parseU64Decimal(result.offset);
+      parseU64Decimal(result.size);
+      if (result.mode !== 1 && result.mode !== 2) {
+        throw new TypeError('GPUBuffer.mapAsync completion mode is invalid');
+      }
+      const ownedBytes = arrayBufferViewBytes(
+        result.ownedBytes,
+        'GPUBuffer.mapAsync completion bytes',
+      );
+      if (
+        (result.variant === 'mapped-bytes' &&
+          String(ownedBytes.byteLength) !== result.size) ||
+        (result.variant !== 'mapped-bytes' && ownedBytes.byteLength !== 0)
+      ) {
+        throw new TypeError(
+          'GPUBuffer.mapAsync completion byte ownership does not match its variant',
+        );
+      }
+      writer.u8(tag);
+      writer.u64(result.pendingMapGeneration);
+      writer.u32(result.mode);
+      writer.u64(result.offset);
+      writer.u64(result.size);
+      if (result.variant === 'mapped-bytes') {
+        writeOwnedBytes(
+          writer,
+          result.ownedBytes,
+          manifest.maxPayloadBytes,
+          'GPUBuffer mapped bytes',
+        );
+      }
+      return writer.finish();
+    }
     if (adapterCompletion) {
       if (result.kind === 'adapter') {
         if (typeof result.serviceDetachedExpired !== 'boolean') {

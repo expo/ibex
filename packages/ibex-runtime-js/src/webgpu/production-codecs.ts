@@ -91,6 +91,27 @@ export interface ProductionGpuCodecWrapperAccess {
   ) => Readonly<ProductionGpuFullObjectReference>;
 }
 
+export type ProductionGpuBufferLifecycleEncoding =
+  | Readonly<{
+      kind: 'cleanup-v1';
+      cleanupAction: 0 | 1 | 2;
+      cleanupGeneration: string;
+      cancelledMapGeneration: string;
+      activeMapGeneration: string;
+      activeMapMode: 0 | 1 | 2;
+      mappedOffset: string;
+      mappedSize: string;
+      writeback: ArrayBufferView;
+    }>
+  | Readonly<{
+      kind: 'map-async-v1';
+      pendingMapGeneration: string;
+      mode: 1 | 2;
+      offset: string;
+      requestedSizePresent: 0 | 1;
+      requestedSize: string;
+    }>;
+
 export interface ProductionGpuServiceEncodingInput {
   readonly operationId: string;
   readonly wireId: number;
@@ -102,6 +123,8 @@ export interface ProductionGpuServiceEncodingInput {
   readonly deviceIngressOrdinal: string;
   readonly queueIngressOrdinal: string;
   readonly sealedLocalTimeline: readonly unknown[];
+  /** Closed lifecycle body for the dormant GPUBuffer native-codegen routes. */
+  readonly bufferLifecycle?: ProductionGpuBufferLifecycleEncoding;
 }
 
 /** Conversion runs at the public operation's declared timing, while encoding

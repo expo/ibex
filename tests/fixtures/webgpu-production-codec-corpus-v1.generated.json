@@ -1,11 +1,11 @@
 {
   "schema": "ibex/webgpu-production-codec-corpus/2",
-  "disposition": "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+  "disposition": "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
   "supportClaim": "none",
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "9d8f32fd0c2e5f33f4e939d166e62843ae919be436562f30c4909de22ed283a5"
+    "manifestSha256": "d77e9b5252afe01f091815c4653363d457189ce2b3d3eeb2c01fd5efa22b2592"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
@@ -13,8 +13,8 @@
     "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
     "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
     "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
-    "webgpuCVocabulary": "781ab2dfe5f070c9d37486be00f8a94f2fee7db5a2d25be1e385574237979d4b",
-    "projection": "6f39c2f5106a65b7b1470458dab2a1cd27fec2a1de6591acdb1f7229ce9bc471"
+    "webgpuCVocabulary": "e616ce040909eaadc21bfb7175a6bf46efde25caf906895117f4053dffb1d09a",
+    "projection": "2b7b93f54626ac6e488f1629e6b1d426f28aa89e0412f150fb64993e3fc57193"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
@@ -879,6 +879,258 @@
           }
         ]
       }
+    },
+    {
+      "operationId": "GPUBuffer.destroy",
+      "wireId": 3314731466,
+      "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
+      "requestCodec": "gpu-buffer-destroy-service-request-v1",
+      "requestCodecTag": 20,
+      "completionCodec": "terminal-receipt-service-completion-v1",
+      "completionCodecTag": 2,
+      "productionExecutableFromCurrentAuthenticatedInputs": true,
+      "semanticTerminalMapping": {
+        "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUBuffer.destroy]",
+        "terminals": [
+          {
+            "terminalId": "repeat-cleanup-noop",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "repeat-cleanup-noop",
+              "publicExposure": "none-wrapper-already-returned"
+            }
+          },
+          {
+            "terminalId": "first-cleanup-rejection",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "first-cleanup-rejection",
+              "publicExposure": "internal-cleanup-quarantine-only"
+            }
+          },
+          {
+            "terminalId": "first-cleanup-provider",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "first-cleanup-provider",
+              "publicExposure": "none-wrapper-already-returned"
+            }
+          }
+        ]
+      },
+      "bodySchema": "bufferCleanupRequestBodyV1",
+      "completionBodySchema": "empty"
+    },
+    {
+      "operationId": "GPUBuffer.mapAsync",
+      "wireId": 1760273919,
+      "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
+      "requestCodec": "gpu-buffer-map-async-service-request-v1",
+      "requestCodecTag": 21,
+      "completionCodec": "gpu-buffer-map-async-service-completion-v1",
+      "completionCodecTag": 7,
+      "productionExecutableFromCurrentAuthenticatedInputs": true,
+      "semanticTerminalMapping": {
+        "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUBuffer.mapAsync]",
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "errorTiming": "promise-rejection",
+            "resultDisposition": "promise-reject",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "no-service-call",
+              "completionPayloadEncoderEligibility": "excluded-before-service-ingress"
+            }
+          },
+          {
+            "terminalId": "content-map-state-rejection",
+            "errorTiming": "promise-rejection",
+            "resultDisposition": "promise-reject-and-report-validation-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "promise-terminal-plus-device-error",
+              "completionPayloadEncoderEligibility": "excluded-not-an-operation-result"
+            }
+          },
+          {
+            "terminalId": "device-validity-rejection",
+            "errorTiming": "promise-rejection",
+            "resultDisposition": "promise-reject",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "promise-terminal",
+              "completionPayloadEncoderEligibility": "excluded-not-an-operation-result"
+            }
+          },
+          {
+            "terminalId": "device-map-validation-rejection",
+            "errorTiming": "promise-rejection",
+            "resultDisposition": "promise-reject-and-report-validation-error",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "promise-terminal-plus-device-error",
+              "completionPayloadEncoderEligibility": "excluded-not-an-operation-result"
+            }
+          },
+          {
+            "terminalId": "late-cancelled-cleanup",
+            "errorTiming": "none",
+            "resultDisposition": "promise-already-settled-cleanup",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 4,
+              "resultKindSymbol": "EXACT_GPU_RESULT_BYTES_V2",
+              "status": 0,
+              "completionVariants": [
+                "late-cancelled-cleanup"
+              ]
+            }
+          },
+          {
+            "terminalId": "provider-map-rejection",
+            "errorTiming": "promise-rejection",
+            "resultDisposition": "promise-reject",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 4,
+              "resultKindSymbol": "EXACT_GPU_RESULT_BYTES_V2",
+              "status": 0,
+              "completionVariants": [
+                "provider-operation-error",
+                "allocation-range-error"
+              ]
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "errorTiming": "none",
+            "resultDisposition": "promise-resolve-undefined",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 4,
+              "resultKindSymbol": "EXACT_GPU_RESULT_BYTES_V2",
+              "status": 0,
+              "completionVariants": [
+                "mapped-bytes"
+              ]
+            }
+          }
+        ]
+      },
+      "bodySchema": "bufferMapAsyncRequestBodyV1",
+      "completionBodySchema": "bufferMapAsyncCompletionBodyV1"
+    },
+    {
+      "operationId": "GPUBuffer.unmap",
+      "wireId": 1228615721,
+      "nativeCodecProgramSchema": "ibex/webgpu-native-codec-programs/2",
+      "requestCodec": "gpu-buffer-unmap-service-request-v1",
+      "requestCodecTag": 22,
+      "completionCodec": "terminal-receipt-service-completion-v1",
+      "completionCodecTag": 2,
+      "productionExecutableFromCurrentAuthenticatedInputs": true,
+      "semanticTerminalMapping": {
+        "authorityPath": "semanticProjection.providerRoutingPrograms[operationId=GPUBuffer.unmap]",
+        "terminals": [
+          {
+            "terminalId": "unmapped-noop",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "unmapped-noop",
+              "publicExposure": "none-wrapper-already-returned"
+            }
+          },
+          {
+            "terminalId": "cleanup-rejection",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "cleanup-rejection",
+              "publicExposure": "internal-cleanup-quarantine-only"
+            }
+          },
+          {
+            "terminalId": "cleanup-provider",
+            "errorTiming": "none",
+            "resultDisposition": "return-undefined",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "event": {
+              "kind": "operation-result",
+              "kindValue": 1,
+              "kindSymbol": "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+              "resultKind": 0,
+              "resultKindSymbol": "EXACT_GPU_RESULT_NONE_V2",
+              "status": 0,
+              "completionVariant": "cleanup-provider",
+              "publicExposure": "none-wrapper-already-returned"
+            }
+          }
+        ]
+      },
+      "bodySchema": "bufferCleanupRequestBodyV1",
+      "completionBodySchema": "empty"
     }
   ],
   "vectors": [
@@ -23226,6 +23478,1203 @@
       "expected": {
         "kind": "terminal-receipt",
         "value": "undefined"
+      }
+    },
+    {
+      "id": "buffer-destroy-noop-request",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 3314731466,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "31",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 5,
+          "flags": 0,
+          "object_id": "101",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-wrapper-generation-and-owned-byte-comparison-input-only-never-authority",
+      "semanticOwner": "native-buffer-lifecycle-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101001400cac992c505650000000000000003000000000000003700000000000000010000000000000009000000000000000002000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "expected": {
+        "operationId": "GPUBuffer.destroy",
+        "codec": "gpu-buffer-destroy-service-request-v1",
+        "receiver": {
+          "kind": "GPUBuffer",
+          "objectId": "101",
+          "objectGeneration": "3",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": null,
+        "bufferLifecycle": {
+          "kind": "cleanup-v1",
+          "cleanupAction": 0,
+          "cleanupGeneration": "0",
+          "cancelledMapGeneration": "0",
+          "activeMapGeneration": "0",
+          "activeMapMode": 0,
+          "mappedOffset": "0",
+          "mappedSize": "0",
+          "writeback": []
+        }
+      }
+    },
+    {
+      "id": "buffer-destroy-map-write-request",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 3314731466,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "31",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 5,
+          "flags": 0,
+          "object_id": "101",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-wrapper-generation-and-owned-byte-comparison-input-only-never-authority",
+      "semanticOwner": "native-buffer-lifecycle-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101001400cac992c50565000000000000000300000000000000370000000000000001000000000000000900000000000000000200000000000000000000000000000003000000000000000000000000000000020700000000000000060000000000000005000000000000000200000010000000000000000400000000000000040000000000000001020304",
+      "expected": {
+        "operationId": "GPUBuffer.destroy",
+        "codec": "gpu-buffer-destroy-service-request-v1",
+        "receiver": {
+          "kind": "GPUBuffer",
+          "objectId": "101",
+          "objectGeneration": "3",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": null,
+        "bufferLifecycle": {
+          "kind": "cleanup-v1",
+          "cleanupAction": 2,
+          "cleanupGeneration": "7",
+          "cancelledMapGeneration": "6",
+          "activeMapGeneration": "5",
+          "activeMapMode": 2,
+          "mappedOffset": "16",
+          "mappedSize": "4",
+          "writeback": [
+            1,
+            2,
+            3,
+            4
+          ]
+        }
+      }
+    },
+    {
+      "id": "buffer-map-async-read-omitted-size-request",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 1760273919,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "31",
+        "promise_id": "41",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 5,
+          "flags": 0,
+          "object_id": "101",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-wrapper-generation-and-owned-byte-comparison-input-only-never-authority",
+      "semanticOwner": "native-buffer-lifecycle-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101001500ffa5eb6805650000000000000003000000000000003700000000000000010000000000000009000000000000000002000000000000000000000000000000030000000000000000000000000000000800000000000000010000000000000000000000000000000000000000",
+      "expected": {
+        "operationId": "GPUBuffer.mapAsync",
+        "codec": "gpu-buffer-map-async-service-request-v1",
+        "receiver": {
+          "kind": "GPUBuffer",
+          "objectId": "101",
+          "objectGeneration": "3",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "mode": 1,
+          "offset": 0
+        },
+        "bufferLifecycle": {
+          "kind": "map-async-v1",
+          "pendingMapGeneration": "8",
+          "mode": 1,
+          "offset": "0",
+          "requestedSizePresent": 0,
+          "requestedSize": "0"
+        }
+      }
+    },
+    {
+      "id": "buffer-map-async-write-present-size-request",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 1760273919,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "31",
+        "promise_id": "41",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 5,
+          "flags": 0,
+          "object_id": "101",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-wrapper-generation-and-owned-byte-comparison-input-only-never-authority",
+      "semanticOwner": "native-buffer-lifecycle-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101001500ffa5eb6805650000000000000003000000000000003700000000000000010000000000000009000000000000000002000000000000000000000000000000030000000000000000000000000000000900000000000000020000001000000000000000010400000000000000",
+      "expected": {
+        "operationId": "GPUBuffer.mapAsync",
+        "codec": "gpu-buffer-map-async-service-request-v1",
+        "receiver": {
+          "kind": "GPUBuffer",
+          "objectId": "101",
+          "objectGeneration": "3",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": {
+          "mode": 2,
+          "offset": 16,
+          "size": 4
+        },
+        "bufferLifecycle": {
+          "kind": "map-async-v1",
+          "pendingMapGeneration": "9",
+          "mode": 2,
+          "offset": "16",
+          "requestedSizePresent": 1,
+          "requestedSize": "4"
+        }
+      }
+    },
+    {
+      "id": "buffer-unmap-noop-request",
+      "operationId": "GPUBuffer.unmap",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 1228615721,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "31",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 5,
+          "flags": 0,
+          "object_id": "101",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-wrapper-generation-and-owned-byte-comparison-input-only-never-authority",
+      "semanticOwner": "native-buffer-lifecycle-semantic-service-before-provider-admission",
+      "bytesHex": "494247510100160029303b4905650000000000000003000000000000003700000000000000010000000000000009000000000000000002000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "expected": {
+        "operationId": "GPUBuffer.unmap",
+        "codec": "gpu-buffer-unmap-service-request-v1",
+        "receiver": {
+          "kind": "GPUBuffer",
+          "objectId": "101",
+          "objectGeneration": "3",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": null,
+        "bufferLifecycle": {
+          "kind": "cleanup-v1",
+          "cleanupAction": 0,
+          "cleanupGeneration": "0",
+          "cancelledMapGeneration": "0",
+          "activeMapGeneration": "0",
+          "activeMapMode": 0,
+          "mappedOffset": "0",
+          "mappedSize": "0",
+          "writeback": []
+        }
+      }
+    },
+    {
+      "id": "buffer-unmap-map-read-request",
+      "operationId": "GPUBuffer.unmap",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 1228615721,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "31",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 5,
+          "flags": 0,
+          "object_id": "101",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-wrapper-generation-and-owned-byte-comparison-input-only-never-authority",
+      "semanticOwner": "native-buffer-lifecycle-semantic-service-before-provider-admission",
+      "bytesHex": "494247510100160029303b490565000000000000000300000000000000370000000000000001000000000000000900000000000000000200000000000000000000000000000003000000000000000000000000000000010a000000000000000900000000000000080000000000000001000000000000000000000004000000000000000000000000000000",
+      "expected": {
+        "operationId": "GPUBuffer.unmap",
+        "codec": "gpu-buffer-unmap-service-request-v1",
+        "receiver": {
+          "kind": "GPUBuffer",
+          "objectId": "101",
+          "objectGeneration": "3",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": null,
+        "bufferLifecycle": {
+          "kind": "cleanup-v1",
+          "cleanupAction": 1,
+          "cleanupGeneration": "10",
+          "cancelledMapGeneration": "9",
+          "activeMapGeneration": "8",
+          "activeMapMode": 1,
+          "mappedOffset": "0",
+          "mappedSize": "4",
+          "writeback": []
+        }
+      }
+    },
+    {
+      "id": "buffer-unmap-map-write-request",
+      "operationId": "GPUBuffer.unmap",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 1228615721,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "31",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 5,
+          "flags": 0,
+          "object_id": "101",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-wrapper-generation-and-owned-byte-comparison-input-only-never-authority",
+      "semanticOwner": "native-buffer-lifecycle-semantic-service-before-provider-admission",
+      "bytesHex": "494247510100160029303b490565000000000000000300000000000000370000000000000001000000000000000900000000000000000200000000000000000000000000000003000000000000000000000000000000010b00000000000000000000000000000009000000000000000200000010000000000000000400000000000000040000000000000005060708",
+      "expected": {
+        "operationId": "GPUBuffer.unmap",
+        "codec": "gpu-buffer-unmap-service-request-v1",
+        "receiver": {
+          "kind": "GPUBuffer",
+          "objectId": "101",
+          "objectGeneration": "3",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "3",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": null,
+        "bufferLifecycle": {
+          "kind": "cleanup-v1",
+          "cleanupAction": 1,
+          "cleanupGeneration": "11",
+          "cancelledMapGeneration": "0",
+          "activeMapGeneration": "9",
+          "activeMapMode": 2,
+          "mappedOffset": "16",
+          "mappedSize": "4",
+          "writeback": [
+            5,
+            6,
+            7,
+            8
+          ]
+        }
+      }
+    },
+    {
+      "id": "buffer-destroy-repeat-cleanup-noop-result",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "result",
+      "semanticTerminalId": "repeat-cleanup-noop",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 3314731466,
+              "operation_instance_id": "31",
+              "promise_id": "0",
+              "provider_admission": 0,
+              "physical_sequence": "0",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "buffer-destroy-first-cleanup-rejection-result",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "result",
+      "semanticTerminalId": "first-cleanup-rejection",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 3314731466,
+              "operation_instance_id": "31",
+              "promise_id": "0",
+              "provider_admission": 0,
+              "physical_sequence": "0",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "buffer-destroy-first-cleanup-provider-result",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "result",
+      "semanticTerminalId": "first-cleanup-provider",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 3314731466,
+              "operation_instance_id": "31",
+              "promise_id": "0",
+              "provider_admission": 1,
+              "physical_sequence": "51",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "buffer-unmap-unmapped-noop-result",
+      "operationId": "GPUBuffer.unmap",
+      "kind": "result",
+      "semanticTerminalId": "unmapped-noop",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 1228615721,
+              "operation_instance_id": "31",
+              "promise_id": "0",
+              "provider_admission": 0,
+              "physical_sequence": "0",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "buffer-unmap-cleanup-rejection-result",
+      "operationId": "GPUBuffer.unmap",
+      "kind": "result",
+      "semanticTerminalId": "cleanup-rejection",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 1228615721,
+              "operation_instance_id": "31",
+              "promise_id": "0",
+              "provider_admission": 0,
+              "physical_sequence": "0",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "buffer-unmap-cleanup-provider-result",
+      "operationId": "GPUBuffer.unmap",
+      "kind": "result",
+      "semanticTerminalId": "cleanup-provider",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 0,
+            "status": 0,
+            "operation": {
+              "operation_id": 1228615721,
+              "operation_instance_id": "31",
+              "promise_id": "0",
+              "provider_admission": 1,
+              "physical_sequence": "52",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "",
+      "expected": {
+        "kind": "terminal-receipt",
+        "value": "undefined"
+      }
+    },
+    {
+      "id": "buffer-map-async-mapped-bytes-result",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "result",
+      "semanticTerminalId": "operation-success",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 4,
+            "status": 0,
+            "operation": {
+              "operation_id": 1760273919,
+              "operation_instance_id": "31",
+              "promise_id": "41",
+              "provider_admission": 1,
+              "physical_sequence": "53",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "4942475201000700ffa5eb6801080000000000000001000000000000000000000004000000000000000400000000000000090a0b0c",
+      "expected": {
+        "kind": "buffer-map",
+        "variant": "mapped-bytes",
+        "pendingMapGeneration": "8",
+        "mode": 1,
+        "offset": "0",
+        "size": "4",
+        "ownedBytes": [
+          9,
+          10,
+          11,
+          12
+        ]
+      }
+    },
+    {
+      "id": "buffer-map-async-provider-operation-error-result",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "result",
+      "semanticTerminalId": "provider-map-rejection",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 4,
+            "status": 0,
+            "operation": {
+              "operation_id": 1760273919,
+              "operation_instance_id": "31",
+              "promise_id": "41",
+              "provider_admission": 1,
+              "physical_sequence": "53",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "4942475201000700ffa5eb680209000000000000000200000010000000000000000400000000000000",
+      "expected": {
+        "kind": "buffer-map",
+        "variant": "provider-operation-error",
+        "pendingMapGeneration": "9",
+        "mode": 2,
+        "offset": "16",
+        "size": "4",
+        "ownedBytes": []
+      }
+    },
+    {
+      "id": "buffer-map-async-allocation-range-error-result",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "result",
+      "semanticTerminalId": "provider-map-rejection",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 4,
+            "status": 0,
+            "operation": {
+              "operation_id": 1760273919,
+              "operation_instance_id": "31",
+              "promise_id": "41",
+              "provider_admission": 1,
+              "physical_sequence": "53",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "4942475201000700ffa5eb680309000000000000000200000010000000000000000400000000000000",
+      "expected": {
+        "kind": "buffer-map",
+        "variant": "allocation-range-error",
+        "pendingMapGeneration": "9",
+        "mode": 2,
+        "offset": "16",
+        "size": "4",
+        "ownedBytes": []
+      }
+    },
+    {
+      "id": "buffer-map-async-late-cancelled-cleanup-result",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "result",
+      "semanticTerminalId": "late-cancelled-cleanup",
+      "carrierProjection": {
+        "kind": 1,
+        "record": {
+          "operation_result": {
+            "result_kind": 4,
+            "status": 0,
+            "operation": {
+              "operation_id": 1760273919,
+              "operation_instance_id": "31",
+              "promise_id": "41",
+              "provider_admission": 1,
+              "physical_sequence": "53",
+              "captured_scope_id": "2",
+              "adapter_ordinal": "0",
+              "device_ingress_ordinal": "3",
+              "queue_ingress_ordinal": "0",
+              "device_transition": 0,
+              "ingress_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "result_device": {
+                "logical_device_id": "55",
+                "logical_device_generation": "1",
+                "provider_generation": "9"
+              },
+              "provider_generation": "9",
+              "receiver": {
+                "kind": 5,
+                "flags": 0,
+                "object_id": "101",
+                "object_generation": "3"
+              },
+              "target": {
+                "kind": 0,
+                "flags": 0,
+                "object_id": "0",
+                "object_generation": "0"
+              }
+            }
+          }
+        }
+      },
+      "bytesHex": "4942475201000700ffa5eb680409000000000000000200000010000000000000000400000000000000",
+      "expected": {
+        "kind": "buffer-map",
+        "variant": "late-cancelled-cleanup",
+        "pendingMapGeneration": "9",
+        "mode": 2,
+        "offset": "16",
+        "size": "4",
+        "ownedBytes": []
+      }
+    },
+    {
+      "id": "buffer-destroy-request-truncated-rejected",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "truncate-final-writeback-byte",
+      "bytesHex": "4942475101001400cac992c505650000000000000003000000000000003700000000000000010000000000000009000000000000000002000000000000000000000000000000030000000000000000000000000000000207000000000000000600000000000000050000000000000002000000100000000000000004000000000000000400000000000000010203",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-destroy-request-trailing-byte-rejected",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "append-trailing-byte",
+      "bytesHex": "4942475101001400cac992c505650000000000000003000000000000003700000000000000010000000000000009000000000000000002000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a5",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-destroy-request-owned-byte-bound-rejected",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "owned-byte-length-max-plus-one",
+      "bytesHex": "4942475101001400cac992c50565000000000000000300000000000000370000000000000001000000000000000900000000000000000200000000000000000000000000000003000000000000000000000000000000020700000000000000060000000000000005000000000000000200000010000000000000000400000000000000010000010000000001020304",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-destroy-request-map-read-writeback-rejected",
+      "operationId": "GPUBuffer.destroy",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "change-map-write-mode-to-read-with-owned-bytes",
+      "bytesHex": "4942475101001400cac992c50565000000000000000300000000000000370000000000000001000000000000000900000000000000000200000000000000000000000000000003000000000000000000000000000000020700000000000000060000000000000005000000000000000100000010000000000000000400000000000000040000000000000001020304",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-map-async-request-invalid-mode-rejected",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "mode-zero",
+      "bytesHex": "4942475101001500ffa5eb6805650000000000000003000000000000003700000000000000010000000000000009000000000000000002000000000000000000000000000000030000000000000000000000000000000800000000000000000000000000000000000000000000000000000000",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-map-async-result-unknown-variant-rejected",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "binary-rejection",
+      "direction": "completion",
+      "mutation": "variant-zero",
+      "bytesHex": "4942475201000700ffa5eb6800080000000000000001000000000000000000000004000000000000000400000000000000090a0b0c",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-map-async-result-size-mismatch-rejected",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "binary-rejection",
+      "direction": "completion",
+      "mutation": "mapped-size-five-for-four-owned-bytes",
+      "bytesHex": "4942475201000700ffa5eb6801080000000000000001000000000000000000000005000000000000000400000000000000090a0b0c",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-map-async-result-truncated-rejected",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "binary-rejection",
+      "direction": "completion",
+      "mutation": "truncate-final-owned-byte",
+      "bytesHex": "4942475201000700ffa5eb6801080000000000000001000000000000000000000004000000000000000400000000000000090a0b",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-map-async-result-trailing-byte-rejected",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "binary-rejection",
+      "direction": "completion",
+      "mutation": "append-trailing-byte",
+      "bytesHex": "4942475201000700ffa5eb6801080000000000000001000000000000000000000004000000000000000400000000000000090a0b0ca5",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "buffer-map-async-source-generation-mismatch-rejected",
+      "operationId": "GPUBuffer.mapAsync",
+      "kind": "semantic-rejection",
+      "carrierProjection": {
+        "operation_id": 1760273919,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "31",
+        "promise_id": "41",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "3",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 5,
+          "flags": 0,
+          "object_id": "101",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedStateMutation": {
+        "currentPendingMapGeneration": "9",
+        "payloadPendingMapGeneration": "8"
+      },
+      "expected": {
+        "rejection": "source-affine-generation-mismatch-before-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
       }
     }
   ]

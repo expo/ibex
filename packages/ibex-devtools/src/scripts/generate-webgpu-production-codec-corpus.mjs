@@ -48,6 +48,9 @@ const createTextureViewOperationId = "GPUTexture.createView";
 const createCommandEncoderOperationId = "GPUDevice.createCommandEncoder";
 const createShaderModuleOperationId = "GPUDevice.createShaderModule";
 const deviceDestroyOperationId = "GPUDevice.destroy";
+const bufferDestroyOperationId = "GPUBuffer.destroy";
+const bufferMapAsyncOperationId = "GPUBuffer.mapAsync";
+const bufferUnmapOperationId = "GPUBuffer.unmap";
 
 function fail(message) {
   throw new Error(message);
@@ -74,6 +77,21 @@ function canonicalJson(value) {
       .join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+function mutatedBytes(value, mutate) {
+  const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+    .slice();
+  mutate(bytes, new DataView(bytes.buffer));
+  return bytes;
+}
+
+function withTrailingByte(value) {
+  const source = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  const bytes = new Uint8Array(source.byteLength + 1);
+  bytes.set(source);
+  bytes[source.byteLength] = 0xa5;
+  return bytes;
 }
 
 function buildCorpus() {
@@ -4454,6 +4472,404 @@ function buildCorpus() {
       },
     },
   });
+
+  const lifecycleOperationIds = [
+    bufferDestroyOperationId,
+    bufferMapAsyncOperationId,
+    bufferUnmapOperationId,
+  ];
+  const lifecycleRoutes = new Map();
+  for (const lifecycleOperationId of lifecycleOperationIds) {
+    const lifecycleRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === lifecycleOperationId,
+    );
+    const lifecycleNativeRoute =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+        (candidate) => candidate.operationId === lifecycleOperationId,
+      );
+    const lifecycleRequestCodec =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+        (candidate) => candidate.tag === lifecycleRoute?.serviceArgumentCodec,
+      );
+    const lifecycleCompletionCodec =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+        (candidate) => candidate.tag === lifecycleRoute?.serviceCompletionCodec,
+      );
+    if (
+      !lifecycleRoute ||
+      !lifecycleNativeRoute ||
+      !lifecycleRequestCodec?.nativeProgramPrerequisitesRepresented ||
+      !lifecycleRequestCodec.executableFromCurrentAuthenticatedInputs ||
+      lifecycleRequestCodec.unavailableSemanticFields.length !== 0 ||
+      !lifecycleCompletionCodec ||
+      lifecycleNativeRoute.request.catalog.wireTag !==
+        lifecycleRequestCodec.wireTag ||
+      lifecycleNativeRoute.completion.catalog.wireTag !==
+        lifecycleCompletionCodec.wireTag
+    ) {
+      fail(`${lifecycleOperationId} lifecycle codec route is not executable`);
+    }
+    lifecycleRoutes.set(lifecycleOperationId, Object.freeze({
+      route: lifecycleRoute,
+      nativeRoute: lifecycleNativeRoute,
+      requestCodec: lifecycleRequestCodec,
+      completionCodec: lifecycleCompletionCodec,
+    }));
+  }
+  const bufferReceiver = Object.freeze({
+    kind: "GPUBuffer",
+    objectId: "101",
+    objectGeneration: "3",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const convertedBufferDestroyArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      bufferDestroyOperationId,
+      [],
+      wrapperAccess,
+    );
+  const convertedBufferUnmapArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      bufferUnmapOperationId,
+      [],
+      wrapperAccess,
+    );
+  const convertedMapReadArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      bufferMapAsyncOperationId,
+      [1, 0],
+      wrapperAccess,
+    );
+  const convertedMapWriteArguments =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      bufferMapAsyncOperationId,
+      [2, 16, 4],
+      wrapperAccess,
+    );
+  if (
+    convertedBufferDestroyArguments !== null ||
+    convertedBufferUnmapArguments !== null ||
+    canonicalJson(convertedMapReadArguments) !==
+      canonicalJson({ mode: 1, offset: 0 }) ||
+    canonicalJson(convertedMapWriteArguments) !==
+      canonicalJson({ mode: 2, offset: 16, size: 4 })
+  ) {
+    fail("GPUBuffer lifecycle public conversion projection drifted");
+  }
+  const encodeLifecycleRequest = (
+    lifecycleOperationId,
+    convertedArguments,
+    bufferLifecycle,
+  ) => {
+    const metadata = lifecycleRoutes.get(lifecycleOperationId);
+    const input = Object.freeze({
+      operationId: lifecycleOperationId,
+      wireId: metadata.route.wireId,
+      convertedArguments,
+      receiver: bufferReceiver,
+      capturedScopeId: "2",
+      adapterOrdinal: "0",
+      deviceIngressOrdinal: "3",
+      queueIngressOrdinal: "0",
+      sealedLocalTimeline: Object.freeze([]),
+      bufferLifecycle,
+    });
+    const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(input);
+    const productionBytes = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(input);
+    if (toHex(bytes) !== toHex(productionBytes)) {
+      fail(`${lifecycleOperationId} production and codegen request bytes differ`);
+    }
+    const inspected = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .inspectServiceRequest(bytes);
+    return Object.freeze({ metadata, bytes, inspected });
+  };
+  const emptyCleanupBody = Object.freeze({
+    kind: "cleanup-v1",
+    cleanupAction: 0,
+    cleanupGeneration: "0",
+    cancelledMapGeneration: "0",
+    activeMapGeneration: "0",
+    activeMapMode: 0,
+    mappedOffset: "0",
+    mappedSize: "0",
+    writeback: new Uint8Array(0),
+  });
+  const destroyWriteBody = Object.freeze({
+    kind: "cleanup-v1",
+    cleanupAction: 2,
+    cleanupGeneration: "7",
+    cancelledMapGeneration: "6",
+    activeMapGeneration: "5",
+    activeMapMode: 2,
+    mappedOffset: "16",
+    mappedSize: "4",
+    writeback: Uint8Array.from([1, 2, 3, 4]),
+  });
+  const unmapReadBody = Object.freeze({
+    kind: "cleanup-v1",
+    cleanupAction: 1,
+    cleanupGeneration: "10",
+    cancelledMapGeneration: "9",
+    activeMapGeneration: "8",
+    activeMapMode: 1,
+    mappedOffset: "0",
+    mappedSize: "4",
+    writeback: new Uint8Array(0),
+  });
+  const unmapWriteBody = Object.freeze({
+    kind: "cleanup-v1",
+    cleanupAction: 1,
+    cleanupGeneration: "11",
+    cancelledMapGeneration: "0",
+    activeMapGeneration: "9",
+    activeMapMode: 2,
+    mappedOffset: "16",
+    mappedSize: "4",
+    writeback: Uint8Array.from([5, 6, 7, 8]),
+  });
+  const mapReadBody = Object.freeze({
+    kind: "map-async-v1",
+    pendingMapGeneration: "8",
+    mode: 1,
+    offset: "0",
+    requestedSizePresent: 0,
+    requestedSize: "0",
+  });
+  const mapWriteBody = Object.freeze({
+    kind: "map-async-v1",
+    pendingMapGeneration: "9",
+    mode: 2,
+    offset: "16",
+    requestedSizePresent: 1,
+    requestedSize: "4",
+  });
+  const lifecycleRequests = Object.freeze([
+    ["buffer-destroy-noop-request", bufferDestroyOperationId,
+      convertedBufferDestroyArguments, emptyCleanupBody],
+    ["buffer-destroy-map-write-request", bufferDestroyOperationId,
+      convertedBufferDestroyArguments, destroyWriteBody],
+    ["buffer-map-async-read-omitted-size-request", bufferMapAsyncOperationId,
+      convertedMapReadArguments, mapReadBody],
+    ["buffer-map-async-write-present-size-request", bufferMapAsyncOperationId,
+      convertedMapWriteArguments, mapWriteBody],
+    ["buffer-unmap-noop-request", bufferUnmapOperationId,
+      convertedBufferUnmapArguments, emptyCleanupBody],
+    ["buffer-unmap-map-read-request", bufferUnmapOperationId,
+      convertedBufferUnmapArguments, unmapReadBody],
+    ["buffer-unmap-map-write-request", bufferUnmapOperationId,
+      convertedBufferUnmapArguments, unmapWriteBody],
+  ].map(([id, lifecycleOperationId, convertedArguments, body]) => {
+    const encoded = encodeLifecycleRequest(
+      lifecycleOperationId,
+      convertedArguments,
+      body,
+    );
+    return Object.freeze({ id, operationId: lifecycleOperationId, body, ...encoded });
+  }));
+  const requestById = new Map(lifecycleRequests.map((entry) => [entry.id, entry]));
+  const mapCompletionInputs = Object.freeze([
+    Object.freeze({
+      kind: "buffer-map",
+      variant: "mapped-bytes",
+      pendingMapGeneration: "8",
+      mode: 1,
+      offset: "0",
+      size: "4",
+      ownedBytes: Uint8Array.from([9, 10, 11, 12]),
+    }),
+    ...["provider-operation-error", "allocation-range-error", "late-cancelled-cleanup"]
+      .map((variant) => Object.freeze({
+        kind: "buffer-map",
+        variant,
+        pendingMapGeneration: "9",
+        mode: 2,
+        offset: "16",
+        size: "4",
+        ownedBytes: new Uint8Array(0),
+      })),
+  ]);
+  const mapCompletions = mapCompletionInputs.map((result) => Object.freeze({
+    result,
+    bytes: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      bufferMapAsyncOperationId,
+      result,
+    ),
+  }));
+  const cleanupTerminalBytes = new Map([
+    ...["repeat-cleanup-noop", "first-cleanup-rejection", "first-cleanup-provider"]
+      .map((terminal) => [
+        `${bufferDestroyOperationId}:${terminal}`,
+        WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+          bufferDestroyOperationId,
+          { kind: "buffer-cleanup", terminal },
+        ),
+      ]),
+    ...["unmapped-noop", "cleanup-rejection", "cleanup-provider"]
+      .map((terminal) => [
+        `${bufferUnmapOperationId}:${terminal}`,
+        WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+          bufferUnmapOperationId,
+          { kind: "buffer-cleanup", terminal },
+        ),
+      ]),
+  ]);
+  if ([...cleanupTerminalBytes.values()].some((bytes) => bytes.byteLength !== 0)) {
+    fail("GPUBuffer cleanup terminals must encode empty receipt payloads");
+  }
+  const lifecycleRequestCarrier = (entry, promiseId = "0") => Object.freeze({
+    operation_id: entry.metadata.route.wireId,
+    flags: 0,
+    topology_id:
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+        .providerTopologyId,
+    ingress_device: Object.freeze({
+      logical_device_id: "55",
+      logical_device_generation: "1",
+      provider_generation: "9",
+    }),
+    provider_generation: "9",
+    operation_instance_id: "31",
+    promise_id: promiseId,
+    captured_scope_id: "2",
+    adapter_ordinal: "0",
+    device_ingress_ordinal: "3",
+    queue_ingress_ordinal: "0",
+    receiver: Object.freeze({
+      kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags.GPUBuffer,
+      flags: 0,
+      object_id: "101",
+      object_generation: "3",
+    }),
+    target: Object.freeze({
+      kind: 0,
+      flags: 0,
+      object_id: "0",
+      object_generation: "0",
+    }),
+  });
+  const lifecycleCompletionCarrier = (
+    entry,
+    resultKind,
+    promiseId,
+    providerAdmission,
+    physicalSequence,
+  ) => {
+    const requestCarrier = lifecycleRequestCarrier(entry, promiseId);
+    return Object.freeze({
+      kind: 1,
+      record: Object.freeze({
+        operation_result: Object.freeze({
+          result_kind: resultKind,
+          status: 0,
+          operation: Object.freeze({
+            operation_id: requestCarrier.operation_id,
+            operation_instance_id: requestCarrier.operation_instance_id,
+            promise_id: promiseId,
+            provider_admission: providerAdmission,
+            physical_sequence: physicalSequence,
+            captured_scope_id: requestCarrier.captured_scope_id,
+            adapter_ordinal: requestCarrier.adapter_ordinal,
+            device_ingress_ordinal: requestCarrier.device_ingress_ordinal,
+            queue_ingress_ordinal: requestCarrier.queue_ingress_ordinal,
+            device_transition: 0,
+            ingress_device: requestCarrier.ingress_device,
+            result_device: requestCarrier.ingress_device,
+            provider_generation: requestCarrier.provider_generation,
+            receiver: requestCarrier.receiver,
+            target: requestCarrier.target,
+          }),
+        }),
+      }),
+    });
+  };
+  const mappedCompletion = mapCompletions[0].bytes;
+  const lifecycleBinaryRejections = Object.freeze([
+    {
+      id: "buffer-destroy-request-truncated-rejected",
+      operationId: bufferDestroyOperationId,
+      direction: "request",
+      mutation: "truncate-final-writeback-byte",
+      bytes: requestById.get("buffer-destroy-map-write-request").bytes.slice(0, -1),
+    },
+    {
+      id: "buffer-destroy-request-trailing-byte-rejected",
+      operationId: bufferDestroyOperationId,
+      direction: "request",
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(requestById.get("buffer-destroy-noop-request").bytes),
+    },
+    {
+      id: "buffer-destroy-request-owned-byte-bound-rejected",
+      operationId: bufferDestroyOperationId,
+      direction: "request",
+      mutation: "owned-byte-length-max-plus-one",
+      bytes: mutatedBytes(
+        requestById.get("buffer-destroy-map-write-request").bytes,
+        (_bytes, view) => {
+          view.setUint32(131, WEBGPU_EXECUTABLE_CODEC_MANIFEST.maxPayloadBytes + 1, true);
+          view.setUint32(135, 0, true);
+        },
+      ),
+    },
+    {
+      id: "buffer-destroy-request-map-read-writeback-rejected",
+      operationId: bufferDestroyOperationId,
+      direction: "request",
+      mutation: "change-map-write-mode-to-read-with-owned-bytes",
+      bytes: mutatedBytes(
+        requestById.get("buffer-destroy-map-write-request").bytes,
+        (_bytes, view) => view.setUint32(111, 1, true),
+      ),
+    },
+    {
+      id: "buffer-map-async-request-invalid-mode-rejected",
+      operationId: bufferMapAsyncOperationId,
+      direction: "request",
+      mutation: "mode-zero",
+      bytes: mutatedBytes(
+        requestById.get("buffer-map-async-read-omitted-size-request").bytes,
+        (_bytes, view) => view.setUint32(94, 0, true),
+      ),
+    },
+    {
+      id: "buffer-map-async-result-unknown-variant-rejected",
+      operationId: bufferMapAsyncOperationId,
+      direction: "completion",
+      mutation: "variant-zero",
+      bytes: mutatedBytes(mappedCompletion, (bytes) => { bytes[12] = 0; }),
+    },
+    {
+      id: "buffer-map-async-result-size-mismatch-rejected",
+      operationId: bufferMapAsyncOperationId,
+      direction: "completion",
+      mutation: "mapped-size-five-for-four-owned-bytes",
+      bytes: mutatedBytes(
+        mappedCompletion,
+        (_bytes, view) => {
+          view.setUint32(33, 5, true);
+          view.setUint32(37, 0, true);
+        },
+      ),
+    },
+    {
+      id: "buffer-map-async-result-truncated-rejected",
+      operationId: bufferMapAsyncOperationId,
+      direction: "completion",
+      mutation: "truncate-final-owned-byte",
+      bytes: mappedCompletion.slice(0, -1),
+    },
+    {
+      id: "buffer-map-async-result-trailing-byte-rejected",
+      operationId: bufferMapAsyncOperationId,
+      direction: "completion",
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(mappedCompletion),
+    },
+  ]);
   const canonicalUtf8Dictionary =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
       Object.freeze({
@@ -4472,7 +4888,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -4726,6 +5142,27 @@ function buildCorpus() {
         semanticTerminalMapping:
           deviceDestroyNativeRoute.completion.semanticTerminalMapping,
       },
+      ...lifecycleOperationIds.map((lifecycleOperationId) => {
+        const metadata = lifecycleRoutes.get(lifecycleOperationId);
+        return {
+          operationId: lifecycleOperationId,
+          wireId: metadata.route.wireId,
+          nativeCodecProgramSchema:
+            WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+          requestCodec: metadata.requestCodec.tag,
+          requestCodecTag: metadata.requestCodec.wireTag,
+          completionCodec: metadata.completionCodec.tag,
+          completionCodecTag: metadata.completionCodec.wireTag,
+          productionExecutableFromCurrentAuthenticatedInputs: true,
+          semanticTerminalMapping:
+            metadata.nativeRoute.completion.semanticTerminalMapping,
+          bodySchema: metadata.nativeRoute.request.payload.fields.at(-1).type,
+          completionBodySchema:
+            lifecycleOperationId === bufferMapAsyncOperationId
+              ? metadata.nativeRoute.completion.payload.fields.at(-1).type
+              : "empty",
+        };
+      }),
     ],
     vectors: [
       defaultRequest,
@@ -5068,6 +5505,121 @@ function buildCorpus() {
         bytesHex: toHex(deviceDestroyCompletion),
         expected: { kind: "terminal-receipt", value: "undefined" },
       },
+      ...lifecycleRequests.map((entry) => ({
+        id: entry.id,
+        operationId: entry.operationId,
+        kind: "request",
+        carrierProjection: lifecycleRequestCarrier(
+          entry,
+          entry.operationId === bufferMapAsyncOperationId ? "41" : "0",
+        ),
+        trust:
+          "source-affine-wrapper-generation-and-owned-byte-comparison-input-only-never-authority",
+        semanticOwner:
+          "native-buffer-lifecycle-semantic-service-before-provider-admission",
+        bytesHex: toHex(entry.bytes),
+        expected: entry.inspected,
+      })),
+      ...["repeat-cleanup-noop", "first-cleanup-rejection", "first-cleanup-provider"]
+        .map((terminal) => {
+          const entry = requestById.get("buffer-destroy-map-write-request");
+          const admitted = terminal === "first-cleanup-provider";
+          return {
+            id: `buffer-destroy-${terminal}-result`,
+            operationId: bufferDestroyOperationId,
+            kind: "result",
+            semanticTerminalId: terminal,
+            carrierProjection: lifecycleCompletionCarrier(
+              entry,
+              0,
+              "0",
+              admitted ? 1 : 0,
+              admitted ? "51" : "0",
+            ),
+            bytesHex: toHex(cleanupTerminalBytes.get(
+              `${bufferDestroyOperationId}:${terminal}`,
+            )),
+            expected: { kind: "terminal-receipt", value: "undefined" },
+          };
+        }),
+      ...["unmapped-noop", "cleanup-rejection", "cleanup-provider"]
+        .map((terminal) => {
+          const entry = requestById.get("buffer-unmap-map-write-request");
+          const admitted = terminal === "cleanup-provider";
+          return {
+            id: `buffer-unmap-${terminal}-result`,
+            operationId: bufferUnmapOperationId,
+            kind: "result",
+            semanticTerminalId: terminal,
+            carrierProjection: lifecycleCompletionCarrier(
+              entry,
+              0,
+              "0",
+              admitted ? 1 : 0,
+              admitted ? "52" : "0",
+            ),
+            bytesHex: toHex(cleanupTerminalBytes.get(
+              `${bufferUnmapOperationId}:${terminal}`,
+            )),
+            expected: { kind: "terminal-receipt", value: "undefined" },
+          };
+        }),
+      ...mapCompletions.map(({ result, bytes }) => {
+        const entry = requestById.get(
+          result.variant === "mapped-bytes"
+            ? "buffer-map-async-read-omitted-size-request"
+            : "buffer-map-async-write-present-size-request",
+        );
+        return {
+          id: `buffer-map-async-${result.variant}-result`,
+          operationId: bufferMapAsyncOperationId,
+          kind: "result",
+          semanticTerminalId: result.variant === "mapped-bytes"
+            ? "operation-success"
+            : result.variant === "late-cancelled-cleanup"
+            ? "late-cancelled-cleanup"
+            : "provider-map-rejection",
+          carrierProjection: lifecycleCompletionCarrier(
+            entry,
+            4,
+            "41",
+            1,
+            "53",
+          ),
+          bytesHex: toHex(bytes),
+          expected: {
+            ...result,
+            ownedBytes: Array.from(result.ownedBytes),
+          },
+        };
+      }),
+      ...lifecycleBinaryRejections.map((rejection) => ({
+        id: rejection.id,
+        operationId: rejection.operationId,
+        kind: "binary-rejection",
+        direction: rejection.direction,
+        mutation: rejection.mutation,
+        bytesHex: toHex(rejection.bytes),
+        expected: { rejection: "fail-closed-before-provider-or-wrapper-exposure" },
+      })),
+      {
+        id: "buffer-map-async-source-generation-mismatch-rejected",
+        operationId: bufferMapAsyncOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: lifecycleRequestCarrier(
+          requestById.get("buffer-map-async-read-omitted-size-request"),
+          "41",
+        ),
+        authenticatedStateMutation: {
+          currentPendingMapGeneration: "9",
+          payloadPendingMapGeneration: "8",
+        },
+        expected: {
+          rejection: "source-affine-generation-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
     ],
   };
 }
@@ -5086,7 +5638,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, and device-destroy payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, device-destroy, and GPUBuffer destroy/mapAsync/unmap payload-codegen vectors are fresh",
     );
     return;
   }

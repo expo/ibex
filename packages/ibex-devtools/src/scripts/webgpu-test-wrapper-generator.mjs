@@ -330,7 +330,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -427,7 +427,10 @@ function validateNativeCodecPrograms(payload) {
     [
       "bindGroupDescriptorV1",
       "bindGroupLayoutDescriptorV1",
+      "bufferCleanupRequestBodyV1",
       "bufferDescriptorV1",
+      "bufferMapAsyncCompletionBodyV1",
+      "bufferMapAsyncRequestBodyV1",
       "canonicalValueV1",
       "commandEncoderDescriptorV1",
       "completeDeviceLimitsV1",
@@ -435,6 +438,7 @@ function validateNativeCodecPrograms(payload) {
       "headerV1",
       "objectReferenceV1",
       "optionalReferenceV1",
+      "ownedBytesV1",
       "pipelineLayoutDescriptorV1",
       "requestAdapterOptionsV1",
       "requestDeviceDescriptorV1",
@@ -445,6 +449,88 @@ function validateNativeCodecPrograms(payload) {
       "textureViewRequestV1",
     ],
     "native codec type inventory",
+  );
+  assertCanonical(
+    types.ownedBytesV1,
+    {
+      kind: "length-prefixed-owned-bytes",
+      lengthType: "u64le",
+      maxBytesFrom: "wireEnvelope.maxPayloadBytes",
+      ownership: "affine-transfer-consumed-at-most-once",
+    },
+    "native owned byte block type",
+  );
+  assertCanonical(
+    types.bufferCleanupRequestBodyV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "cleanupAction", type: "u8" },
+        { name: "cleanupGeneration", type: "u64le" },
+        { name: "cancelledMapGeneration", type: "u64le" },
+        { name: "activeMapGeneration", type: "u64le" },
+        { name: "activeMapMode", type: "u32le" },
+        { name: "mappedOffset", type: "u64le" },
+        { name: "mappedSize", type: "u64le" },
+        { name: "writeback", type: "ownedBytesV1" },
+      ],
+      invariants: [
+        "cleanupAction-zero-requires-all-generation-range-mode-and-writeback-fields-empty",
+        "cleanupAction-nonzero-requires-positive-cleanupGeneration",
+        "activeMapGeneration-zero-iff-activeMapMode-offset-size-and-writeback-are-empty",
+        "activeMapMode-one-read-requires-empty-writeback",
+        "activeMapMode-two-write-requires-writeback-byte-length-equal-mappedSize",
+        "cancelledMapGeneration-and-activeMapGeneration-are-source-affine-wrapper-generations",
+        "writeback-is-affine-owned-and-consumed-at-most-once-by-cleanupGeneration",
+      ],
+    },
+    "native buffer cleanup request body type",
+  );
+  assertCanonical(
+    types.bufferMapAsyncRequestBodyV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "pendingMapGeneration", type: "u64le" },
+        { name: "mode", type: "u32le" },
+        { name: "offset", type: "u64le" },
+        { name: "requestedSizePresent", type: "u8" },
+        { name: "requestedSize", type: "u64le" },
+      ],
+      invariants: [
+        "pendingMapGeneration-positive-and-source-affine-to-receiver-wrapper",
+        "mode-exactly-GPUMapMode-READ-one-or-WRITE-two",
+        "requestedSizePresent-zero-requires-requestedSize-zero",
+        "offset-and-present-size-preserve-WebIDL-safe-u64-values-without-normalization",
+      ],
+    },
+    "native buffer mapAsync request body type",
+  );
+  assertCanonical(
+    types.bufferMapAsyncCompletionBodyV1,
+    {
+      kind: "tagged-union",
+      tag: { name: "variant", type: "u8" },
+      commonFields: [
+        { name: "pendingMapGeneration", type: "u64le" },
+        { name: "mode", type: "u32le" },
+        { name: "offset", type: "u64le" },
+        { name: "size", type: "u64le" },
+      ],
+      variants: [
+        { name: "mapped-bytes", tag: 1, payload: "ownedBytesV1" },
+        { name: "provider-operation-error", tag: 2, payload: "empty" },
+        { name: "allocation-range-error", tag: 3, payload: "empty" },
+        { name: "late-cancelled-cleanup", tag: 4, payload: "empty" },
+      ],
+      invariants: [
+        "pendingMapGeneration-mode-offset-and-size-join-the-service-owned-accepted-map-result",
+        "mapped-bytes-payload-length-equals-size-and-transfers-one-owned-byte-block",
+        "failure-and-late-cancelled-variants-carry-zero-owned-bytes",
+        "late-cancelled-cleanup-never-settles-the-public-promise-again",
+      ],
+    },
+    "native buffer mapAsync completion body type",
   );
   assertCanonical(
     types.headerV1,
@@ -3066,7 +3152,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

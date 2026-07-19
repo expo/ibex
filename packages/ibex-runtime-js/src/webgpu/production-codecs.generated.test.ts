@@ -391,6 +391,10 @@ function serviceInput(
     ? Object.freeze({ label: 'shader', code: '@vertex fn main() {}' })
     : operationId === 'GPUDevice.destroy'
     ? null
+    : operationId === 'GPUBuffer.destroy' || operationId === 'GPUBuffer.unmap'
+    ? null
+    : operationId === 'GPUBuffer.mapAsync'
+    ? Object.freeze({ mode: 1, offset: 0 })
     : Object.freeze({ sample: true }),
 ): ProductionGpuServiceEncodingInput {
   const route = WEBGPU_PRODUCTION_PLAN.routes.find(
@@ -404,6 +408,8 @@ function serviceInput(
   const requestAdapter = operationId === 'GPU.requestAdapter';
   const requestDevice = operationId === 'GPUAdapter.requestDevice';
   const deviceDestroy = operationId === 'GPUDevice.destroy';
+  const bufferLifecycle = operationId === 'GPUBuffer.destroy' ||
+    operationId === 'GPUBuffer.mapAsync' || operationId === 'GPUBuffer.unmap';
   return Object.freeze({
     operationId,
     wireId: route.wireId,
@@ -416,7 +422,7 @@ function serviceInput(
       ? '0'
       : '3',
     queueIngressOrdinal: operationId === 'GPUQueue.submit' ? '2' : '0',
-    sealedLocalTimeline: requestAdapter || requestDevice
+    sealedLocalTimeline: requestAdapter || requestDevice || bufferLifecycle
       ? Object.freeze([])
       : deviceDestroy
       ? Object.freeze([
@@ -440,6 +446,32 @@ function serviceInput(
       : Object.freeze([
         Object.freeze({ operationId: 'local', deviceIngressOrdinal: 2 }),
       ]),
+    ...(operationId === 'GPUBuffer.mapAsync'
+      ? {
+          bufferLifecycle: Object.freeze({
+            kind: 'map-async-v1',
+            pendingMapGeneration: '1',
+            mode: 1,
+            offset: '0',
+            requestedSizePresent: 0,
+            requestedSize: '0',
+          }),
+        }
+      : operationId === 'GPUBuffer.destroy' || operationId === 'GPUBuffer.unmap'
+      ? {
+          bufferLifecycle: Object.freeze({
+            kind: 'cleanup-v1',
+            cleanupAction: 0,
+            cleanupGeneration: '0',
+            cancelledMapGeneration: '0',
+            activeMapGeneration: '0',
+            activeMapMode: 0,
+            mappedOffset: '0',
+            mappedSize: '0',
+            writeback: new Uint8Array(0),
+          }),
+        }
+      : {}),
   });
 }
 
@@ -517,6 +549,19 @@ function resultEvent(
   } as unknown as ResultEvent;
 }
 
+function bufferMapResultEvent(
+  payload: ArrayBufferView,
+  overrides: Readonly<Record<string, unknown>> = {},
+): ResultEvent {
+  return {
+    ...resultEvent('GPUBuffer.mapAsync', 4, payload),
+    adapterOrdinal: '0',
+    deviceIngressOrdinal: '3',
+    receiverKind: WEBGPU_OBJECT_KIND_TAGS.GPUBuffer,
+    ...overrides,
+  } as unknown as ResultEvent;
+}
+
 function withTrailingByte(value: Uint8Array): Uint8Array {
   const output = new Uint8Array(value.byteLength + 1);
   output.set(value);
@@ -566,7 +611,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -593,6 +638,9 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },
         { operationId: 'GPUDevice.destroy', wireId: 206890944 },
+        { operationId: 'GPUBuffer.destroy', wireId: 3314731466 },
+        { operationId: 'GPUBuffer.mapAsync', wireId: 1760273919 },
+        { operationId: 'GPUBuffer.unmap', wireId: 1228615721 },
       ],
     });
     const destroyProgram = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
@@ -641,6 +689,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       EXACT_GPU_RESULT_NONE_V2: 0,
       EXACT_GPU_RESULT_NULL_V2: 2,
       EXACT_GPU_RESULT_OBJECT_V2: 3,
+      EXACT_GPU_RESULT_BYTES_V2: 4,
     });
     expect(() => createExecutableWebGpuCodecs(
       {
@@ -1530,8 +1579,12 @@ describe('generated injection-only WebGPU executable codecs', () => {
               forceFallbackAdapter: false,
               xrCompatible: false,
             }
-            : route.operationId === 'GPUDevice.destroy'
+            : route.operationId === 'GPUDevice.destroy' ||
+                route.operationId === 'GPUBuffer.destroy' ||
+                route.operationId === 'GPUBuffer.unmap'
             ? null
+            : route.operationId === 'GPUBuffer.mapAsync'
+            ? { mode: 1, offset: 0 }
             : route.operationId === 'GPUDevice.createBindGroup'
             ? convertedBindGroupDescriptor()
             : route.operationId === 'GPUDevice.createBindGroupLayout'
@@ -4250,6 +4303,262 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'GPUDevice.destroy',
       { kind: 'null' },
     )).toThrow('wrong shape');
+  });
+
+  test('encodes closed source-affine GPUBuffer cleanup and mapAsync request bodies', () => {
+    const writeBody = Object.freeze({
+      kind: 'cleanup-v1' as const,
+      cleanupAction: 2 as const,
+      cleanupGeneration: '7',
+      cancelledMapGeneration: '6',
+      activeMapGeneration: '5',
+      activeMapMode: 2 as const,
+      mappedOffset: '16',
+      mappedSize: '4',
+      writeback: Uint8Array.from([1, 2, 3, 4]),
+    });
+    const destroyInput = Object.freeze({
+      ...serviceInput('GPUBuffer.destroy', null),
+      bufferLifecycle: writeBody,
+    });
+    const destroyPayload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(destroyInput) as Uint8Array;
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      destroyPayload,
+    )).toMatchObject({
+      operationId: 'GPUBuffer.destroy',
+      codec: 'gpu-buffer-destroy-service-request-v1',
+      receiver: {
+        kind: 'GPUBuffer',
+        objectId: '11',
+        objectGeneration: '1',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      target: null,
+      adapterOrdinal: '0',
+      deviceIngressOrdinal: '3',
+      queueIngressOrdinal: '0',
+      sealedLocalTimeline: [],
+      convertedArguments: null,
+      bufferLifecycle: {
+        ...writeBody,
+        writeback: [1, 2, 3, 4],
+      },
+    });
+    for (let length = 0; length < destroyPayload.byteLength; length += 1) {
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        destroyPayload.slice(0, length),
+      )).toThrow();
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      withTrailingByte(destroyPayload),
+    )).toThrow('Trailing');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      mutateU32(
+        destroyPayload,
+        131,
+        WEBGPU_EXECUTABLE_CODEC_MANIFEST.maxPayloadBytes + 1,
+      ),
+    )).toThrow('byte bound');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...destroyInput,
+      bufferLifecycle: { ...writeBody, activeMapMode: 1 },
+    })).toThrow('MAP_READ');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...destroyInput,
+      bufferLifecycle: { ...writeBody, mappedSize: '5' },
+    })).toThrow('exact mapped extent');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...destroyInput,
+      bufferLifecycle: { ...writeBody, unexpected: true } as never,
+    })).toThrow('closed lifecycle body');
+
+    const convertedMap = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments('GPUBuffer.mapAsync', [2, 16, 4], wrappers);
+    const mapBody = Object.freeze({
+      kind: 'map-async-v1' as const,
+      pendingMapGeneration: '9',
+      mode: 2 as const,
+      offset: '16',
+      requestedSizePresent: 1 as const,
+      requestedSize: '4',
+    });
+    const mapInput = Object.freeze({
+      ...serviceInput('GPUBuffer.mapAsync', convertedMap),
+      bufferLifecycle: mapBody,
+    });
+    const mapPayload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(mapInput) as Uint8Array;
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      mapPayload,
+    )).toMatchObject({
+      operationId: 'GPUBuffer.mapAsync',
+      convertedArguments: { mode: 2, offset: 16, size: 4 },
+      bufferLifecycle: mapBody,
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...mapInput,
+      bufferLifecycle: { ...mapBody, pendingMapGeneration: '0' },
+    })).toThrow('positive');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...mapInput,
+      bufferLifecycle: { ...mapBody, mode: 1 },
+    })).toThrow('disagrees');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...mapInput,
+      bufferLifecycle: {
+        ...mapBody,
+        requestedSizePresent: 0,
+        requestedSize: '4',
+      },
+    })).toThrow('mode/range');
+
+    const unmapInput = Object.freeze({
+      ...serviceInput('GPUBuffer.unmap', null),
+      bufferLifecycle: Object.freeze({
+        ...writeBody,
+        cleanupAction: 1 as const,
+      }),
+    });
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(unmapInput),
+    )).toMatchObject({
+      operationId: 'GPUBuffer.unmap',
+      bufferLifecycle: { cleanupAction: 1, cleanupGeneration: '7' },
+    });
+  });
+
+  test('encodes all typed mapAsync completions and rejects carrier, variant, extent, truncation, and trailing-byte drift', () => {
+    const variants = [
+      {
+        variant: 'mapped-bytes' as const,
+        pendingMapGeneration: '8',
+        mode: 1 as const,
+        offset: '0',
+        size: '4',
+        ownedBytes: Uint8Array.from([9, 10, 11, 12]),
+      },
+      ...[
+        'provider-operation-error',
+        'allocation-range-error',
+        'late-cancelled-cleanup',
+      ].map((variant) => ({
+        variant: variant as
+          | 'provider-operation-error'
+          | 'allocation-range-error'
+          | 'late-cancelled-cleanup',
+        pendingMapGeneration: '9',
+        mode: 2 as const,
+        offset: '16',
+        size: '4',
+        ownedBytes: new Uint8Array(0),
+      })),
+    ];
+    const payloads = variants.map((variant) => {
+      const payload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        'GPUBuffer.mapAsync',
+        { kind: 'buffer-map', ...variant },
+      );
+      const decoded = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+        'GPUBuffer.mapAsync',
+        bufferMapResultEvent(payload),
+      );
+      expect(decoded).toMatchObject({
+        kind: 'value',
+        value: {
+          variant: variant.variant,
+          pendingMapGeneration: variant.pendingMapGeneration,
+          mode: variant.mode,
+          offset: variant.offset,
+          size: variant.size,
+        },
+      });
+      return payload;
+    });
+    const mappedPayload = payloads[0]!;
+    for (let length = 0; length < mappedPayload.byteLength; length += 1) {
+      expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+        'GPUBuffer.mapAsync',
+        bufferMapResultEvent(mappedPayload.slice(0, length)),
+      )).toThrow();
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPUBuffer.mapAsync',
+      bufferMapResultEvent(withTrailingByte(mappedPayload)),
+    )).toThrow('Trailing');
+    const unknownVariant = mappedPayload.slice();
+    unknownVariant[12] = 0;
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPUBuffer.mapAsync',
+      bufferMapResultEvent(unknownVariant),
+    )).toThrow('variant');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPUBuffer.mapAsync',
+      bufferMapResultEvent(mutateU32(mappedPayload, 33, 5)),
+    )).toThrow('extent');
+    for (const overrides of [
+      { resultKind: 0 },
+      { promiseId: '0' },
+      { providerAdmission: 0 },
+      { physicalSequence: '0' },
+      { receiverKind: WEBGPU_OBJECT_KIND_TAGS.GPUDevice },
+      { targetKind: WEBGPU_OBJECT_KIND_TAGS.GPUBuffer },
+      { adapterOrdinal: '1' },
+      { deviceIngressOrdinal: '0' },
+      { queueIngressOrdinal: '1' },
+      { ingressProviderGeneration: '0' },
+    ]) {
+      expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+        'GPUBuffer.mapAsync',
+        bufferMapResultEvent(mappedPayload, overrides),
+      )).toThrow('carrier');
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUBuffer.mapAsync',
+      {
+        kind: 'buffer-map',
+        ...variants[0]!,
+        size: '5',
+      },
+    )).toThrow('ownership');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUBuffer.mapAsync',
+      {
+        kind: 'buffer-map',
+        ...variants[1]!,
+        ownedBytes: Uint8Array.from([1]),
+      },
+    )).toThrow('ownership');
+  });
+
+  test('selects every service-owned cleanup terminal without exposing payload bytes', () => {
+    for (const [operationId, terminals] of [
+      [
+        'GPUBuffer.destroy',
+        ['repeat-cleanup-noop', 'first-cleanup-rejection', 'first-cleanup-provider'],
+      ],
+      [
+        'GPUBuffer.unmap',
+        ['unmapped-noop', 'cleanup-rejection', 'cleanup-provider'],
+      ],
+    ] as const) {
+      for (const terminal of terminals) {
+        expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+          operationId,
+          { kind: 'buffer-cleanup', terminal },
+        ).byteLength).toBe(0);
+      }
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUBuffer.destroy',
+      { kind: 'buffer-cleanup', terminal: 'cleanup-provider' },
+    )).toThrow('terminal');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUBuffer.unmap',
+      { kind: 'buffer-cleanup', terminal: 'first-cleanup-provider' },
+    )).toThrow('terminal');
   });
 
   test('decodes nullable adapter results with authenticated operation/result tags', () => {

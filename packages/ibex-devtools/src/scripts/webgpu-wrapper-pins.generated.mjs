@@ -2,11 +2,11 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "6f39c2f5106a65b7b1470458dab2a1cd27fec2a1de6591acdb1f7229ce9bc471",
+  "projection": "2b7b93f54626ac6e488f1629e6b1d426f28aa89e0412f150fb64993e3fc57193",
   "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
   "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
   "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
-  "webgpuCVocabulary": "781ab2dfe5f070c9d37486be00f8a94f2fee7db5a2d25be1e385574237979d4b"
+  "webgpuCVocabulary": "e616ce040909eaadc21bfb7175a6bf46efde25caf906895117f4053dffb1d09a"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   "semanticProjection": "a93ae9932b1d82602a6a9f0b60344c8a5a4e192a3fdec87c75fb00ed19134452",
@@ -296,7 +296,10 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPUTexture.createView",
   "GPUDevice.createCommandEncoder",
   "GPUDevice.createShaderModule",
-  "GPUDevice.destroy"
+  "GPUDevice.destroy",
+  "GPUBuffer.destroy",
+  "GPUBuffer.mapAsync",
+  "GPUBuffer.unmap"
 ]);
 export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPU.requestAdapter",
