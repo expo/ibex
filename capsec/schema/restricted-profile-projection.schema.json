@@ -68,17 +68,15 @@
       "type": "array",
       "minItems": 1,
       "items": {
-        "type": "object",
-        "required": ["edgeId", "surfaceKind", "surfaceName", "fullClassification", "disposition", "evidence"],
-        "properties": {
-          "edgeId": { "type": "string", "minLength": 1 },
-          "surfaceKind": { "enum": ["builtin", "callback", "cli", "host-abi", "loader", "native-op", "startup"] },
-          "surfaceName": { "type": "string", "minLength": 1 },
-          "fullClassification": { "enum": ["closed", "effects", "non-capability"] },
-          "disposition": { "enum": ["reachable", "structurally-absent", "trusted-control-plane"] },
-          "evidence": { "const": "pending" }
-        },
-        "additionalProperties": false
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "prefixItems": [
+          { "type": "string", "minLength": 1 },
+          { "enum": ["reachable", "structurally-absent", "trusted-control-plane"] },
+          { "const": "pending" }
+        ],
+        "items": false
       }
     },
     "promotionReady": { "const": false },

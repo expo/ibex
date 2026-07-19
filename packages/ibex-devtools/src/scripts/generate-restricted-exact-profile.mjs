@@ -111,6 +111,18 @@ function prettyJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+function renderProjection(projection) {
+  const markerValue = "__RESTRICTED_PROFILE_ROWS__";
+  const withMarker = { ...projection, rows: markerValue };
+  const marker = `  "rows": "${markerValue}",`;
+  const compactRows = [
+    '  "rows": [',
+    projection.rows.map((row) => `    ${JSON.stringify(row)}`).join(",\n"),
+    "  ],",
+  ].join("\n");
+  return `${JSON.stringify(withMarker, null, 2).replace(marker, compactRows)}\n`;
+}
+
 function assertRawMatches(rawBytes, value, label) {
   if (!rawBytes) return;
   const parsed = parseJsonStrict(rawBytes, label);
@@ -179,23 +191,16 @@ export function buildRestrictedExactProfile({ coverage, definition, implementati
   }
 
   const rows = edgeIds.map((edgeId) => {
-    const edge = edgesById.get(edgeId);
-    return {
-      edgeId,
-      surfaceKind: edge.surface.kind,
-      surfaceName: edge.surface.name,
-      fullClassification: edge.classification,
-      disposition: reachable.get(edgeId)
-        ?? control.get(edgeId)
-        ?? definition.structuralAbsencePolicy.complementDisposition,
-      evidence: "pending",
-    };
+    const disposition = reachable.get(edgeId)
+      ?? control.get(edgeId)
+      ?? definition.structuralAbsencePolicy.complementDisposition;
+    return [edgeId, disposition, "pending"];
   });
   const counts = {
     total: rows.length,
-    reachable: rows.filter((row) => row.disposition === "reachable").length,
-    structurallyAbsent: rows.filter((row) => row.disposition === "structurally-absent").length,
-    trustedControlPlane: rows.filter((row) => row.disposition === "trusted-control-plane").length,
+    reachable: rows.filter((row) => row[1] === "reachable").length,
+    structurallyAbsent: rows.filter((row) => row[1] === "structurally-absent").length,
+    trustedControlPlane: rows.filter((row) => row[1] === "trusted-control-plane").length,
     evidenced: 0,
   };
   if (counts.reachable + counts.structurallyAbsent + counts.trustedControlPlane !== counts.total) {
@@ -233,7 +238,7 @@ export function buildRestrictedExactProfile({ coverage, definition, implementati
       "target-specific conformance reports and independent security review are pending",
     ].sort(),
   };
-  const projectionText = prettyJson(projection);
+  const projectionText = renderProjection(projection);
   const advertisements = {
     advertisementSchema: "ibex/restricted-profile-advertisements/1",
     profile: definition.profile,
@@ -253,7 +258,7 @@ export function buildRestrictedExactProfile({ coverage, definition, implementati
 
 export function validateRestrictedExactProfile(projection, advertisements, coverage) {
   const sourceIds = coverage.edges.map((edge) => edge.id).sort();
-  const projectedIds = projection.rows.map((row) => row.edgeId);
+  const projectedIds = projection.rows.map((row) => row[0]);
   assertSortedUnique(projectedIds, "restricted projection rows");
   if (canonicalJson(sourceIds) !== canonicalJson(projectedIds)) {
     throw new Error("restricted projection is not a bijection over full coverage edges");
@@ -261,13 +266,13 @@ export function validateRestrictedExactProfile(projection, advertisements, cover
   if (projection.counts.total !== projection.rows.length) {
     throw new Error("restricted projection count does not match its rows");
   }
-  if (projection.counts.evidenced !== 0 || projection.rows.some((row) => row.evidence !== "pending")) {
+  if (projection.counts.evidenced !== 0 || projection.rows.some((row) => row[2] !== "pending")) {
     throw new Error("Phase 0 restricted projection falsely claims evidence");
   }
   if (projection.promotionReady || advertisements.advertisements.length !== 0) {
     throw new Error("Phase 0 restricted profile must remain unadvertised");
   }
-  const expectedProjectionDigest = sha256(Buffer.from(prettyJson(projection), "utf8"));
+  const expectedProjectionDigest = sha256(Buffer.from(renderProjection(projection), "utf8"));
   if (advertisements.projectionRawContentDigest !== expectedProjectionDigest) {
     throw new Error("restricted advertisements do not bind exact projection bytes");
   }
