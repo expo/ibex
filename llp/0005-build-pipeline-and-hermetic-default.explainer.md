@@ -158,12 +158,14 @@ Windows remains an exception to the strict bootstrap-HBC path. That exception
 was introduced for `ReactNative.Hermes.Windows` 0.71.x, whose compiler could
 report a matching HBC version while rejecting modern optional syntax. The
 managed Windows toolchain now builds the same pinned patched Hermes source as
-Apple/Linux, but `build.rs` continues to emit source startup headers until a
-Windows run explicitly proves the newer compiler/runtime path; changing the
-artifact does not silently remove the fallback boundary `[observed]`
-(`build.rs`; `scripts/build-hermes-windows.ps1`). Windows also continues to
-skip shared-runtime-bundle HBC because startup does not install that bundle
-`[observed]` (`src/engine/hermes_bootstrap.cc`; `build.rs`).
+Apple/Linux. Native bootstrap installs the shared-runtime source before
+compartment sealing and structural lockdown, so the runtime never attempts to
+add required polyfills to already-frozen intrinsics. `build.rs` still skips
+shared-runtime HBC generation on Windows until the compiler path separately
+proves the modern bundle syntax; changing the runtime artifact does not
+silently remove that fallback boundary `[observed]`
+(`src/engine/hermes_bootstrap.cc`; `build.rs`;
+`scripts/build-hermes-windows.ps1`).
 
 The macOS Hermes 0.11 compiler is stricter than the runtime authoring surface
 too: it rejects BigInt literal syntax in bootstrap files while accepting
