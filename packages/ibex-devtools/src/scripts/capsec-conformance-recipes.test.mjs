@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_625);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_955);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_670);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_952);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_673);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -308,7 +308,12 @@ describe("exact-target CapSec executable recipes", () => {
       ).toHaveLength(0);
     }
 
-    for (const [globalName, expectedCount] of [["__exactFsClose", 1]]) {
+    for (const [globalName, expectedCount] of [
+      ["__exactFsClose", 1],
+      ["__exactTcpClose", 1],
+      ["__exactTcpReset", 1],
+      ["__exactTcpShutdown", 1],
+    ]) {
       const setupBlocked = windowsRecipes.recipes.filter(
         (recipe) =>
           recipe.terminalObservedKey === `native-op:${globalName}` &&
@@ -337,7 +342,7 @@ describe("exact-target CapSec executable recipes", () => {
       windowsRecipes.summary.residualReasons[
         "native-public-setup-operation-not-typed-on-target"
       ],
-    ).toBe(1);
+    ).toBe(4);
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {

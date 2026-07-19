@@ -651,15 +651,16 @@ bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalogs are target-specific:
 Apple has 22,915 required fixtures, 5,214 fully executable recipes, and 17,701
-unresolved fixtures; Windows has 22,625 required fixtures, 4,955 executable,
-and 17,670 unresolved. The build graph excludes 260 POSIX-only enforcement
+unresolved fixtures; Windows has 22,625 required fixtures, 4,952 executable,
+and 17,673 unresolved. The build graph excludes 260 POSIX-only enforcement
 fixtures from Windows instead of treating their translation units as fallback
 implementations. Windows executes 92 source-bound native target-absence probes;
 69 additional target-absence source invocations remain unavailable, alongside
 11 recipes for two operations absent from the target and 132 recipes across
-15 installed operations not yet typed there. One installed zero-effect
-close operation also remains residual because its physical recipe would have
-to obtain a descriptor through an untyped Windows open. None of those
+15 installed operations not yet typed there. Four installed zero-effect
+release operations also remain residual because their physical recipes would
+have to obtain a descriptor through an untyped Windows open or a TCP handle
+through an untyped Windows connect. None of those
 differences is borrowed from Apple or credited without target-local evidence.
 Target-specific native source descriptors remain inventory inputs and recipe
 production selects the descriptor attached to the built branch wherever source
@@ -737,7 +738,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,701 unresolved Apple fixtures and 17,670
+are 7,043 ambiguous routes with 17,701 unresolved Apple fixtures and 17,673
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -1845,8 +1846,8 @@ without canceling an in-flight full-matrix run. Scheduled, pull-request, and
 `main` executions still require both physical targets; manual selection changes
 only job scheduling, never the target catalog, validators, retained evidence,
 or promotion criteria.
-Its current catalog has 22,625 required fixtures, 4,955 executable recipes, and
-17,670 unresolved fixtures. The
+Its current catalog has 22,625 required fixtures, 4,952 executable recipes, and
+17,673 unresolved fixtures. The
 source-derived class-factory traversal is path-cycle safe: a uniquely resolved
 factory may be revisited after its current return chain unwinds, but a mutually
 recursive return chain cannot recurse forever or invent a class shape. The
