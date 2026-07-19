@@ -1835,6 +1835,10 @@ installation branch applicable to the authenticated target (`macos`, `apple`,
 `posix`, or `default` on Apple; `windows` or `default` on Windows). A
 POSIX-specific JSI global is not required to invent a default branch, and a
 wrong-target branch cannot validate the closure.
+The physical Windows closed-surface executor must use that same target-aware
+cardinality: the reviewed catalog contains 13 armed-global absence recipes on
+Windows and 20 on Apple. Treating the Apple total as a cross-target invariant
+rejects an honest Windows catalog before any physical closure probe runs.
 The same independent validator recognizes the reviewed worklet-only closure
 forms (direct JSI globals and the evaluated `kPrelude` namespace) and the
 reviewed shared-runtime root families. Their single installation branch must

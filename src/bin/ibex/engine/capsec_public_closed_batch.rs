@@ -3523,7 +3523,7 @@ async fn capsec_public_closed_recipe_batch() {
     let (expected_debugger_abi, expected_shared_runtime_absence, expected_native_absence) =
         match catalog.target.triple.as_str() {
             "aarch64-apple-darwin" => (18, 322, 20),
-            "x86_64-pc-windows-msvc" => (18, 322, 20),
+            "x86_64-pc-windows-msvc" => (18, 322, 13),
             target => panic!("closed public batch has no reviewed target shape for {target}"),
         };
     assert_eq!(
