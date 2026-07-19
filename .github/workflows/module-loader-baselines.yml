@@ -87,7 +87,7 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Install Node compatibility target
-        if: runner.os == 'macOS'
+        if: runner.os != 'Windows'
         uses: actions/setup-node@v4
         with:
           node-version: 24.13.1
