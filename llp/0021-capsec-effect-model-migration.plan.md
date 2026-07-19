@@ -1168,7 +1168,10 @@ Windows prefix and pinned file identity without introducing a test-only path
 model. Conversely, reconstruction of a Windows host-bound logical path seeds
 the native path from that volume or namespace prefix plus its root separator;
 pushing the prefix into an already separator-rooted `PathBuf` collapses the
-drive and leaves module resolution rooted at `\\`.
+drive and leaves module resolution rooted at `\\`. Module-specifier query and
+fragment stripping likewise begins after the Windows verbatim namespace prefix
+(`\\?\`), so the prefix's question mark cannot truncate an authenticated entry
+path before resolution.
 
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.

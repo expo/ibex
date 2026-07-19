@@ -1780,15 +1780,21 @@ fn package_name_from_bare_specifier(specifier: &str) -> Option<String> {
 }
 
 fn strip_file_specifier_decorations(specifier: &str) -> &str {
-    let file_like = specifier.starts_with('.')
+    // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — a Windows verbatim namespace `?` is path syntax, not a module query delimiter.
+    let windows_verbatim_prefix_len = specifier.starts_with("\\\\?\\").then_some(4);
+    let file_like = windows_verbatim_prefix_len.is_some()
+        || specifier.starts_with('.')
         || specifier.starts_with('/')
         || Path::new(specifier).is_absolute();
     if !file_like {
         return specifier;
     }
-    let end = specifier
+    let search_start = windows_verbatim_prefix_len.unwrap_or(0);
+    let end = specifier[search_start..]
         .char_indices()
-        .find_map(|(index, character)| matches!(character, '?' | '#').then_some(index))
+        .find_map(|(index, character)| {
+            matches!(character, '?' | '#').then_some(search_start + index)
+        })
         .unwrap_or(specifier.len());
     &specifier[..end]
 }
@@ -2902,6 +2908,16 @@ mod tests {
 
         assert_eq!(plain.path, decorated.path);
         assert_eq!(plain.id, decorated.id);
+    }
+
+    #[test]
+    fn windows_verbatim_file_specifier_preserves_namespace_question_mark() {
+        let path = r"\\?\D:\a\ibex\entry.mjs";
+        assert_eq!(strip_file_specifier_decorations(path), path);
+        assert_eq!(
+            strip_file_specifier_decorations(r"\\?\D:\a\ibex\entry.mjs?cache=one#section"),
+            path
+        );
     }
 
     #[test]
