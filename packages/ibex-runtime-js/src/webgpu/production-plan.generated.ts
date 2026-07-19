@@ -6,13 +6,13 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed",
+  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
   "digests": {
-    "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
-    "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
-    "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
-    "webgpuCVocabulary": "ee3e5eb0dd1a9f77792d63c4cb3aecc46420e812c7e977c9461fb69e28207dac",
-    "projection": "0a5f7beae3e4c4d38fb7919a901ecd794267b601e3a2c4103c385495fa678bfd"
+    "operationSet": "efc39ed749006917e4b09ab456dcb1a97b2b2b58503899b45ac4dfa46f5aed2f",
+    "semanticProgramSet": "0cfa7d2a96069b7a446a0341e8a4d81118aa8c22268756c27a07645b60a4d3d6",
+    "runtimeRouting": "8138875093498556fe26e0c3aa806242288ab9ccda0db2f0885de81239e39f28",
+    "webgpuCVocabulary": "f4cd1eab7f9be2f12f40a67e9463d479529728443c56777564f8ab567e576d1f",
+    "projection": "e2a427310a1b73ad001792fd67d28464ce728fe047e9908b0c89a80d1d94f3ac"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -290,7 +290,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
-    "operationCount": 45,
+    "operationCount": 46,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
@@ -315,6 +315,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUDevice.createSampler",
       "GPUDevice.createTexture",
       "GPUDevice.createCommandEncoder",
+      "GPUDevice.createComputePipeline",
       "GPUDevice.createRenderPipeline",
       "GPUDevice.createShaderModule",
       "GPUDevice.destroy",
@@ -352,7 +353,8 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     "typegpuVersion": "0.11.9",
     "operationCount": 51,
-    "additionalOperationCount": 13,
+    "sourceAdditionalOperationCount": 13,
+    "additionalOperationCount": 12,
     "additionalOperations": [
       {
         "operationId": "GPUCommandEncoder.beginComputePass",
@@ -411,11 +413,6 @@ export const WEBGPU_PRODUCTION_PLAN = {
         "recordIdentitySha256": "89a04a0e46b88cbbb2318f3708977ef6c630224c715bb0bb874aa168e29de8e6"
       },
       {
-        "operationId": "GPUDevice.createComputePipeline",
-        "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
-      },
-      {
         "operationId": "GPUQueue.copyExternalImageToTexture",
         "memberKind": "method",
         "disposition": "staged-unroutable-no-prototype-member"
@@ -440,17 +437,18 @@ export const WEBGPU_PRODUCTION_PLAN = {
         "recordIdentitySha256": "564d068ca63aee652e7571913e8a9a3dc13f764a907bdb0546fa8b98710a212c"
       }
     ],
-    "postWebIdlPayloadCodegenInputs": [
+    "authenticatedPromotions": [
       {
         "operationId": "GPUDevice.createComputePipeline",
-        "memberKind": "method",
-        "publicArgumentCodec": "gpu-compute-pipeline-descriptor-v1",
-        "resultHandleKind": "GPUComputePipeline",
-        "wireShape": "GPUComputePipelineDescriptor post-Web-IDL owned copy with a full pipeline-layout reference or layout:auto plus one full shader-module reference",
-        "ownership": "construction-private-conversion-only-no-prototype-no-service-route",
-        "disposition": "payload-codegen-input-native-decoder-executor-and-install-absent"
+        "sourceDisposition": "staged-unroutable-no-prototype-member",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 2342501516,
+        "sourceOperationSemanticSha256": "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-route-and-native-codec-public-install-and-support-absent"
       }
     ],
+    "postWebIdlPayloadCodegenInputs": [],
     "localRecordingSubset": {
       "scopeId": "typegpu-private-wrapper-local-recording-v1",
       "identityDomain": "exact/webgpu-staged-local-record/v1",
@@ -1241,6 +1239,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "gpu-create-command-encoder-service-request-v1",
       "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
       "publicResultCodec": "gpu-command-encoder-handle-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+      "promiseIdentity": "zero-non-applicable"
+    },
+    {
+      "operationId": "GPUDevice.createComputePipeline",
+      "wireId": 2342501516,
+      "interfaceName": "GPUDevice",
+      "memberName": "createComputePipeline",
+      "memberKind": "method",
+      "dispatchClass": "service-submit",
+      "logicalExecutionKind": "service-enqueue",
+      "resultTiming": "synchronous-logical-identity-service-enqueued",
+      "providerSubmission": "semantic-call-device-timeline",
+      "receiverHandleKind": "GPUDevice",
+      "wrapperAllocatedTargetHandleKind": "GPUComputePipeline",
+      "resultHandleKind": "GPUComputePipeline",
+      "serviceReceiverProjection": {
+        "source": "wrapper-full-reference",
+        "kind": "GPUDevice",
+        "flags": 0,
+        "objectIdSource": "wrapperReceiver.logicalHandle",
+        "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+      },
+      "publicArgumentCodec": "gpu-compute-pipeline-descriptor-v1",
+      "serviceArgumentCodec": "gpu-create-compute-pipeline-service-request-v1",
+      "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
+      "publicResultCodec": "gpu-compute-pipeline-handle-v1",
       "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "zero-non-applicable"
     },

@@ -6,15 +6,15 @@
   "status": "construction-private-source-derived-no-public-install",
   "source": {
     "productionPlanPath": "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts",
-    "productionPlanRawContentSha256": "cb7ae26c7e8379c544bb8a89405f5b23f34525f2da4f6b7ba2bd04f096294f98",
+    "productionPlanRawContentSha256": "40d8c53b0c52af605209c93916ad0ae014192d6e7be69086fe77b33d5eedf475",
     "wrapperAuthorityPath": "tests/fixtures/webgpu-test-wrapper-authority-v1.json",
-    "wrapperAuthorityRawContentSha256": "25e7b9575fc626a9735ba1a7f23e79d6da7dfe4db33c07c22f93f84afc2adca9",
+    "wrapperAuthorityRawContentSha256": "fe1c16fc1f6f4cb399a61373e4b106caa31f14b651b0b47b4bcc466bb17407ae",
     "authenticatedDigests": {
-      "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
-      "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
-      "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
-      "webgpuCVocabulary": "ee3e5eb0dd1a9f77792d63c4cb3aecc46420e812c7e977c9461fb69e28207dac",
-      "projection": "0a5f7beae3e4c4d38fb7919a901ecd794267b601e3a2c4103c385495fa678bfd"
+      "operationSet": "efc39ed749006917e4b09ab456dcb1a97b2b2b58503899b45ac4dfa46f5aed2f",
+      "semanticProgramSet": "0cfa7d2a96069b7a446a0341e8a4d81118aa8c22268756c27a07645b60a4d3d6",
+      "runtimeRouting": "8138875093498556fe26e0c3aa806242288ab9ccda0db2f0885de81239e39f28",
+      "webgpuCVocabulary": "f4cd1eab7f9be2f12f40a67e9463d479529728443c56777564f8ab567e576d1f",
+      "projection": "e2a427310a1b73ad001792fd67d28464ce728fe047e9908b0c89a80d1d94f3ac"
     }
   },
   "publicBoundary": {
@@ -31,7 +31,7 @@
     "setEventSink": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
     "submit": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99"
   },
-  "operationCount": 45,
+  "operationCount": 46,
   "operations": [
     {
       "operationId": "GPU.getPreferredCanvasFormat",
@@ -242,6 +242,16 @@
       "logicalExecutionKind": "service-enqueue",
       "providerSubmission": "semantic-call-device-timeline",
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i.exact-construction-private-webgpu-v1"
+    },
+    {
+      "operationId": "GPUDevice.createComputePipeline",
+      "wireId": 2342501516,
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
+      "edgeClassification": "closed",
+      "dispatchClass": "service-submit",
+      "logicalExecutionKind": "service-enqueue",
+      "providerSubmission": "semantic-call-device-timeline",
+      "privateTargetCellId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.exact-construction-private-webgpu-v1"
     },
     {
       "operationId": "GPUDevice.createPipelineLayout",
@@ -484,7 +494,7 @@
       "privateTargetCellId": "surface.native.op.construction.private.webgpu.gputexture.width.1utkugg.exact-construction-private-webgpu-v1"
     }
   ],
-  "privateTargetCellCount": 45,
+  "privateTargetCellCount": 46,
   "privateTargetCells": [
     {
       "id": "surface.native.op.construction.private.webgpu.gpu.getpreferredcanvasformat.1c3jcst.exact-construction-private-webgpu-v1",
@@ -837,6 +847,23 @@
       "capsecDisposition": "closed",
       "implementationBranchIds": [
         "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i.authenticated.production.route.1wj5kwl"
+      ],
+      "providerBridgeEdgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
+      "positiveAuthority": "absent-closed-provider-edge",
+      "publicInstallDisposition": "absent",
+      "platformSupportClaim": "none"
+    },
+    {
+      "id": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.exact-construction-private-webgpu-v1",
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
+      "target": {
+        "kind": "construction-private-runtime-route",
+        "id": "exact-construction-private-webgpu-v1"
+      },
+      "supportDisposition": "supported-construction-private-only",
+      "capsecDisposition": "closed",
+      "implementationBranchIds": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.authenticated.production.route.0oq0mj7"
       ],
       "providerBridgeEdgeId": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
       "positiveAuthority": "absent-closed-provider-edge",

@@ -43,6 +43,8 @@ const EXPECTED_QUEUE_SUBMIT_NATIVE_ROUTE_SHA256 =
   "1a75cadd6062c5194e9c6ef5da0abbe022e6ef0418c91be25dc0560121e11322";
 const EXPECTED_RENDER_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
   "7302077c3e05e4b4a5815bce1b63bf889774895e487bb8bf167f5218fc2a3340";
+const EXPECTED_COMPUTE_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
+  "a3acb8ac3e4c8a8b19efdbc015819f2387297686265b40d1c3fe79578c0a4ac5";
 
 function assert(condition, message) {
   if (!condition) throw new Error("webgpu test-wrapper authority: " + message);
@@ -279,6 +281,56 @@ function buildExpectedCreateRenderPipelineNativeRoute({
   return route;
 }
 
+function buildExpectedCreateComputePipelineNativeRoute({
+  templateRoute,
+  operation,
+  requestCatalogIndex,
+  completionCatalogIndex,
+}) {
+  const route = buildExpectedCreateRenderPipelineNativeRoute({
+    templateRoute,
+    operation,
+    requestCatalogIndex,
+    completionCatalogIndex,
+  });
+  route.request.payload.fields.find(
+    (field) => field.name === "convertedArguments",
+  ).constraintType = "computePipelineDescriptorV1";
+  route.request.carrierConstraints.find(
+    (constraint) => constraint.carrierPath === "target.kind",
+  ).valueFrom = "objectKindTags.GPUComputePipeline";
+  route.request.valueConstraints.find(
+    (constraint) => constraint.payloadPath === "convertedArguments",
+  ).type = "computePipelineDescriptorV1";
+  route.request.semanticServiceBoundary.requiredAfterDecode = [
+    "authenticate-source-affine-device-receiver-and-reconstruct-authority-from-device-table",
+    "authenticate-contiguous-sealed-local-timeline-prefix",
+    "validate-current-live-device-generation",
+    "validate-operation-coverage",
+    "validate-authorized-live-account-and-aggregate-envelope",
+    "authenticate-explicit-pipeline-layout-full-reference-or-validate-auto-layout-policy",
+    "authenticate-current-same-device-shader-module-full-reference-and-creator-order",
+    "validate-exact-generated-typegpu-compute-pipeline-seven-cohort-witness",
+    "select-unique-or-explicit-compute-entry-point",
+    "specialize-pipeline-constants-and-resolve-overrides",
+    "join-compute-reflection-resource-bindings-to-pipeline-layout",
+    "validate-compute-workgroup-dimensions-invocations-storage-and-logical-capabilities",
+    "authenticate-wrapper-allocated-compute-pipeline-target-provenance",
+    "validate-wrapper-allocated-compute-pipeline-target-generation",
+    "reserve-compute-pipeline-table-and-dual-ledger-capacity",
+    "commit-pipeline-layout-and-shader-module-dependency-retention-before-provider-admission",
+    "arm-exactly-once-terminal-unwind-for-compute-pipeline-dependency-retention",
+    "reserve-compute-pipeline-provider-request-completion-and-physical-sequence",
+    "validate-compute-pipeline-label-under-reviewed-workload",
+  ];
+  route.completion.commonCarrierConstraints.find(
+    (constraint) =>
+      constraint.carrierPath ===
+      "record.operation_result.operation.target.kind",
+  ).valueFrom = "objectKindTags.GPUComputePipeline";
+  return route;
+}
+
 function buildExpectedCreateBufferNativeRoute({
   templateRoute,
   operation,
@@ -410,7 +462,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -515,6 +567,7 @@ function validateNativeCodecPrograms(payload) {
       "commandEncoderDescriptorV1",
       "commandRecordV1",
       "completeDeviceLimitsV1",
+      "computePipelineDescriptorV1",
       "gpuDeviceCompletionBodyV1",
       "headerV1",
       "objectReferenceV1",
@@ -636,6 +689,14 @@ function validateNativeCodecPrograms(payload) {
       ],
     },
     "native queue writeBuffer request body type",
+  );
+  assertDigest(
+    canonicalDigest(
+      "ibex/webgpu-native-codec-program/compute-pipeline-descriptor-v1",
+      types.computePipelineDescriptorV1,
+    ),
+    EXPECTED_COMPUTE_PIPELINE_DESCRIPTOR_TYPE_SHA256,
+    "native createComputePipeline post-WebIDL structural descriptor type",
   );
   assertDigest(
     canonicalDigest(
@@ -2878,6 +2939,36 @@ function validateNativeCodecPrograms(payload) {
     "native createRenderPipeline codec route",
   );
 
+  const createComputePipelineRoute = program.routes.find(
+    (candidate) => candidate.operationId === "GPUDevice.createComputePipeline",
+  );
+  const createComputePipelineOperation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPUDevice.createComputePipeline",
+  );
+  assert(
+    createComputePipelineRoute && createComputePipelineOperation &&
+      createComputePipelineRoute.wireId === createComputePipelineOperation.wireId,
+    "native createComputePipeline operation identity drifted",
+  );
+  const createComputePipelineRequestCatalogIndex =
+    payload.codecCatalog.serviceArguments.findIndex(
+      (codec) => codec.tag === createComputePipelineOperation.serviceArgumentCodec,
+    );
+  const createComputePipelineCompletionCatalogIndex =
+    payload.codecCatalog.serviceCompletions.findIndex(
+      (codec) => codec.tag === createComputePipelineOperation.serviceCompletionCodec,
+    );
+  assertCanonical(
+    createComputePipelineRoute,
+    buildExpectedCreateComputePipelineNativeRoute({
+      templateRoute: createRenderPipelineRoute,
+      operation: createComputePipelineOperation,
+      requestCatalogIndex: createComputePipelineRequestCatalogIndex,
+      completionCatalogIndex: createComputePipelineCompletionCatalogIndex,
+    }),
+    "native createComputePipeline codec route",
+  );
+
   for (const resource of [
     {
       operationId: "GPUDevice.createBindGroup",
@@ -3796,8 +3887,26 @@ export function validateWebGpuWrapperAuthority(authority) {
   );
   assert(
     authority.provenance?.normalizedProjectionComparison ===
-      "required-across-outer-ibex-repins",
+      "required-across-outer-ibex-repins-after-authenticated-local-promotions",
     "outer normalized-projection comparison expectation is missing",
+  );
+  assert(
+    canonicalJson(authority.provenance?.localPromotions) === canonicalJson([{
+      operationId: "GPUDevice.createComputePipeline",
+      sourceRepository: "ccheever/exact",
+      sourceCommit: "4b158f8480395c78463bdd99eb58794f3cca791a",
+      sourceArtifactPath: "tests/gpu/typegpu-semantic-authority-v1.json",
+      sourceArtifactSha256:
+        "bf00879b067bf632334b45e9790d9209e2351e5b7cf5ca587e99b8efd06fbc04",
+      sourceOperationWireId: 2342501516,
+      sourceOperationSemanticSha256:
+        "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
+      sourceWorkloadCohortSha256:
+        "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+      disposition:
+        "construction-private-route-promotion-codec-and-native-ingress-only-public-install-and-support-absent",
+    }]),
+    "authenticated local promotion provenance drifted",
   );
   assert(
     authority.provenance?.excludedRecursiveFields?.length === 1 &&
@@ -3818,7 +3927,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(
@@ -4008,7 +4117,7 @@ export function validateWebGpuWrapperSemantics(semantics) {
   assert(semantics.status === "test-only-no-runtime-install", "semantic fixture must remain test-only");
   assert(
     semantics.provenance?.normalizedSemanticComparison ===
-      "required-across-outer-ibex-repins",
+      "required-across-outer-ibex-repins-after-authenticated-local-promotions",
     "outer normalized-semantic comparison expectation is missing",
   );
   const semanticProjection = semantics.semanticProjection;

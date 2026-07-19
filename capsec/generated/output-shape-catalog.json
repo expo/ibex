@@ -48436,6 +48436,16 @@
       "outputKinds": []
     },
     {
+      "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
+      "status": "unresolved",
+      "reasonCode": "native-surface-contract-missing",
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createComputePipeline:2342501516",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createComputePipeline:2342501516"
+      ],
+      "outputKinds": []
+    },
+    {
       "surfaceId": "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1",
       "status": "unresolved",
       "reasonCode": "native-surface-contract-missing",
@@ -83710,10 +83720,10 @@
   "parameterizedBindingDigest": "sha256-QxdliSIiMO2L7aqGN4Rt0V8MOVsxqNHdFdSO1cuMq-M",
   "catalogKeyDigest": "sha256-fRkdH7beBrNy08OUoOrQ7ccBxr3CgwsEHfS3R8J_lvk",
   "counts": {
-    "coverageSurfaces": 7356,
+    "coverageSurfaces": 7357,
     "outputBearingSurfaces": 5743,
     "structuralOnlySurfaces": 1555,
-    "unresolvedSurfaces": 58,
+    "unresolvedSurfaces": 59,
     "catalogRows": 6413,
     "parameterizedBindings": 1,
     "sourceInventoryRows": 6006,

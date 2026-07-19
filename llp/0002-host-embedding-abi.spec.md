@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
 **Revised:** 2026-07-18 (adds the authenticated production-private `GPUDevice.createBuffer` Web IDL conversion, bounded structural transport, six-field wrapper target, wrapper-local immutable `usage`/`mapState` metadata, ordered semantic boundary, dual-ledger accounting evidence, and 21-call positive/adversarial corpus without installing native execution or a CapSec edge); 2026-07-18 (adds the authenticated production-private `GPUDevice.createPipelineLayout` Web IDL, full-reference transport, semantic-boundary program, wrapper target, and positive/adversarial corpus without installing native execution); 2026-07-18 (separates the complete post-WebIDL bind-group-layout structural transport type from the post-decode TypeGPU workload predicate); 2026-07-18 (consumes Exact-generated wrapper pins as the sole normalized digest/route authority and classifies the immutable 25-operation triangle separately from explicit TypeGPU graduates)
-**Revised:** 2026-07-19 (adds the staged construction-private `GPUDevice.createComputePipeline` post-WebIDL payload-codegen input for the exact seven-call TypeGPU 0.11.9 cohort, preserving full reference lineage, the constants `{}` default, and optional entry-point presence without adding a prototype, service route, native decoder/executor, issuer, installation, or support claim; also repairs observable constants-record trap order, USVString conversion, special keys, and BigInt rejection)
+**Revised:** 2026-07-19 (promotes the staged construction-private `GPUDevice.createComputePipeline` conversion to an authenticated private route with generated request/result codecs and a positive/adversarial language-neutral corpus over the exact seven-call TypeGPU 0.11.9 cohort, preserving full reference lineage, the constants `{}` default, and optional entry-point presence without adding a prototype member, public issuer, installed native semantic service/provider factory, embedded codec, positive CapSec support edge, global installation, or support claim; the staged semantic program remains the provenance authority)
 **Revised:** 2026-07-18 (adds the dormant authenticated `GPUQueue.submit` sealed-program payload-codegen program, complete 15-record carrier corpus, and exact pending-timeline/error preservation contract without installing native execution or making a support claim); 2026-07-18 (repairs private `GPUDevice.createRenderPipeline` post-WebIDL conversion, exact optional-field presence, authenticated layout references, and bounded depth-stencil transport without adding a native codec or support claim); 2026-07-18 (adds the dormant authenticated `GPUQueue.writeBuffer` owned-snapshot payload-codegen program); 2026-07-18 (derives all 101 `GPUTextureFormat` values from pinned `@webgpu/types@0.1.71`, preserves them through bind-group-layout structural transport, and adds the zero-resource semantic-boundary corpus witness); 2026-07-18 (repairs observable `GPUDevice.createBindGroupLayout` Web IDL ordering, Get-once sequence conversion and EnforceRange behavior, and carries canonical WebIDL-valid descriptor variants through the bounded transport so the pinned TypeGPU predicate runs after decode); 2026-07-18 (adds the authenticated `GPUDevice.createBindGroupLayout` payload-codegen program for the exact pinned TypeGPU descriptor closure, wrapper-allocated target joins, and positive/adversarial corpus without installing a native codec or provider); 2026-07-17 (adds the authenticated `GPUDevice.createShaderModule` payload-codegen program, exact converted descriptor, wrapper-allocated target joins, and semantic-terminal mapping without installing a native codec or provider); 2026-07-17 (adds the authenticated `GPUDevice.destroy` payload-codegen program, authoritative sealed-record shape, and exact semantic-terminal/device-error mapping without installing a native codec or provider); 2026-07-17 (adds the requestDevice payload-codegen prerequisite, native-owned descriptor/result derivations, and ASSIGNED_DETACHED without installing a native codec or provider); 2026-07-17 (adds the authenticated requestAdapter payload-codegen program and carrier-projected positive interoperability vectors without installing a native payload codec); 2026-07-17 (authenticates the injection-only IBGQ/IBGR/IBGL codec layout in the C-vocabulary projection, generates a language-neutral manifest/corpus from the executable converter, and preserves unknown post-WebIDL adapter feature levels for the local-null semantic branch); 2026-07-17 (records the pinned TypeGPU workload closure as private staging metadata while keeping its 30 operations beyond the reviewed triangle unroutable and absent from prototypes); 2026-07-16 (makes ASSIGNED + NOT_ADMITTED requestDevice results self-contained detached-loss operation terminals without lifecycle tombstones); 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
@@ -758,7 +758,7 @@ The production-private WebGPU factory imports this same bundled slot and binds
 the wrapper revoker to the native bridge revoker rather than acquiring a
 second bridge or extending bridge lifetime.
 
-The private factory implements only the reviewed 28-operation wrapper shape
+The private factory implements only the reviewed construction-private wrapper shape
 and consumes a generated route plan. Installation is a separate fail-closed
 step requiring all of: the authenticated V2 bridge, the app realm, an
 unoccupied public surface, and an exact executable codec bundle whose four
@@ -769,6 +769,7 @@ machine-readable payload-codegen programs for `GPU.requestAdapter`,
 `GPUAdapter.requestDevice`, `GPUDevice.createBindGroupLayout`,
 `GPUDevice.createBuffer`,
 `GPUDevice.createPipelineLayout`,
+`GPUDevice.createComputePipeline`, `GPUDevice.createRenderPipeline`,
 `GPUDevice.createCommandEncoder`,
 `GPUDevice.createShaderModule`, and `GPUDevice.destroy`: ordered primitive and
 recursive layouts, the closed
@@ -870,15 +871,17 @@ depth, bias, and stencil-face vocabulary with
 signed/u32 and finite-f32 bounds. The checked-in four-row TypeGPU fixture
 distinguishes Genetic Racing's texture utility, track, and car source shapes
 from Jelly Slider, while pinning their normalized empty/default constants,
-buffers, primitive, multisample, and write masks after WebIDL conversion. This
-checkpoint adds
-no payload-codegen program, native decoder, semantic-service route, CapSec
-issuer, public installation, or WebGPU support claim.
+buffers, primitive, multisample, and write masks after WebIDL conversion. The
+authenticated construction-private route and payload/result codec still add
+no installed native decoder, semantic-service/provider factory, CapSec issuer,
+public installation, or WebGPU support claim.
 
-The compute-pipeline checkpoint is narrower: the generated staging inventory
-selects one construction-private post-WebIDL payload-codegen input while
-`GPUDevice.createComputePipeline` remains absent from the active route table
-and from `GPUDevice.prototype`. Conversion observes inherited `label`, then
+The compute-pipeline checkpoint promotes the previously staged conversion into
+one authenticated construction-private active route and generated request/result
+codec while preserving the staged semantic program and seven-row cohort as its
+explicit provenance authority. `GPUDevice.createComputePipeline` remains absent
+from `GPUDevice.prototype`, the public installation inventory, and every support
+claim. Conversion observes inherited `label`, then
 required `layout`, then required `compute`; the programmable stage observes
 optional `constants`, optional `entryPoint`, then required `module`, with each
 conversion immediately following its Get. A constants record gets its own keys
@@ -903,8 +906,18 @@ record keys use USVString conversion. A separate adversarial test covers
 checked-in seven-row TypeGPU 0.11.9 fixture pins six Genetic Racing descriptors
 and one Jelly Slider descriptor, all with explicit authenticated
 `GPUPipelineLayout` workload references and distinct shader-source hashes.
-This input has no service request encoder, native decoder or executor, public
-issuer, prototype installation, global installation, or WebGPU support claim.
+The generated request codec accepts the canonical converted descriptor plus
+full source-affine device, target, pipeline-layout, and shader-module references;
+its decoder boundary orders the 19 authenticated semantic predicates before
+provider admission. The result codec represents only admitted operation success
+as an empty `RESULT_NONE` receipt; synchronous WebIDL rejection has no service
+call, and later predicate rejection maps to the typed device-error terminal.
+The corpus carries all seven positive cohort requests, explicit auto-layout and
+present constants/entry-point presence, structural pre-byte rejections, semantic
+cross-device rejection inputs, and the empty success result. This route still
+has no installed native decoder or semantic-service/provider factory, public
+issuer, prototype installation, embedded executable codec, positive CapSec support edge,
+global installation, or WebGPU support claim.
 
 The closure comes from replaying both pinned TypeGPU 0.11.9 workloads: 16 creation
 calls and 43 entries, with at most five entries per call. The replay pins the

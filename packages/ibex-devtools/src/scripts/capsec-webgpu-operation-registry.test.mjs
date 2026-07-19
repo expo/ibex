@@ -39,16 +39,16 @@ describe("construction-private WebGPU CapSec operation registry", () => {
   test("derives one reviewed edge source from every authenticated active route", () => {
     const authenticated = loadAuthenticatedWebGpuProductionPlan(repoRoot);
     const surfaces = buildWebGpuOperationSurfaces(authenticated);
-    expect(authenticated.routes).toHaveLength(45);
-    expect(surfaces).toHaveLength(45);
+    expect(authenticated.routes).toHaveLength(46);
+    expect(surfaces).toHaveLength(46);
     expect(new Set(surfaces.map((surface) => surface.observedKey)).size).toBe(
-      45,
+      46,
     );
     expect(
       authenticated.routes.filter(
         (route) => webGpuOperationSemantics(route).classification === "closed",
       ),
-    ).toHaveLength(18);
+    ).toHaveLength(19);
     expect(
       authenticated.routes.filter(
         (route) =>
@@ -95,16 +95,16 @@ describe("construction-private WebGPU CapSec operation registry", () => {
           ).pathname,
         ),
       );
-      expect(generated.operationCount).toBe(45);
-      expect(generated.privateTargetCellCount).toBe(45);
+      expect(generated.operationCount).toBe(46);
+      expect(generated.privateTargetCellCount).toBe(46);
       expect(
         new Set(generated.operations.map((operation) => operation.edgeId)).size,
-      ).toBe(45);
+      ).toBe(46);
       expect(
         new Set(
           generated.privateTargetCells.map((cell) => cell.id),
         ).size,
-      ).toBe(45);
+      ).toBe(46);
       expect(
         generated.privateTargetCells.every(
           (cell) =>
@@ -115,6 +115,11 @@ describe("construction-private WebGPU CapSec operation registry", () => {
             !cell.positiveAuthority.startsWith("granted"),
         ),
       ).toBe(true);
+      expect(generated.operations).toContainEqual(expect.objectContaining({
+        operationId: "GPUDevice.createComputePipeline",
+        wireId: 2342501516,
+        edgeClassification: "closed",
+      }));
       expect(rendered.targetAdvertisements.advertisements).toEqual([]);
       const operationEdgeIds = new Set(
         generated.operations.map((operation) => operation.edgeId),

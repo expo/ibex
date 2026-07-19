@@ -89,17 +89,17 @@ const STAGED_LOCAL_RECORDING_OPERATION_IDS = Object.freeze([
 ]);
 const COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID =
   "GPUDevice.createComputePipeline";
-const COMPUTE_PIPELINE_PAYLOAD_CODEGEN_INPUT = Object.freeze({
+const COMPUTE_PIPELINE_PROMOTION = Object.freeze({
   operationId: COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
-  memberKind: "method",
-  publicArgumentCodec: "gpu-compute-pipeline-descriptor-v1",
-  resultHandleKind: "GPUComputePipeline",
-  wireShape:
-    "GPUComputePipelineDescriptor post-Web-IDL owned copy with a full pipeline-layout reference or layout:auto plus one full shader-module reference",
-  ownership:
-    "construction-private-conversion-only-no-prototype-no-service-route",
+  sourceDisposition: "staged-unroutable-no-prototype-member",
+  activeDisposition: "active-private-graduated-route",
+  sourceOperationWireId: 2342501516,
+  sourceOperationSemanticSha256:
+    "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
+  sourceWorkloadCohortSha256:
+    "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
   disposition:
-    "payload-codegen-input-native-decoder-executor-and-install-absent",
+    "construction-private-route-and-native-codec-public-install-and-support-absent",
 });
 const PRODUCT_SELECTED_METADATA_OPERATION_IDS = Object.freeze([
   "GPUAdapter.features",
@@ -280,17 +280,21 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
     throw new Error("invalid TypeGPU normalized staging projection identity");
   }
   exactSet(staging.blockers, REQUIRED_WORKLOAD_BLOCKERS, "TypeGPU staging blockers");
+  const sourceActiveRouteIds = routeIds.filter(
+    (operationId) =>
+      operationId !== COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
+  );
   if (
     staging.activeRouteSubset.scopeId !==
       "native-triangle-plus-typegpu-graduates-v1" ||
-    staging.activeRouteSubset.operationCount !== routeIds.length ||
-    staging.activeRouteSubset.operationIds.length !== routeIds.length
+    staging.activeRouteSubset.operationCount !== sourceActiveRouteIds.length ||
+    staging.activeRouteSubset.operationIds.length !== sourceActiveRouteIds.length
   ) {
     throw new Error("TypeGPU active route subset scope or count drifted");
   }
   exactSet(
     staging.activeRouteSubset.operationIds,
-    routeIds,
+    sourceActiveRouteIds,
     "TypeGPU active route subset",
   );
   const localRecording = staging.localRecordingSubset;
@@ -373,8 +377,14 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
     IMMUTABLE_TRIANGLE_ROUTE_IDS,
     "immutable TypeGPU active triangle routes",
   );
+  const promotedRouteSet = new Set([
+    COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
+  ]);
   const graduatedRouteSet = new Set(
-    routeIds.filter((operationId) => !triangleSet.has(operationId)),
+    routeIds.filter(
+      (operationId) =>
+        !triangleSet.has(operationId) && !promotedRouteSet.has(operationId),
+    ),
   );
   const workloadOperationSet = new Set(operationIds);
   exactSet(
@@ -404,7 +414,10 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
   const additional = operations.filter(
     (operation) => !routeSet.has(operation.operationId),
   );
-  if (staging.workloadClosure.additionalOperationCount !== additional.length) {
+  if (
+    staging.workloadClosure.additionalOperationCount !==
+      additional.length + promotedRouteSet.size
+  ) {
     throw new Error("TypeGPU additional operation count drifted");
   }
   for (const operation of operations) {
@@ -412,6 +425,8 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
       ? "active-private-triangle-route"
       : graduatedRouteSet.has(operation.operationId)
         ? "active-private-graduated-route"
+      : promotedRouteSet.has(operation.operationId)
+        ? "staged-unroutable-no-prototype-member"
       : wrapperLocalMetadataSet.has(operation.operationId)
           ? "private-wrapper-local-metadata-read-no-dispatch"
         : STAGED_LOCAL_RECORDING_OPERATION_IDS.includes(operation.operationId)
@@ -441,10 +456,10 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
   if (
     computePipeline?.memberKind !== "method" ||
     computePipeline.disposition !== "staged-unroutable-no-prototype-member" ||
-    routeSet.has(COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID)
+    !routeSet.has(COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID)
   ) {
     throw new Error(
-      "compute pipeline payload-codegen input must remain staged without a prototype or route",
+      "compute pipeline promotion must retain its staged source row and one active private route",
     );
   }
   return Object.freeze({
@@ -455,11 +470,12 @@ function validateWorkloadStaging(staging, routeIds, activeWireIds) {
     source: staging.source,
     typegpuVersion: staging.typegpuVersion,
     operationCount: operations.length,
+    sourceAdditionalOperationCount:
+      staging.workloadClosure.additionalOperationCount,
     additionalOperationCount: additional.length,
     additionalOperations: additional,
-    postWebIdlPayloadCodegenInputs: Object.freeze([
-      COMPUTE_PIPELINE_PAYLOAD_CODEGEN_INPUT,
-    ]),
+    authenticatedPromotions: Object.freeze([COMPUTE_PIPELINE_PROMOTION]),
+    postWebIdlPayloadCodegenInputs: Object.freeze([]),
     localRecordingSubset: localRecording,
     properties: staging.workloadClosure.properties,
     constants: staging.workloadClosure.constants,
@@ -564,7 +580,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
     digests: computed,
     webIdlVocabulary,
     activeRouteSubset: {
@@ -702,13 +718,19 @@ function buildCodecManifest(
     computePipelineStagingRow?.memberKind !== "method" ||
     computePipelineStagingRow.disposition !==
       "staged-unroutable-no-prototype-member" ||
-    authority.payload.operations.some(
+    !authority.payload.operations.some(
       (operation) =>
-        operation.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID,
-    )
+        operation.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID &&
+        operation.wireId === COMPUTE_PIPELINE_PROMOTION.sourceOperationWireId &&
+        operation.semanticSha256 ===
+          COMPUTE_PIPELINE_PROMOTION.sourceOperationSemanticSha256,
+    ) ||
+    authority.provenance.localPromotions?.length !== 1 ||
+    authority.provenance.localPromotions[0]?.operationId !==
+      COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID
   ) {
     throw new Error(
-      "compute pipeline post-Web-IDL payload-codegen input lost its staged authority",
+      "compute pipeline private promotion lost its authenticated staged authority",
     );
   }
   if (
@@ -749,6 +771,9 @@ function buildCodecManifest(
   );
   const createPipelineLayoutProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createPipelineLayout",
+  );
+  const createComputePipelineProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUDevice.createComputePipeline",
   );
   const createRenderPipelineProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUDevice.createRenderPipeline",
@@ -830,6 +855,10 @@ function buildCodecManifest(
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createPipelineLayout",
     );
+  const createComputePipelineSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUDevice.createComputePipeline",
+    );
   const createRenderPipelineSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.createRenderPipeline",
@@ -863,6 +892,7 @@ function buildCodecManifest(
     !createBindGroupLayoutProgram ||
     !createBufferProgram ||
     !createPipelineLayoutProgram ||
+    !createComputePipelineProgram ||
     !createRenderPipelineProgram ||
     !createSamplerProgram ||
     !createTextureProgram ||
@@ -878,6 +908,7 @@ function buildCodecManifest(
     !createBindGroupLayoutSemanticProgram ||
     !createBufferSemanticProgram ||
     !createPipelineLayoutSemanticProgram ||
+    !createComputePipelineSemanticProgram ||
     !createRenderPipelineSemanticProgram ||
     !createSamplerSemanticProgram ||
     !createTextureSemanticProgram ||
@@ -901,6 +932,7 @@ function buildCodecManifest(
     headerVocabulary.tags.GPUBindGroup !== 10 ||
     headerVocabulary.tags.GPUPipelineLayout !== 11 ||
     headerVocabulary.tags.GPUShaderModule !== 12 ||
+    headerVocabulary.tags.GPUComputePipeline !== 13 ||
     headerVocabulary.tags.GPURenderPipeline !== 14 ||
     headerVocabulary.tags.GPUCommandEncoder !== 15 ||
     headerVocabulary.carrierConstants.EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2 !==
@@ -924,6 +956,8 @@ function buildCodecManifest(
       createBufferProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createPipelineLayoutProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      createComputePipelineProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       createRenderPipelineProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
@@ -954,6 +988,7 @@ function buildCodecManifest(
     createBindGroupLayoutProgram.request.executablePrerequisites.length !== 0 ||
     createBufferProgram.request.executablePrerequisites.length !== 0 ||
     createPipelineLayoutProgram.request.executablePrerequisites.length !== 0 ||
+    createComputePipelineProgram.request.executablePrerequisites.length !== 0 ||
     createRenderPipelineProgram.request.executablePrerequisites.length !== 0 ||
     createSamplerProgram.request.executablePrerequisites.length !== 0 ||
     createTextureProgram.request.executablePrerequisites.length !== 0 ||
@@ -1299,6 +1334,29 @@ function buildCodecManifest(
       "GPUDevice.createPipelineLayout native completion mapping differs from semantic terminals",
     );
   }
+  const expectedCreateComputePipelineTerminalMapping = {
+    authorityPath:
+      "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createComputePipeline]",
+    terminals: createComputePipelineSemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+      event: createCommandEncoderCompletionEvents[terminal.terminalId],
+    })),
+  };
+  if (
+    canonicalJson(createComputePipelineProgram.completion.semanticTerminalMapping) !==
+      canonicalJson(expectedCreateComputePipelineTerminalMapping) ||
+    expectedCreateComputePipelineTerminalMapping.terminals.some(
+      (terminal) => !terminal.event,
+    )
+  ) {
+    throw new Error(
+      "GPUDevice.createComputePipeline native completion mapping differs from semantic terminals",
+    );
+  }
   const expectedCreateRenderPipelineTerminalMapping = {
     authorityPath:
       "semanticProjection.providerRoutingPrograms[operationId=GPUDevice.createRenderPipeline]",
@@ -1422,7 +1480,7 @@ function buildCodecManifest(
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
@@ -1457,9 +1515,8 @@ function buildCodecManifest(
     serviceCompletions: numberedCatalog(
       payload.codecCatalog.serviceCompletions,
     ),
-    postWebIdlPayloadCodegenInputs: [
-      COMPUTE_PIPELINE_PAYLOAD_CODEGEN_INPUT,
-    ],
+    authenticatedPromotions: [COMPUTE_PIPELINE_PROMOTION],
+    postWebIdlPayloadCodegenInputs: [],
     completeLimitNames: semantic.semanticProjection.limitPolicy.limits.map(
       (limit) => limit.name,
     ),

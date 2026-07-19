@@ -7,12 +7,25 @@
     "profileSha256": "206fb144c2daef0d58db4e3481f8eebc08d197c7f420404c28f9f84f477b5d98",
     "logicalPath": "tests/gpu/logical-validation-v1.generated.json",
     "logicalSha256": "25564ccb8e2499a3a5ec39bc79c92abba2367c72a4eb0765a69b6d86e2a13651",
-    "normalizedSemanticComparison": "required-across-outer-ibex-repins"
+    "normalizedSemanticComparison": "required-across-outer-ibex-repins-after-authenticated-local-promotions",
+    "localPromotions": [
+      {
+        "operationId": "GPUDevice.createComputePipeline",
+        "sourceRepository": "ccheever/exact",
+        "sourceCommit": "4b158f8480395c78463bdd99eb58794f3cca791a",
+        "sourceArtifactPath": "tests/gpu/typegpu-semantic-authority-v1.json",
+        "sourceArtifactSha256": "bf00879b067bf632334b45e9790d9209e2351e5b7cf5ca587e99b8efd06fbc04",
+        "sourceOperationWireId": 2342501516,
+        "sourceOperationSemanticSha256": "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-route-promotion-codec-and-native-ingress-only-public-install-and-support-absent"
+      }
+    ]
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "semanticProjectionSha256": "a93ae9932b1d82602a6a9f0b60344c8a5a4e192a3fdec87c75fb00ed19134452",
-    "fakeClientDataSha256": "1bed1135b1c12ddaff7f48f09e421a635622a1191633646bfcc29946e1857a39"
+    "semanticProjectionSha256": "240526a4e498cdb1f7f496c3a2e9373b5759d2733ff78bcf245d6b3393913ccf",
+    "fakeClientDataSha256": "d4b76e9a5a4c9b3097cae44d666eff71c10d4c71f638016898627fbfbc58643e"
   },
   "semanticProjection": {
     "featurePolicy": {
@@ -3898,6 +3911,92 @@
         ]
       },
       {
+        "operationId": "GPUDevice.createComputePipeline",
+        "facts": [
+          "webidlValid",
+          "providerPredicatesValid"
+        ],
+        "precedence": [
+          "webidlValid",
+          "providerPredicatesValid"
+        ],
+        "exhaustive": true,
+        "disjoint": true,
+        "terminals": [
+          {
+            "terminalId": "webidl-rejection",
+            "conditions": {
+              "webidlValid": false
+            },
+            "branchPath": [
+              "webidl"
+            ],
+            "terminalOutcome": "throw during complete synchronous Web IDL conversion",
+            "errorTiming": "synchronous-webidl",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "throw",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "webidl"
+            }
+          },
+          {
+            "terminalId": "later-predicate-rejection",
+            "conditions": {
+              "webidlValid": true,
+              "providerPredicatesValid": false
+            },
+            "branchPath": [
+              "webidl",
+              "service-provider"
+            ],
+            "terminalOutcome": "return an invalid logical compute pipeline and report the first device-timeline predicate failure before provider admission; authenticated module reflection alone never supplies a provider token",
+            "errorTiming": "device-timeline",
+            "providerTokenCount": 0,
+            "physicalSequenceCount": 0,
+            "resultDisposition": "return-invalid-object-and-report-error",
+            "errorSource": {
+              "kind": "first-failing-predicate",
+              "branchId": "service-provider"
+            }
+          },
+          {
+            "terminalId": "operation-success",
+            "conditions": {
+              "webidlValid": true,
+              "providerPredicatesValid": true
+            },
+            "branchPath": [
+              "webidl",
+              "service-provider"
+            ],
+            "terminalOutcome": "return one logical compute pipeline and enqueue its fully reflected provider initialization",
+            "errorTiming": "none",
+            "providerTokenCount": 1,
+            "physicalSequenceCount": 1,
+            "resultDisposition": "return-object",
+            "errorSource": {
+              "kind": "none"
+            }
+          }
+        ],
+        "factBindings": [
+          {
+            "fact": "webidlValid",
+            "kind": "branch-predicates",
+            "branchId": "webidl",
+            "passWhen": true
+          },
+          {
+            "fact": "providerPredicatesValid",
+            "kind": "branch-predicates",
+            "branchId": "service-provider",
+            "passWhen": true
+          }
+        ]
+      },
+      {
         "operationId": "GPUDevice.createRenderPipeline",
         "facts": [
           "webidlValid",
@@ -5106,6 +5205,7 @@
       "GPUCanvasContext.configure",
       "GPUDevice.createBindGroupLayout",
       "GPUDevice.createCommandEncoder",
+      "GPUDevice.createComputePipeline",
       "GPUDevice.createRenderPipeline",
       "GPUDevice.createShaderModule",
       "GPUQueue.submit",

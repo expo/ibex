@@ -155635,6 +155635,40 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
+      "observedKey": "native-op:construction-private:webgpu:GPUDevice.createComputePipeline",
+      "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.authenticated.production.route.0oq0mj7",
+      "enforcementBranchId": "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.authenticated.production.route.0oq0mj7",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:webgpu:GPUDevice.createComputePipeline"
+        ],
+        "proofSourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createComputePipeline:2342501516",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createComputePipeline:2342501516"
+        ],
+        "sourceRefs": [
+          "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createComputePipeline:2342501516",
+          "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createComputePipeline:2342501516"
+        ],
+        "terminalObservedKey": "native-op:construction-private:webgpu:GPUDevice.createComputePipeline"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "packages/ibex-runtime-js/src/webgpu/production-plan.generated.ts#route:GPUDevice.createComputePipeline:2342501516",
+        "tests/fixtures/webgpu-test-wrapper-authority-v1.json#payload.operations:GPUDevice.createComputePipeline:2342501516"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8.authenticated.production.route.0oq0mj7.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1",
       "observedKey": "native-op:construction-private:webgpu:GPUDevice.createPipelineLayout",
       "branchId": "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1.authenticated.production.route.1dw8sab",
@@ -270906,6 +270940,7 @@
         "surface.native.op.construction.private.webgpu.gpudevice.createbindgrouplayout.0ng298j",
         "surface.native.op.construction.private.webgpu.gpudevice.createbuffer.08g1gvn",
         "surface.native.op.construction.private.webgpu.gpudevice.createcommandencoder.0xjqx9i",
+        "surface.native.op.construction.private.webgpu.gpudevice.createcomputepipeline.1kduhd8",
         "surface.native.op.construction.private.webgpu.gpudevice.createpipelinelayout.18zmjo1",
         "surface.native.op.construction.private.webgpu.gpudevice.createrenderpipeline.1j64qfn",
         "surface.native.op.construction.private.webgpu.gpudevice.createsampler.1k2hes7",
@@ -271073,7 +271108,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 251 observed surface edges."
+      "rationale": "Closed by 252 observed surface edges."
     },
     {
       "definitionId": "lifecycle:exit",
@@ -273587,7 +273622,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-S0nLRaQ5QPii5ILrlcikKDlK57CweTuF1r75BOXeL2U"
+      "rawContentDigest": "sha256-7AMXYu7Z3RWUEZK7ecfyUFuGTvfh5ipT9PIZOg_kc-4"
     },
     {
       "kind": "output-disposition-dataset",
@@ -273602,44 +273637,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-JTMTku6MNFLTyv442L9CUCYVCnjtIX9UqkUC4Fem8sM"
+      "rawContentDigest": "sha256-PQi4C-JGJ_ShzKFUVK6Wub4TE6NnFRO23TNLAxNoBJI"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-1KdBJuB-VwJVtdv8C3VlY4ZNG4Ev2I-7Mapb51CVslw"
+      "rawContentDigest": "sha256-uL2NhgCmpPSVurVzZRMRQOaER_b95IkyL7xR9S3jQug"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-_8aVe6d-Zj80nmZyDQzIG8lIYq0k7oV75taoaAMLG10"
+      "rawContentDigest": "sha256-3Y4Rr14albAt_26mTFdOz2MBwS7WvEXdrSyLPf7elvc"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-fJGop_9ZOzpuQuzmjYVIZY6G7AQs89a7OwHyDZMwQGg"
+      "rawContentDigest": "sha256-9bnbYnwjouWhKUOqwVhaBkcaCIMwxG_yM52JWdNUNiA"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-apSCPQXpfh_AHwn5MKh8VZfEzR3jGo4s3dXxRirg7Ew"
+      "rawContentDigest": "sha256-GHMYN4RD5gx9wAWxOCXWWRl2_c5J6cHv_sS4XSddobg"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-O3xzaQFDi0BmqZ-qP9USJ_st8wohPdGXf4ZlAZtQUjo"
+      "rawContentDigest": "sha256-PGwpkDaiYmx4OfMK-3d4jdNJWvzTR-MLzwf_PGGiF1g"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-luH7qFPhT6oMh7Eff55zzWm7_5Akh_uXTgLKeubleDQ"
+      "rawContentDigest": "sha256-2eJrJ-bvYzKSfQJoV3-BCLHPc6M6aDtK9NYMiyYNZ70"
     }
   ],
   "counts": {
-    "observedReferences": 12915,
-    "logicalSurfaces": 7356,
-    "enforcementBranches": 7575,
-    "coverageEdges": 7356,
-    "targetCells": 14712
+    "observedReferences": 12917,
+    "logicalSurfaces": 7357,
+    "enforcementBranches": 7576,
+    "coverageEdges": 7357,
+    "targetCells": 14714
   }
 }

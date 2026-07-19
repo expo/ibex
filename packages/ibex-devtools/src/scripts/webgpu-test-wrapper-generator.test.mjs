@@ -54,7 +54,7 @@ describe("test-only WebGPU wrapper generator", () => {
     const { computed } = validateWebGpuWrapperAuthority(authority);
     expect(computed).toEqual(REVIEWED_DIGESTS);
     expect(authority.provenance.normalizedProjectionComparison).toBe(
-      "required-across-outer-ibex-repins",
+      "required-across-outer-ibex-repins-after-authenticated-local-promotions",
     );
     expect(authority.provenance.sourceCommitAndArtifactSha256Disposition).toBe(
       "provenance-only-not-executable-acceptance",
@@ -392,7 +392,7 @@ describe("test-only WebGPU wrapper generator", () => {
     const validated = validateWebGpuWrapperSemantics(semantics);
     expect(validated.computed).toEqual(REVIEWED_SEMANTIC_DIGESTS);
     expect(semantics.provenance.normalizedSemanticComparison).toBe(
-      "required-across-outer-ibex-repins",
+      "required-across-outer-ibex-repins-after-authenticated-local-promotions",
     );
     expect(validated.semanticProjection.requestDeviceRouting.terminals).toHaveLength(17);
     expect(validated.semanticProjection.requestDeviceFailureProgram.branches).toHaveLength(10);
