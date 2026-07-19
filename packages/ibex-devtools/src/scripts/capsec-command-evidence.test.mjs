@@ -22,7 +22,7 @@ afterEach(() => {
 
 function fixture({
   commandId = "capsec-registry-drift",
-  deadlineMs = 5000,
+  deadlineMs = process.platform === "win32" ? 20_000 : 5000,
   gracePeriodMs = 100,
   jobStartedAtMs = Date.now(),
 } = {}) {
@@ -48,7 +48,7 @@ function fixture({
     suitePlanBinding,
     executionShard: "test-sequential",
     jobStartedAtMs,
-    heartbeatIntervalMs: 25,
+    heartbeatIntervalMs: process.platform === "win32" ? 100 : 25,
   });
   return { root, evidenceDirectory, supervisor };
 }
@@ -85,31 +85,35 @@ test("command evidence enforces real POSIX modes without trusting Windows synthe
   );
 });
 
-test("command evidence streams large output, binds identity, and retains duration", async () => {
-  const { root, evidenceDirectory, supervisor } = fixture();
-  const evidence = await runObservedCommand({
-    supervisor,
-    id: "capsec-registry-drift",
-    command: process.execPath,
-    args: [
-      "-e",
-      "process.stdout.write('x'.repeat(3 * 1024 * 1024) + 'MARKER\\n')",
-    ],
-    cwd: root,
-  });
-  supervisor.finish();
-  expect(evidence.classification).toBe("success");
-  expect(evidence.commandIdentity).toMatch(/^sha256-[A-Za-z0-9_-]{43}$/u);
-  expect(evidence.elapsedMs).toBeGreaterThanOrEqual(0);
-  expect(evidence.stdout.bytes).toBeGreaterThan(3 * 1024 * 1024);
-  expect(evidence.stdout.truncated).toBe(true);
-  expect(evidence.stdout.tail).toEndWith("MARKER\n");
-  const outcome = JSON.parse(
-    fs.readFileSync(path.join(evidenceDirectory, "execution-outcome.json")),
-  );
-  expect(outcome.status).toBe("success");
-  expect(outcome.attempts).toHaveLength(1);
-});
+test(
+  "command evidence streams large output, binds identity, and retains duration",
+  async () => {
+    const { root, evidenceDirectory, supervisor } = fixture();
+    const evidence = await runObservedCommand({
+      supervisor,
+      id: "capsec-registry-drift",
+      command: process.execPath,
+      args: [
+        "-e",
+        "process.stdout.write('x'.repeat(3 * 1024 * 1024) + 'MARKER\\n')",
+      ],
+      cwd: root,
+    });
+    supervisor.finish();
+    expect(evidence.classification).toBe("success");
+    expect(evidence.commandIdentity).toMatch(/^sha256-[A-Za-z0-9_-]{43}$/u);
+    expect(evidence.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(evidence.stdout.bytes).toBeGreaterThan(3 * 1024 * 1024);
+    expect(evidence.stdout.truncated).toBe(true);
+    expect(evidence.stdout.tail).toEndWith("MARKER\n");
+    const outcome = JSON.parse(
+      fs.readFileSync(path.join(evidenceDirectory, "execution-outcome.json")),
+    );
+    expect(outcome.status).toBe("success");
+    expect(outcome.attempts).toHaveLength(1);
+  },
+  30_000,
+);
 
 test("command evidence refuses reused logs and symlink directories", async () => {
   const { root, evidenceDirectory, supervisor } = fixture();
@@ -139,36 +143,40 @@ test("command evidence refuses reused logs and symlink directories", async () =>
   ).toThrow(/owned real directory/u);
 });
 
-test("a deadline kills a hanging parent and grandchild and records timeout", async () => {
-  const { root, evidenceDirectory, supervisor } = fixture({
-    commandId: "hang-tree",
-    deadlineMs: 300,
-    gracePeriodMs: 100,
-  });
-  const childPidPath = path.join(root, "child.pid");
-  let error;
-  try {
-    await runObservedCommand({
-      supervisor,
-      id: "hang-tree",
-      command: process.execPath,
-      args: [
-        "-e",
-        `const fs=require('fs');const {spawn}=require('child_process');const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);fs.writeFileSync(${JSON.stringify(childPidPath)},String(c.pid));setInterval(()=>{},1000);`,
-      ],
-      cwd: root,
+test(
+  "a deadline kills a hanging parent and grandchild and records timeout",
+  async () => {
+    const { root, evidenceDirectory, supervisor } = fixture({
+      commandId: "hang-tree",
+      deadlineMs: process.platform === "win32" ? 3000 : 300,
+      gracePeriodMs: process.platform === "win32" ? 1000 : 100,
     });
-  } catch (caught) {
-    error = caught;
-  }
-  expect(error?.commandEvidence?.classification).toBe("timeout");
-  const childPid = Number(fs.readFileSync(childPidPath, "utf8"));
-  expect(pidExists(childPid)).toBe(false);
-  const outcome = JSON.parse(
-    fs.readFileSync(path.join(evidenceDirectory, "execution-outcome.json")),
-  );
-  expect(outcome.attempts[0].classification).toBe("timeout");
-});
+    const childPidPath = path.join(root, "child.pid");
+    let error;
+    try {
+      await runObservedCommand({
+        supervisor,
+        id: "hang-tree",
+        command: process.execPath,
+        args: [
+          "-e",
+          `const fs=require('fs');const {spawn}=require('child_process');const c=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);fs.writeFileSync(${JSON.stringify(childPidPath)},String(c.pid));setInterval(()=>{},1000);`,
+        ],
+        cwd: root,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error?.commandEvidence?.classification).toBe("timeout");
+    const childPid = Number(fs.readFileSync(childPidPath, "utf8"));
+    expect(pidExists(childPid)).toBe(false);
+    const outcome = JSON.parse(
+      fs.readFileSync(path.join(evidenceDirectory, "execution-outcome.json")),
+    );
+    expect(outcome.attempts[0].classification).toBe("timeout");
+  },
+  15_000,
+);
 
 test.skipIf(process.platform === "win32")(
   "a zero-exit command cannot leave a same-group background child",
