@@ -11,6 +11,7 @@ import type {
 } from './production-codecs';
 import {
   WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION,
+  WEBGPU_EXECUTABLE_CODEC_MANIFEST,
   WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT,
 } from './production-codecs.generated';
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
@@ -473,6 +474,285 @@ describe('production-private WebGPU wrapper gate', () => {
 });
 
 describe('production-private WebGPU wrapper factory', () => {
+  test('snapshots only an attenuating mapped allocation guard data option', () => {
+    const options = {
+      privateMappedAllocationGuardLimitBytes: 4,
+      enableStateInspection: true,
+    };
+    const binding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+      options,
+    );
+    options.privateMappedAllocationGuardLimitBytes = 8;
+    expect(inspectBinding(binding).current.privateMappedAllocationGuardLimitBytes)
+      .toBe(4);
+    binding.revoke();
+
+    for (const invalidLimit of [3, -4, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => createProductionWebGpuPrivateBinding(
+        createFakeBridge(),
+        createFakeCodecs(),
+        { privateMappedAllocationGuardLimitBytes: invalidLimit },
+      )).toThrow('Invalid private WebGPU mapped allocation guard limit');
+    }
+    let accessorRuns = 0;
+    const accessorOptions = Object.defineProperty(
+      {},
+      'privateMappedAllocationGuardLimitBytes',
+      {
+        enumerable: true,
+        get() {
+          accessorRuns += 1;
+          return 4;
+        },
+      },
+    );
+    expect(() => createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+      accessorOptions,
+    )).toThrow('Invalid private WebGPU test options');
+    expect(accessorRuns).toBe(0);
+  });
+
+  test('bounds private mapped allocation without claiming service-ledger admission', async () => {
+    expect(
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.types
+        .bufferDescriptorV1.fields[2]?.value.constraints,
+    ).toContain('maximum-268435456');
+    const defaultBinding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+      { enableStateInspection: true },
+    );
+    expect(inspectBinding(defaultBinding).current)
+      .toMatchObject({
+        privateMappedAllocationGuardLimitBytes: 268_435_456,
+        privateMappedAllocationGuardBytes: 0,
+      });
+    defaultBinding.revoke();
+    expect(() => createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+      { privateMappedAllocationGuardLimitBytes: 268_435_460 },
+    )).toThrow('Invalid private WebGPU mapped allocation guard limit');
+
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      {
+        privateMappedAllocationGuardLimitBytes: 12,
+        enableStateInspection: true,
+      },
+    );
+    const device = await requestTestDevice(binding) as TestGpuDevice & {
+      createBuffer(descriptor: unknown): object;
+    };
+    const beforeBuffers = inspectBinding(binding).current;
+
+    expect(() => device.createBuffer({
+      mappedAtCreation: true,
+      size: 2,
+      usage: 9,
+    })).toThrow('must be a multiple of 4');
+    expect(inspectBinding(binding).current.privateMappedAllocationGuardBytes)
+      .toBe(0);
+
+    device.createBuffer({ mappedAtCreation: true, size: 4, usage: 9 });
+    device.createBuffer({ mappedAtCreation: true, size: 8, usage: 9 });
+    expect(inspectBinding(binding).current).toMatchObject({
+      privateMappedAllocationGuardLimitBytes: 12,
+      privateMappedAllocationGuardBytes: 12,
+    });
+
+    const beforeGuardFailure = inspectBinding(binding).current;
+    const encodingsBeforeGuardFailure = codecs.encodings.length;
+    const submissionsBeforeGuardFailure = bridge.submissions.length;
+    expect(() => device.createBuffer({
+      mappedAtCreation: true,
+      size: 4,
+      usage: 9,
+    })).toThrow('private allocation guard is exhausted');
+    expect(codecs.encodings).toHaveLength(encodingsBeforeGuardFailure);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeGuardFailure);
+    expect(inspectBinding(binding).current).toMatchObject({
+      allocatedWrapperCount: beforeGuardFailure.allocatedWrapperCount,
+      privateMappedAllocationGuardBytes: 12,
+    });
+
+    device.createBuffer({ mappedAtCreation: false, size: 72, usage: 76 });
+    expect(inspectBinding(binding).current.privateMappedAllocationGuardBytes)
+      .toBe(12);
+    expect(inspectBinding(binding).current.allocatedWrapperCount)
+      .toBe(beforeBuffers.allocatedWrapperCount + 3);
+
+    binding.revoke();
+    expect(inspectBinding(binding).lastClose).toMatchObject({
+      privateMappedAllocationGuardLimitBytes: 12,
+      privateMappedAllocationGuardBytes: 12,
+    });
+  });
+
+  test('uses captured mapped-byte intrinsics after app globals are replaced', async () => {
+    const bridge = createFakeBridge();
+    const nativeArrayBuffer = globalThis.ArrayBuffer;
+    const baseCodecs = createFakeCodecs();
+    const arrayBufferPayloadCodecs: ExecutableWebGpuCodecBundle = {
+      ...baseCodecs,
+      encodeServiceRequest() {
+        return new nativeArrayBuffer(1);
+      },
+    };
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      arrayBufferPayloadCodecs,
+      {
+        privateMappedAllocationGuardLimitBytes: 4,
+        enableStateInspection: true,
+      },
+    );
+    const device = await requestTestDevice(binding) as TestGpuDevice & {
+      createBuffer(descriptor: unknown): object;
+    };
+    const arrayBufferDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'ArrayBuffer',
+    );
+    const reflectDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'Reflect',
+    );
+    const uint8ArrayDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'Uint8Array',
+    );
+    let hostileArrayBufferCalls = 0;
+    let hostileReflectCalls = 0;
+    let hostileUint8ArrayCalls = 0;
+    const HostileArrayBuffer = function (): never {
+      hostileArrayBufferCalls += 1;
+      throw new Error('hostile ArrayBuffer binding ran');
+    };
+    const hostileReflect = new Proxy(Object.create(null) as object, {
+      get(): never {
+        hostileReflectCalls += 1;
+        throw new Error('hostile Reflect binding ran');
+      },
+    });
+    const HostileUint8Array = function (): never {
+      hostileUint8ArrayCalls += 1;
+      throw new Error('hostile Uint8Array binding ran');
+    };
+    let created: object | undefined;
+    try {
+      Object.defineProperty(globalThis, 'ArrayBuffer', {
+        value: HostileArrayBuffer,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(globalThis, 'Reflect', {
+        value: hostileReflect,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(globalThis, 'Uint8Array', {
+        value: HostileUint8Array,
+        writable: true,
+        configurable: true,
+      });
+      created = device.createBuffer({
+        mappedAtCreation: true,
+        size: 4,
+        usage: 9,
+      });
+    } finally {
+      if (arrayBufferDescriptor) {
+        Object.defineProperty(globalThis, 'ArrayBuffer', arrayBufferDescriptor);
+      }
+      if (reflectDescriptor) {
+        Object.defineProperty(globalThis, 'Reflect', reflectDescriptor);
+      }
+      if (uint8ArrayDescriptor) {
+        Object.defineProperty(globalThis, 'Uint8Array', uint8ArrayDescriptor);
+      }
+    }
+    expect(created).toBeObject();
+    expect(hostileArrayBufferCalls).toBe(0);
+    expect(hostileReflectCalls).toBe(0);
+    expect(hostileUint8ArrayCalls).toBe(0);
+    expect(inspectBinding(binding).current.privateMappedAllocationGuardBytes)
+      .toBe(4);
+    binding.revoke();
+  });
+
+  test('keeps the private mapped allocation guard isolated per realm', async () => {
+    const bindings = [0, 1].map(() => createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+      {
+        privateMappedAllocationGuardLimitBytes: 4,
+        enableStateInspection: true,
+      },
+    ));
+    for (const binding of bindings) {
+      const device = await requestTestDevice(binding) as TestGpuDevice & {
+        createBuffer(descriptor: unknown): object;
+      };
+      device.createBuffer({ mappedAtCreation: true, size: 4, usage: 9 });
+      expect(inspectBinding(binding).current.privateMappedAllocationGuardBytes)
+        .toBe(4);
+    }
+    bindings.forEach((binding) => binding.revoke());
+  });
+
+  test('retains the private mapped allocation debit after submission rejection', async () => {
+    const createBufferWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUDevice.createBuffer',
+    )?.wireId;
+    if (createBufferWireId === undefined) throw new Error('missing createBuffer route');
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      {
+        privateMappedAllocationGuardLimitBytes: 4,
+        enableStateInspection: true,
+      },
+    );
+    const device = await requestTestDevice(binding) as TestGpuDevice & {
+      createBuffer(descriptor: unknown): object;
+    };
+    const before = inspectBinding(binding).current;
+    const encodingsBefore = codecs.encodings.length;
+    const submissionsBefore = bridge.submissions.length;
+    bridge.setSubmitHook((operationId) =>
+      operationId === createBufferWireId ? 7 : 0
+    );
+    expect(() => device.createBuffer({
+      mappedAtCreation: true,
+      size: 4,
+      usage: 9,
+    })).toThrow('semantic service rejected GPUDevice.createBuffer');
+    expect(codecs.encodings).toHaveLength(encodingsBefore + 1);
+    expect(bridge.submissions).toHaveLength(submissionsBefore + 1);
+    expect(inspectBinding(binding).current).toMatchObject({
+      allocatedWrapperCount: before.allocatedWrapperCount + 1,
+      privateMappedAllocationGuardBytes: 4,
+    });
+    const submissionsAfterRejection = bridge.submissions.length;
+    expect(() => device.createBuffer({
+      mappedAtCreation: true,
+      size: 4,
+      usage: 9,
+    })).toThrow('private allocation guard is exhausted');
+    expect(bridge.submissions).toHaveLength(submissionsAfterRejection);
+    binding.revoke();
+  });
+
   test('settles an unknown post-WebIDL feature level to null without provider work', async () => {
     const log: string[] = [];
     const bridge = createFakeBridge();

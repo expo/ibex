@@ -36,6 +36,22 @@ const ROUTES_BY_WIRE = new Map<number, ProductionRoute>(
 const OBJECT_KINDS: Readonly<Record<ProductionGpuWrapperKind, number>> =
   WEBGPU_OBJECT_KIND_TAGS;
 
+// Capture trusted realm intrinsics before app code can replace the writable
+// global binding. Structural lockdown freezes the intrinsic object, but it
+// does not make globalThis.ArrayBuffer immutable.
+const INTRINSIC_ARRAY_BUFFER = ArrayBuffer;
+const INTRINSIC_ARRAY_BUFFER_IS_VIEW = INTRINSIC_ARRAY_BUFFER.isView;
+const INTRINSIC_UINT8_ARRAY = Uint8Array;
+const INTRINSIC_REFLECT_APPLY = Reflect.apply;
+const INTRINSIC_REFLECT_CONSTRUCT = Reflect.construct;
+
+// This is a construction-private memory-safety guard, deliberately no larger
+// than the authenticated structural per-descriptor ceiling. It is not the
+// leaf-plus-envelope reservation required to publish mapped buffers. Until the
+// bridge can transfer an affine preallocation credit into the service ledger,
+// the production codec authority remains absent and this guard is monotonic.
+const PRIVATE_MAPPED_ALLOCATION_GUARD_MAX_BYTES = 268_435_456;
+
 interface LostController {
   readonly promise: Promise<unknown>;
   readonly resolve: (value: unknown) => void;
@@ -145,6 +161,8 @@ interface RealmState {
   nextLocalOperationInstanceId: string;
   localOperationInstanceIdExhausted: boolean;
   allocatedWrapperCount: number;
+  readonly privateMappedAllocationGuardLimitBytes: number;
+  privateMappedAllocationGuardBytes: number;
   canvasLossTransitionCount: number;
   closeReason: string | undefined;
   lastCloseSnapshot: ProductionWebGpuPrivateBindingInspection | undefined;
@@ -155,6 +173,8 @@ export interface ProductionWebGpuPrivateBindingInspection {
   readonly active: boolean;
   readonly closeReason: string | undefined;
   readonly allocatedWrapperCount: number;
+  readonly privateMappedAllocationGuardLimitBytes: number;
+  readonly privateMappedAllocationGuardBytes: number;
   readonly canvasLossTransitionCount: number;
   readonly routedDeviceCount: number;
   readonly indexedCanvasContextCount: number;
@@ -176,6 +196,7 @@ export interface ProductionWebGpuPrivateBindingTestOptions {
     canvasConfigurationGeneration?: string;
     canvasCurrentEpoch?: string;
   }>;
+  readonly privateMappedAllocationGuardLimitBytes?: number;
   readonly enableStateInspection?: boolean;
 }
 
@@ -663,10 +684,15 @@ function capturePrivateBindingTestOptions(
   value: ProductionWebGpuPrivateBindingTestOptions,
 ): Readonly<{
   counterSeeds: Readonly<Record<string, string>>;
+  privateMappedAllocationGuardLimitBytes: number;
   enableStateInspection: boolean;
 }> {
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  const allowedOptionKeys = new Set(['counterSeeds', 'enableStateInspection']);
+  const allowedOptionKeys = new Set([
+    'counterSeeds',
+    'privateMappedAllocationGuardLimitBytes',
+    'enableStateInspection',
+  ]);
   for (const key of Reflect.ownKeys(descriptors)) {
     if (
       typeof key !== 'string' ||
@@ -683,6 +709,19 @@ function capturePrivateBindingTestOptions(
     typeof enableStateInspectionValue !== 'boolean'
   ) {
     throw new TypeError('Invalid private WebGPU test inspection option');
+  }
+  const privateMappedAllocationGuardLimitBytes =
+    descriptors.privateMappedAllocationGuardLimitBytes?.value ??
+      PRIVATE_MAPPED_ALLOCATION_GUARD_MAX_BYTES;
+  if (
+    typeof privateMappedAllocationGuardLimitBytes !== 'number' ||
+    !Number.isSafeInteger(privateMappedAllocationGuardLimitBytes) ||
+    privateMappedAllocationGuardLimitBytes < 0 ||
+    privateMappedAllocationGuardLimitBytes % 4 !== 0 ||
+    privateMappedAllocationGuardLimitBytes >
+      PRIVATE_MAPPED_ALLOCATION_GUARD_MAX_BYTES
+  ) {
+    throw new TypeError('Invalid private WebGPU mapped allocation guard limit');
   }
   const rawSeeds = descriptors.counterSeeds?.value;
   if (rawSeeds !== undefined && (typeof rawSeeds !== 'object' || rawSeeds === null)) {
@@ -724,6 +763,7 @@ function capturePrivateBindingTestOptions(
   }
   return Object.freeze({
     counterSeeds: Object.freeze(counterSeeds),
+    privateMappedAllocationGuardLimitBytes,
     enableStateInspection: enableStateInspectionValue === true,
   });
 }
@@ -786,6 +826,9 @@ export function createProductionWebGpuPrivateBinding(
     ),
     localOperationInstanceIdExhausted: false,
     allocatedWrapperCount: 0,
+    privateMappedAllocationGuardLimitBytes:
+      capturedTestOptions.privateMappedAllocationGuardLimitBytes,
+    privateMappedAllocationGuardBytes: 0,
     canvasLossTransitionCount: 0,
     closeReason: undefined,
     lastCloseSnapshot: undefined,
@@ -842,6 +885,10 @@ export function createProductionWebGpuPrivateBinding(
       active: realm.active,
       closeReason: realm.closeReason,
       allocatedWrapperCount: realm.allocatedWrapperCount,
+      privateMappedAllocationGuardLimitBytes:
+        realm.privateMappedAllocationGuardLimitBytes,
+      privateMappedAllocationGuardBytes:
+        realm.privateMappedAllocationGuardBytes,
       canvasLossTransitionCount: realm.canvasLossTransitionCount,
       routedDeviceCount: realm.devices.size,
       indexedCanvasContextCount: realm.hostCanvasContextsByIdentity.size,
@@ -879,6 +926,10 @@ export function createProductionWebGpuPrivateBinding(
       active: false,
       closeReason: reason,
       allocatedWrapperCount: realm.allocatedWrapperCount,
+      privateMappedAllocationGuardLimitBytes:
+        realm.privateMappedAllocationGuardLimitBytes,
+      privateMappedAllocationGuardBytes:
+        realm.privateMappedAllocationGuardBytes,
       canvasLossTransitionCount: realm.canvasLossTransitionCount,
       routedDeviceCount: devices.length,
       indexedCanvasContextCount: contexts.length,
@@ -1461,9 +1512,17 @@ export function createProductionWebGpuPrivateBinding(
       queueIngressOrdinal,
       sealedLocalTimeline,
     });
-    const payloadLength = ArrayBuffer.isView(payload)
+    const payloadIsView = INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_ARRAY_BUFFER_IS_VIEW,
+      INTRINSIC_ARRAY_BUFFER,
+      [payload],
+    );
+    const payloadLength = payloadIsView
       ? payload.byteLength
-      : payload.byteLength;
+      : (INTRINSIC_REFLECT_CONSTRUCT(
+        INTRINSIC_UINT8_ARRAY,
+        [payload],
+      ) as Uint8Array).byteLength;
     if (payloadLength > WEBGPU_PRODUCTION_PLAN.maxPayloadBytes) {
       throw new TypeError('WebGPU service payload exceeds the authenticated bound');
     }
@@ -2196,13 +2255,30 @@ export function createProductionWebGpuPrivateBinding(
           'GPUBufferDescriptor.size must be a multiple of 4 when mappedAtCreation is true',
         );
       }
+      const guardBytesBefore = realm.privateMappedAllocationGuardBytes;
+      if (
+        converted.size >
+          realm.privateMappedAllocationGuardLimitBytes - guardBytesBefore
+      ) {
+        throw new RangeError(
+          'GPUBuffer mapped-at-creation private allocation guard is exhausted',
+        );
+      }
       try {
-        mappedBytes = new ArrayBuffer(converted.size);
+        mappedBytes = INTRINSIC_REFLECT_CONSTRUCT(
+          INTRINSIC_ARRAY_BUFFER,
+          [converted.size],
+        ) as ArrayBuffer;
       } catch {
         throw new RangeError(
           'GPUBuffer mapped-at-creation byte block could not be allocated',
         );
       }
+      // Intrinsic construction cannot invoke app code, so this commit occurs
+      // immediately after allocation without a reentrant observation window.
+      // Allocation failure therefore precedes every counter mutation.
+      realm.privateMappedAllocationGuardBytes =
+        guardBytesBefore + converted.size;
     }
     const servicePlan = prepareServiceCounters(
       'GPUDevice.createBuffer',
