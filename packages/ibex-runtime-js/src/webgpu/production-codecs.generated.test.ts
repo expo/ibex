@@ -1558,12 +1558,15 @@ describe('generated injection-only WebGPU executable codecs', () => {
       expect(converted).toEqual({
         label: row.label,
         layout: reference('GPUPipelineLayout'),
-        compute: { module: reference('GPUShaderModule') },
+        compute: {
+          constants: {},
+          module: reference('GPUShaderModule'),
+        },
       });
       expect(row.layoutKind).toBe('explicit');
       expect(row.constantsPresence).toBe('omitted');
       expect(row.entryPointPresence).toBe('omitted');
-      expect(Object.hasOwn(compute, 'constants')).toBe(false);
+      expect(Object.hasOwn(compute, 'constants')).toBe(true);
       expect(Object.hasOwn(compute, 'entryPoint')).toBe(false);
       expect(Object.isFrozen(converted)).toBe(true);
       expect(Object.isFrozen(compute)).toBe(true);
@@ -1647,6 +1650,124 @@ describe('generated injection-only WebGPU executable codecs', () => {
       wrappers,
     )).toThrow(TypeError);
     expect(laterReads).toBe(0);
+  });
+
+  test('interleaves record traps and preserves every legal constants key', () => {
+    const trace: string[] = [];
+    const rawConstants = Object.create(null) as Record<string, number>;
+    Object.defineProperties(rawConstants, {
+      zeta: { configurable: true, enumerable: true, value: 2 },
+      alpha: { configurable: true, enumerable: true, value: 1 },
+    });
+    const constants = new Proxy(rawConstants, {
+      ownKeys(target) {
+        trace.push('ownKeys');
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target, key) {
+        trace.push(`descriptor:${String(key)}`);
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+      get(target, key, receiver) {
+        trace.push(`get:${String(key)}`);
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createComputePipeline',
+        [{ layout: 'auto', compute: { constants, module: shaderModule } }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+    const convertedConstants = (
+      converted.compute as Readonly<Record<string, unknown>>
+    ).constants as Readonly<Record<string, number>>;
+
+    expect(trace).toEqual([
+      'ownKeys',
+      'descriptor:zeta',
+      'get:zeta',
+      'descriptor:alpha',
+      'get:alpha',
+    ]);
+    expect(Object.keys(convertedConstants)).toEqual(['alpha', 'zeta']);
+
+    const special = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(special, '__proto__', {
+      enumerable: true,
+      value: 3,
+    });
+    const specialConverted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createComputePipeline',
+        [{ layout: 'auto', compute: { constants: special, module: shaderModule } }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+    const specialConstants = (
+      specialConverted.compute as Readonly<Record<string, unknown>>
+    ).constants as Readonly<Record<string, number>>;
+    expect(Object.hasOwn(specialConstants, '__proto__')).toBe(true);
+    expect(specialConstants.__proto__).toBe(3);
+    expect(Object.getPrototypeOf(specialConstants)).toBe(Object.prototype);
+
+    const enumerableSymbol = Symbol('constant');
+    let symbolValueReads = 0;
+    const symbolConstants = Object.create(null) as Record<PropertyKey, unknown>;
+    Object.defineProperty(symbolConstants, enumerableSymbol, {
+      enumerable: true,
+      get() {
+        symbolValueReads += 1;
+        return 4;
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ layout: 'auto', compute: { constants: symbolConstants, module: shaderModule } }],
+      wrappers,
+    )).toThrow(TypeError);
+    expect(symbolValueReads).toBe(0);
+  });
+
+  test('converts WebGPU USVString fields and collapsing record keys exactly', () => {
+    const loneSurrogate = '\ud800';
+    const replacement = '\ufffd';
+    const constants = Object.create(null) as Record<string, number>;
+    Object.defineProperty(constants, loneSurrogate, {
+      enumerable: true,
+      value: 1,
+    });
+    Object.defineProperty(constants, replacement, {
+      enumerable: true,
+      value: 2,
+    });
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createComputePipeline',
+        [{
+          label: `pipeline-${loneSurrogate}`,
+          layout: 'auto',
+          compute: {
+            constants,
+            entryPoint: `entry-${loneSurrogate}`,
+            module: shaderModule,
+          },
+        }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+    const compute = converted.compute as Readonly<Record<string, unknown>>;
+    const convertedConstants = compute.constants as Readonly<Record<string, number>>;
+    expect(converted.label).toBe(`pipeline-${replacement}`);
+    expect(compute.entryPoint).toBe(`entry-${replacement}`);
+    expect(Object.keys(convertedConstants)).toEqual([replacement]);
+    expect(convertedConstants[replacement]).toBe(2);
+
+    const shader = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createShaderModule',
+        [{ code: `source-${loneSurrogate}` }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+    expect(shader.code).toBe(`source-${replacement}`);
   });
 
   test('retains same-realm cross-device compute lineage for service rejection', () => {

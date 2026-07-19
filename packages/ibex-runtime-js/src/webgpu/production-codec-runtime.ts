@@ -4751,6 +4751,28 @@ function webIdlString(value: unknown, label: string): string {
   return String(value);
 }
 
+function webIdlUsvString(value: unknown, label: string): string {
+  const converted = webIdlString(value, label);
+  let result = '';
+  for (let index = 0; index < converted.length; index += 1) {
+    const codeUnit = converted.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = converted.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        result += converted[index] + converted[index + 1];
+        index += 1;
+      } else {
+        result += '\ufffd';
+      }
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      result += '\ufffd';
+    } else {
+      result += converted[index];
+    }
+  }
+  return result;
+}
+
 function enumValue(
   value: unknown,
   values: readonly string[],
@@ -4967,7 +4989,7 @@ function optionalLabel(value: Record<PropertyKey, unknown>): string {
   const label = value.label;
   return label === undefined
     ? ''
-    : webIdlString(label, 'label');
+    : webIdlUsvString(label, 'label');
 }
 
 function convertConstants(
@@ -4975,22 +4997,37 @@ function convertConstants(
   label: string,
 ): Readonly<Record<string, number>> {
   const source = dictionary(value, label);
-  // Record conversion observes own enumerable string keys in ECMAScript
-  // enumeration order and performs each Get/conversion in that same order.
-  // Canonicalize only the already-converted snapshot so wire stability cannot
-  // reorder user code.
-  const convertedEntries: [string, number][] = [];
-  for (const key of Object.keys(source)) {
-    convertedEntries.push([
-      key,
-      finiteNumber(source[key], `${label}.${key}`),
-    ]);
+  // Web IDL record conversion gets all own keys once, then interleaves each
+  // descriptor check, key conversion, value Get, and value conversion. Using
+  // Object.keys here would observe every descriptor before the first value
+  // Get and would silently skip an enumerable Symbol instead of rejecting it.
+  const convertedEntries = new Map<string, number>();
+  for (const key of Reflect.ownKeys(source)) {
+    const descriptor = Reflect.getOwnPropertyDescriptor(source, key);
+    if (descriptor?.enumerable !== true) continue;
+    const convertedKey = webIdlUsvString(key, `${label} key`);
+    const convertedValue = finiteNumber(
+      Reflect.get(source, key),
+      `${label}.${convertedKey}`,
+    );
+    // USVString conversion can collapse distinct raw keys containing lone
+    // surrogates. Ordered-map Set replaces the earlier value without moving
+    // the key, exactly as Web IDL requires.
+    convertedEntries.set(convertedKey, convertedValue);
   }
   const result: Record<string, number> = {};
-  for (const [key, converted] of convertedEntries.sort(([left], [right]) => (
+  const canonicalEntries = [...convertedEntries].sort(([left], [right]) => (
     left < right ? -1 : left > right ? 1 : 0
-  ))) {
-    result[key] = converted;
+  ));
+  for (const [key, converted] of canonicalEntries) {
+    // CreateDataProperty semantics preserve legal record keys such as
+    // "__proto__" instead of invoking Object.prototype's legacy setter.
+    Object.defineProperty(result, key, {
+      configurable: false,
+      enumerable: true,
+      value: converted,
+      writable: false,
+    });
   }
   return Object.freeze(result);
 }
@@ -5709,7 +5746,7 @@ function convertSamplerDescriptor(
   const labelValue = source.label;
   const label = labelValue === undefined
     ? ''
-    : webIdlString(labelValue, 'GPUSamplerDescriptor.label');
+    : webIdlUsvString(labelValue, 'GPUSamplerDescriptor.label');
   const lodMaxClampValue = source.lodMaxClamp;
   const lodMaxClamp = lodMaxClampValue === undefined
     ? 32
@@ -5779,7 +5816,7 @@ function convertTextureDescriptor(
   const labelValue = source.label;
   const label = labelValue === undefined
     ? ''
-    : webIdlString(labelValue, 'GPUTextureDescriptor.label');
+    : webIdlUsvString(labelValue, 'GPUTextureDescriptor.label');
   const mipLevelCountValue = source.mipLevelCount;
   const mipLevelCount = u32(
     mipLevelCountValue,
@@ -5962,7 +5999,7 @@ function convertProgrammableStage(
   result.constants = convertConstants(constantsValue, `${label}.constants`);
   const entryPointValue = source.entryPoint;
   if (entryPointValue !== undefined) {
-    result.entryPoint = webIdlString(entryPointValue, `${label}.entryPoint`);
+    result.entryPoint = webIdlUsvString(entryPointValue, `${label}.entryPoint`);
   }
   const moduleValue = source.module;
   if (moduleValue === undefined) {
@@ -6314,7 +6351,7 @@ function convertShaderModuleDescriptor(value: unknown): unknown {
   }
   return frozenRecord({
     label: optionalLabel(source),
-    code: webIdlString(source.code, 'GPUShaderModuleDescriptor.code'),
+    code: webIdlUsvString(source.code, 'GPUShaderModuleDescriptor.code'),
   });
 }
 
@@ -6398,7 +6435,7 @@ function convertTextureViewDescriptor(
   const labelValue = source.label;
   const label = labelValue === undefined
     ? ''
-    : webIdlString(labelValue, 'GPUTextureViewDescriptor.label');
+    : webIdlUsvString(labelValue, 'GPUTextureViewDescriptor.label');
   const mipLevelCountValue = source.mipLevelCount;
   const mipLevelCount = mipLevelCountValue === undefined
     ? undefined
