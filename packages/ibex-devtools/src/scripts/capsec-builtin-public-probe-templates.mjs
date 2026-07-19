@@ -1530,6 +1530,15 @@ const WINDOWS_CRYPTO_EXPORT_ROOTS = new Set([
   "timingSafeEqual",
   "webcrypto",
 ]);
+const WINDOWS_CRYPTO_MEMBER_EXPORTS = new Set([
+  "Hash.constructor",
+  "Hash.copy",
+  "Hash.digest",
+  "Hash.update",
+  "Hmac.constructor",
+  "Hmac.digest",
+  "Hmac.update",
+]);
 
 function targetSourceUnavailableReason(surface, target) {
   const triple =
@@ -1547,9 +1556,10 @@ function targetSourceUnavailableReason(surface, target) {
     return null;
   }
   const rootExportName = metadata.exportName.split(".")[0];
-  return WINDOWS_CRYPTO_EXPORT_ROOTS.has(rootExportName)
-    ? null
-    : "builtin-export-not-installed-on-target";
+  const installed = metadata.exportName.includes(".")
+    ? WINDOWS_CRYPTO_MEMBER_EXPORTS.has(metadata.exportName)
+    : WINDOWS_CRYPTO_EXPORT_ROOTS.has(rootExportName);
+  return installed ? null : "builtin-export-not-installed-on-target";
 }
 
 function platformForTarget(target) {

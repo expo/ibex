@@ -550,6 +550,18 @@ describe("source-bound builtin public probes", () => {
         valueShape: "callable",
       }),
     ).not.toBeNull();
+    for (const exportName of ["Hash._transform", "Hmac._transform"]) {
+      expect(
+        probeFor({
+          sourceKey: "exact_crypto",
+          exportName,
+          exportIdioms: ["exported-constructor-prototype"],
+          moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+          target: "x86_64-pc-windows-msvc",
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
     for (const exportName of ["Hash._flush", "Hash.end", "randomUUID"]) {
       expect(
         probeFor({

@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_625);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_896);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_729);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_894);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_731);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -268,7 +268,7 @@ describe("exact-target CapSec executable recipes", () => {
           "builtin-export-not-installed-on-target",
         ),
     );
-    expect(unavailableCryptoExports).toHaveLength(171);
+    expect(unavailableCryptoExports).toHaveLength(179);
     expect(
       unavailableCryptoExports.every(
         (recipe) =>
@@ -281,6 +281,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(
       unavailableCryptoExports.map((recipe) => recipe.terminalObservedKey),
     ).toContain("builtin:export:exact_crypto:checkPrimeSync");
+    expect(
+      unavailableCryptoExports.map((recipe) => recipe.terminalObservedKey),
+    ).toContain("builtin:export:exact_crypto:Hash._transform");
     expect(
       windowsRecipes.recipes.find(
         (recipe) =>

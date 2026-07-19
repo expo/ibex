@@ -32,6 +32,7 @@
 **Revised:** 2026-07-18 (ENG-24933 pins tracked text to canonical LF and makes the appended web-streams bootstrap boundary CRLF-tolerant after Windows reached different public-surface and Hermes-identity graphs)
 **Revised:** 2026-07-18 (ENG-24933 makes source-derived class-factory traversal cycle-safe after a Windows-only factory chain exhausted the conformance preflight stack)
 **Revised:** 2026-07-18 (ENG-24933 physically proves direct directory opening and async path/descriptor metadata on Apple, hardens cross-platform runners, and refreshes exact Apple/Windows catalog counts)
+**Revised:** 2026-07-19 (ENG-24933 aligns the physical Windows matrix with target-specific typed filesystem, closed-global, and reduced crypto-module shapes)
 **Revised:** 2026-07-18 (ENG-24933 binds direct path truncation to retained-object typed authorization and physically proves five Apple scenarios)
 **Revised:** 2026-07-18 (ENG-24933 removes the stale descriptor durability-read branch under LLP 0023's write-authorized durability contract, physically executes the asynchronous durability-write branch on Apple, and keeps the aggregate metadata-write branch residual pending an exact open/closed split)
 **Revised:** 2026-07-18 (ENG-24933 physically executes open-family retained descriptor truncation on an exact Apple-owned file while keeping closed metadata mutation, absent Windows surfaces, and prerequisite-conflicting denial residual)
@@ -662,13 +663,13 @@ bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalogs are target-specific:
 Apple has 22,915 required fixtures, 5,214 fully executable recipes, and 17,701
-unresolved fixtures; Windows has 22,625 required fixtures, 4,952 executable,
-and 17,673 unresolved. The build graph excludes 260 POSIX-only enforcement
+unresolved fixtures; Windows has 22,625 required fixtures, 4,894 executable,
+and 17,731 unresolved. The build graph excludes 260 POSIX-only enforcement
 fixtures from Windows instead of treating their translation units as fallback
 implementations. Windows executes 92 source-bound native target-absence probes;
 69 additional target-absence source invocations remain unavailable, alongside
-11 recipes for two operations absent from the target and 132 recipes across
-15 installed operations not yet typed there. Four installed zero-effect
+11 recipes for two operations absent from the target and 147 recipes across
+13 installed operations not yet typed there. Four installed zero-effect
 release operations also remain residual because their physical recipes would
 have to obtain a descriptor through an untyped Windows open or a TCP handle
 through an untyped Windows connect. None of those
@@ -1867,8 +1868,8 @@ without canceling an in-flight full-matrix run. Scheduled, pull-request, and
 `main` executions still require both physical targets; manual selection changes
 only job scheduling, never the target catalog, validators, retained evidence,
 or promotion criteria.
-Its current catalog has 22,625 required fixtures, 4,952 executable recipes, and
-17,673 unresolved fixtures. The
+Its current catalog has 22,625 required fixtures, 4,894 executable recipes, and
+17,731 unresolved fixtures. The
 source-derived class-factory traversal is path-cycle safe: a uniquely resolved
 factory may be revisited after its current return chain unwinds, but a mutually
 recursive return chain cannot recurse forever or invent a class shape. The
