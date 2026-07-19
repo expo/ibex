@@ -10,6 +10,8 @@ import type {
 import {
   EMBEDDED_EXECUTABLE_WEBGPU_CODECS,
   type ExecutableWebGpuCodecBundle,
+  type ProductionGpuCanvasCurrentTextureOriginEncoding,
+  type ProductionGpuCanvasServiceEncoding,
   type ProductionGpuDecodedResult,
   type ProductionGpuFullObjectReference,
   type ProductionGpuObjectIdentity,
@@ -118,6 +120,12 @@ type CanvasContextLifecycle =
   | 'stale'
   | 'revoked';
 
+type CanvasCurrentTextureOriginState = Readonly<
+  Omit<ProductionGpuTextureOriginDigestInput, 'receiverTextureRef'> & {
+    readonly textureOriginDigest: string;
+  }
+>;
+
 interface WrapperState {
   readonly realm: RealmState;
   readonly kind: ProductionGpuAllocatedWrapperKind;
@@ -155,7 +163,7 @@ interface WrapperState {
   destroyed: boolean;
   textureExpired: boolean;
   materialized: boolean;
-  currentOrigin: Readonly<Record<string, unknown>> | undefined;
+  currentOrigin: CanvasCurrentTextureOriginState | undefined;
   adapterFeatures: object | undefined;
   adapterFeatureNames: readonly string[] | undefined;
   bufferSize: number | undefined;
@@ -2050,6 +2058,7 @@ export function createProductionWebGpuPrivateBinding(
     preparedPlan?: ServiceCounterPlan,
     beforeNativeSubmit?: () => void,
     onNativeSubmitFailure?: (failure: ServiceSubmissionFailureKind) => void,
+    canvasService?: ProductionGpuCanvasServiceEncoding,
   ) => {
     const plan = preparedPlan ?? prepareServiceCounters(
       operationId,
@@ -2099,6 +2108,7 @@ export function createProductionWebGpuPrivateBinding(
       deviceIngressOrdinal,
       queueIngressOrdinal,
       sealedLocalTimeline,
+      ...(canvasService === undefined ? {} : { canvasService }),
     });
     const payloadIsView = INTRINSIC_REFLECT_APPLY(
       INTRINSIC_ARRAY_BUFFER_IS_VIEW,
@@ -2505,6 +2515,21 @@ export function createProductionWebGpuPrivateBinding(
       throw namedError('InvalidStateError', 'GPUDevice is unavailable');
     }
     const configuredDevice = deviceState.device;
+    const canvasAuthority = context.canvasAuthority;
+    const configuredFormat = converted.format;
+    const configuredUsage = converted.usage;
+    const configuredAlphaMode = converted.alphaMode;
+    const configuredColorSpace = converted.colorSpace;
+    if (
+      !canvasAuthority ||
+      typeof configuredFormat !== 'string' ||
+      typeof configuredUsage !== 'number' ||
+      (configuredAlphaMode !== 'opaque' &&
+        configuredAlphaMode !== 'premultiplied') ||
+      (configuredColorSpace !== 'srgb' && configuredColorSpace !== 'display-p3')
+    ) {
+      throw new Error('GPUCanvasContext lacks closed configure authority');
+    }
     const nextConfigurationGeneration = advanceCounterOrClose(
       context.configurationGeneration,
       'canvas configuration generation',
@@ -2524,6 +2549,22 @@ export function createProductionWebGpuPrivateBinding(
       ?.configuredCanvasContexts.has(context) ?? false;
     let provisionalConfigurationInstalled = false;
     let submissionFailure: ServiceSubmissionFailureKind | undefined;
+    const configureServiceAuthority: ProductionGpuCanvasServiceEncoding =
+      Object.freeze({
+        kind: 'canvas-configure-v1',
+        receiverContextRef: referenceWithDevice(context, configuredDevice),
+        attachmentGeneration: canvasAuthority.attachmentGeneration,
+        contextGeneration: canvasAuthority.contextGeneration,
+        configurationGeneration: nextConfigurationGeneration,
+        configuredDeviceRef: reference(deviceWrapper, 'GPUDevice'),
+        format: configuredFormat,
+        usage: configuredUsage,
+        alphaMode: configuredAlphaMode,
+        colorSpace: configuredColorSpace,
+        targetAuthorityDigest: canvasAuthority.targetAuthorityDigest,
+        surfaceAccountToken: canvasAuthority.surfaceAccountToken,
+        surfaceAccountGeneration: canvasAuthority.surfaceAccountGeneration,
+      });
     // The semantic call carries the configured device as ingress while the
     // service receiver remains the complete canvas-context reference.
     context.device = configuredDevice;
@@ -2560,6 +2601,7 @@ export function createProductionWebGpuPrivateBinding(
           (failure) => {
             submissionFailure = failure;
           },
+          configureServiceAuthority,
         );
       } catch (error) {
         if (
@@ -2807,6 +2849,11 @@ export function createProductionWebGpuPrivateBinding(
     assertCanvasContextUsable(context);
     const converted = convert('GPUCanvasContext.unconfigure', []);
     if (context.canvasContextLifecycle === 'attached-unconfigured') return;
+    const canvasAuthority = context.canvasAuthority;
+    const configuredDevice = context.configuredDevice;
+    if (!canvasAuthority || !configuredDevice) {
+      throw new Error('GPUCanvasContext lacks closed unconfigure authority');
+    }
     const nextConfigurationGeneration = advanceCounterOrClose(
       context.configurationGeneration,
       'canvas configuration generation',
@@ -2814,9 +2861,21 @@ export function createProductionWebGpuPrivateBinding(
     const servicePlan = prepareServiceCounters(
       'GPUCanvasContext.unconfigure',
       context,
-      context.configuredDevice,
+      configuredDevice,
     );
-    context.device = context.configuredDevice;
+    const unconfigureServiceAuthority: ProductionGpuCanvasServiceEncoding =
+      Object.freeze({
+        kind: 'canvas-unconfigure-v1',
+        receiverContextRef: referenceWithDevice(context, configuredDevice),
+        attachmentGeneration: canvasAuthority.attachmentGeneration,
+        contextGeneration: canvasAuthority.contextGeneration,
+        configurationGeneration: context.configurationGeneration,
+        terminalIntent: 'first-cleanup',
+        targetAuthorityDigest: canvasAuthority.targetAuthorityDigest,
+        surfaceAccountToken: canvasAuthority.surfaceAccountToken,
+        surfaceAccountGeneration: canvasAuthority.surfaceAccountGeneration,
+      });
+    context.device = configuredDevice;
     try {
       submitService(
         'GPUCanvasContext.unconfigure',
@@ -2825,6 +2884,9 @@ export function createProductionWebGpuPrivateBinding(
         converted,
         false,
         servicePlan,
+        undefined,
+        undefined,
+        unconfigureServiceAuthority,
       );
     } finally {
       context.device = undefined;
@@ -4325,18 +4387,54 @@ export function createProductionWebGpuPrivateBinding(
   defineMethod(mutablePrototypes.GPUTexture, 'destroy', function (this: object) {
     const texture = requireState(this, 'GPUTexture');
     const converted = convert('GPUTexture.destroy', []);
+    const receiverTextureRef = reference(texture.wrapper, 'GPUTexture');
+    const terminalIntent = texture.destroyed
+      ? 'repeat-cleanup-noop' as const
+      : texture.textureExpired
+        ? 'first-expired-cleanup' as const
+        : 'first-cleanup' as const;
+    const currentOrigin = texture.currentOrigin;
+    let origin:
+      | Readonly<{ kind: 'device-created-v1' }>
+      | ProductionGpuCanvasCurrentTextureOriginEncoding;
+    if (currentOrigin === undefined) {
+      origin = Object.freeze({ kind: 'device-created-v1' });
+    } else {
+      origin = Object.freeze({
+        kind: 'canvas-current-v1',
+        contextRef: currentOrigin.contextRef,
+        attachmentGeneration: currentOrigin.attachmentGeneration,
+        contextGeneration: currentOrigin.contextGeneration,
+        configurationGeneration: currentOrigin.configurationGeneration,
+        currentEpoch: currentOrigin.currentEpoch,
+        mintOperationProvenance: Object.freeze({
+          operationInstanceId:
+            currentOrigin.mintOperationProvenance.operationInstanceId,
+          deviceIngressOrdinal:
+            currentOrigin.mintOperationProvenance.deviceIngressOrdinal,
+        }),
+        textureOriginDigest: currentOrigin.textureOriginDigest,
+      });
+    }
+    const textureDestroyServiceAuthority = Object.freeze({
+      kind: 'texture-destroy-v1',
+      receiverTextureRef,
+      terminalIntent,
+      materializationState: texture.materialized
+        ? 'materialized' as const
+        : 'unmaterialized' as const,
+      origin,
+    }) as ProductionGpuCanvasServiceEncoding;
     submitService(
       'GPUTexture.destroy',
       texture,
       undefined,
-      Object.freeze({
-        converted,
-        currentOrigin: texture.currentOrigin,
-        materialized: texture.materialized,
-        alreadyDestroyed: texture.destroyed,
-        expired: texture.textureExpired,
-      }),
+      converted,
       false,
+      undefined,
+      undefined,
+      undefined,
+      textureDestroyServiceAuthority,
     );
     texture.destroyed = true;
   });

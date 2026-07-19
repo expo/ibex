@@ -7,6 +7,7 @@ import type { NativeGpuEventV2 } from './native-bridge';
 import { DOMException as RuntimeDOMException } from '../events/DOMException';
 import type {
   ExecutableWebGpuCodecBundle,
+  ProductionGpuCanvasServiceEncoding,
   ProductionGpuFullObjectReference,
   ProductionGpuTextureOriginDigestInput,
   ProductionGpuCodecWrapperAccess,
@@ -66,6 +67,11 @@ interface NativeCodecField {
     'bufferMapAsyncCompletionBodyV1' |
     'queueWriteBufferRequestBodyV1' |
     'queueSubmitRequestBodyV1' |
+    'canvasConfigureRequestBodyV1' |
+    'canvasUnconfigureRequestBodyV1' |
+    'textureDestroyRequestBodyV1' |
+    'canvasCurrentTextureOriginV1' |
+    'sha256DigestV1' |
     'ownedBytesV1';
   readonly catalog?: 'objectKindTags';
   readonly constraintType?:
@@ -85,7 +91,7 @@ interface NativeCodecField {
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25;
     operationWireId:
       | 1660448199
       | 194635792
@@ -104,6 +110,9 @@ interface NativeCodecField {
       | 3314731466
       | 1760273919
       | 1228615721
+      | 3865035710
+      | 935342475
+      | 2933046788
       | 404589710
       | 308839175;
   }>;
@@ -178,6 +187,7 @@ interface NativeCodecCarrierConstraint {
     | 'objectKindTags.GPUSampler'
     | 'objectKindTags.GPUTexture'
     | 'objectKindTags.GPUTextureView'
+    | 'objectKindTags.GPUCanvasContext'
     | 'objectKindTags.GPUBindGroup'
     | 'objectKindTags.GPUBindGroupLayout'
     | 'objectKindTags.GPUPipelineLayout'
@@ -222,11 +232,14 @@ interface NativeCodecCatalogReference {
     | 'gpu-buffer-destroy-service-request-v1'
     | 'gpu-buffer-map-async-service-request-v1'
     | 'gpu-buffer-unmap-service-request-v1'
+    | 'gpu-canvas-configure-service-request-v1'
+    | 'gpu-canvas-unconfigure-service-request-v1'
+    | 'gpu-texture-cleanup-service-request-v1'
     | 'gpu-queue-write-buffer-service-request-v1'
     | 'gpu-sealed-command-program-sequence-service-request-v1'
     | 'gpu-buffer-map-async-service-completion-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25;
 }
 
 interface NativeCodecCompletionVariant {
@@ -556,10 +569,34 @@ interface NativeCodecQueueSubmitRoute {
   readonly completion: NativeCodecBufferLifecycleRoute['completion'];
 }
 
+interface NativeCodecCanvasServiceRoute {
+  readonly operationId:
+    | 'GPUCanvasContext.configure'
+    | 'GPUCanvasContext.unconfigure'
+    | 'GPUTexture.destroy';
+  readonly wireId: 3865035710 | 935342475 | 2933046788;
+  readonly request: NativeCodecBufferLifecycleRoute['request'];
+  readonly completion: Readonly<{
+    payloadRole:
+      'service-completion-payload-codec-plus-operation-specific-event-joins';
+    catalog: NativeCodecCatalogReference;
+    commonCarrierConstraints: readonly NativeCodecCarrierConstraint[];
+    payload: Readonly<Record<string, unknown>>;
+    semanticTerminalMapping: Readonly<Record<string, unknown>>;
+    variants: readonly Readonly<{
+      name: string;
+      carrierConstraints: readonly NativeCodecCarrierConstraint[];
+      serviceResultConstraints?: readonly Readonly<Record<string, unknown>>[];
+    }>[];
+    serviceResultJoins?: readonly Readonly<Record<string, unknown>>[];
+    noTrailingBytes: true;
+  }>;
+}
+
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -646,6 +683,11 @@ export interface NativeCodecProgramsV2 {
     bufferCleanupRequestBodyV1: Readonly<Record<string, unknown>>;
     bufferMapAsyncRequestBodyV1: Readonly<Record<string, unknown>>;
     bufferMapAsyncCompletionBodyV1: Readonly<Record<string, unknown>>;
+    sha256DigestV1: Readonly<Record<string, unknown>>;
+    canvasConfigureRequestBodyV1: Readonly<Record<string, unknown>>;
+    canvasUnconfigureRequestBodyV1: Readonly<Record<string, unknown>>;
+    canvasCurrentTextureOriginV1: Readonly<Record<string, unknown>>;
+    textureDestroyRequestBodyV1: Readonly<Record<string, unknown>>;
     queueWriteBufferRequestBodyV1: Readonly<Record<string, unknown>>;
     commandRecordV1: Readonly<Record<string, unknown>>;
     queueSubmitRequestBodyV1: Readonly<Record<string, unknown>>;
@@ -674,6 +716,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecCreateShaderModuleRoute
     | NativeCodecDeviceDestroyRoute
     | NativeCodecBufferLifecycleRoute
+    | NativeCodecCanvasServiceRoute
     | NativeCodecQueueWriteBufferRoute
     | NativeCodecQueueSubmitRoute
   )[];
@@ -938,6 +981,19 @@ const BUFFER_UNMAP_WIRE_ID = 1228615721;
 const BUFFER_UNMAP_REQUEST_CODEC = 'gpu-buffer-unmap-service-request-v1';
 const BUFFER_CLEANUP_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
+const CANVAS_CONFIGURE_OPERATION_ID = 'GPUCanvasContext.configure';
+const CANVAS_CONFIGURE_WIRE_ID = 3865035710;
+const CANVAS_CONFIGURE_REQUEST_CODEC =
+  'gpu-canvas-configure-service-request-v1';
+const CANVAS_UNCONFIGURE_OPERATION_ID = 'GPUCanvasContext.unconfigure';
+const CANVAS_UNCONFIGURE_WIRE_ID = 935342475;
+const CANVAS_UNCONFIGURE_REQUEST_CODEC =
+  'gpu-canvas-unconfigure-service-request-v1';
+const TEXTURE_DESTROY_OPERATION_ID = 'GPUTexture.destroy';
+const TEXTURE_DESTROY_WIRE_ID = 2933046788;
+const TEXTURE_DESTROY_REQUEST_CODEC = 'gpu-texture-cleanup-service-request-v1';
+const CANVAS_CLEANUP_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
 const QUEUE_WRITE_BUFFER_OPERATION_ID = 'GPUQueue.writeBuffer';
 const QUEUE_WRITE_BUFFER_WIRE_ID = 404589710;
 const QUEUE_WRITE_BUFFER_REQUEST_CODEC =
@@ -979,6 +1035,8 @@ const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
   'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
   '7a59f736947398c326440be76b8a1611dc2edddd6ac90251347ef78ebfc9b2b2';
+const EXPECTED_CANVAS_NATIVE_CODEC_SHA256 =
+  'eaa30c29665fb26967dd9bd15835873fb14b9ce27815502695d15675e26ada60';
 const EXPECTED_CREATE_RENDER_PIPELINE_NATIVE_ROUTE_SHA256 =
   '0f1af44238843ba1edc0ca1513c8b732cb72733a3680006be94a3322602919ee';
 const EXPECTED_CREATE_COMPUTE_PIPELINE_DESCRIPTOR_SHA256 =
@@ -993,7 +1051,10 @@ type NativeCodecProgramsWithoutQueueSubmitTypes = Omit<
   readonly types: Omit<
     NativeCodecProgramsV2['types'],
     'commandRecordV1' | 'queueSubmitRequestBodyV1' |
-    'computePipelineDescriptorV1' | 'renderPipelineDescriptorV1'
+    'computePipelineDescriptorV1' | 'renderPipelineDescriptorV1' |
+    'sha256DigestV1' | 'canvasConfigureRequestBodyV1' |
+    'canvasUnconfigureRequestBodyV1' | 'canvasCurrentTextureOriginV1' |
+    'textureDestroyRequestBodyV1'
   >;
 };
 
@@ -1048,7 +1109,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -3245,6 +3306,9 @@ interface ValidatedNativeCodecProgram {
   readonly bufferDestroyRoute: NativeCodecBufferLifecycleRoute;
   readonly bufferMapAsyncRoute: NativeCodecBufferLifecycleRoute;
   readonly bufferUnmapRoute: NativeCodecBufferLifecycleRoute;
+  readonly canvasConfigureRoute: NativeCodecCanvasServiceRoute;
+  readonly canvasUnconfigureRoute: NativeCodecCanvasServiceRoute;
+  readonly textureDestroyRoute: NativeCodecCanvasServiceRoute;
   readonly queueWriteBufferRoute: NativeCodecQueueWriteBufferRoute;
   readonly queueSubmitRoute: NativeCodecQueueSubmitRoute;
   readonly noneResultKind: 0;
@@ -3457,10 +3521,20 @@ function validateNativeCodecProgram(
     queueSubmitRequestBodyV1,
     computePipelineDescriptorV1,
     renderPipelineDescriptorV1,
+    sha256DigestV1,
+    canvasConfigureRequestBodyV1,
+    canvasUnconfigureRequestBodyV1,
+    canvasCurrentTextureOriginV1,
+    textureDestroyRequestBodyV1,
     ...nativeTypesWithoutQueueSubmit
   } = manifest.nativeCodecPrograms.types;
   void commandRecordV1;
   void queueSubmitRequestBodyV1;
+  void sha256DigestV1;
+  void canvasConfigureRequestBodyV1;
+  void canvasUnconfigureRequestBodyV1;
+  void canvasCurrentTextureOriginV1;
+  void textureDestroyRequestBodyV1;
   if (
     sha256HexUtf8(canonicalManifestJson(computePipelineDescriptorV1)) !==
       EXPECTED_CREATE_COMPUTE_PIPELINE_DESCRIPTOR_SHA256
@@ -3492,6 +3566,9 @@ function validateNativeCodecProgram(
         candidate.operationId !== BUFFER_DESTROY_OPERATION_ID &&
         candidate.operationId !== BUFFER_MAP_ASYNC_OPERATION_ID &&
         candidate.operationId !== BUFFER_UNMAP_OPERATION_ID &&
+        candidate.operationId !== CANVAS_CONFIGURE_OPERATION_ID &&
+        candidate.operationId !== CANVAS_UNCONFIGURE_OPERATION_ID &&
+        candidate.operationId !== TEXTURE_DESTROY_OPERATION_ID &&
         candidate.operationId !== QUEUE_WRITE_BUFFER_OPERATION_ID &&
         candidate.operationId !== QUEUE_SUBMIT_OPERATION_ID,
     ),
@@ -3558,6 +3635,30 @@ function validateNativeCodecProgram(
       EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256
   ) {
     throw new Error('Invalid authenticated GPUQueue.submit codec program');
+  }
+  const canvasProgram = {
+    types: {
+      sha256DigestV1: manifest.nativeCodecPrograms.types.sha256DigestV1,
+      canvasConfigureRequestBodyV1:
+        manifest.nativeCodecPrograms.types.canvasConfigureRequestBodyV1,
+      canvasUnconfigureRequestBodyV1:
+        manifest.nativeCodecPrograms.types.canvasUnconfigureRequestBodyV1,
+      canvasCurrentTextureOriginV1:
+        manifest.nativeCodecPrograms.types.canvasCurrentTextureOriginV1,
+      textureDestroyRequestBodyV1:
+        manifest.nativeCodecPrograms.types.textureDestroyRequestBodyV1,
+    },
+    routes: manifest.nativeCodecPrograms.routes.filter((candidate) =>
+      candidate.operationId === CANVAS_CONFIGURE_OPERATION_ID ||
+      candidate.operationId === CANVAS_UNCONFIGURE_OPERATION_ID ||
+      candidate.operationId === TEXTURE_DESTROY_OPERATION_ID
+    ),
+  };
+  if (
+    sha256HexUtf8(canonicalManifestJson(canvasProgram)) !==
+      EXPECTED_CANVAS_NATIVE_CODEC_SHA256
+  ) {
+    throw new Error('Invalid authenticated canvas service codec program');
   }
   const route = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecRequestAdapterRoute =>
@@ -3626,6 +3727,18 @@ function validateNativeCodecProgram(
   const bufferUnmapRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecBufferLifecycleRoute =>
       candidate.operationId === BUFFER_UNMAP_OPERATION_ID,
+  );
+  const canvasConfigureRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCanvasServiceRoute =>
+      candidate.operationId === CANVAS_CONFIGURE_OPERATION_ID,
+  );
+  const canvasUnconfigureRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCanvasServiceRoute =>
+      candidate.operationId === CANVAS_UNCONFIGURE_OPERATION_ID,
+  );
+  const textureDestroyRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecCanvasServiceRoute =>
+      candidate.operationId === TEXTURE_DESTROY_OPERATION_ID,
   );
   const queueWriteBufferRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecQueueWriteBufferRoute =>
@@ -4487,10 +4600,10 @@ function validateNativeCodecProgram(
     )
     .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
-    manifest.nativeCodecPrograms.routes.length !== 19 ||
+    manifest.nativeCodecPrograms.routes.length !== 22 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 19 ||
+    ).size !== 22 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupRoute ||
@@ -4508,6 +4621,9 @@ function validateNativeCodecProgram(
     !bufferDestroyRoute ||
     !bufferMapAsyncRoute ||
     !bufferUnmapRoute ||
+    !canvasConfigureRoute ||
+    !canvasUnconfigureRoute ||
+    !textureDestroyRoute ||
     !queueWriteBufferRoute ||
     !queueSubmitRoute ||
     canonicalManifestJson(createCommandEncoderRoute) !==
@@ -4823,6 +4939,12 @@ function validateNativeCodecProgram(
       manifest.carrierConstants.EXACT_GPU_RESULT_BYTES_V2 ||
     bufferUnmapRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    canvasConfigureRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    canvasUnconfigureRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    textureDestroyRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     queueWriteBufferRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     queueSubmitRoute.completion.commonCarrierConstraints.at(-1)?.value !==
@@ -4848,6 +4970,9 @@ function validateNativeCodecProgram(
     bufferDestroyRoute,
     bufferMapAsyncRoute,
     bufferUnmapRoute,
+    canvasConfigureRoute,
+    canvasUnconfigureRoute,
+    textureDestroyRoute,
     queueWriteBufferRoute,
     queueSubmitRoute,
     noneResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
@@ -7250,6 +7375,438 @@ function readBufferLifecycleBody(
   } as const as BufferLifecycleBody;
   validateBufferLifecycleBody(operationId, body, maximum);
   return body;
+}
+
+type CanvasServiceBody = NonNullable<
+  ProductionGpuServiceEncodingInput['canvasService']
+>;
+
+function digestBytes(value: string, label: string): Uint8Array {
+  if (!/^[0-9a-f]{64}$/u.test(value)) {
+    throw new TypeError(`${label} must be a lowercase SHA-256 digest`);
+  }
+  const result = new Uint8Array(32);
+  for (let index = 0; index < result.length; index += 1) {
+    result[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return result;
+}
+
+function readDigest(reader: Reader): string {
+  return bytesHex(reader.raw(32));
+}
+
+function validateCanvasServiceBody(
+  operationId: string,
+  body: CanvasServiceBody,
+  receiver: ProductionGpuServiceEncodingInput['receiver'],
+  convertedArguments: unknown,
+  textureFormats: readonly string[],
+): void {
+  if (operationId === CANVAS_CONFIGURE_OPERATION_ID) {
+    if (body.kind !== 'canvas-configure-v1') {
+      throw new TypeError('GPUCanvasContext.configure requires its closed authority body');
+    }
+    exactLifecycleKeys(body, [
+      'kind',
+      'receiverContextRef',
+      'attachmentGeneration',
+      'contextGeneration',
+      'configurationGeneration',
+      'configuredDeviceRef',
+      'format',
+      'usage',
+      'alphaMode',
+      'colorSpace',
+      'targetAuthorityDigest',
+      'surfaceAccountToken',
+      'surfaceAccountGeneration',
+    ], 'GPUCanvasContext.configure authority');
+    const receiverContextRef = submitReference(
+      body.receiverContextRef,
+      'GPUCanvasContext.configure receiverContextRef',
+      'GPUCanvasContext',
+    );
+    const configuredDeviceRef = submitReference(
+      body.configuredDeviceRef,
+      'GPUCanvasContext.configure configuredDeviceRef',
+      'GPUDevice',
+    );
+    if (
+      !sameReference(receiverContextRef, receiver) ||
+      !sameDeviceReference(configuredDeviceRef, receiver)
+    ) {
+      throw new TypeError('GPUCanvasContext.configure authority was retargeted');
+    }
+    for (const [name, value] of [
+      ['attachmentGeneration', body.attachmentGeneration],
+      ['contextGeneration', body.contextGeneration],
+      ['configurationGeneration', body.configurationGeneration],
+      ['surfaceAccountToken', body.surfaceAccountToken],
+      ['surfaceAccountGeneration', body.surfaceAccountGeneration],
+    ] as const) {
+      positiveIdentity(value, `GPUCanvasContext.configure ${name}`);
+    }
+    const converted = submitRecord(
+      convertedArguments,
+      'GPUCanvasContext.configure converted arguments',
+    );
+    if (
+      !textureFormats.includes(body.format) ||
+      !Number.isInteger(body.usage) ||
+      body.usage < 0 ||
+      body.usage > 0xffff_ffff ||
+      (body.alphaMode !== 'opaque' && body.alphaMode !== 'premultiplied') ||
+      (body.colorSpace !== 'srgb' && body.colorSpace !== 'display-p3') ||
+      converted.format !== body.format ||
+      converted.usage !== body.usage ||
+      converted.alphaMode !== body.alphaMode ||
+      converted.colorSpace !== body.colorSpace
+    ) {
+      throw new TypeError(
+        'GPUCanvasContext.configure authority disagrees with converted configuration',
+      );
+    }
+    digestBytes(body.targetAuthorityDigest, 'canvas target authority digest');
+    return;
+  }
+
+  if (operationId === CANVAS_UNCONFIGURE_OPERATION_ID) {
+    if (body.kind !== 'canvas-unconfigure-v1') {
+      throw new TypeError('GPUCanvasContext.unconfigure requires its closed authority body');
+    }
+    exactLifecycleKeys(body, [
+      'kind',
+      'receiverContextRef',
+      'attachmentGeneration',
+      'contextGeneration',
+      'configurationGeneration',
+      'terminalIntent',
+      'targetAuthorityDigest',
+      'surfaceAccountToken',
+      'surfaceAccountGeneration',
+    ], 'GPUCanvasContext.unconfigure authority');
+    const receiverContextRef = submitReference(
+      body.receiverContextRef,
+      'GPUCanvasContext.unconfigure receiverContextRef',
+      'GPUCanvasContext',
+    );
+    if (
+      !sameReference(receiverContextRef, receiver) ||
+      body.terminalIntent !== 'first-cleanup' ||
+      convertedArguments !== null
+    ) {
+      throw new TypeError('GPUCanvasContext.unconfigure authority was retargeted');
+    }
+    for (const [name, value] of [
+      ['attachmentGeneration', body.attachmentGeneration],
+      ['contextGeneration', body.contextGeneration],
+      ['configurationGeneration', body.configurationGeneration],
+      ['surfaceAccountToken', body.surfaceAccountToken],
+      ['surfaceAccountGeneration', body.surfaceAccountGeneration],
+    ] as const) {
+      positiveIdentity(value, `GPUCanvasContext.unconfigure ${name}`);
+    }
+    digestBytes(body.targetAuthorityDigest, 'canvas target authority digest');
+    return;
+  }
+
+  if (operationId !== TEXTURE_DESTROY_OPERATION_ID ||
+      body.kind !== 'texture-destroy-v1') {
+    throw new TypeError(`${operationId} has the wrong canvas service body`);
+  }
+  exactLifecycleKeys(body, [
+    'kind',
+    'receiverTextureRef',
+    'terminalIntent',
+    'materializationState',
+    'origin',
+  ], 'GPUTexture.destroy authority');
+  const receiverTextureRef = submitReference(
+    body.receiverTextureRef,
+    'GPUTexture.destroy receiverTextureRef',
+    'GPUTexture',
+  );
+  if (
+    !sameReference(receiverTextureRef, receiver) ||
+    convertedArguments !== null ||
+    ![
+      'first-cleanup',
+      'first-expired-cleanup',
+      'repeat-cleanup-noop',
+    ].includes(body.terminalIntent) ||
+    (body.materializationState !== 'unmaterialized' &&
+      body.materializationState !== 'materialized')
+  ) {
+    throw new TypeError('GPUTexture.destroy authority was retargeted');
+  }
+  if (body.origin.kind === 'device-created-v1') {
+    exactLifecycleKeys(body.origin, ['kind'], 'GPUTexture.destroy device origin');
+    if (body.terminalIntent === 'first-expired-cleanup') {
+      throw new TypeError('A device-created texture cannot carry canvas expiry');
+    }
+    return;
+  }
+  if (body.origin.kind !== 'canvas-current-v1') {
+    throw new TypeError('GPUTexture.destroy has an unknown origin class');
+  }
+  exactLifecycleKeys(body.origin, [
+    'kind',
+    'contextRef',
+    'attachmentGeneration',
+    'contextGeneration',
+    'configurationGeneration',
+    'currentEpoch',
+    'mintOperationProvenance',
+    'textureOriginDigest',
+  ], 'GPUTexture.destroy canvas-current origin');
+  const contextRef = submitReference(
+    body.origin.contextRef,
+    'GPUTexture.destroy contextRef',
+    'GPUCanvasContext',
+  );
+  if (!sameDeviceReference(contextRef, receiver)) {
+    throw new TypeError('GPUTexture.destroy canvas origin has foreign device provenance');
+  }
+  exactLifecycleKeys(body.origin.mintOperationProvenance, [
+    'operationInstanceId',
+    'deviceIngressOrdinal',
+  ], 'GPUTexture.destroy mint provenance');
+  for (const [name, value] of [
+    ['attachmentGeneration', body.origin.attachmentGeneration],
+    ['contextGeneration', body.origin.contextGeneration],
+    ['configurationGeneration', body.origin.configurationGeneration],
+    ['currentEpoch', body.origin.currentEpoch],
+    [
+      'mintOperationInstanceId',
+      body.origin.mintOperationProvenance.operationInstanceId,
+    ],
+    [
+      'mintDeviceIngressOrdinal',
+      body.origin.mintOperationProvenance.deviceIngressOrdinal,
+    ],
+  ] as const) {
+    positiveIdentity(value, `GPUTexture.destroy ${name}`);
+  }
+  digestBytes(body.origin.textureOriginDigest, 'canvas texture origin digest');
+}
+
+function writeCanvasServiceBody(
+  writer: Writer,
+  operationId: string,
+  body: CanvasServiceBody,
+  receiver: ProductionGpuServiceEncodingInput['receiver'],
+  convertedArguments: unknown,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+  textureFormats: readonly string[],
+): void {
+  validateCanvasServiceBody(
+    operationId,
+    body,
+    receiver,
+    convertedArguments,
+    textureFormats,
+  );
+  if (body.kind === 'canvas-configure-v1') {
+    writeReference(writer, body.receiverContextRef, objectKinds);
+    writer.u64(body.attachmentGeneration);
+    writer.u64(body.contextGeneration);
+    writer.u64(body.configurationGeneration);
+    writeReference(writer, body.configuredDeviceRef, objectKinds);
+    writer.string(body.format);
+    writer.u32(body.usage);
+    writer.u8(body.alphaMode === 'opaque' ? 1 : 2);
+    writer.u8(body.colorSpace === 'srgb' ? 1 : 2);
+    writer.raw(digestBytes(body.targetAuthorityDigest, 'canvas target authority digest'));
+    writer.u64(body.surfaceAccountToken);
+    writer.u64(body.surfaceAccountGeneration);
+    return;
+  }
+  if (body.kind === 'canvas-unconfigure-v1') {
+    writeReference(writer, body.receiverContextRef, objectKinds);
+    writer.u64(body.attachmentGeneration);
+    writer.u64(body.contextGeneration);
+    writer.u64(body.configurationGeneration);
+    writer.u8(1);
+    writer.raw(digestBytes(body.targetAuthorityDigest, 'canvas target authority digest'));
+    writer.u64(body.surfaceAccountToken);
+    writer.u64(body.surfaceAccountGeneration);
+    return;
+  }
+  writeReference(writer, body.receiverTextureRef, objectKinds);
+  writer.u8({
+    'repeat-cleanup-noop': 0,
+    'first-cleanup': 1,
+    'first-expired-cleanup': 2,
+  }[body.terminalIntent]);
+  writer.u8(body.materializationState === 'materialized' ? 1 : 0);
+  writer.u8(body.origin.kind === 'device-created-v1' ? 1 : 2);
+  if (body.origin.kind === 'canvas-current-v1') {
+    writeReference(writer, body.origin.contextRef, objectKinds);
+    writer.u64(body.origin.attachmentGeneration);
+    writer.u64(body.origin.contextGeneration);
+    writer.u64(body.origin.configurationGeneration);
+    writer.u64(body.origin.currentEpoch);
+    writer.u64(body.origin.mintOperationProvenance.operationInstanceId);
+    writer.u64(body.origin.mintOperationProvenance.deviceIngressOrdinal);
+    writer.raw(digestBytes(body.origin.textureOriginDigest, 'canvas texture origin digest'));
+  }
+}
+
+function readCanvasServiceBody(
+  reader: Reader,
+  operationId: string,
+  receiver: ProductionGpuServiceEncodingInput['receiver'],
+  objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
+  textureFormats: readonly string[],
+): CanvasServiceBody {
+  let body: CanvasServiceBody;
+  let convertedArguments: unknown = null;
+  if (operationId === CANVAS_CONFIGURE_OPERATION_ID) {
+    const receiverContextRef = readReference(reader, objectKindsByTag);
+    const attachmentGeneration = reader.u64();
+    const contextGeneration = reader.u64();
+    const configurationGeneration = reader.u64();
+    const configuredDeviceRef = readReference(reader, objectKindsByTag);
+    const format = reader.string(256);
+    const usage = reader.u32();
+    const alphaModeTag = reader.u8();
+    const colorSpaceTag = reader.u8();
+    const alphaMode = alphaModeTag === 1
+      ? 'opaque'
+      : alphaModeTag === 2
+        ? 'premultiplied'
+        : undefined;
+    const colorSpace = colorSpaceTag === 1
+      ? 'srgb'
+      : colorSpaceTag === 2
+        ? 'display-p3'
+        : undefined;
+    if (!alphaMode || !colorSpace) {
+      throw new TypeError('GPUCanvasContext.configure enum tag is unknown');
+    }
+    body = Object.freeze({
+      kind: 'canvas-configure-v1',
+      receiverContextRef,
+      attachmentGeneration,
+      contextGeneration,
+      configurationGeneration,
+      configuredDeviceRef,
+      format,
+      usage,
+      alphaMode,
+      colorSpace,
+      targetAuthorityDigest: readDigest(reader),
+      surfaceAccountToken: reader.u64(),
+      surfaceAccountGeneration: reader.u64(),
+    });
+    convertedArguments = Object.freeze({ format, usage, alphaMode, colorSpace });
+  } else if (operationId === CANVAS_UNCONFIGURE_OPERATION_ID) {
+    const terminalIntentTag = (() => {
+      const receiverContextRef = readReference(reader, objectKindsByTag);
+      const attachmentGeneration = reader.u64();
+      const contextGeneration = reader.u64();
+      const configurationGeneration = reader.u64();
+      const tag = reader.u8();
+      body = Object.freeze({
+        kind: 'canvas-unconfigure-v1',
+        receiverContextRef,
+        attachmentGeneration,
+        contextGeneration,
+        configurationGeneration,
+        terminalIntent: 'first-cleanup',
+        targetAuthorityDigest: readDigest(reader),
+        surfaceAccountToken: reader.u64(),
+        surfaceAccountGeneration: reader.u64(),
+      });
+      return tag;
+    })();
+    if (terminalIntentTag !== 1) {
+      throw new TypeError('GPUCanvasContext.unconfigure terminal intent is unknown');
+    }
+  } else {
+    const receiverTextureRef = readReference(reader, objectKindsByTag);
+    const terminalIntentTag = reader.u8();
+    const materializationTag = reader.u8();
+    const originTag = reader.u8();
+    const terminalIntent = terminalIntentTag === 0
+      ? 'repeat-cleanup-noop'
+      : terminalIntentTag === 1
+        ? 'first-cleanup'
+        : terminalIntentTag === 2
+          ? 'first-expired-cleanup'
+          : undefined;
+    const materializationState = materializationTag === 0
+      ? 'unmaterialized'
+      : materializationTag === 1
+        ? 'materialized'
+        : undefined;
+    if (!terminalIntent || !materializationState || (originTag !== 1 && originTag !== 2)) {
+      throw new TypeError('GPUTexture.destroy body tag is unknown');
+    }
+    const origin = originTag === 1
+      ? Object.freeze({ kind: 'device-created-v1' as const })
+      : Object.freeze({
+          kind: 'canvas-current-v1' as const,
+          contextRef: readReference(reader, objectKindsByTag),
+          attachmentGeneration: reader.u64(),
+          contextGeneration: reader.u64(),
+          configurationGeneration: reader.u64(),
+          currentEpoch: reader.u64(),
+          mintOperationProvenance: Object.freeze({
+            operationInstanceId: reader.u64(),
+            deviceIngressOrdinal: reader.u64(),
+          }),
+          textureOriginDigest: readDigest(reader),
+        });
+    body = Object.freeze({
+      kind: 'texture-destroy-v1',
+      receiverTextureRef,
+      terminalIntent,
+      materializationState,
+      origin,
+    });
+  }
+  validateCanvasServiceBody(
+    operationId,
+    body,
+    receiver,
+    convertedArguments,
+    textureFormats,
+  );
+  return body;
+}
+
+function validateCanvasServiceRequestFields(
+  input: ProductionGpuServiceEncodingInput,
+  textureFormats: readonly string[],
+): CanvasServiceBody {
+  const expectedReceiverKind = input.operationId === TEXTURE_DESTROY_OPERATION_ID
+    ? 'GPUTexture'
+    : 'GPUCanvasContext';
+  submitReference(input.receiver, `${input.operationId} receiver`, expectedReceiverKind);
+  if (
+    input.target !== undefined ||
+    input.adapterOrdinal !== '0' ||
+    input.queueIngressOrdinal !== '0' ||
+    !Array.isArray(input.sealedLocalTimeline) ||
+    input.sealedLocalTimeline.length !== 0
+  ) {
+    throw new TypeError(`${input.operationId} violates its canvas carrier projection`);
+  }
+  parseU64Decimal(input.capturedScopeId);
+  positiveIdentity(input.deviceIngressOrdinal, `${input.operationId} device ingress`);
+  if (!input.canvasService) {
+    throw new TypeError(`${input.operationId} wrapper authority is missing`);
+  }
+  validateCanvasServiceBody(
+    input.operationId,
+    input.canvasService,
+    input.receiver,
+    input.convertedArguments,
+    textureFormats,
+  );
+  return input.canvasService;
 }
 
 function validateBufferLifecycleRequestFields(
@@ -11166,6 +11723,14 @@ export interface WebGpuCodecTestQueueWriteBufferResult {
   readonly terminal: 'later-predicate-rejection' | 'operation-success';
 }
 
+export interface WebGpuCodecTestCanvasTerminalResult {
+  readonly kind: 'canvas-terminal';
+  readonly terminal:
+    | 'operation-success'
+    | 'repeat-cleanup-noop'
+    | 'first-cleanup-provider';
+}
+
 export type WebGpuCodecTestServiceResult =
   | Readonly<{ kind: 'none' }>
   | Readonly<{ kind: 'null' }>
@@ -11174,6 +11739,7 @@ export type WebGpuCodecTestServiceResult =
   | WebGpuCodecTestErrorResult
   | WebGpuCodecTestBufferCleanupResult
   | WebGpuCodecTestBufferMapResult
+  | WebGpuCodecTestCanvasTerminalResult
   | WebGpuCodecTestQueueWriteBufferResult;
 
 export function createExecutableWebGpuCodecs(
@@ -11205,7 +11771,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -11504,6 +12070,7 @@ export function createExecutableWebGpuCodecs(
     const codec = serviceCodecs.get(route.serviceArgumentCodec);
     if (!codec) throw new TypeError('Unknown WebGPU service request codec');
     let bufferLifecycleBody: BufferLifecycleBody | undefined;
+    let canvasServiceBody: CanvasServiceBody | undefined;
     let queueWriteBufferBody: QueueWriteBufferBody | undefined;
     let queueSubmitBody: QueueSubmitEncodedBody | undefined;
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
@@ -11747,6 +12314,18 @@ export function createExecutableWebGpuCodecs(
         objectKinds,
         manifest.layout,
       );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.canvasConfigureRoute.operationId ||
+      route.operationId ===
+        requestAdapterNativeProgram.canvasUnconfigureRoute.operationId ||
+      route.operationId ===
+        requestAdapterNativeProgram.textureDestroyRoute.operationId
+    ) {
+      canvasServiceBody = validateCanvasServiceRequestFields(
+        input,
+        manifest.webIdlVocabulary.gpuTextureFormats,
+      );
     }
     const writer = new Writer(manifest.maxPayloadBytes);
     writeHeader(
@@ -11788,6 +12367,18 @@ export function createExecutableWebGpuCodecs(
       return writer.finish();
     }
     writer.value(input.sealedLocalTimeline, manifest.layout);
+    if (canvasServiceBody) {
+      writeCanvasServiceBody(
+        writer,
+        route.operationId,
+        canvasServiceBody,
+        input.receiver,
+        input.convertedArguments,
+        objectKinds,
+        manifest.webIdlVocabulary.gpuTextureFormats,
+      );
+      return writer.finish();
+    }
     writer.value(input.convertedArguments, manifest.layout);
     return writer.finish();
   };
@@ -11850,6 +12441,12 @@ export function createExecutableWebGpuCodecs(
       input.operationId !== requestAdapterNativeProgram.bufferUnmapRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.queueWriteBufferRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.canvasConfigureRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.canvasUnconfigureRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.textureDestroyRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.queueSubmitRoute.operationId
     ) {
@@ -12200,6 +12797,10 @@ export function createExecutableWebGpuCodecs(
     const queueWriteBufferRoute =
       route.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID;
     const queueSubmitRoute = route.operationId === QUEUE_SUBMIT_OPERATION_ID;
+    const canvasServiceRoute =
+      route.operationId === CANVAS_CONFIGURE_OPERATION_ID ||
+      route.operationId === CANVAS_UNCONFIGURE_OPERATION_ID ||
+      route.operationId === TEXTURE_DESTROY_OPERATION_ID;
     const bufferLifecycle = bufferLifecycleRoute
       ? readBufferLifecycleBody(
           reader,
@@ -12232,6 +12833,15 @@ export function createExecutableWebGpuCodecs(
       : bufferLifecycleRoute || queueWriteBufferRoute
       ? closedBodyTimeline
       : reader.value(manifest.layout);
+    const canvasService = canvasServiceRoute
+      ? readCanvasServiceBody(
+          reader,
+          route.operationId,
+          receiver,
+          objectKindsByTag,
+          manifest.webIdlVocabulary.gpuTextureFormats,
+        )
+      : undefined;
     const convertedArguments = bufferLifecycle?.kind === 'map-async-v1'
       ? Object.freeze({
           mode: bufferLifecycle.mode,
@@ -12262,6 +12872,15 @@ export function createExecutableWebGpuCodecs(
           wrapperValidationError:
             queueSubmit.wrapperValidationError ?? undefined,
         })
+      : canvasService?.kind === 'canvas-configure-v1'
+      ? Object.freeze({
+          format: canvasService.format,
+          usage: canvasService.usage,
+          alphaMode: canvasService.alphaMode,
+          colorSpace: canvasService.colorSpace,
+        })
+      : canvasServiceRoute
+      ? null
       : reader.value(manifest.layout);
     reader.done();
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
@@ -12503,6 +13122,23 @@ export function createExecutableWebGpuCodecs(
       ) {
         throw new TypeError('GPUQueue.submit decoded carrier projection is invalid');
       }
+    } else if (canvasService) {
+      if (!Array.isArray(sealedLocalTimeline)) {
+        throw new TypeError('Canvas lifecycle timeline must be a closed sequence');
+      }
+      validateCanvasServiceRequestFields({
+        operationId: route.operationId,
+        wireId: route.wireId,
+        receiver,
+        target: target ?? undefined,
+        capturedScopeId,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline,
+        convertedArguments,
+        canvasService,
+      }, manifest.webIdlVocabulary.gpuTextureFormats);
     }
     const inspectedBufferLifecycle = bufferLifecycle?.kind === 'cleanup-v1'
       ? Object.freeze({
@@ -12540,6 +13176,7 @@ export function createExecutableWebGpuCodecs(
       ...(inspectedBufferLifecycle
         ? { bufferLifecycle: inspectedBufferLifecycle }
         : {}),
+      ...(canvasService ? { canvasService } : {}),
     });
     return result;
   };
@@ -12585,6 +13222,31 @@ export function createExecutableWebGpuCodecs(
         : ['unmapped-noop', 'cleanup-rejection', 'cleanup-provider'];
       if (!allowed.includes(result.terminal)) {
         throw new TypeError(`${route.operationId} cleanup terminal is invalid`);
+      }
+      return new Uint8Array(0);
+    }
+    if (
+      route.operationId === CANVAS_CONFIGURE_OPERATION_ID ||
+      route.operationId === CANVAS_UNCONFIGURE_OPERATION_ID ||
+      route.operationId === TEXTURE_DESTROY_OPERATION_ID
+    ) {
+      if (result.kind !== 'canvas-terminal') {
+        throw new TypeError(
+          `${route.operationId} completion test value has the wrong shape`,
+        );
+      }
+      exactLifecycleKeys(
+        result,
+        ['kind', 'terminal'],
+        `${route.operationId} completion`,
+      );
+      const allowed = route.operationId === CANVAS_CONFIGURE_OPERATION_ID
+        ? ['operation-success']
+        : route.operationId === CANVAS_UNCONFIGURE_OPERATION_ID
+          ? ['first-cleanup-provider']
+          : ['repeat-cleanup-noop', 'first-cleanup-provider'];
+      if (!allowed.includes(result.terminal)) {
+        throw new TypeError(`${route.operationId} canvas terminal is invalid`);
       }
       return new Uint8Array(0);
     }

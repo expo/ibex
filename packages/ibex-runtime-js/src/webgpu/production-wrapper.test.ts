@@ -10,6 +10,7 @@ import type {
 } from './native-bridge';
 import type {
   ExecutableWebGpuCodecBundle,
+  ProductionGpuCanvasServiceEncoding,
   ProductionGpuServiceEncodingInput,
 } from './production-codecs';
 import {
@@ -239,7 +240,9 @@ function createFakeCodecs(
         operationId === 'GPUDevice.createBindGroupLayout' ||
         operationId === 'GPUDevice.createRenderPipeline' ||
         operationId === 'GPUTexture.createView' ||
+        operationId === 'GPUTexture.destroy' ||
         operationId === 'GPUCanvasContext.configure' ||
+        operationId === 'GPUCanvasContext.unconfigure' ||
         operationId === 'GPURenderPassEncoder.setPipeline'
       ) {
         return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
@@ -554,6 +557,7 @@ function commandPrograms(
 
 interface TestCanvasTexture {
   createView(): object;
+  destroy(): void;
 }
 
 interface TestCanvasContext {
@@ -610,7 +614,7 @@ describe('production-private WebGPU wrapper gate', () => {
 
   test('keeps generated codecs injection-only while the native decoder is not installed', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
-      'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed',
+      'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed',
     );
   });
   test('fails closed without a V2 provider and executable codec authority', () => {
@@ -2485,6 +2489,38 @@ describe('production-private WebGPU wrapper factory', () => {
       unconfigure(): void;
     };
     context.configure({ device, format: 'bgra8unorm' });
+    const firstConfigure = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUCanvasContext.configure',
+    );
+    expect(firstConfigure?.canvasService).toMatchObject({
+      kind: 'canvas-configure-v1',
+      receiverContextRef: {
+        kind: 'GPUCanvasContext',
+        objectId: '401',
+        objectGeneration: '1',
+        logicalDeviceId: '301',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      attachmentGeneration: '31',
+      contextGeneration: '37',
+      configurationGeneration: '1',
+      configuredDeviceRef: {
+        kind: 'GPUDevice',
+        objectId: '201',
+        objectGeneration: '1',
+        logicalDeviceId: '301',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      format: 'bgra8unorm',
+      usage: 16,
+      alphaMode: 'opaque',
+      colorSpace: 'srgb',
+      targetAuthorityDigest: CANVAS_AUTHORITY.targetAuthorityDigest,
+      surfaceAccountToken: '41',
+      surfaceAccountGeneration: '43',
+    });
     const first = context.getCurrentTexture();
     expect(context.getCurrentTexture()).toBe(first);
     expect(first.dimension).toBe('2d');
@@ -2555,6 +2591,12 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(snapshot?.format).toBe('bgra8unorm');
     expect(snapshot).not.toBe(context.getConfiguration());
     context.configure({ device, format: 'bgra8unorm' });
+    expect(codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUCanvasContext.configure',
+    )?.canvasService).toMatchObject({
+      kind: 'canvas-configure-v1',
+      configurationGeneration: '2',
+    });
     const second = context.getCurrentTexture();
     expect(second).not.toBe(first);
     expect(second.createView()).toBeObject();
@@ -2597,8 +2639,61 @@ describe('production-private WebGPU wrapper factory', () => {
       currentEpoch: '1',
     });
     context.unconfigure();
+    const unconfigureEncodings = codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUCanvasContext.unconfigure',
+    );
+    expect(unconfigureEncodings).toHaveLength(1);
+    expect(unconfigureEncodings[0]?.convertedArguments).toBeNull();
+    expect(unconfigureEncodings[0]?.canvasService).toMatchObject({
+      kind: 'canvas-unconfigure-v1',
+      receiverContextRef: {
+        kind: 'GPUCanvasContext',
+        objectId: '401',
+        objectGeneration: '1',
+      },
+      attachmentGeneration: '31',
+      contextGeneration: '37',
+      configurationGeneration: '2',
+      terminalIntent: 'first-cleanup',
+      targetAuthorityDigest: CANVAS_AUTHORITY.targetAuthorityDigest,
+      surfaceAccountToken: '41',
+      surfaceAccountGeneration: '43',
+    });
+    context.unconfigure();
+    expect(codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUCanvasContext.unconfigure',
+    )).toHaveLength(1);
     expect(() => context.getCurrentTexture()).toThrow('not configured');
     first.destroy();
+    first.destroy();
+    const firstDestroyEncodings = codecs.encodings.filter(
+      (encoding) =>
+        encoding.operationId === 'GPUTexture.destroy' &&
+        encoding.receiver.objectId === firstRequest.receiver.objectId,
+    );
+    expect(firstDestroyEncodings).toHaveLength(2);
+    expect(firstDestroyEncodings.map((encoding) =>
+      (encoding.canvasService as ProductionGpuCanvasServiceEncoding & {
+        readonly terminalIntent: string;
+      }).terminalIntent)).toEqual([
+      'first-expired-cleanup',
+      'repeat-cleanup-noop',
+    ]);
+    expect(firstDestroyEncodings[0]?.convertedArguments).toBeNull();
+    expect(firstDestroyEncodings[0]?.canvasService).toMatchObject({
+      kind: 'texture-destroy-v1',
+      materializationState: 'materialized',
+      origin: {
+        kind: 'canvas-current-v1',
+        contextRef: firstOrigin.contextRef,
+        attachmentGeneration: '31',
+        contextGeneration: '37',
+        configurationGeneration: '1',
+        currentEpoch: '1',
+        mintOperationProvenance: firstOrigin.mintOperationProvenance,
+        textureOriginDigest: firstOrigin.textureOriginDigest,
+      },
+    });
 
     const lost = device.lost;
     bridge.emit({
@@ -2622,6 +2717,56 @@ describe('production-private WebGPU wrapper factory', () => {
       payload: new Uint8Array(),
     });
     expect(await lost).toEqual({ reason: 'unknown', message: 'loss-4' });
+    binding.revoke();
+  });
+
+  test('keeps texture destroy retryable after bridge rejection and authenticates each terminal intent', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestRecordingDevice(binding);
+    const texture = device.createTexture({
+      format: 'rgba8unorm',
+      size: [8, 8],
+      usage: 4,
+    }) as TestCanvasTexture;
+    const destroyWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUTexture.destroy',
+    )?.wireId;
+    if (destroyWireId === undefined) throw new Error('missing texture destroy route');
+
+    bridge.setSubmitHook((operationId) =>
+      operationId === destroyWireId ? 71 : undefined);
+    expect(() => texture.destroy()).toThrow(
+      'WebGPU semantic service rejected GPUTexture.destroy (71)',
+    );
+    bridge.setSubmitHook(undefined);
+    texture.destroy();
+    texture.destroy();
+
+    const destroyEncodings = codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUTexture.destroy',
+    );
+    expect(destroyEncodings).toHaveLength(3);
+    expect(destroyEncodings.map((encoding) =>
+      (encoding.canvasService as ProductionGpuCanvasServiceEncoding & {
+        readonly terminalIntent: string;
+      }).terminalIntent)).toEqual([
+      'first-cleanup',
+      'first-cleanup',
+      'repeat-cleanup-noop',
+    ]);
+    for (const encoding of destroyEncodings) {
+      expect(encoding.convertedArguments).toBeNull();
+      expect(encoding.canvasService).toMatchObject({
+        kind: 'texture-destroy-v1',
+        materializationState: 'unmaterialized',
+        origin: { kind: 'device-created-v1' },
+      });
+    }
+    expect(bridge.submissions.filter(
+      (submission) => submission.operationId === destroyWireId,
+    )).toHaveLength(3);
     binding.revoke();
   });
 

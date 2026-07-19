@@ -580,7 +580,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed",
     digests: computed,
     webIdlVocabulary,
     activeRouteSubset: {
@@ -607,6 +607,13 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
 function serviceCodecBlockers(codec) {
   if (codec.tag === "none-service-request-v1") return ["no-service-call"];
   if (codec.tag === "gpu-create-texture-view-service-request-v1") return [];
+  if (
+    codec.tag === "gpu-canvas-configure-service-request-v1" ||
+    codec.tag === "gpu-canvas-unconfigure-service-request-v1" ||
+    codec.tag === "gpu-texture-cleanup-service-request-v1"
+  ) {
+    return [];
+  }
   if (
     codec.tag === "gpu-sealed-command-program-sequence-service-request-v1"
   ) {
@@ -805,6 +812,15 @@ function buildCodecManifest(
   const bufferUnmapProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUBuffer.unmap",
   );
+  const canvasConfigureProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUCanvasContext.configure",
+  );
+  const canvasUnconfigureProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUCanvasContext.unconfigure",
+  );
+  const textureDestroyProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUTexture.destroy",
+  );
   const queueWriteBufferProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUQueue.writeBuffer",
   );
@@ -826,6 +842,18 @@ function buildCodecManifest(
   const bufferUnmapSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUBuffer.unmap",
+    );
+  const canvasConfigureSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUCanvasContext.configure",
+    );
+  const canvasUnconfigureSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUCanvasContext.unconfigure",
+    );
+  const textureDestroySemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUTexture.destroy",
     );
   const queueWriteBufferSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
@@ -1480,7 +1508,7 @@ function buildCodecManifest(
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
@@ -1539,6 +1567,15 @@ function buildCodecManifest(
       codec.tag ===
         "gpu-sealed-command-program-sequence-service-request-v1",
   );
+  const canvasConfigureCodec = manifest.serviceArguments.find(
+    (codec) => codec.tag === "gpu-canvas-configure-service-request-v1",
+  );
+  const canvasUnconfigureCodec = manifest.serviceArguments.find(
+    (codec) => codec.tag === "gpu-canvas-unconfigure-service-request-v1",
+  );
+  const textureDestroyCodec = manifest.serviceArguments.find(
+    (codec) => codec.tag === "gpu-texture-cleanup-service-request-v1",
+  );
   if (
     queueWriteBufferCodec?.wireTag !== 23 ||
     queueWriteBufferCodec.executableFromCurrentAuthenticatedInputs !== true ||
@@ -1553,6 +1590,28 @@ function buildCodecManifest(
   ) {
     throw new Error(
       "GPUQueue writeBuffer/submit native codec boundary drifted",
+    );
+  }
+  if (
+    !canvasConfigureProgram ||
+    !canvasUnconfigureProgram ||
+    !textureDestroyProgram ||
+    !canvasConfigureSemanticProgram ||
+    !canvasUnconfigureSemanticProgram ||
+    !textureDestroySemanticProgram ||
+    canvasConfigureCodec?.wireTag !== 4 ||
+    canvasUnconfigureCodec?.wireTag !== 14 ||
+    textureDestroyCodec?.wireTag !== 13 ||
+    [canvasConfigureCodec, canvasUnconfigureCodec, textureDestroyCodec].some(
+      (codec) =>
+        codec?.nativeProgramPrerequisitesRepresented !== true ||
+        codec?.executableFromCurrentAuthenticatedInputs !== true ||
+        codec?.unavailableSemanticFields.length !== 0,
+    ) ||
+    nativeCodecPrograms.routes.length !== 22
+  ) {
+    throw new Error(
+      "canvas configure/unconfigure/texture-destroy native codec boundary drifted",
     );
   }
   return manifest;

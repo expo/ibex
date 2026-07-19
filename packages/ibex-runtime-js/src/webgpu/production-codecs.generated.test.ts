@@ -13,6 +13,7 @@ import {
   EMBEDDED_EXECUTABLE_WEBGPU_CODECS,
   WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION,
   type ProductionGpuCodecWrapperAccess,
+  type ProductionGpuCanvasServiceEncoding,
   type ProductionGpuServiceEncodingInput,
   type ProductionGpuTextureOriginDigestInput,
   type ProductionGpuWrapperKind,
@@ -442,6 +443,68 @@ function completeTextureViewCurrentOrigin() {
   });
 }
 
+function canvasConfigureServiceBody(): ProductionGpuCanvasServiceEncoding {
+  return Object.freeze({
+    kind: 'canvas-configure-v1',
+    receiverContextRef: reference('GPUCanvasContext'),
+    attachmentGeneration: '3',
+    contextGeneration: '5',
+    configurationGeneration: '7',
+    configuredDeviceRef: reference('GPUDevice'),
+    format: 'bgra8unorm',
+    usage: 16,
+    alphaMode: 'opaque',
+    colorSpace: 'srgb',
+    targetAuthorityDigest: '2'.repeat(64),
+    surfaceAccountToken: '19',
+    surfaceAccountGeneration: '23',
+  });
+}
+
+function canvasUnconfigureServiceBody(): ProductionGpuCanvasServiceEncoding {
+  return Object.freeze({
+    kind: 'canvas-unconfigure-v1',
+    receiverContextRef: reference('GPUCanvasContext'),
+    attachmentGeneration: '3',
+    contextGeneration: '5',
+    configurationGeneration: '7',
+    terminalIntent: 'first-cleanup',
+    targetAuthorityDigest: '2'.repeat(64),
+    surfaceAccountToken: '19',
+    surfaceAccountGeneration: '23',
+  });
+}
+
+function textureDestroyServiceBody(
+  terminalIntent:
+    | 'first-cleanup'
+    | 'first-expired-cleanup'
+    | 'repeat-cleanup-noop' = 'first-cleanup',
+  origin: 'device-created' | 'canvas-current' = 'device-created',
+): ProductionGpuCanvasServiceEncoding {
+  const currentOrigin = completeTextureViewCurrentOrigin();
+  return Object.freeze({
+    kind: 'texture-destroy-v1',
+    receiverTextureRef: reference('GPUTexture'),
+    terminalIntent,
+    materializationState: origin === 'canvas-current'
+      ? 'materialized'
+      : 'unmaterialized',
+    origin: origin === 'device-created'
+      ? Object.freeze({ kind: 'device-created-v1' as const })
+      : Object.freeze({
+          kind: 'canvas-current-v1' as const,
+          contextRef: currentOrigin.contextRef,
+          attachmentGeneration: currentOrigin.attachmentGeneration,
+          contextGeneration: currentOrigin.contextGeneration,
+          configurationGeneration: currentOrigin.configurationGeneration,
+          currentEpoch: currentOrigin.currentEpoch,
+          mintOperationProvenance: currentOrigin.mintOperationProvenance,
+          textureOriginDigest: currentOrigin.textureOriginDigest,
+        }),
+  });
+}
+
 function serviceInput(
   operationId: string,
   convertedArguments: unknown = operationId === 'GPU.requestAdapter'
@@ -504,6 +567,16 @@ function serviceInput(
     })
     : operationId === 'GPUTexture.createView'
     ? convertedTextureViewRequest()
+    : operationId === 'GPUCanvasContext.configure'
+    ? Object.freeze({
+      format: 'bgra8unorm',
+      usage: 16,
+      alphaMode: 'opaque',
+      colorSpace: 'srgb',
+    })
+    : operationId === 'GPUCanvasContext.unconfigure' ||
+        operationId === 'GPUTexture.destroy'
+    ? null
     : operationId === 'GPUDevice.createCommandEncoder'
     ? Object.freeze({ label: 'encoder' })
     : operationId === 'GPUDevice.createShaderModule'
@@ -535,6 +608,13 @@ function serviceInput(
   const requestAdapter = operationId === 'GPU.requestAdapter';
   const requestDevice = operationId === 'GPUAdapter.requestDevice';
   const deviceDestroy = operationId === 'GPUDevice.destroy';
+  const canvasService = operationId === 'GPUCanvasContext.configure'
+    ? canvasConfigureServiceBody()
+    : operationId === 'GPUCanvasContext.unconfigure'
+    ? canvasUnconfigureServiceBody()
+    : operationId === 'GPUTexture.destroy'
+    ? textureDestroyServiceBody()
+    : undefined;
   const bufferLifecycle = operationId === 'GPUBuffer.destroy' ||
     operationId === 'GPUBuffer.mapAsync' || operationId === 'GPUBuffer.unmap';
   return Object.freeze({
@@ -550,6 +630,7 @@ function serviceInput(
       : '3',
     queueIngressOrdinal: receiverKind === 'GPUQueue' ? '2' : '0',
     sealedLocalTimeline: requestAdapter || requestDevice || bufferLifecycle ||
+        canvasService !== undefined ||
         operationId === 'GPUQueue.writeBuffer' || operationId === 'GPUQueue.submit'
       ? Object.freeze([])
       : deviceDestroy
@@ -600,6 +681,7 @@ function serviceInput(
           }),
         }
       : {}),
+    ...(canvasService === undefined ? {} : { canvasService }),
   });
 }
 
@@ -760,7 +842,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -792,10 +874,15 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUBuffer.destroy', wireId: 3314731466 },
         { operationId: 'GPUBuffer.mapAsync', wireId: 1760273919 },
         { operationId: 'GPUBuffer.unmap', wireId: 1228615721 },
+        { operationId: 'GPUCanvasContext.configure', wireId: 3865035710 },
+        { operationId: 'GPUCanvasContext.unconfigure', wireId: 935342475 },
+        { operationId: 'GPUTexture.destroy', wireId: 2933046788 },
         { operationId: 'GPUQueue.writeBuffer', wireId: 404589710 },
         { operationId: 'GPUQueue.submit', wireId: 308839175 },
       ],
     });
+    expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes)
+      .toHaveLength(22);
     const destroyProgram = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
       (route) => route.operationId === 'GPUDevice.destroy',
     )!;
@@ -2711,6 +2798,16 @@ describe('generated injection-only WebGPU executable codecs', () => {
             }
             : route.operationId === 'GPUTexture.createView'
             ? convertedTextureViewRequest()
+            : route.operationId === 'GPUCanvasContext.configure'
+            ? {
+              format: 'bgra8unorm',
+              usage: 16,
+              alphaMode: 'opaque',
+              colorSpace: 'srgb',
+            }
+            : route.operationId === 'GPUCanvasContext.unconfigure' ||
+                route.operationId === 'GPUTexture.destroy'
+            ? null
             : route.operationId === 'GPUDevice.createCommandEncoder'
             ? { label: 'encoder' }
             : route.operationId === 'GPUDevice.createShaderModule'
@@ -2719,6 +2816,232 @@ describe('generated injection-only WebGPU executable codecs', () => {
         });
       }
     }
+  });
+
+  test('encodes closed canvas lifecycle authority and rejects retargeting, stale shapes, and malformed bytes', () => {
+    const configureInput = serviceInput('GPUCanvasContext.configure');
+    const configurePayload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(configureInput) as Uint8Array;
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      configurePayload,
+    )).toMatchObject({
+      operationId: 'GPUCanvasContext.configure',
+      codec: 'gpu-canvas-configure-service-request-v1',
+      receiver: reference('GPUCanvasContext'),
+      target: null,
+      adapterOrdinal: '0',
+      deviceIngressOrdinal: '3',
+      queueIngressOrdinal: '0',
+      sealedLocalTimeline: [],
+      convertedArguments: {
+        format: 'bgra8unorm',
+        usage: 16,
+        alphaMode: 'opaque',
+        colorSpace: 'srgb',
+      },
+      canvasService: canvasConfigureServiceBody(),
+    });
+
+    const unconfigureInput = serviceInput('GPUCanvasContext.unconfigure');
+    const unconfigurePayload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(unconfigureInput) as Uint8Array;
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      unconfigurePayload,
+    )).toMatchObject({
+      operationId: 'GPUCanvasContext.unconfigure',
+      codec: 'gpu-canvas-unconfigure-service-request-v1',
+      convertedArguments: null,
+      canvasService: canvasUnconfigureServiceBody(),
+    });
+
+    const expiredDestroyInput = Object.freeze({
+      ...serviceInput('GPUTexture.destroy'),
+      canvasService: textureDestroyServiceBody(
+        'first-expired-cleanup',
+        'canvas-current',
+      ),
+    });
+    const expiredDestroyPayload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(expiredDestroyInput) as Uint8Array;
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      expiredDestroyPayload,
+    )).toMatchObject({
+      operationId: 'GPUTexture.destroy',
+      codec: 'gpu-texture-cleanup-service-request-v1',
+      convertedArguments: null,
+      canvasService: expiredDestroyInput.canvasService,
+    });
+
+    for (const terminalIntent of [
+      'first-cleanup',
+      'repeat-cleanup-noop',
+    ] as const) {
+      const input = Object.freeze({
+        ...serviceInput('GPUTexture.destroy'),
+        canvasService: textureDestroyServiceBody(terminalIntent),
+      });
+      expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(input) as Uint8Array,
+      )).toMatchObject({
+        canvasService: {
+          kind: 'texture-destroy-v1',
+          terminalIntent,
+          materializationState: 'unmaterialized',
+          origin: { kind: 'device-created-v1' },
+        },
+      });
+    }
+
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUCanvasContext.configure',
+      { kind: 'canvas-terminal', terminal: 'operation-success' },
+    ).byteLength).toBe(0);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUCanvasContext.unconfigure',
+      { kind: 'canvas-terminal', terminal: 'first-cleanup-provider' },
+    ).byteLength).toBe(0);
+    for (const terminal of [
+      'repeat-cleanup-noop',
+      'first-cleanup-provider',
+    ] as const) {
+      expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        'GPUTexture.destroy',
+        { kind: 'canvas-terminal', terminal },
+      ).byteLength).toBe(0);
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUCanvasContext.configure',
+      { kind: 'canvas-terminal', terminal: 'repeat-cleanup-noop' },
+    )).toThrow('canvas terminal is invalid');
+
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      canvasService: undefined,
+    })).toThrow('wrapper authority is missing');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      sealedLocalTimeline: [{ injected: true }],
+    })).toThrow('canvas carrier projection');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      canvasService: {
+        ...canvasConfigureServiceBody(),
+        receiverContextRef: {
+          ...reference('GPUCanvasContext'),
+          objectId: '12',
+        },
+      },
+    })).toThrow('retargeted');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      canvasService: {
+        ...canvasConfigureServiceBody(),
+        configuredDeviceRef: {
+          ...reference('GPUDevice'),
+          logicalDeviceId: '18',
+        },
+      },
+    })).toThrow('retargeted');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      canvasService: {
+        ...canvasConfigureServiceBody(),
+        configurationGeneration: '0',
+      },
+    })).toThrow('must be a positive identity');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      canvasService: {
+        ...canvasConfigureServiceBody(),
+        alphaMode: 'discard',
+      } as never,
+    })).toThrow('disagrees with converted configuration');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...configureInput,
+      canvasService: {
+        ...canvasConfigureServiceBody(),
+        unexpected: true,
+      } as never,
+    })).toThrow('closed lifecycle body');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...unconfigureInput,
+      canvasService: {
+        ...canvasUnconfigureServiceBody(),
+        terminalIntent: 'repeat-cleanup-noop',
+      } as never,
+    })).toThrow('retargeted');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...serviceInput('GPUTexture.destroy'),
+      canvasService: textureDestroyServiceBody(
+        'first-expired-cleanup',
+        'device-created',
+      ),
+    })).toThrow('cannot carry canvas expiry');
+    const canvasDestroyBody = textureDestroyServiceBody(
+      'first-expired-cleanup',
+      'canvas-current',
+    );
+    if (
+      canvasDestroyBody.kind !== 'texture-destroy-v1' ||
+      canvasDestroyBody.origin.kind !== 'canvas-current-v1'
+    ) {
+      throw new Error('invalid canvas destroy fixture');
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...serviceInput('GPUTexture.destroy'),
+      canvasService: {
+        ...canvasDestroyBody,
+        origin: {
+          ...canvasDestroyBody.origin,
+          contextRef: {
+            ...canvasDestroyBody.origin.contextRef,
+            providerGeneration: '8',
+          },
+        },
+      },
+    })).toThrow('foreign device provenance');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...serviceInput('GPUTexture.destroy'),
+      canvasService: {
+        ...canvasDestroyBody,
+        origin: {
+          ...canvasDestroyBody.origin,
+          textureOriginDigest: 'A'.repeat(64),
+        },
+      },
+    })).toThrow('lowercase SHA-256 digest');
+
+    const textureBodyTagOffset = 12 + 41 + 1 + 32 + 5 + 41;
+    expect(Array.from(expiredDestroyPayload.slice(
+      textureBodyTagOffset,
+      textureBodyTagOffset + 3,
+    ))).toEqual([2, 1, 2]);
+    for (const offset of [
+      textureBodyTagOffset,
+      textureBodyTagOffset + 1,
+      textureBodyTagOffset + 2,
+    ]) {
+      const unknownTag = expiredDestroyPayload.slice();
+      unknownTag[offset] = 0xff;
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        unknownTag,
+      )).toThrow('body tag is unknown');
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      expiredDestroyPayload.slice(0, -1),
+    )).toThrow();
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      withTrailingByte(expiredDestroyPayload),
+    )).toThrow('Trailing bytes');
+
+    const configureAlphaModeOffset = 12 + 41 + 1 + 32 + 5 + 41 + 24 +
+      41 + 4 + 'bgra8unorm'.length + 4;
+    expect(configurePayload[configureAlphaModeOffset]).toBe(1);
+    const unknownConfigureEnum = configurePayload.slice();
+    unknownConfigureEnum[configureAlphaModeOffset] = 0xff;
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      unknownConfigureEnum,
+    )).toThrow('enum tag is unknown');
   });
 
   test('request encoding is canonical and rejects unknown tags, trailing bytes, and bounds', () => {

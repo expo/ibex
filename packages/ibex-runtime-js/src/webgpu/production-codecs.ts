@@ -118,6 +118,66 @@ export type ProductionGpuBufferLifecycleEncoding =
       requestedSize: string;
     }>;
 
+/** Complete wrapper-owned provenance for a canvas-current texture cleanup. */
+export interface ProductionGpuCanvasCurrentTextureOriginEncoding {
+  readonly kind: 'canvas-current-v1';
+  readonly contextRef: ProductionGpuFullObjectReference;
+  readonly attachmentGeneration: string;
+  readonly contextGeneration: string;
+  readonly configurationGeneration: string;
+  readonly currentEpoch: string;
+  readonly mintOperationProvenance: Readonly<{
+    readonly operationInstanceId: string;
+    readonly deviceIngressOrdinal: string;
+  }>;
+  readonly textureOriginDigest: string;
+}
+
+/**
+ * Closed, operation-specific authority copied only from branded wrapper state.
+ * Public WebIDL dictionaries never supply this projection and the encoder
+ * rejects any receiver, device, generation, or origin retargeting.
+ */
+export type ProductionGpuCanvasServiceEncoding =
+  | Readonly<{
+      kind: 'canvas-configure-v1';
+      receiverContextRef: ProductionGpuFullObjectReference;
+      attachmentGeneration: string;
+      contextGeneration: string;
+      configurationGeneration: string;
+      configuredDeviceRef: ProductionGpuFullObjectReference;
+      format: string;
+      usage: number;
+      alphaMode: 'opaque' | 'premultiplied';
+      colorSpace: 'srgb' | 'display-p3';
+      targetAuthorityDigest: string;
+      surfaceAccountToken: string;
+      surfaceAccountGeneration: string;
+    }>
+  | Readonly<{
+      kind: 'canvas-unconfigure-v1';
+      receiverContextRef: ProductionGpuFullObjectReference;
+      attachmentGeneration: string;
+      contextGeneration: string;
+      configurationGeneration: string;
+      terminalIntent: 'first-cleanup';
+      targetAuthorityDigest: string;
+      surfaceAccountToken: string;
+      surfaceAccountGeneration: string;
+    }>
+  | Readonly<{
+      kind: 'texture-destroy-v1';
+      receiverTextureRef: ProductionGpuFullObjectReference;
+      terminalIntent:
+        | 'first-cleanup'
+        | 'first-expired-cleanup'
+        | 'repeat-cleanup-noop';
+      materializationState: 'unmaterialized' | 'materialized';
+      origin:
+        | Readonly<{ kind: 'device-created-v1' }>
+        | ProductionGpuCanvasCurrentTextureOriginEncoding;
+    }>;
+
 export interface ProductionGpuServiceEncodingInput {
   readonly operationId: string;
   readonly wireId: number;
@@ -131,6 +191,8 @@ export interface ProductionGpuServiceEncodingInput {
   readonly sealedLocalTimeline: readonly unknown[];
   /** Closed lifecycle body for the dormant GPUBuffer native-codegen routes. */
   readonly bufferLifecycle?: ProductionGpuBufferLifecycleEncoding;
+  /** Closed wrapper-derived canvas/configuration/texture cleanup authority. */
+  readonly canvasService?: ProductionGpuCanvasServiceEncoding;
 }
 
 /** Conversion runs at the public operation's declared timing, while encoding

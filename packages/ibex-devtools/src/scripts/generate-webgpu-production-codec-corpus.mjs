@@ -57,6 +57,9 @@ const deviceDestroyOperationId = "GPUDevice.destroy";
 const bufferDestroyOperationId = "GPUBuffer.destroy";
 const bufferMapAsyncOperationId = "GPUBuffer.mapAsync";
 const bufferUnmapOperationId = "GPUBuffer.unmap";
+const canvasConfigureOperationId = "GPUCanvasContext.configure";
+const canvasUnconfigureOperationId = "GPUCanvasContext.unconfigure";
+const textureDestroyOperationId = "GPUTexture.destroy";
 const queueWriteBufferOperationId = "GPUQueue.writeBuffer";
 const queueSubmitOperationId = "GPUQueue.submit";
 
@@ -5773,6 +5776,441 @@ function buildCorpus() {
     },
   ]);
 
+  const canvasLifecycleOperationIds = [
+    canvasConfigureOperationId,
+    canvasUnconfigureOperationId,
+    textureDestroyOperationId,
+  ];
+  const canvasLifecycleRoutes = new Map();
+  for (const canvasOperationId of canvasLifecycleOperationIds) {
+    const canvasRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (candidate) => candidate.operationId === canvasOperationId,
+    );
+    const canvasNativeRoute =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+        (candidate) => candidate.operationId === canvasOperationId,
+      );
+    const canvasRequestCodec =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+        (candidate) => candidate.tag === canvasRoute?.serviceArgumentCodec,
+      );
+    const canvasCompletionCodec =
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+        (candidate) => candidate.tag === canvasRoute?.serviceCompletionCodec,
+      );
+    if (
+      !canvasRoute ||
+      !canvasNativeRoute ||
+      !canvasRequestCodec?.nativeProgramPrerequisitesRepresented ||
+      !canvasRequestCodec.executableFromCurrentAuthenticatedInputs ||
+      canvasRequestCodec.unavailableSemanticFields.length !== 0 ||
+      !canvasCompletionCodec ||
+      canvasNativeRoute.request.catalog.wireTag !== canvasRequestCodec.wireTag ||
+      canvasNativeRoute.completion.catalog.wireTag !==
+        canvasCompletionCodec.wireTag
+    ) {
+      fail(`${canvasOperationId} canvas lifecycle codec route is not executable`);
+    }
+    canvasLifecycleRoutes.set(canvasOperationId, Object.freeze({
+      route: canvasRoute,
+      nativeRoute: canvasNativeRoute,
+      requestCodec: canvasRequestCodec,
+      completionCodec: canvasCompletionCodec,
+    }));
+  }
+  const canvasDeviceBrand = Object.freeze({ corpusBrand: "GPUDevice" });
+  const canvasDeviceRef = Object.freeze({
+    kind: "GPUDevice",
+    objectId: "140",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const canvasContextRef = Object.freeze({
+    kind: "GPUCanvasContext",
+    objectId: "141",
+    objectGeneration: "2",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const canvasTextureRef = Object.freeze({
+    kind: "GPUTexture",
+    objectId: "142",
+    objectGeneration: "1",
+    logicalDeviceId: "55",
+    logicalDeviceGeneration: "1",
+    providerGeneration: "9",
+  });
+  const canvasWrapperAccess = Object.freeze({
+    referenceIfBranded(value, expectedKind) {
+      return value === canvasDeviceBrand && expectedKind === "GPUDevice"
+        ? canvasDeviceRef
+        : undefined;
+    },
+    reference(value, expectedKind) {
+      if (value !== canvasDeviceBrand || expectedKind !== "GPUDevice") {
+        throw new TypeError("wrong WebGPU object brand");
+      }
+      return canvasDeviceRef;
+    },
+  });
+  const convertedCanvasConfigure =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      canvasConfigureOperationId,
+      [Object.freeze({ device: canvasDeviceBrand, format: "bgra8unorm" })],
+      canvasWrapperAccess,
+    );
+  const convertedCanvasUnconfigure =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      canvasUnconfigureOperationId,
+      [],
+      canvasWrapperAccess,
+    );
+  const convertedTextureDestroy =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      textureDestroyOperationId,
+      [],
+      canvasWrapperAccess,
+    );
+  if (
+    convertedCanvasUnconfigure !== null ||
+    convertedTextureDestroy !== null ||
+    convertedCanvasConfigure.format !== "bgra8unorm" ||
+    convertedCanvasConfigure.usage !== 16 ||
+    convertedCanvasConfigure.alphaMode !== "opaque" ||
+    convertedCanvasConfigure.colorSpace !== "srgb"
+  ) {
+    fail("canvas lifecycle public conversion projection drifted");
+  }
+  const canvasTargetAuthorityDigest = "ab".repeat(32);
+  const canvasConfigureBody = Object.freeze({
+    kind: "canvas-configure-v1",
+    receiverContextRef: canvasContextRef,
+    attachmentGeneration: "3",
+    contextGeneration: "5",
+    configurationGeneration: "8",
+    configuredDeviceRef: canvasDeviceRef,
+    format: "bgra8unorm",
+    usage: 16,
+    alphaMode: "opaque",
+    colorSpace: "srgb",
+    targetAuthorityDigest: canvasTargetAuthorityDigest,
+    surfaceAccountToken: "19",
+    surfaceAccountGeneration: "23",
+  });
+  const canvasUnconfigureBody = Object.freeze({
+    kind: "canvas-unconfigure-v1",
+    receiverContextRef: canvasContextRef,
+    attachmentGeneration: "3",
+    contextGeneration: "5",
+    configurationGeneration: "8",
+    terminalIntent: "first-cleanup",
+    targetAuthorityDigest: canvasTargetAuthorityDigest,
+    surfaceAccountToken: "19",
+    surfaceAccountGeneration: "23",
+  });
+  const canvasTextureOriginDigest =
+    WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.deriveTextureOriginDigest(
+      Object.freeze({
+        originClass: "canvas-current",
+        receiverTextureRef: canvasTextureRef,
+        contextRef: canvasContextRef,
+        attachmentGeneration: "3",
+        contextGeneration: "5",
+        configurationGeneration: "8",
+        currentEpoch: "13",
+        mintOperationProvenance: Object.freeze({
+          operationInstanceId: "61",
+          deviceIngressOrdinal: "29",
+        }),
+        configuredDeviceRef: canvasDeviceRef,
+        format: "bgra8unorm",
+        usage: 16,
+        alphaMode: "opaque",
+        colorSpace: "srgb",
+        targetAuthorityDigest: canvasTargetAuthorityDigest,
+        surfaceAccountToken: "19",
+        surfaceAccountGeneration: "23",
+      }),
+    );
+  const canvasDestroyCurrentOrigin = Object.freeze({
+    kind: "canvas-current-v1",
+    contextRef: canvasContextRef,
+    attachmentGeneration: "3",
+    contextGeneration: "5",
+    configurationGeneration: "8",
+    currentEpoch: "13",
+    mintOperationProvenance: Object.freeze({
+      operationInstanceId: "61",
+      deviceIngressOrdinal: "29",
+    }),
+    textureOriginDigest: canvasTextureOriginDigest,
+  });
+  const textureDestroyBody = (
+    terminalIntent,
+    materializationState,
+    origin,
+  ) => Object.freeze({
+    kind: "texture-destroy-v1",
+    receiverTextureRef: canvasTextureRef,
+    terminalIntent,
+    materializationState,
+    origin,
+  });
+  const encodeCanvasLifecycleRequest = (
+    canvasOperationId,
+    receiver,
+    convertedArguments,
+    canvasService,
+  ) => {
+    const metadata = canvasLifecycleRoutes.get(canvasOperationId);
+    const input = Object.freeze({
+      operationId: canvasOperationId,
+      wireId: metadata.route.wireId,
+      convertedArguments,
+      receiver,
+      capturedScopeId: "2",
+      adapterOrdinal: "0",
+      deviceIngressOrdinal: "30",
+      queueIngressOrdinal: "0",
+      sealedLocalTimeline: Object.freeze([]),
+      canvasService,
+    });
+    const bytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(input);
+    const productionBytes = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(input);
+    if (toHex(bytes) !== toHex(productionBytes)) {
+      fail(`${canvasOperationId} production and codegen request bytes differ`);
+    }
+    return Object.freeze({
+      metadata,
+      bytes,
+      inspected: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .inspectServiceRequest(bytes),
+    });
+  };
+  const canvasLifecycleRequests = Object.freeze([
+    Object.freeze({
+      id: "canvas-configure-next-generation-request",
+      operationId: canvasConfigureOperationId,
+      encoded: encodeCanvasLifecycleRequest(
+        canvasConfigureOperationId,
+        canvasContextRef,
+        convertedCanvasConfigure,
+        canvasConfigureBody,
+      ),
+    }),
+    Object.freeze({
+      id: "canvas-unconfigure-retiring-generation-request",
+      operationId: canvasUnconfigureOperationId,
+      encoded: encodeCanvasLifecycleRequest(
+        canvasUnconfigureOperationId,
+        canvasContextRef,
+        convertedCanvasUnconfigure,
+        canvasUnconfigureBody,
+      ),
+    }),
+    Object.freeze({
+      id: "texture-destroy-device-created-first-cleanup-request",
+      operationId: textureDestroyOperationId,
+      encoded: encodeCanvasLifecycleRequest(
+        textureDestroyOperationId,
+        canvasTextureRef,
+        convertedTextureDestroy,
+        textureDestroyBody(
+          "first-cleanup",
+          "unmaterialized",
+          Object.freeze({ kind: "device-created-v1" }),
+        ),
+      ),
+    }),
+    Object.freeze({
+      id: "texture-destroy-expired-canvas-current-request",
+      operationId: textureDestroyOperationId,
+      encoded: encodeCanvasLifecycleRequest(
+        textureDestroyOperationId,
+        canvasTextureRef,
+        convertedTextureDestroy,
+        textureDestroyBody(
+          "first-expired-cleanup",
+          "materialized",
+          canvasDestroyCurrentOrigin,
+        ),
+      ),
+    }),
+    Object.freeze({
+      id: "texture-destroy-repeat-cleanup-noop-request",
+      operationId: textureDestroyOperationId,
+      encoded: encodeCanvasLifecycleRequest(
+        textureDestroyOperationId,
+        canvasTextureRef,
+        convertedTextureDestroy,
+        textureDestroyBody(
+          "repeat-cleanup-noop",
+          "materialized",
+          canvasDestroyCurrentOrigin,
+        ),
+      ),
+    }),
+  ]);
+  const canvasRequestById = new Map(
+    canvasLifecycleRequests.map((entry) => [entry.id, entry]),
+  );
+  const canvasTerminalBytes = new Map([
+    [
+      `${canvasConfigureOperationId}:operation-success`,
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        canvasConfigureOperationId,
+        { kind: "canvas-terminal", terminal: "operation-success" },
+      ),
+    ],
+    [
+      `${canvasUnconfigureOperationId}:first-cleanup-provider`,
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        canvasUnconfigureOperationId,
+        { kind: "canvas-terminal", terminal: "first-cleanup-provider" },
+      ),
+    ],
+    ...["repeat-cleanup-noop", "first-cleanup-provider"].map((terminal) => [
+      `${textureDestroyOperationId}:${terminal}`,
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        textureDestroyOperationId,
+        { kind: "canvas-terminal", terminal },
+      ),
+    ]),
+  ]);
+  if ([...canvasTerminalBytes.values()].some((bytes) => bytes.byteLength !== 0)) {
+    fail("canvas lifecycle terminals must encode empty receipt payloads");
+  }
+  const canvasRequestCarrier = (entry) => {
+    const receiver = entry.operationId === textureDestroyOperationId
+      ? canvasTextureRef
+      : canvasContextRef;
+    return Object.freeze({
+      operation_id: entry.encoded.metadata.route.wireId,
+      flags: 0,
+      topology_id:
+        WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.constants
+          .providerTopologyId,
+      ingress_device: Object.freeze({
+        logical_device_id: "55",
+        logical_device_generation: "1",
+        provider_generation: "9",
+      }),
+      provider_generation: "9",
+      operation_instance_id: "62",
+      promise_id: "0",
+      captured_scope_id: "2",
+      adapter_ordinal: "0",
+      device_ingress_ordinal: "30",
+      queue_ingress_ordinal: "0",
+      receiver: Object.freeze({
+        kind: WEBGPU_EXECUTABLE_CODEC_MANIFEST.objectKindTags[receiver.kind],
+        flags: 0,
+        object_id: receiver.objectId,
+        object_generation: receiver.objectGeneration,
+      }),
+      target: Object.freeze({
+        kind: 0,
+        flags: 0,
+        object_id: "0",
+        object_generation: "0",
+      }),
+    });
+  };
+  const canvasCompletionCarrier = (
+    entry,
+    providerAdmission,
+    physicalSequence,
+  ) => {
+    const requestCarrier = canvasRequestCarrier(entry);
+    return Object.freeze({
+      kind: 1,
+      record: Object.freeze({
+        operation_result: Object.freeze({
+          result_kind: 0,
+          status: 0,
+          operation: Object.freeze({
+            operation_id: requestCarrier.operation_id,
+            operation_instance_id: requestCarrier.operation_instance_id,
+            promise_id: "0",
+            provider_admission: providerAdmission,
+            physical_sequence: physicalSequence,
+            captured_scope_id: requestCarrier.captured_scope_id,
+            adapter_ordinal: requestCarrier.adapter_ordinal,
+            device_ingress_ordinal: requestCarrier.device_ingress_ordinal,
+            queue_ingress_ordinal: requestCarrier.queue_ingress_ordinal,
+            device_transition: 0,
+            ingress_device: requestCarrier.ingress_device,
+            result_device: requestCarrier.ingress_device,
+            provider_generation: requestCarrier.provider_generation,
+            receiver: requestCarrier.receiver,
+            target: requestCarrier.target,
+          }),
+        }),
+      }),
+    });
+  };
+  const configureBytes = canvasRequestById.get(
+    "canvas-configure-next-generation-request",
+  ).encoded.bytes;
+  const unconfigureBytes = canvasRequestById.get(
+    "canvas-unconfigure-retiring-generation-request",
+  ).encoded.bytes;
+  const expiredTextureDestroyBytes = canvasRequestById.get(
+    "texture-destroy-expired-canvas-current-request",
+  ).encoded.bytes;
+  const canvasBinaryRejections = Object.freeze([
+    {
+      id: "canvas-configure-unknown-alpha-mode-tag-rejected",
+      operationId: canvasConfigureOperationId,
+      mutation: "alpha-mode-tag-255",
+      bytes: mutatedBytes(configureBytes, (bytes) => { bytes[215] = 0xff; }),
+    },
+    {
+      id: "canvas-unconfigure-unknown-terminal-intent-tag-rejected",
+      operationId: canvasUnconfigureOperationId,
+      mutation: "terminal-intent-tag-255",
+      bytes: mutatedBytes(unconfigureBytes, (bytes) => { bytes[156] = 0xff; }),
+    },
+    ...[
+      ["terminal-intent", 132],
+      ["materialization", 133],
+      ["origin", 134],
+    ].map(([name, offset]) => Object.freeze({
+      id: `texture-destroy-unknown-${name}-tag-rejected`,
+      operationId: textureDestroyOperationId,
+      mutation: `${name}-tag-255`,
+      bytes: mutatedBytes(expiredTextureDestroyBytes, (bytes) => {
+        bytes[offset] = 0xff;
+      }),
+    })),
+    {
+      id: "texture-destroy-request-truncated-rejected",
+      operationId: textureDestroyOperationId,
+      mutation: "truncate-final-origin-digest-byte",
+      bytes: expiredTextureDestroyBytes.slice(0, -1),
+    },
+    {
+      id: "texture-destroy-request-trailing-byte-rejected",
+      operationId: textureDestroyOperationId,
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(expiredTextureDestroyBytes),
+    },
+  ]);
+  for (const rejection of canvasBinaryRejections) {
+    let rejected = false;
+    try {
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(rejection.bytes);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) fail(`${rejection.id} did not fail closed`);
+  }
+
   const queueWriteBufferRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === queueWriteBufferOperationId,
   );
@@ -6899,7 +7337,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -7225,6 +7663,26 @@ function buildCorpus() {
             lifecycleOperationId === bufferMapAsyncOperationId
               ? metadata.nativeRoute.completion.payload.fields.at(-1).type
               : "empty",
+        };
+      }),
+      ...canvasLifecycleOperationIds.map((canvasOperationId) => {
+        const metadata = canvasLifecycleRoutes.get(canvasOperationId);
+        return {
+          operationId: canvasOperationId,
+          wireId: metadata.route.wireId,
+          nativeCodecProgramSchema:
+            WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+          requestCodec: metadata.requestCodec.tag,
+          requestCodecTag: metadata.requestCodec.wireTag,
+          completionCodec: metadata.completionCodec.tag,
+          completionCodecTag: metadata.completionCodec.wireTag,
+          productionExecutableFromCurrentAuthenticatedInputs: true,
+          semanticTerminalMapping:
+            metadata.nativeRoute.completion.semanticTerminalMapping,
+          bodySchema: metadata.nativeRoute.request.payload.fields.at(-1).type,
+          completionBodySchema: "empty",
+          authoritySource:
+            "wrapper-owned-closed-generation-and-origin-projection",
         };
       }),
       {
@@ -7747,6 +8205,143 @@ function buildCorpus() {
           physicalSequenceCount: 0,
         },
       },
+      ...canvasLifecycleRequests.map((entry) => ({
+        id: entry.id,
+        operationId: entry.operationId,
+        kind: "request",
+        carrierProjection: canvasRequestCarrier(entry),
+        trust:
+          "source-affine-wrapper-generation-origin-and-surface-account-comparison-input-only-never-authority",
+        semanticOwner:
+          "native-canvas-lifecycle-semantic-service-before-provider-admission",
+        bytesHex: toHex(entry.encoded.bytes),
+        expected: entry.encoded.inspected,
+      })),
+      ...[
+        {
+          entry: canvasRequestById.get(
+            "canvas-configure-next-generation-request",
+          ),
+          terminal: "operation-success",
+          providerAdmission: 1,
+          physicalSequence: "63",
+        },
+        {
+          entry: canvasRequestById.get(
+            "canvas-unconfigure-retiring-generation-request",
+          ),
+          terminal: "first-cleanup-provider",
+          providerAdmission: 1,
+          physicalSequence: "64",
+        },
+        {
+          entry: canvasRequestById.get(
+            "texture-destroy-repeat-cleanup-noop-request",
+          ),
+          terminal: "repeat-cleanup-noop",
+          providerAdmission: 0,
+          physicalSequence: "0",
+        },
+        {
+          entry: canvasRequestById.get(
+            "texture-destroy-expired-canvas-current-request",
+          ),
+          terminal: "first-cleanup-provider",
+          providerAdmission: 1,
+          physicalSequence: "65",
+        },
+      ].map(({ entry, terminal, providerAdmission, physicalSequence }) => ({
+        id: `${entry.operationId.replaceAll(".", "-").toLowerCase()}-${terminal}-result`,
+        operationId: entry.operationId,
+        kind: "result",
+        semanticTerminalId: terminal,
+        carrierProjection: canvasCompletionCarrier(
+          entry,
+          providerAdmission,
+          physicalSequence,
+        ),
+        bytesHex: toHex(canvasTerminalBytes.get(
+          `${entry.operationId}:${terminal}`,
+        )),
+        expected: { kind: "terminal-receipt", value: "undefined" },
+      })),
+      ...canvasBinaryRejections.map((rejection) => ({
+        id: rejection.id,
+        operationId: rejection.operationId,
+        kind: "binary-rejection",
+        direction: "request",
+        mutation: rejection.mutation,
+        bytesHex: toHex(rejection.bytes),
+        expected: {
+          rejection: "fail-closed-before-provider-or-wrapper-exposure",
+        },
+      })),
+      {
+        id: "canvas-configure-candidate-generation-mismatch-rejected",
+        operationId: canvasConfigureOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "canvas-configure-next-generation-request",
+        )),
+        authenticatedStateMutation: {
+          currentConfigurationGeneration: "7",
+          requiredCandidateConfigurationGeneration: "8",
+          payloadConfigurationGeneration: "7",
+        },
+        expected: {
+          rejection: "source-affine-generation-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "canvas-unconfigure-retiring-generation-mismatch-rejected",
+        operationId: canvasUnconfigureOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "canvas-unconfigure-retiring-generation-request",
+        )),
+        authenticatedStateMutation: {
+          currentConfigurationGeneration: "9",
+          payloadConfigurationGeneration: "8",
+        },
+        expected: {
+          rejection: "source-affine-generation-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "texture-destroy-current-epoch-mismatch-rejected",
+        operationId: textureDestroyOperationId,
+        kind: "semantic-rejection",
+        carrierProjection: canvasRequestCarrier(canvasRequestById.get(
+          "texture-destroy-expired-canvas-current-request",
+        )),
+        authenticatedStateMutation: {
+          currentTextureEpoch: "14",
+          payloadCurrentEpoch: "13",
+        },
+        expected: {
+          rejection: "source-affine-generation-mismatch-before-provider-admission",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
+      {
+        id: "canvas-current-same-epoch-wrapper-reuse",
+        operationId: "GPUCanvasContext.getCurrentTexture",
+        kind: "wrapper-local-invariant",
+        configuredGeneration: "8",
+        callsWithinSameEpoch: 2,
+        expected: {
+          sameWrapperIdentity: true,
+          currentEpochIncrementCount: 1,
+          nativeCodecRouteCount: 0,
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      },
       ...queueWriteBufferRequests.map((entry) => ({
         id: entry.id,
         operationId: queueWriteBufferOperationId,
@@ -7866,7 +8461,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, device-destroy, GPUBuffer destroy/mapAsync/unmap, GPUQueue.writeBuffer, and GPUQueue.submit 15-command-record/timeline/digest/adversarial payload-codegen vectors are fresh",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, device-destroy, GPUBuffer destroy/mapAsync/unmap, canvas configure/unconfigure/texture-destroy generation-and-origin/adversarial, GPUQueue.writeBuffer, and GPUQueue.submit 15-command-record/timeline/digest/adversarial payload-codegen vectors are fresh",
     );
     return;
   }

@@ -45,6 +45,8 @@ const EXPECTED_RENDER_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
   "7302077c3e05e4b4a5815bce1b63bf889774895e487bb8bf167f5218fc2a3340";
 const EXPECTED_COMPUTE_PIPELINE_DESCRIPTOR_TYPE_SHA256 =
   "a3acb8ac3e4c8a8b19efdbc015819f2387297686265b40d1c3fe79578c0a4ac5";
+const EXPECTED_CANVAS_NATIVE_PROGRAM_SHA256 =
+  "15944ef6b77e25afb117e46d6ad461e0573496138169368cd4c555710bb722d2";
 
 function assert(condition, message) {
   if (!condition) throw new Error("webgpu test-wrapper authority: " + message);
@@ -462,7 +464,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -564,6 +566,9 @@ function validateNativeCodecPrograms(payload) {
       "bufferMapAsyncCompletionBodyV1",
       "bufferMapAsyncRequestBodyV1",
       "canonicalValueV1",
+      "canvasConfigureRequestBodyV1",
+      "canvasCurrentTextureOriginV1",
+      "canvasUnconfigureRequestBodyV1",
       "commandEncoderDescriptorV1",
       "commandRecordV1",
       "completeDeviceLimitsV1",
@@ -580,9 +585,11 @@ function validateNativeCodecPrograms(payload) {
       "requestAdapterOptionsV1",
       "requestDeviceDescriptorV1",
       "samplerDescriptorV1",
+      "sha256DigestV1",
       "shaderModuleDescriptorV1",
       "sortedUniqueFeatureSequenceV1",
       "textureDescriptorV1",
+      "textureDestroyRequestBodyV1",
       "textureViewRequestV1",
     ],
     "native codec type inventory",
@@ -668,6 +675,117 @@ function validateNativeCodecPrograms(payload) {
       ],
     },
     "native buffer mapAsync completion body type",
+  );
+  assertCanonical(
+    types.sha256DigestV1,
+    {
+      kind: "fixed-bytes",
+      lengthBytes: 32,
+      sourceForm: "lowercase-sha256-hex",
+      canonicalOutput: "lowercase-sha256-hex",
+    },
+    "native canvas sha256 digest type",
+  );
+  assertCanonical(
+    types.canvasConfigureRequestBodyV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "receiverContextRef", type: "objectReferenceV1" },
+        { name: "attachmentGeneration", type: "u64le" },
+        { name: "contextGeneration", type: "u64le" },
+        { name: "configurationGeneration", type: "u64le" },
+        { name: "configuredDeviceRef", type: "objectReferenceV1" },
+        { name: "format", type: "utf8" },
+        { name: "usage", type: "u32le" },
+        { name: "alphaMode", type: "u8" },
+        { name: "colorSpace", type: "u8" },
+        { name: "targetAuthorityDigest", type: "sha256DigestV1" },
+        { name: "surfaceAccountToken", type: "u64le" },
+        { name: "surfaceAccountGeneration", type: "u64le" },
+      ],
+      invariants: [
+        "receiverContextRef-exactly-equals-the-carried-GPUCanvasContext-reference",
+        "configuredDeviceRef-is-current-generation-and-device-provenance-equals-receiver-ingress-device",
+        "attachment-context-configuration-and-surface-account-generations-are-positive-source-affine-wrapper-values",
+        "format-usage-alphaMode-and-colorSpace-exactly-equal-the-post-WebIDL-converted-configuration",
+        "targetAuthorityDigest-is-the-construction-private-current-target-authority-digest",
+        "body-is-wrapper-derived-and-cannot-be-supplied-by-the-public-GPUCanvasConfiguration",
+      ],
+    },
+    "native canvas configure request body type",
+  );
+  assertCanonical(
+    types.canvasUnconfigureRequestBodyV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "receiverContextRef", type: "objectReferenceV1" },
+        { name: "attachmentGeneration", type: "u64le" },
+        { name: "contextGeneration", type: "u64le" },
+        { name: "configurationGeneration", type: "u64le" },
+        { name: "terminalIntent", type: "u8" },
+        { name: "targetAuthorityDigest", type: "sha256DigestV1" },
+        { name: "surfaceAccountToken", type: "u64le" },
+        { name: "surfaceAccountGeneration", type: "u64le" },
+      ],
+      invariants: [
+        "receiverContextRef-exactly-equals-the-carried-GPUCanvasContext-reference",
+        "terminalIntent-is-one-first-cleanup-after-wrapper-local-repeat-noop-selection",
+        "attachment-context-configuration-and-surface-account-generations-are-positive-source-affine-wrapper-values",
+        "targetAuthorityDigest-is-the-construction-private-current-target-authority-digest",
+        "body-is-wrapper-derived-and-cannot-be-supplied-by-public-arguments",
+      ],
+    },
+    "native canvas unconfigure request body type",
+  );
+  assertCanonical(
+    types.canvasCurrentTextureOriginV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "contextRef", type: "objectReferenceV1" },
+        { name: "attachmentGeneration", type: "u64le" },
+        { name: "contextGeneration", type: "u64le" },
+        { name: "configurationGeneration", type: "u64le" },
+        { name: "currentEpoch", type: "u64le" },
+        { name: "mintOperationInstanceId", type: "u64le" },
+        { name: "mintDeviceIngressOrdinal", type: "u64le" },
+        { name: "textureOriginDigest", type: "sha256DigestV1" },
+      ],
+      invariants: [
+        "contextRef-is-a-current-generation-GPUCanvasContext-on-the-receiver-device",
+        "all-generations-epoch-and-mint-provenance-are-positive-source-affine-wrapper-values",
+        "textureOriginDigest-authenticates-the-complete-codec-owned-current-origin-input",
+        "origin-is-compared-to-the-retained-current-texture-table-and-never-materialized-ambiently",
+      ],
+    },
+    "native canvas-current texture origin type",
+  );
+  assertCanonical(
+    types.textureDestroyRequestBodyV1,
+    {
+      kind: "tagged-union",
+      tag: { name: "originClass", type: "u8" },
+      commonFields: [
+        { name: "receiverTextureRef", type: "objectReferenceV1" },
+        { name: "terminalIntent", type: "u8" },
+        { name: "materializationState", type: "u8" },
+      ],
+      variants: [
+        { name: "device-created", tag: 1, payload: "empty" },
+        { name: "canvas-current", tag: 2, payload: "canvasCurrentTextureOriginV1" },
+      ],
+      invariants: [
+        "receiverTextureRef-exactly-equals-the-carried-GPUTexture-reference",
+        "terminalIntent-zero-repeat-one-first-live-two-first-expired-is-wrapper-derived-and-idempotent",
+        "materializationState-zero-unmaterialized-or-one-materialized-is-wrapper-derived",
+        "device-created-origin-is-distinct-and-generation-fenced-by-the-full-receiver-reference",
+        "canvas-current-origin-carries-complete-mint-provenance-and-never-causes-ambient-materialization",
+        "body-is-wrapper-derived-and-cannot-be-supplied-by-public-arguments",
+      ],
+    },
+    "native texture destroy request body type",
   );
   assertCanonical(
     types.queueWriteBufferRequestBodyV1,
@@ -1548,6 +1666,29 @@ function validateNativeCodecPrograms(payload) {
         NATIVE_CODEC_ROUTE_IDS.join("|"),
     "native codec program route order or inventory drifted: expected " +
       NATIVE_CODEC_ROUTE_IDS.join(", "),
+  );
+  assertDigest(
+    canonicalDigest(
+      "ibex/webgpu-native-codec-program/canvas-service-v1",
+      {
+        types: {
+          sha256DigestV1: types.sha256DigestV1,
+          canvasConfigureRequestBodyV1: types.canvasConfigureRequestBodyV1,
+          canvasUnconfigureRequestBodyV1: types.canvasUnconfigureRequestBodyV1,
+          canvasCurrentTextureOriginV1: types.canvasCurrentTextureOriginV1,
+          textureDestroyRequestBodyV1: types.textureDestroyRequestBodyV1,
+        },
+        routes: program.routes.filter((candidate) =>
+          [
+            "GPUCanvasContext.configure",
+            "GPUCanvasContext.unconfigure",
+            "GPUTexture.destroy",
+          ].includes(candidate.operationId),
+        ),
+      },
+    ),
+    EXPECTED_CANVAS_NATIVE_PROGRAM_SHA256,
+    "authenticated canvas configure/unconfigure/texture-destroy native program",
   );
   const route = program.routes.find(
     (candidate) => candidate.operationId === "GPU.requestAdapter",
@@ -3927,7 +4068,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-submit-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(
