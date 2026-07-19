@@ -10,6 +10,7 @@ import type {
 import {
   EMBEDDED_EXECUTABLE_WEBGPU_CODECS,
   type ExecutableWebGpuCodecBundle,
+  type ProductionGpuBufferLifecycleEncoding,
   type ProductionGpuCanvasCurrentTextureOriginEncoding,
   type ProductionGpuCanvasServiceEncoding,
   type ProductionGpuDecodedResult,
@@ -22,6 +23,11 @@ import {
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 import { WEBGPU_OBJECT_KIND_TAGS } from './production-codecs.generated';
 import { EventTarget } from '../events/EventTarget';
+import {
+  isDetachedArrayBuffer,
+  markDetachedArrayBuffer,
+  markNonTransferableArrayBuffer,
+} from '../arraybuffer-detach';
 
 type ProductionRoute = (typeof WEBGPU_PRODUCTION_PLAN.routes)[number];
 type ProductionGpuAllocatedWrapperKind = Exclude<
@@ -65,6 +71,7 @@ const INTRINSIC_ARRAY_BUFFER = ArrayBuffer;
 const INTRINSIC_ARRAY_BUFFER_IS_VIEW = INTRINSIC_ARRAY_BUFFER.isView;
 const INTRINSIC_UINT8_ARRAY = Uint8Array;
 const INTRINSIC_UINT32_ARRAY = Uint32Array;
+const INTRINSIC_UINT8_ARRAY_SET = Uint8Array.prototype.set;
 const INTRINSIC_REFLECT_APPLY = Reflect.apply;
 const INTRINSIC_REFLECT_CONSTRUCT = Reflect.construct;
 const INTRINSIC_TYPED_ARRAY_PROTOTYPE = Object.getPrototypeOf(
@@ -74,10 +81,25 @@ const INTRINSIC_TYPED_ARRAY_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
   INTRINSIC_TYPED_ARRAY_PROTOTYPE,
   'length',
 )?.get;
+const INTRINSIC_TYPED_ARRAY_BUFFER_GETTER = Object.getOwnPropertyDescriptor(
+  INTRINSIC_TYPED_ARRAY_PROTOTYPE,
+  'buffer',
+)?.get;
+const INTRINSIC_TYPED_ARRAY_BYTE_OFFSET_GETTER = Object.getOwnPropertyDescriptor(
+  INTRINSIC_TYPED_ARRAY_PROTOTYPE,
+  'byteOffset',
+)?.get;
+const INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(
+  INTRINSIC_TYPED_ARRAY_PROTOTYPE,
+  'byteLength',
+)?.get;
 const INTRINSIC_TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
   INTRINSIC_TYPED_ARRAY_PROTOTYPE,
   Symbol.toStringTag,
 )?.get;
+const INTRINSIC_ARRAY_BUFFER_BYTE_LENGTH_GETTER =
+  Object.getOwnPropertyDescriptor(INTRINSIC_ARRAY_BUFFER.prototype, 'byteLength')
+    ?.get;
 
 // This is a construction-private memory-safety guard, deliberately no larger
 // than the authenticated structural per-descriptor ceiling. It is not the
@@ -85,6 +107,7 @@ const INTRINSIC_TYPED_ARRAY_TAG_GETTER = Object.getOwnPropertyDescriptor(
 // bridge can transfer an affine preallocation credit into the service ledger,
 // the production codec authority remains absent and this guard is monotonic.
 const PRIVATE_MAPPED_ALLOCATION_GUARD_MAX_BYTES = 268_435_456;
+const PRIVATE_MAPPED_RANGE_LEASE_LIMIT = 4_096;
 
 interface LostController {
   readonly promise: Promise<unknown>;
@@ -111,6 +134,40 @@ interface DeviceState {
   scopes: Array<Readonly<{ id: string; filter: string }>>;
   pendingLocalTimeline: unknown[];
   readonly configuredCanvasContexts: Set<WrapperState>;
+  readonly buffers: Set<WrapperState>;
+}
+
+interface PendingBufferMapState {
+  readonly generation: string;
+  readonly mode: 1 | 2;
+  readonly offset: number;
+  readonly size: number;
+  readonly promise: Promise<undefined>;
+  readonly resolve: () => void;
+  readonly reject: (error: unknown) => void;
+  settled: boolean;
+  operationInstanceId: string | undefined;
+  promiseId: string | undefined;
+}
+
+interface BufferMappedRangeLease {
+  readonly offset: number;
+  readonly size: number;
+  readonly bytes: ArrayBuffer;
+}
+
+interface ActiveBufferMappingState {
+  readonly generation: string;
+  readonly mode: 1 | 2;
+  readonly offset: number;
+  readonly size: number;
+  readonly bytes: ArrayBuffer;
+  readonly ranges: BufferMappedRangeLease[];
+}
+
+interface PendingBufferCleanupState {
+  readonly operationId: 'GPUBuffer.destroy' | 'GPUBuffer.unmap';
+  readonly body: Extract<ProductionGpuBufferLifecycleEncoding, { kind: 'cleanup-v1' }>;
 }
 
 type CanvasContextLifecycle =
@@ -170,6 +227,13 @@ interface WrapperState {
   bufferUsage: number | undefined;
   bufferMapState: 'mapped' | 'pending' | 'unmapped' | undefined;
   bufferMappedBytes: ArrayBuffer | undefined;
+  bufferNextMapGeneration: string;
+  bufferMapGenerationExhausted: boolean;
+  bufferNextCleanupGeneration: string;
+  bufferCleanupGenerationExhausted: boolean;
+  bufferPendingMap: PendingBufferMapState | undefined;
+  bufferActiveMapping: ActiveBufferMappingState | undefined;
+  bufferPendingCleanup: PendingBufferCleanupState | undefined;
   textureDimension: '1d' | '2d' | '3d' | undefined;
   textureFormat: string | undefined;
   textureUsage: number | undefined;
@@ -218,6 +282,7 @@ interface RealmState {
   >;
   readonly wrappers: WeakMap<object, WrapperState>;
   readonly devices: Map<string, DeviceState>;
+  readonly buffers: Set<WrapperState>;
   readonly hostCanvasContextsByIdentity: Map<string, WrapperState>;
   readonly currentHostCanvasContextByObject: Map<string, WrapperState>;
   readonly currentHostCanvasContextBySurfaceToken: Map<string, WrapperState>;
@@ -248,6 +313,7 @@ export interface ProductionWebGpuPrivateBindingInspection {
   readonly privateMappedAllocationGuardBytes: number;
   readonly canvasLossTransitionCount: number;
   readonly activePassCount: number;
+  readonly trackedBufferLifecycleCount: number;
   readonly routedDeviceCount: number;
   readonly indexedCanvasContextCount: number;
   readonly indexedCanvasObjectCount: number;
@@ -267,6 +333,8 @@ export interface ProductionWebGpuPrivateBindingTestOptions {
     nextScopeId?: string;
     canvasConfigurationGeneration?: string;
     canvasCurrentEpoch?: string;
+    nextBufferMapGeneration?: string;
+    nextBufferCleanupGeneration?: string;
   }>;
   readonly privateMappedAllocationGuardLimitBytes?: number;
   readonly enableStateInspection?: boolean;
@@ -1035,6 +1103,8 @@ function capturePrivateBindingTestOptions(
     nextScopeId: true,
     canvasConfigurationGeneration: false,
     canvasCurrentEpoch: false,
+    nextBufferMapGeneration: true,
+    nextBufferCleanupGeneration: true,
   });
   const counterSeeds: Record<string, string> = Object.create(null);
   for (const key of Reflect.ownKeys(seedDescriptors)) {
@@ -1102,6 +1172,7 @@ export function createProductionWebGpuPrivateBinding(
     prototypes: mutablePrototypes,
     wrappers: new WeakMap(),
     devices: new Map(),
+    buffers: new Set(),
     hostCanvasContextsByIdentity: new Map(),
     currentHostCanvasContextByObject: new Map(),
     currentHostCanvasContextBySurfaceToken: new Map(),
@@ -1194,6 +1265,248 @@ export function createProductionWebGpuPrivateBinding(
     providerGeneration: device.providerGeneration,
   });
 
+  const intrinsicArrayBufferByteLength = (buffer: ArrayBuffer): number => {
+    if (!INTRINSIC_ARRAY_BUFFER_BYTE_LENGTH_GETTER) {
+      throw new TypeError('ArrayBuffer byteLength intrinsic is unavailable');
+    }
+    return INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_ARRAY_BUFFER_BYTE_LENGTH_GETTER,
+      buffer,
+      [],
+    ) as number;
+  };
+
+  const copyArrayBufferRange = (
+    source: ArrayBuffer,
+    offset: number,
+    size: number,
+  ): ArrayBuffer => {
+    const sourceLength = intrinsicArrayBufferByteLength(source);
+    if (
+      isDetachedArrayBuffer(source) ||
+      !Number.isSafeInteger(offset) ||
+      !Number.isSafeInteger(size) ||
+      offset < 0 ||
+      size < 0 ||
+      offset > sourceLength - size
+    ) {
+      throw namedError('OperationError', 'GPUBuffer mapped byte block is unavailable');
+    }
+    let result: ArrayBuffer;
+    try {
+      result = INTRINSIC_REFLECT_CONSTRUCT(
+        INTRINSIC_ARRAY_BUFFER,
+        [size],
+      ) as ArrayBuffer;
+      const sourceView = INTRINSIC_REFLECT_CONSTRUCT(
+        INTRINSIC_UINT8_ARRAY,
+        [source, offset, size],
+      ) as Uint8Array;
+      const resultView = INTRINSIC_REFLECT_CONSTRUCT(
+        INTRINSIC_UINT8_ARRAY,
+        [result],
+      ) as Uint8Array;
+      INTRINSIC_REFLECT_APPLY(INTRINSIC_UINT8_ARRAY_SET, resultView, [sourceView]);
+    } catch {
+      throw new RangeError('GPUBuffer mapped byte copy could not be allocated');
+    }
+    return result;
+  };
+
+  const copyOwnedUint8View = (value: unknown, expectedSize: number): ArrayBuffer => {
+    if (
+      !INTRINSIC_TYPED_ARRAY_TAG_GETTER ||
+      !INTRINSIC_TYPED_ARRAY_BUFFER_GETTER ||
+      !INTRINSIC_TYPED_ARRAY_BYTE_OFFSET_GETTER ||
+      !INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER ||
+      INTRINSIC_REFLECT_APPLY(
+        INTRINSIC_TYPED_ARRAY_TAG_GETTER,
+        value,
+        [],
+      ) !== 'Uint8Array'
+    ) {
+      throw new TypeError('GPUBuffer map completion bytes must be a Uint8Array');
+    }
+    const sourceBuffer = INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_TYPED_ARRAY_BUFFER_GETTER,
+      value,
+      [],
+    ) as ArrayBuffer;
+    const sourceOffset = INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_TYPED_ARRAY_BYTE_OFFSET_GETTER,
+      value,
+      [],
+    ) as number;
+    const sourceLength = INTRINSIC_REFLECT_APPLY(
+      INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER,
+      value,
+      [],
+    ) as number;
+    if (sourceLength !== expectedSize) {
+      throw new TypeError('GPUBuffer map completion byte extent is inconsistent');
+    }
+    return copyArrayBufferRange(sourceBuffer, sourceOffset, sourceLength);
+  };
+
+  const copyMappedRangeInto = (
+    destination: ArrayBuffer,
+    destinationOffset: number,
+    source: ArrayBuffer,
+  ): void => {
+    if (isDetachedArrayBuffer(source)) return;
+    const sourceLength = intrinsicArrayBufferByteLength(source);
+    const destinationLength = intrinsicArrayBufferByteLength(destination);
+    if (destinationOffset < 0 || destinationOffset > destinationLength - sourceLength) {
+      throw new Error('GPUBuffer mapped range writeback is outside its owned block');
+    }
+    const destinationView = INTRINSIC_REFLECT_CONSTRUCT(
+      INTRINSIC_UINT8_ARRAY,
+      [destination, destinationOffset, sourceLength],
+    ) as Uint8Array;
+    const sourceView = INTRINSIC_REFLECT_CONSTRUCT(
+      INTRINSIC_UINT8_ARRAY,
+      [source],
+    ) as Uint8Array;
+    INTRINSIC_REFLECT_APPLY(INTRINSIC_UINT8_ARRAY_SET, destinationView, [sourceView]);
+  };
+
+  const makePendingBufferMap = (
+    generation: string,
+    mode: 1 | 2,
+    offset: number,
+    size: number,
+  ): PendingBufferMapState => {
+    let resolvePromise: (() => void) | undefined;
+    let rejectPromise: ((error: unknown) => void) | undefined;
+    const promise = new Promise<undefined>((resolve, reject) => {
+      resolvePromise = () => resolve(undefined);
+      rejectPromise = reject;
+    });
+    return {
+      generation,
+      mode,
+      offset,
+      size,
+      promise,
+      resolve: () => resolvePromise?.(),
+      reject: (error) => rejectPromise?.(error),
+      settled: false,
+      operationInstanceId: undefined,
+      promiseId: undefined,
+    };
+  };
+
+  const settlePendingBufferMap = (
+    pending: PendingBufferMapState,
+    error?: unknown,
+  ): void => {
+    if (pending.settled) return;
+    pending.settled = true;
+    if (error === undefined) pending.resolve();
+    else pending.reject(error);
+  };
+
+  const retainBufferLifecycle = (buffer: WrapperState): void => {
+    realm.buffers.add(buffer);
+    buffer.device?.buffers.add(buffer);
+  };
+
+  const releaseBufferLifecycleIfIdle = (buffer: WrapperState): void => {
+    if (
+      buffer.bufferPendingMap ||
+      buffer.bufferActiveMapping ||
+      buffer.bufferPendingCleanup
+    ) {
+      return;
+    }
+    realm.buffers.delete(buffer);
+    buffer.device?.buffers.delete(buffer);
+  };
+
+  const cancelPendingBufferMap = (
+    buffer: WrapperState,
+    message: string,
+    issueNativeCancel: boolean,
+  ): PendingBufferMapState | undefined => {
+    const pending = buffer.bufferPendingMap;
+    if (!pending) return undefined;
+    buffer.bufferPendingMap = undefined;
+    buffer.bufferMapState = buffer.bufferActiveMapping ? 'mapped' : 'unmapped';
+    if (
+      issueNativeCancel &&
+      pending.operationInstanceId !== undefined &&
+      pending.promiseId !== undefined
+    ) {
+      try {
+        bridge.cancel(pending.operationInstanceId, pending.promiseId);
+      } catch {
+        // The authenticated cleanup request carries the same cancelled map
+        // generation. A throwing low-level cancel cannot restore wrapper
+        // authority or delay the public AbortError.
+      }
+    }
+    settlePendingBufferMap(pending, namedError('AbortError', message));
+    releaseBufferLifecycleIfIdle(buffer);
+    return pending;
+  };
+
+  const detachActiveBufferMapping = (
+    buffer: WrapperState,
+  ): ActiveBufferMappingState | undefined => {
+    const active = buffer.bufferActiveMapping;
+    if (!active) return undefined;
+    for (const range of active.ranges) {
+      markDetachedArrayBuffer(range.bytes);
+    }
+    markDetachedArrayBuffer(active.bytes);
+    buffer.bufferActiveMapping = undefined;
+    buffer.bufferMappedBytes = undefined;
+    buffer.bufferMapState = buffer.bufferPendingMap ? 'pending' : 'unmapped';
+    releaseBufferLifecycleIfIdle(buffer);
+    return active;
+  };
+
+  const discardPendingBufferCleanup = (buffer: WrapperState): void => {
+    const pendingCleanup = buffer.bufferPendingCleanup;
+    if (!pendingCleanup) return;
+    if (INTRINSIC_TYPED_ARRAY_BUFFER_GETTER) {
+      const backing = INTRINSIC_REFLECT_APPLY(
+        INTRINSIC_TYPED_ARRAY_BUFFER_GETTER,
+        pendingCleanup.body.writeback,
+        [],
+      );
+      markDetachedArrayBuffer(backing as ArrayBuffer);
+    }
+    buffer.bufferPendingCleanup = undefined;
+    releaseBufferLifecycleIfIdle(buffer);
+  };
+
+  const clearRealmBufferMappings = (
+    issueNativeCancel: boolean,
+    message: string,
+  ): void => {
+    for (const buffer of realm.buffers) {
+      cancelPendingBufferMap(buffer, message, issueNativeCancel);
+      detachActiveBufferMapping(buffer);
+      discardPendingBufferCleanup(buffer);
+    }
+  };
+
+  const clearDeviceBufferMappings = (
+    device: DeviceState,
+    clearActive: boolean,
+    issueNativeCancel: boolean,
+    message: string,
+  ): void => {
+    for (const buffer of device.buffers) {
+      cancelPendingBufferMap(buffer, message, issueNativeCancel);
+      if (clearActive) {
+        detachActiveBufferMapping(buffer);
+        discardPendingBufferCleanup(buffer);
+      }
+    }
+  };
+
   const inspectCurrentState = (): ProductionWebGpuPrivateBindingInspection =>
     Object.freeze({
       active: realm.active,
@@ -1205,6 +1518,7 @@ export function createProductionWebGpuPrivateBinding(
         realm.privateMappedAllocationGuardBytes,
       canvasLossTransitionCount: realm.canvasLossTransitionCount,
       activePassCount: realm.activePassCount,
+      trackedBufferLifecycleCount: realm.buffers.size,
       routedDeviceCount: realm.devices.size,
       indexedCanvasContextCount: realm.hostCanvasContextsByIdentity.size,
       indexedCanvasObjectCount: realm.currentHostCanvasContextByObject.size,
@@ -1247,6 +1561,7 @@ export function createProductionWebGpuPrivateBinding(
         realm.privateMappedAllocationGuardBytes,
       canvasLossTransitionCount: realm.canvasLossTransitionCount,
       activePassCount: realm.activePassCount,
+      trackedBufferLifecycleCount: realm.buffers.size,
       routedDeviceCount: devices.length,
       indexedCanvasContextCount: contexts.length,
       indexedCanvasObjectCount: realm.currentHostCanvasContextByObject.size,
@@ -1267,6 +1582,8 @@ export function createProductionWebGpuPrivateBinding(
     realm.hostCanvasContextsByIdentity.clear();
     realm.currentHostCanvasContextByObject.clear();
     realm.currentHostCanvasContextBySurfaceToken.clear();
+    clearRealmBufferMappings(false, 'The WebGPU realm was closed');
+    realm.buffers.clear();
     realm.devices.clear();
     realm.pendingPromiseCalls.clear();
     realm.resultEvents.clear();
@@ -1421,6 +1738,21 @@ export function createProductionWebGpuPrivateBinding(
       bufferUsage: undefined,
       bufferMapState: undefined,
       bufferMappedBytes: undefined,
+      bufferNextMapGeneration: counterSeed(
+        'nextBufferMapGeneration',
+        '1',
+        true,
+      ),
+      bufferMapGenerationExhausted: false,
+      bufferNextCleanupGeneration: counterSeed(
+        'nextBufferCleanupGeneration',
+        '1',
+        true,
+      ),
+      bufferCleanupGenerationExhausted: false,
+      bufferPendingMap: undefined,
+      bufferActiveMapping: undefined,
+      bufferPendingCleanup: undefined,
       textureDimension: undefined,
       textureFormat: undefined,
       textureUsage: undefined,
@@ -1672,6 +2004,12 @@ export function createProductionWebGpuPrivateBinding(
     reason: 'destroyed' | 'unknown',
     message: string,
   ): void => {
+    clearDeviceBufferMappings(
+      device,
+      false,
+      true,
+      'GPUBuffer mapping was cancelled because its device was lost',
+    );
     if (device.lost.settled) return;
     const transitions = [...device.configuredCanvasContexts]
       .filter((context) =>
@@ -2062,6 +2400,11 @@ export function createProductionWebGpuPrivateBinding(
     beforeNativeSubmit?: () => void,
     onNativeSubmitFailure?: (failure: ServiceSubmissionFailureKind) => void,
     canvasService?: ProductionGpuCanvasServiceEncoding,
+    bufferLifecycle?: ProductionGpuBufferLifecycleEncoding,
+    afterNativeSubmit?: (identity: Readonly<{
+      operationInstanceId: string;
+      promiseId: string;
+    }>) => void,
   ) => {
     const plan = preparedPlan ?? prepareServiceCounters(
       operationId,
@@ -2084,11 +2427,10 @@ export function createProductionWebGpuPrivateBinding(
     if ((receiver.device ?? target?.device) !== device) {
       throw new Error(`${operationId} counter plan changed logical device`);
     }
-    // writeBuffer owns an immediate affine byte snapshot and queue ordinal,
-    // but it must neither consume nor duplicate command records that are
-    // still waiting for their eventual queue.submit carrier.
+    // Immediate uploads and wrapper-owned buffer lifecycle calls must neither
+    // consume nor duplicate command records still waiting for queue.submit.
     const sealedLocalTimeline = Object.freeze(
-      operationId === 'GPUQueue.writeBuffer'
+      operationId === 'GPUQueue.writeBuffer' || bufferLifecycle !== undefined
         ? []
         : device?.pendingLocalTimeline.slice() ?? [],
     );
@@ -2117,6 +2459,7 @@ export function createProductionWebGpuPrivateBinding(
       queueIngressOrdinal,
       sealedLocalTimeline,
       ...(canvasService === undefined ? {} : { canvasService }),
+      ...(bufferLifecycle === undefined ? {} : { bufferLifecycle }),
     });
     const payloadIsView = INTRINSIC_REFLECT_APPLY(
       INTRINSIC_ARRAY_BUFFER_IS_VIEW,
@@ -2201,6 +2544,10 @@ export function createProductionWebGpuPrivateBinding(
         `WebGPU semantic service rejected ${operationId} (${carrier.submissionStatus})`,
       );
     }
+    afterNativeSubmit?.(Object.freeze({
+      operationInstanceId: carrier.operationInstanceId,
+      promiseId: carrier.promiseId,
+    }));
     if (!realm.active || realm.closeReason !== undefined) {
       carrier.receipt?.catch(() => undefined);
       throw namedError(
@@ -2333,6 +2680,7 @@ export function createProductionWebGpuPrivateBinding(
         scopes: [],
         pendingLocalTimeline: [],
         configuredCanvasContexts: new Set(),
+        buffers: new Set(),
       };
       const state = allocateWrapper('GPUDevice', device, identity);
       const queue = allocateWrapper('GPUQueue', device, identity.queue);
@@ -2389,6 +2737,10 @@ export function createProductionWebGpuPrivateBinding(
       }
       return;
     }
+    clearRealmBufferMappings(
+      true,
+      'GPUBuffer mapping was cancelled by owning lifecycle cleanup',
+    );
     for (const device of [...realm.devices.values()]) {
       settleDeviceLost(device, decoded.reason, decoded.message);
     }
@@ -3072,14 +3424,36 @@ export function createProductionWebGpuPrivateBinding(
     buffer.bufferUsage = converted.usage;
     buffer.bufferMapState = converted.mappedAtCreation ? 'mapped' : 'unmapped';
     buffer.bufferMappedBytes = mappedBytes;
-    submitService(
-      'GPUDevice.createBuffer',
-      state,
-      buffer,
-      converted,
-      false,
-      servicePlan,
-    );
+    if (converted.mappedAtCreation) {
+      if (!mappedBytes) {
+        throw new Error('GPUBuffer mapped-at-creation byte block is missing');
+      }
+      buffer.bufferActiveMapping = {
+        generation: '1',
+        mode: 2,
+        offset: 0,
+        size: converted.size,
+        bytes: mappedBytes,
+        ranges: [],
+      };
+      if (compareCanonicalU64Decimal(buffer.bufferNextMapGeneration, '1') <= 0) {
+        buffer.bufferNextMapGeneration = '2';
+      }
+      retainBufferLifecycle(buffer);
+    }
+    try {
+      submitService(
+        'GPUDevice.createBuffer',
+        state,
+        buffer,
+        converted,
+        false,
+        servicePlan,
+      );
+    } catch (error) {
+      detachActiveBufferMapping(buffer);
+      throw error;
+    }
     return buffer.wrapper;
   });
 
@@ -3299,6 +3673,12 @@ export function createProductionWebGpuPrivateBinding(
         false,
         servicePlan,
         () => {
+          clearDeviceBufferMappings(
+            device,
+            true,
+            true,
+            'GPUBuffer mapping was cancelled because its device was destroyed',
+          );
           device.destroyed = true;
           destroyLinearized = true;
         },
@@ -4409,6 +4789,602 @@ export function createProductionWebGpuPrivateBinding(
       converted,
       false,
     );
+  });
+
+  type DecodedBufferMapCompletion = Readonly<{
+    variant:
+      | 'mapped-bytes'
+      | 'provider-operation-error'
+      | 'allocation-range-error'
+      | 'late-cancelled-cleanup';
+    pendingMapGeneration: string;
+    mode: 1 | 2;
+    offset: number;
+    size: number;
+    ownedBytes: unknown;
+  }>;
+
+  const decodeBufferMapCompletion = (
+    decoded: ProductionGpuDecodedResult,
+  ): DecodedBufferMapCompletion => {
+    if (decoded.kind !== 'value') {
+      throw new TypeError('GPUBuffer.mapAsync completion must carry a value');
+    }
+    const value = snapshotOwnEnumerableDataRecord(
+      decoded.value,
+      [
+        'variant',
+        'pendingMapGeneration',
+        'mode',
+        'offset',
+        'size',
+        'ownedBytes',
+      ],
+      'GPUBuffer.mapAsync completion has the wrong shape',
+    );
+    const variant = value.variant;
+    if (
+      variant !== 'mapped-bytes' &&
+      variant !== 'provider-operation-error' &&
+      variant !== 'allocation-range-error' &&
+      variant !== 'late-cancelled-cleanup'
+    ) {
+      throw new TypeError('GPUBuffer.mapAsync completion variant is invalid');
+    }
+    const pendingMapGeneration = value.pendingMapGeneration;
+    const offsetText = value.offset;
+    const sizeText = value.size;
+    if (
+      typeof pendingMapGeneration !== 'string' ||
+      !isPositiveDecimal(pendingMapGeneration) ||
+      typeof offsetText !== 'string' ||
+      !isCanonicalU64Decimal(offsetText, false) ||
+      typeof sizeText !== 'string' ||
+      !isCanonicalU64Decimal(sizeText, false)
+    ) {
+      throw new TypeError('GPUBuffer.mapAsync completion generations are invalid');
+    }
+    const mode = value.mode;
+    if (mode !== 1 && mode !== 2) {
+      throw new TypeError('GPUBuffer.mapAsync completion mode is invalid');
+    }
+    const offset = Number(offsetText);
+    const size = Number(sizeText);
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(size)) {
+      throw new TypeError('GPUBuffer.mapAsync completion range is unsafe');
+    }
+    const ownedBytes = value.ownedBytes;
+    const ownedLength = (() => {
+      if (
+        !INTRINSIC_TYPED_ARRAY_TAG_GETTER ||
+        !INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER ||
+        INTRINSIC_REFLECT_APPLY(
+          INTRINSIC_TYPED_ARRAY_TAG_GETTER,
+          ownedBytes,
+          [],
+        ) !== 'Uint8Array'
+      ) {
+        throw new TypeError('GPUBuffer.mapAsync completion bytes are invalid');
+      }
+      return INTRINSIC_REFLECT_APPLY(
+        INTRINSIC_TYPED_ARRAY_BYTE_LENGTH_GETTER,
+        ownedBytes,
+        [],
+      ) as number;
+    })();
+    if (
+      (variant === 'mapped-bytes' && ownedLength !== size) ||
+      (variant !== 'mapped-bytes' && ownedLength !== 0)
+    ) {
+      throw new TypeError('GPUBuffer.mapAsync completion byte ownership is invalid');
+    }
+    return Object.freeze({
+      variant,
+      pendingMapGeneration,
+      mode,
+      offset,
+      size,
+      ownedBytes,
+    });
+  };
+
+  const clearCurrentPendingMap = (
+    buffer: WrapperState,
+    pending: PendingBufferMapState,
+    error: unknown,
+  ): void => {
+    if (buffer.bufferPendingMap !== pending) return;
+    buffer.bufferPendingMap = undefined;
+    buffer.bufferMapState = buffer.bufferActiveMapping ? 'mapped' : 'unmapped';
+    settlePendingBufferMap(pending, error);
+    releaseBufferLifecycleIfIdle(buffer);
+  };
+
+  const reclaimRejectedBufferMapCompletion = (
+    buffer: WrapperState,
+    pending: PendingBufferMapState,
+    completion: DecodedBufferMapCompletion,
+    error: unknown,
+  ): void => {
+    if (buffer.bufferPendingMap !== pending) return;
+    const cleanupPlan = consumeNextCounterOrClose(
+      buffer.bufferNextCleanupGeneration,
+      buffer.bufferCleanupGenerationExhausted,
+      'buffer cleanup generation',
+    );
+    const emptyWriteback = INTRINSIC_REFLECT_CONSTRUCT(
+      INTRINSIC_UINT8_ARRAY,
+      [0],
+    ) as Uint8Array;
+    const cleanup = Object.freeze({
+      operationId: 'GPUBuffer.unmap' as const,
+      body: Object.freeze({
+        kind: 'cleanup-v1' as const,
+        cleanupAction: 1 as const,
+        cleanupGeneration: cleanupPlan.value,
+        cancelledMapGeneration: '0',
+        activeMapGeneration: pending.generation,
+        activeMapMode: pending.mode,
+        mappedOffset: String(pending.offset),
+        mappedSize: String(pending.size),
+        writeback: pending.mode === 2
+          ? completion.ownedBytes as Uint8Array
+          : emptyWriteback,
+      }),
+    });
+    buffer.bufferPendingCleanup = cleanup;
+    retainBufferLifecycle(buffer);
+    clearCurrentPendingMap(buffer, pending, error);
+    try {
+      submitBufferCleanup(buffer, cleanup);
+    } catch {
+      // The retryable cleanup snapshot remains installed after a synchronous
+      // service rejection. The map promise already carries the local
+      // allocation failure, while a later unmap/destroy retries reclamation
+      // with the same cleanup generation and a fresh authenticated ingress.
+    }
+  };
+
+  const handleBufferMapCompletion = (
+    buffer: WrapperState,
+    pending: PendingBufferMapState,
+    decoded: ProductionGpuDecodedResult,
+  ): void => {
+    let completion: DecodedBufferMapCompletion;
+    try {
+      completion = decodeBufferMapCompletion(decoded);
+    } catch {
+      clearCurrentPendingMap(
+        buffer,
+        pending,
+        namedError('OperationError', 'GPUBuffer map completion is invalid'),
+      );
+      closeRealmCounterIndependently(
+        'buffer-map-terminal-invalid',
+        'The WebGPU realm closed after an invalid buffer map terminal',
+      );
+      return;
+    }
+    if (
+      completion.pendingMapGeneration !== pending.generation ||
+      completion.mode !== pending.mode ||
+      completion.offset !== pending.offset ||
+      completion.size !== pending.size
+    ) {
+      clearCurrentPendingMap(
+        buffer,
+        pending,
+        namedError(
+          'OperationError',
+          'GPUBuffer.mapAsync completion does not match its pending generation',
+        ),
+      );
+      closeRealmCounterIndependently(
+        'buffer-map-terminal-mismatch',
+        'The WebGPU realm closed after a mismatched buffer map terminal',
+      );
+      return;
+    }
+    // A cleanup or lifecycle terminal may already have settled and removed
+    // this pending generation. The typed completion is then reclamation-only.
+    if (buffer.bufferPendingMap !== pending) return;
+    if (completion.variant === 'provider-operation-error') {
+      clearCurrentPendingMap(
+        buffer,
+        pending,
+        namedError('OperationError', 'GPUBuffer provider mapping failed'),
+      );
+      return;
+    }
+    if (completion.variant === 'allocation-range-error') {
+      clearCurrentPendingMap(
+        buffer,
+        pending,
+        new RangeError('GPUBuffer mapped byte block could not be allocated'),
+      );
+      return;
+    }
+    if (completion.variant === 'late-cancelled-cleanup') {
+      clearCurrentPendingMap(
+        buffer,
+        pending,
+        namedError('AbortError', 'GPUBuffer mapping was cancelled'),
+      );
+      return;
+    }
+    const guardBytesBefore = realm.privateMappedAllocationGuardBytes;
+    if (
+      completion.size >
+        realm.privateMappedAllocationGuardLimitBytes - guardBytesBefore
+    ) {
+      reclaimRejectedBufferMapCompletion(
+        buffer,
+        pending,
+        completion,
+        new RangeError('GPUBuffer private mapped allocation guard is exhausted'),
+      );
+      return;
+    }
+    let ownedBlock: ArrayBuffer;
+    try {
+      ownedBlock = copyOwnedUint8View(completion.ownedBytes, completion.size);
+    } catch (error) {
+      reclaimRejectedBufferMapCompletion(
+        buffer,
+        pending,
+        completion,
+        error instanceof RangeError
+          ? error
+          : new RangeError('GPUBuffer mapped byte block could not be allocated'),
+      );
+      return;
+    }
+    realm.privateMappedAllocationGuardBytes = guardBytesBefore + completion.size;
+    buffer.bufferPendingMap = undefined;
+    buffer.bufferActiveMapping = {
+      generation: pending.generation,
+      mode: pending.mode,
+      offset: pending.offset,
+      size: pending.size,
+      bytes: ownedBlock,
+      ranges: [],
+    };
+    buffer.bufferMappedBytes = ownedBlock;
+    buffer.bufferMapState = 'mapped';
+    settlePendingBufferMap(pending);
+  };
+
+  const captureBufferCleanup = (
+    buffer: WrapperState,
+    operationId: 'GPUBuffer.destroy' | 'GPUBuffer.unmap',
+  ): PendingBufferCleanupState | undefined => {
+    const existing = buffer.bufferPendingCleanup;
+    if (existing) {
+      if (operationId === 'GPUBuffer.destroy' && existing.operationId === 'GPUBuffer.unmap') {
+        const upgraded = Object.freeze({
+          operationId,
+          body: Object.freeze({
+            ...existing.body,
+            cleanupAction: 2 as const,
+          }),
+        });
+        buffer.bufferPendingCleanup = upgraded;
+        buffer.destroyed = true;
+        return upgraded;
+      }
+      return existing.operationId === operationId ? existing : undefined;
+    }
+    const pendingMap = buffer.bufferPendingMap;
+    const active = buffer.bufferActiveMapping;
+    if (operationId === 'GPUBuffer.unmap' && !pendingMap && !active) {
+      return undefined;
+    }
+    const cleanupPlan = consumeNextCounterOrClose(
+      buffer.bufferNextCleanupGeneration,
+      buffer.bufferCleanupGenerationExhausted,
+      'buffer cleanup generation',
+    );
+    let writebackBuffer: ArrayBuffer | undefined;
+    if (active?.mode === 2) {
+      for (const range of active.ranges) {
+        copyMappedRangeInto(
+          active.bytes,
+          range.offset - active.offset,
+          range.bytes,
+        );
+      }
+      writebackBuffer = copyArrayBufferRange(active.bytes, 0, active.size);
+    }
+    const emptyWriteback = INTRINSIC_REFLECT_CONSTRUCT(
+      INTRINSIC_UINT8_ARRAY,
+      [0],
+    ) as Uint8Array;
+    const writeback = writebackBuffer === undefined
+      ? emptyWriteback
+      : INTRINSIC_REFLECT_CONSTRUCT(
+        INTRINSIC_UINT8_ARRAY,
+        [writebackBuffer],
+      ) as Uint8Array;
+    const body = Object.freeze({
+      kind: 'cleanup-v1' as const,
+      cleanupAction: operationId === 'GPUBuffer.destroy' ? 2 as const : 1 as const,
+      cleanupGeneration: cleanupPlan.value,
+      cancelledMapGeneration: pendingMap?.generation ?? '0',
+      activeMapGeneration: active?.generation ?? '0',
+      activeMapMode: active?.mode ?? 0,
+      mappedOffset: String(active?.offset ?? 0),
+      mappedSize: String(active?.size ?? 0),
+      writeback,
+    });
+    const cleanup = Object.freeze({ operationId, body });
+    buffer.bufferPendingCleanup = cleanup;
+    retainBufferLifecycle(buffer);
+    cancelPendingBufferMap(
+      buffer,
+      operationId === 'GPUBuffer.destroy'
+        ? 'GPUBuffer was destroyed'
+        : 'GPUBuffer was unmapped',
+      true,
+    );
+    detachActiveBufferMapping(buffer);
+    if (operationId === 'GPUBuffer.destroy') buffer.destroyed = true;
+    return cleanup;
+  };
+
+  function submitBufferCleanup(
+    buffer: WrapperState,
+    cleanup: PendingBufferCleanupState,
+  ): void {
+    if (cleanup.body.cleanupGeneration !== buffer.bufferNextCleanupGeneration) {
+      throw namedError('OperationError', 'GPUBuffer cleanup generation is stale');
+    }
+    const cleanupPlan = consumeNextCounterOrClose(
+      buffer.bufferNextCleanupGeneration,
+      buffer.bufferCleanupGenerationExhausted,
+      'buffer cleanup generation',
+    );
+    const servicePlan = prepareServiceCounters(
+      cleanup.operationId,
+      buffer,
+      buffer.device,
+    );
+    submitService(
+      cleanup.operationId,
+      buffer,
+      undefined,
+      null,
+      false,
+      servicePlan,
+      undefined,
+      (failure) => {
+        if (failure === 'bridge-threw') {
+          closeRealmCounterIndependently(
+            'buffer-cleanup-bridge-threw',
+            'The WebGPU realm closed after an ambiguous buffer cleanup',
+          );
+        }
+      },
+      undefined,
+      cleanup.body,
+      () => {
+        if (buffer.bufferPendingCleanup !== cleanup) {
+          closeRealmCounterIndependently(
+            'buffer-cleanup-generation-conflict',
+            'The WebGPU realm closed after a buffer cleanup generation conflict',
+          );
+          return;
+        }
+        buffer.bufferNextCleanupGeneration = cleanupPlan.next;
+        buffer.bufferCleanupGenerationExhausted = cleanupPlan.exhaustedAfter;
+        buffer.bufferPendingCleanup = undefined;
+        releaseBufferLifecycleIfIdle(buffer);
+      },
+    );
+  }
+
+  defineMethod(mutablePrototypes.GPUBuffer, 'destroy', function (this: object) {
+    const buffer = requireState(this, 'GPUBuffer');
+    convert('GPUBuffer.destroy', []);
+    if (buffer.destroyed && buffer.bufferPendingCleanup === undefined) return;
+    const cleanup = captureBufferCleanup(buffer, 'GPUBuffer.destroy');
+    if (cleanup) submitBufferCleanup(buffer, cleanup);
+  });
+
+  defineMethod(mutablePrototypes.GPUBuffer, 'getMappedRange', function (
+    this: object,
+    offset?: unknown,
+    size?: unknown,
+  ) {
+    const buffer = requireState(this, 'GPUBuffer');
+    const converted = asRecord(
+      convert('GPUBuffer.getMappedRange', [offset, size]),
+      'converted GPUBuffer.getMappedRange arguments',
+    );
+    const active = buffer.bufferActiveMapping;
+    const bufferSize = buffer.bufferSize;
+    if (!active || bufferSize === undefined) {
+      throw namedError('OperationError', 'GPUBuffer has no active mapping');
+    }
+    const rangeOffset = stagedU64(
+      converted.offset,
+      'converted GPUBuffer.getMappedRange offset',
+    );
+    const rangeSize = converted.size === undefined
+      ? Math.max(0, bufferSize - rangeOffset)
+      : stagedU64(converted.size, 'converted GPUBuffer.getMappedRange size');
+    const rangeEnd = rangeOffset + rangeSize;
+    if (
+      rangeOffset % 8 !== 0 ||
+      rangeSize % 4 !== 0 ||
+      !Number.isSafeInteger(rangeEnd) ||
+      rangeOffset < active.offset ||
+      rangeEnd > active.offset + active.size ||
+      active.ranges.some((range) =>
+        rangeOffset < range.offset + range.size && range.offset < rangeEnd
+      ) ||
+      active.ranges.length >= PRIVATE_MAPPED_RANGE_LEASE_LIMIT
+    ) {
+      throw namedError('OperationError', 'GPUBuffer mapped range is unavailable');
+    }
+    const bytes = copyArrayBufferRange(
+      active.bytes,
+      rangeOffset - active.offset,
+      rangeSize,
+    );
+    markNonTransferableArrayBuffer(bytes);
+    active.ranges.push(Object.freeze({
+      offset: rangeOffset,
+      size: rangeSize,
+      bytes,
+    }));
+    return bytes;
+  });
+
+  defineMethod(mutablePrototypes.GPUBuffer, 'mapAsync', function (
+    this: object,
+    mode: unknown,
+    offset?: unknown,
+    size?: unknown,
+  ) {
+    const buffer = requireState(this, 'GPUBuffer');
+    let converted: Readonly<Record<string, unknown>>;
+    try {
+      converted = asRecord(
+        convert('GPUBuffer.mapAsync', [mode, offset, size]),
+        'converted GPUBuffer.mapAsync arguments',
+      );
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const convertedMode = stagedU32(
+      converted.mode,
+      'converted GPUBuffer.mapAsync mode',
+    );
+    if (convertedMode !== 1 && convertedMode !== 2) {
+      return Promise.reject(namedError(
+        'OperationError',
+        'GPUBuffer map mode must be exactly READ or WRITE',
+      ));
+    }
+    const mapMode = convertedMode;
+    const mapOffset = stagedU64(
+      converted.offset,
+      'converted GPUBuffer.mapAsync offset',
+    );
+    const bufferSize = buffer.bufferSize ?? 0;
+    const mapSize = converted.size === undefined
+      ? Math.max(0, bufferSize - mapOffset)
+      : stagedU64(converted.size, 'converted GPUBuffer.mapAsync size');
+    const generationPlan = consumeNextCounterOrClose(
+      buffer.bufferNextMapGeneration,
+      buffer.bufferMapGenerationExhausted,
+      'buffer map generation',
+    );
+    const pending = makePendingBufferMap(
+      generationPlan.value,
+      mapMode,
+      mapOffset,
+      mapSize,
+    );
+    const installPending = buffer.bufferMapState === 'unmapped';
+    const body: ProductionGpuBufferLifecycleEncoding = Object.freeze({
+      kind: 'map-async-v1',
+      pendingMapGeneration: pending.generation,
+      mode: pending.mode,
+      offset: String(pending.offset),
+      requestedSizePresent: converted.size === undefined ? 0 : 1,
+      requestedSize: converted.size === undefined ? '0' : String(mapSize),
+    });
+    let servicePromise: Promise<ProductionGpuDecodedResult>;
+    try {
+      servicePromise = submitService(
+        'GPUBuffer.mapAsync',
+        buffer,
+        undefined,
+        converted,
+        true,
+        undefined,
+        () => {
+          if (installPending) {
+            buffer.bufferPendingMap = pending;
+            buffer.bufferMapState = 'pending';
+            retainBufferLifecycle(buffer);
+          }
+        },
+        (failure) => {
+          if (buffer.bufferPendingMap === pending) {
+            buffer.bufferPendingMap = undefined;
+            buffer.bufferMapState = buffer.bufferActiveMapping
+              ? 'mapped'
+              : 'unmapped';
+            releaseBufferLifecycleIfIdle(buffer);
+          }
+          if (failure === 'bridge-threw') {
+            closeRealmCounterIndependently(
+              'buffer-map-bridge-threw',
+              'The WebGPU realm closed after an ambiguous buffer map',
+            );
+          }
+        },
+        undefined,
+        body,
+        (identity) => {
+          buffer.bufferNextMapGeneration = generationPlan.next;
+          buffer.bufferMapGenerationExhausted = generationPlan.exhaustedAfter;
+          pending.operationInstanceId = identity.operationInstanceId;
+          pending.promiseId = identity.promiseId;
+        },
+      ) as Promise<ProductionGpuDecodedResult>;
+    } catch (error) {
+      if (buffer.bufferPendingMap === pending) {
+        buffer.bufferPendingMap = undefined;
+        buffer.bufferMapState = buffer.bufferActiveMapping ? 'mapped' : 'unmapped';
+        releaseBufferLifecycleIfIdle(buffer);
+      }
+      settlePendingBufferMap(
+        pending,
+        error instanceof Error && error.name === 'SecurityError'
+          ? error
+          : namedError('OperationError', 'GPUBuffer map submission was rejected'),
+      );
+      return pending.promise;
+    }
+    servicePromise.then(
+      (decoded) => {
+        if (!installPending) {
+          settlePendingBufferMap(
+            pending,
+            namedError('OperationError', 'GPUBuffer already has a mapping'),
+          );
+          return;
+        }
+        handleBufferMapCompletion(buffer, pending, decoded);
+      },
+      (error) => {
+        if (!installPending) {
+          settlePendingBufferMap(
+            pending,
+            namedError('OperationError', 'GPUBuffer already has a mapping'),
+          );
+          return;
+        }
+        clearCurrentPendingMap(
+          buffer,
+          pending,
+          error instanceof Error && error.name === 'AbortError'
+            ? error
+            : namedError('OperationError', 'GPUBuffer map validation failed'),
+        );
+      },
+    );
+    return pending.promise;
+  });
+
+  defineMethod(mutablePrototypes.GPUBuffer, 'unmap', function (this: object) {
+    const buffer = requireState(this, 'GPUBuffer');
+    convert('GPUBuffer.unmap', []);
+    const cleanup = captureBufferCleanup(buffer, 'GPUBuffer.unmap');
+    if (cleanup) submitBufferCleanup(buffer, cleanup);
   });
 
   defineMethod(mutablePrototypes.GPUTexture, 'createView', function (

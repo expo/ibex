@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-19 (materializes construction-private `GPUBuffer.destroy`, `GPUBuffer.getMappedRange`, `GPUBuffer.mapAsync`, and `GPUBuffer.unmap` over the authenticated existing lifecycle codecs and V2 routes, with wrapper-owned mapped bytes, independent positive map/cleanup generations, generation-fenced cancellation and typed completion, bounded nonoverlapping mapped-range leases, exact MAP_WRITE cleanup, MAP_READ discard, and synchronous detachment on owning cleanup; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes authenticated `GPUDevice.createComputePipeline` and `GPUQueue.writeBuffer` methods inside the construction-private wrapper, adds the `GPUComputePipeline` and existing `GPUComputePassEncoder` interface objects to that gated installation inventory, and consumes distinct positive queue ingress for `writeBuffer` without consuming pending command records; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-18 (adds the authenticated production-private `GPUDevice.createBuffer` Web IDL conversion, bounded structural transport, six-field wrapper target, wrapper-local immutable `usage`/`mapState` metadata, ordered semantic boundary, dual-ledger accounting evidence, and 21-call positive/adversarial corpus without installing native execution or a CapSec edge); 2026-07-18 (adds the authenticated production-private `GPUDevice.createPipelineLayout` Web IDL, full-reference transport, semantic-boundary program, wrapper target, and positive/adversarial corpus without installing native execution); 2026-07-18 (separates the complete post-WebIDL bind-group-layout structural transport type from the post-decode TypeGPU workload predicate); 2026-07-18 (consumes Exact-generated wrapper pins as the sole normalized digest/route authority and classifies the immutable 25-operation triangle separately from explicit TypeGPU graduates)
 **Revised:** 2026-07-19 (promotes the staged construction-private `GPUDevice.createComputePipeline` conversion to an authenticated private route with generated request/result codecs and a positive/adversarial language-neutral corpus over the exact seven-call TypeGPU 0.11.9 cohort, preserving full reference lineage, the constants `{}` default, and optional entry-point presence without adding a prototype member, public issuer, installed native semantic service/provider factory, embedded codec, positive CapSec support edge, global installation, or support claim; the staged semantic program remains the provenance authority)
@@ -770,6 +771,7 @@ from the same reviewed authority. Manifest schema 2 also carries authenticated,
 machine-readable payload-codegen programs for `GPU.requestAdapter`,
 `GPUAdapter.requestDevice`, `GPUDevice.createBindGroupLayout`,
 `GPUDevice.createBuffer`,
+`GPUBuffer.destroy`, `GPUBuffer.mapAsync`, `GPUBuffer.unmap`,
 `GPUDevice.createPipelineLayout`,
 `GPUDevice.createComputePipeline`, `GPUDevice.createRenderPipeline`,
 `GPUDevice.createCommandEncoder`,
@@ -812,8 +814,38 @@ descriptor carries an owned label, defaulted boolean, safe integer size through
 256 MiB, and u32 usage flags; the 16 MiB payload limit does not cap the numeric
 allocation size. The wrapper target carries kind plus object, logical-device,
 and provider generations. `GPUBuffer.usage` and `mapState` are immutable
-wrapper metadata reads (`mapped` only when created mapped, otherwise
-`unmapped`) and never dispatch. The corpus pins 21 reviewed calls totaling
+wrapper metadata reads. A mapped-at-creation buffer begins with one
+wrapper-owned zeroed WRITE mapping at generation one; an ordinary buffer begins
+`unmapped`. The construction-private wrapper now also materializes the four
+buffer lifecycle methods. `getMappedRange` remains entirely wrapper-local: it
+performs converted alignment, active-extent, nonoverlap, and temporary
+4,096-lease checks before returning and tracking one non-transferable copied
+range. `mapAsync` installs one independently increasing positive pending-map
+generation before the native call, commits that generation only after
+synchronous service acceptance, and accepts only the matching typed completion
+variant, mode, offset, size, and owned byte extent. Provider failure rejects
+`OperationError`, wrapper allocation failure rejects `RangeError`, and late
+cleanup rejects `AbortError`; a stale or mismatched terminal cannot publish an
+active mapping. A kind-2 receipt rejection is the captured validation terminal
+for that call and is never reinterpreted as an uncaptured-error notification.
+
+`unmap` and `destroy` synchronously cancel the current pending generation,
+detach every issued mapped `ArrayBuffer` through the shared detach helper, and
+clear the wrapper mapping state before submitting cleanup. MAP_READ mutations
+are discarded. MAP_WRITE ranges are copied into the wrapper-owned complete
+mapped block and the authenticated cleanup owns exactly that full active
+extent. Cleanup uses its own positive per-buffer generation; synchronous
+service rejection retains the exact generation and affine writeback for a
+later retry while consuming a fresh device-ingress ordinal. Explicit device,
+account, realm, and runtime teardown detach owning mappings, while spontaneous
+physical device loss rejects only a pending map and preserves an already-active
+mapping until explicit owning cleanup. Map and cleanup generations, active
+mode/range, native Promise identity, and late terminals are all checked against
+the exact branded buffer generation. These methods remain reachable only from
+the explicitly injected private factory; they add no embedded codec, global,
+CapSec support edge, or platform-support claim.
+
+The corpus pins 21 reviewed calls totaling
 49,545,804 resource bytes. A mapped extent records the same backing without a
 second resource charge, staging starts at zero, and any distinct later staging
 allocation must win an atomic leaf-plus-envelope top-up before publication.
@@ -1085,10 +1117,12 @@ decoder/provider method, generated CapSec edge and supported target cell, and
 native evidence. The embedded codec slot remains undefined. This staging
 projection prevents the next profile expansion from being guessed without
 weakening the current fail-closed surface.
-The sole metadata-only exception is `GPUBuffer.usage` and
-`GPUBuffer.mapState`: the private factory may expose those exact local reads for
-its wrapper-allocated buffer while they remain absent from the dispatch table,
-public construction, embedded codec slot, and CapSec inventory.
+The metadata-only private exception includes `GPUBuffer.usage` and
+`GPUBuffer.mapState`; the private lifecycle exception additionally includes
+the four methods above. The factory may expose these exact local reads and
+generation-fenced lifecycle operations for its wrapper-allocated buffer while
+they remain absent from public construction, the embedded codec slot, and the
+positive CapSec inventory.
 
 The bridge accepts only an authenticated operation ID, canonical decimal
 uint64 strings for device/queue/account identities, and an ArrayBuffer or view

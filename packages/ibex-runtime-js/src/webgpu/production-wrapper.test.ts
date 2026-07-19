@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { AbortController } from '../abort';
+import { isDetachedArrayBuffer } from '../arraybuffer-detach';
 import { Event } from '../events/Event';
 import { EventTarget } from '../events/EventTarget';
 import type {
@@ -10,6 +11,7 @@ import type {
 } from './native-bridge';
 import type {
   ExecutableWebGpuCodecBundle,
+  ProductionGpuBufferLifecycleEncoding,
   ProductionGpuCanvasServiceEncoding,
   ProductionGpuServiceEncodingInput,
 } from './production-codecs';
@@ -99,28 +101,44 @@ interface RecordedSubmission {
   readonly payload: ArrayBuffer | ArrayBufferView;
 }
 
+type PromiseResultHook = (
+  event: OperationResultEvent,
+) => NativeGpuEventV2 | Promise<NativeGpuEventV2>;
+
 function createFakeBridge(): NativeGpuBridgeV2 & {
   readonly submissions: RecordedSubmission[];
+  readonly cancellations: ReadonlyArray<Readonly<{
+    operationInstanceId: string;
+    promiseId: string;
+  }>>;
   emit(event: NativeGpuEventV2): void;
   setSubmitHook(
     hook: ((operationId: number, metadata: NativeGpuCallMetadataV2) => number | void) |
       undefined,
   ): void;
+  setPromiseResultHook(hook: PromiseResultHook | undefined): void;
 } {
   let sink: ((event: NativeGpuEventV2) => void) | undefined;
   let submitHook:
     ((operationId: number, metadata: NativeGpuCallMetadataV2) => number | void) |
     undefined;
+  let promiseResultHook: PromiseResultHook | undefined;
   let nextOperation = 1;
   let nextPromise = 1;
   const submissions: RecordedSubmission[] = [];
+  const cancellations: Array<Readonly<{
+    operationInstanceId: string;
+    promiseId: string;
+  }>> = [];
   const bridge: NativeGpuBridgeV2 & {
     readonly submissions: RecordedSubmission[];
+    readonly cancellations: typeof cancellations;
     emit(event: NativeGpuEventV2): void;
     setSubmitHook(
       hook: ((operationId: number, metadata: NativeGpuCallMetadataV2) => number | void) |
         undefined,
     ): void;
+    setPromiseResultHook(hook: PromiseResultHook | undefined): void;
   } = {
     abiVersion: 0x0002_0000,
     runtimeAddress: '11',
@@ -131,14 +149,15 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     rootAccountGeneration: '29',
     rootAuthorityDigest: new Uint8Array(32).fill(7),
     submissions,
+    cancellations,
     submit(operationId, wantsPromise, metadata, payload) {
       submissions.push({ operationId, wantsPromise, metadata, payload });
       const submissionStatus = submitHook?.(operationId, metadata) ?? 0;
       const operationInstanceId = String(nextOperation++);
       const promiseId = wantsPromise ? String(nextPromise++) : '0';
-      const receipt = wantsPromise
-        ? Promise.resolve().then(() => {
-          const event: OperationResultEvent = {
+      const receipt = wantsPromise && submissionStatus === 0
+        ? Promise.resolve().then(async () => {
+          const defaultEvent: OperationResultEvent = {
             kind: 1,
             runtimeAddress: bridge.runtimeAddress,
             runtimeNonce: bridge.runtimeNonce,
@@ -178,9 +197,14 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
             status: 0,
             payload: new Uint8Array([1]),
           };
+          const event = promiseResultHook
+            ? await promiseResultHook(defaultEvent)
+            : defaultEvent;
           sink?.(event);
           return Object.freeze({ operationInstanceId, promiseId });
         })
+        : wantsPromise
+        ? Promise.reject(new Error('fake semantic-service submission rejection'))
         : undefined;
       return {
         operationInstanceId,
@@ -189,7 +213,10 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
         receipt,
       };
     },
-    cancel: () => 0,
+    cancel(operationInstanceId, promiseId) {
+      cancellations.push(Object.freeze({ operationInstanceId, promiseId }));
+      return 0;
+    },
     retire: () => 0,
     setEventSink(nextSink) {
       if (sink) throw new TypeError('event sink is one-shot');
@@ -200,6 +227,9 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
     },
     setSubmitHook(hook) {
       submitHook = hook;
+    },
+    setPromiseResultHook(hook) {
+      promiseResultHook = hook;
     },
   };
   return bridge;
@@ -240,6 +270,10 @@ function createFakeCodecs(
         operationId === 'GPUDevice.createBindGroupLayout' ||
         operationId === 'GPUDevice.createComputePipeline' ||
         operationId === 'GPUDevice.createRenderPipeline' ||
+        operationId === 'GPUBuffer.destroy' ||
+        operationId === 'GPUBuffer.getMappedRange' ||
+        operationId === 'GPUBuffer.mapAsync' ||
+        operationId === 'GPUBuffer.unmap' ||
         operationId === 'GPUQueue.writeBuffer' ||
         operationId === 'GPUTexture.createView' ||
         operationId === 'GPUTexture.destroy' ||
@@ -287,6 +321,9 @@ function createFakeCodecs(
       encodings.push(input);
       if (
         input.operationId === 'GPUDevice.createComputePipeline' ||
+        input.operationId === 'GPUBuffer.destroy' ||
+        input.operationId === 'GPUBuffer.mapAsync' ||
+        input.operationId === 'GPUBuffer.unmap' ||
         input.operationId === 'GPUQueue.writeBuffer' ||
         input.operationId === 'GPUTexture.createView'
       ) {
@@ -295,8 +332,14 @@ function createFakeCodecs(
       }
       return new Uint8Array([input.wireId & 0xff]);
     },
-    decodeServiceResult(operationId) {
+    decodeServiceResult(operationId, event) {
       log.push(`decode:${operationId}`);
+      if (operationId === 'GPUBuffer.mapAsync') {
+        return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+          operationId,
+          event,
+        );
+      }
       if (operationId === 'GPU.requestAdapter') {
         return {
           kind: 'object',
@@ -451,6 +494,11 @@ interface TestGpuDevice {
 interface TestBuffer {
   readonly size: number;
   readonly usage: number;
+  readonly mapState: 'mapped' | 'pending' | 'unmapped';
+  destroy(): void;
+  getMappedRange(offset?: number, size?: number): ArrayBuffer;
+  mapAsync(mode: number, offset?: number, size?: number): Promise<undefined>;
+  unmap(): void;
 }
 
 interface TestRenderPassEncoder {
@@ -598,6 +646,55 @@ async function requestTestRecordingDevice(
   binding: ReturnType<typeof createProductionWebGpuPrivateBinding>,
 ): Promise<TestRecordingDevice> {
   return await requestTestDevice(binding) as TestRecordingDevice;
+}
+
+interface TestLifecycleDevice extends TestGpuDevice {
+  createBuffer(descriptor: unknown): TestBuffer;
+}
+
+type BufferMapResultSpec = Readonly<{
+  variant:
+    | 'mapped-bytes'
+    | 'provider-operation-error'
+    | 'allocation-range-error'
+    | 'late-cancelled-cleanup';
+  pendingMapGeneration: string;
+  mode: 1 | 2;
+  offset: string;
+  size: string;
+  ownedBytes: Uint8Array;
+}>;
+
+function bufferMapResultEvent(
+  event: OperationResultEvent,
+  result: BufferMapResultSpec,
+): OperationResultEvent {
+  return {
+    ...event,
+    resultKind: 4,
+    payload: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPUBuffer.mapAsync',
+      { kind: 'buffer-map', ...result },
+    ),
+  };
+}
+
+function bufferLifecycleEncodings(
+  codecs: ReturnType<typeof createFakeCodecs>,
+  operationId?: 'GPUBuffer.destroy' | 'GPUBuffer.mapAsync' | 'GPUBuffer.unmap',
+): ProductionGpuBufferLifecycleEncoding[] {
+  return codecs.encodings
+    .filter((encoding) =>
+      encoding.bufferLifecycle !== undefined &&
+      (operationId === undefined || encoding.operationId === operationId)
+    )
+    .map((encoding) => encoding.bufferLifecycle!);
+}
+
+async function requestTestLifecycleDevice(
+  binding: ReturnType<typeof createProductionWebGpuPrivateBinding>,
+): Promise<TestLifecycleDevice> {
+  return await requestTestDevice(binding) as TestLifecycleDevice;
 }
 
 function mintTestCanvasContext(
@@ -1044,7 +1141,9 @@ describe('production-private WebGPU wrapper factory', () => {
     const log: string[] = [];
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs(log);
-    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs, {
+      enableStateInspection: true,
+    });
     const adapter = await (binding.gpu as {
       requestAdapter(): Promise<unknown>;
     }).requestAdapter() as { requestDevice(): Promise<unknown> };
@@ -1286,12 +1385,6 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(WEBGPU_PRODUCTION_PLAN.routes.length).toBeGreaterThanOrEqual(41);
     expect(Object.keys(binding.interfaceObjects)).toHaveLength(26);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
-    const uninstalledPrivateRoutes = new Set([
-      'GPUBuffer.destroy',
-      'GPUBuffer.getMappedRange',
-      'GPUBuffer.mapAsync',
-      'GPUBuffer.unmap',
-    ]);
     for (const selected of WEBGPU_PRODUCTION_PLAN.routes) {
       const interfaceObject = binding.interfaceObjects[selected.interfaceName] as {
         readonly prototype: object;
@@ -1301,10 +1394,6 @@ describe('production-private WebGPU wrapper factory', () => {
         interfaceObject.prototype,
         selected.memberName,
       );
-      if (uninstalledPrivateRoutes.has(selected.operationId)) {
-        expect(descriptor).toBeUndefined();
-        continue;
-      }
       expect(descriptor).toBeDefined();
       if (selected.memberKind === 'method') {
         expect(descriptor?.value).toBeFunction();
@@ -4393,5 +4482,570 @@ describe('production-private WebGPU wrapper factory', () => {
       reason: 'unknown',
       message: 'The adapter is expired',
     });
+  });
+});
+
+describe('production-private GPUBuffer lifecycle', () => {
+  test('keeps mapped-at-creation state coherent and writes back one exact full extent', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs, {
+      enableStateInspection: true,
+    });
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({
+      mappedAtCreation: true,
+      size: 16,
+      usage: 9,
+    });
+
+    expect(buffer.mapState).toBe('mapped');
+    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(1);
+    const first = buffer.getMappedRange(0, 4);
+    const second = buffer.getMappedRange(8, 8);
+    expect(() => buffer.getMappedRange(0, 4)).toThrow('unavailable');
+    new Uint8Array(first).set([1, 2, 3, 4]);
+    new Uint8Array(second).set([9, 10, 11, 12, 13, 14, 15, 16]);
+
+    const beforeUnmap = bridge.submissions.length;
+    expect(buffer.unmap()).toBeUndefined();
+    expect(bridge.submissions).toHaveLength(beforeUnmap + 1);
+    expect(buffer.mapState).toBe('unmapped');
+    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(0);
+    expect(isDetachedArrayBuffer(first)).toBe(true);
+    expect(isDetachedArrayBuffer(second)).toBe(true);
+
+    const unmapBody = bufferLifecycleEncodings(codecs, 'GPUBuffer.unmap').at(-1);
+    expect(unmapBody).toMatchObject({
+      kind: 'cleanup-v1',
+      cleanupAction: 1,
+      cleanupGeneration: '1',
+      cancelledMapGeneration: '0',
+      activeMapGeneration: '1',
+      activeMapMode: 2,
+      mappedOffset: '0',
+      mappedSize: '16',
+    });
+    if (!unmapBody || unmapBody.kind !== 'cleanup-v1') {
+      throw new Error('missing unmap cleanup body');
+    }
+    expect(Array.from(new Uint8Array(
+      unmapBody.writeback.buffer,
+      unmapBody.writeback.byteOffset,
+      unmapBody.writeback.byteLength,
+    ))).toEqual([
+      1,
+      2,
+      3,
+      4,
+      0,
+      0,
+      0,
+      0,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+    ]);
+
+    const afterUnmap = bridge.submissions.length;
+    expect(buffer.unmap()).toBeUndefined();
+    expect(bridge.submissions).toHaveLength(afterUnmap);
+    expect(buffer.destroy()).toBeUndefined();
+    const destroyBody = bufferLifecycleEncodings(codecs, 'GPUBuffer.destroy').at(-1);
+    expect(destroyBody).toMatchObject({
+      kind: 'cleanup-v1',
+      cleanupAction: 2,
+      cleanupGeneration: '2',
+      activeMapGeneration: '0',
+      activeMapMode: 0,
+    });
+    const afterDestroy = bridge.submissions.length;
+    expect(buffer.destroy()).toBeUndefined();
+    expect(bridge.submissions).toHaveLength(afterDestroy);
+    binding.revoke();
+  });
+
+  test('copies typed MAP_READ completions into wrapper ownership and discards mutations', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    let decodedOwnedBytes: Uint8Array | undefined;
+    const decode = codecs.decodeServiceResult.bind(codecs);
+    Object.defineProperty(codecs, 'decodeServiceResult', {
+      value(operationId: string, event: OperationResultEvent) {
+        const result = decode(operationId, event);
+        if (operationId === 'GPUBuffer.mapAsync' && result.kind === 'value') {
+          decodedOwnedBytes = (
+            result.value as Readonly<{ ownedBytes: Uint8Array }>
+          ).ownedBytes;
+        }
+        return result;
+      },
+    });
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs, {
+      enableStateInspection: true,
+    });
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({ size: 8, usage: 1 });
+    bridge.setPromiseResultHook((event) => bufferMapResultEvent(event, {
+      variant: 'mapped-bytes',
+      pendingMapGeneration: '1',
+      mode: 1,
+      offset: '0',
+      size: '8',
+      ownedBytes: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]),
+    }));
+
+    const mapping = buffer.mapAsync(1, 0, 8);
+    expect(buffer.mapState).toBe('pending');
+    await expect(mapping).resolves.toBeUndefined();
+    expect(buffer.mapState).toBe('mapped');
+    expect(decodedOwnedBytes).toBeDefined();
+    decodedOwnedBytes!.fill(99);
+    const range = buffer.getMappedRange();
+    expect(Array.from(new Uint8Array(range))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    new Uint8Array(range).fill(42);
+    buffer.unmap();
+    expect(isDetachedArrayBuffer(range)).toBe(true);
+    const cleanup = bufferLifecycleEncodings(codecs, 'GPUBuffer.unmap').at(-1);
+    expect(cleanup).toMatchObject({
+      kind: 'cleanup-v1',
+      activeMapGeneration: '1',
+      activeMapMode: 1,
+      mappedOffset: '0',
+      mappedSize: '8',
+    });
+    if (!cleanup || cleanup.kind !== 'cleanup-v1') {
+      throw new Error('missing MAP_READ cleanup');
+    }
+    expect(cleanup.writeback.byteLength).toBe(0);
+    binding.revoke();
+  });
+
+  test('reclaims a native mapping when its wrapper allocation cannot be admitted', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const unmapWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUBuffer.unmap',
+    )?.wireId;
+    if (unmapWireId === undefined) throw new Error('missing GPUBuffer.unmap route');
+    let rejectCleanup = true;
+    bridge.setSubmitHook((operationId) =>
+      operationId === unmapWireId && rejectCleanup ? 17 : 0);
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs, {
+      enableStateInspection: true,
+      privateMappedAllocationGuardLimitBytes: 4,
+    });
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({ size: 8, usage: 2 });
+    bridge.setPromiseResultHook((event) => bufferMapResultEvent(event, {
+      variant: 'mapped-bytes',
+      pendingMapGeneration: '1',
+      mode: 2,
+      offset: '0',
+      size: '8',
+      ownedBytes: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]),
+    }));
+
+    await expect(buffer.mapAsync(2, 0, 8)).rejects.toBeInstanceOf(RangeError);
+    expect(buffer.mapState).toBe('unmapped');
+    expect(inspectBinding(binding).current).toMatchObject({
+      active: true,
+      privateMappedAllocationGuardBytes: 0,
+      trackedBufferLifecycleCount: 1,
+    });
+
+    rejectCleanup = false;
+    expect(buffer.unmap()).toBeUndefined();
+    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(0);
+    const cleanupRequests = bufferLifecycleEncodings(codecs, 'GPUBuffer.unmap');
+    expect(cleanupRequests).toHaveLength(2);
+    for (const cleanup of cleanupRequests) {
+      expect(cleanup).toMatchObject({
+        kind: 'cleanup-v1',
+        cleanupAction: 1,
+        cleanupGeneration: '1',
+        cancelledMapGeneration: '0',
+        activeMapGeneration: '1',
+        activeMapMode: 2,
+        mappedOffset: '0',
+        mappedSize: '8',
+      });
+      if (cleanup.kind !== 'cleanup-v1') {
+        throw new Error('missing failed-map reclamation body');
+      }
+      expect(Array.from(cleanup.writeback)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+    binding.revoke();
+  });
+
+  test('settles every typed failure variant and rejects mismatched generations', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs, {
+      enableStateInspection: true,
+    });
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({ size: 4, usage: 1 });
+    const outcomes = [
+      ['provider-operation-error', 'OperationError'],
+      ['allocation-range-error', 'RangeError'],
+      ['late-cancelled-cleanup', 'AbortError'],
+    ] as const;
+    let outcomeIndex = 0;
+    bridge.setPromiseResultHook((event) => {
+      const body = bufferLifecycleEncodings(codecs, 'GPUBuffer.mapAsync').at(-1);
+      if (!body || body.kind !== 'map-async-v1') {
+        throw new Error('missing map lifecycle body');
+      }
+      const outcome = outcomes[outcomeIndex++]!;
+      return bufferMapResultEvent(event, {
+        variant: outcome[0],
+        pendingMapGeneration: body.pendingMapGeneration,
+        mode: 1,
+        offset: '0',
+        size: '4',
+        ownedBytes: new Uint8Array(0),
+      });
+    });
+
+    for (const [, errorName] of outcomes) {
+      const pending = buffer.mapAsync(1, 0, 4);
+      expect(buffer.mapState).toBe('pending');
+      await expect(pending).rejects.toMatchObject({ name: errorName });
+      expect(buffer.mapState).toBe('unmapped');
+    }
+    bridge.setPromiseResultHook((event) => bufferMapResultEvent(event, {
+      variant: 'mapped-bytes',
+      pendingMapGeneration: '999',
+      mode: 1,
+      offset: '0',
+      size: '4',
+      ownedBytes: Uint8Array.from([1, 2, 3, 4]),
+    }));
+    await expect(buffer.mapAsync(1, 0, 4)).rejects.toMatchObject({
+      name: 'OperationError',
+    });
+    expect(buffer.mapState).toBe('unmapped');
+    expect(inspectBinding(binding).current).toMatchObject({
+      active: false,
+      closeReason: 'buffer-map-terminal-mismatch',
+      trackedBufferLifecycleCount: 0,
+    });
+    expect(
+      bufferLifecycleEncodings(codecs, 'GPUBuffer.mapAsync')
+        .map((body) => body.kind === 'map-async-v1'
+          ? body.pendingMapGeneration
+          : 'cleanup'),
+    ).toEqual(['1', '2', '3', '4']);
+    binding.revoke();
+  });
+
+  test('cancels pending maps once and ignores a generation-matched late success', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({ size: 8, usage: 1 });
+    let release: (() => void) | undefined;
+    bridge.setPromiseResultHook((event) => new Promise((resolve) => {
+      release = () => resolve(bufferMapResultEvent(event, {
+        variant: 'mapped-bytes',
+        pendingMapGeneration: '1',
+        mode: 1,
+        offset: '0',
+        size: '8',
+        ownedBytes: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]),
+      }));
+    }));
+
+    const pending = buffer.mapAsync(1, 0, 8);
+    await Promise.resolve();
+    expect(buffer.mapState).toBe('pending');
+    expect(buffer.unmap()).toBeUndefined();
+    expect(buffer.mapState).toBe('unmapped');
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(bridge.cancellations).toHaveLength(1);
+    expect(bufferLifecycleEncodings(codecs, 'GPUBuffer.unmap').at(-1))
+      .toMatchObject({
+        kind: 'cleanup-v1',
+        cleanupGeneration: '1',
+        cancelledMapGeneration: '1',
+        activeMapGeneration: '0',
+      });
+    expect(release).toBeFunction();
+    release!();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(buffer.mapState).toBe('unmapped');
+    expect(() => buffer.getMappedRange()).toThrow('no active mapping');
+    binding.revoke();
+  });
+
+  test('retries synchronous map and cleanup rejection with stable local generations', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestLifecycleDevice(binding);
+    const mapWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUBuffer.mapAsync',
+    )?.wireId;
+    const unmapWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUBuffer.unmap',
+    )?.wireId;
+    if (mapWireId === undefined || unmapWireId === undefined) {
+      throw new Error('missing GPUBuffer lifecycle routes');
+    }
+    let rejectMap = true;
+    let rejectCleanup = false;
+    bridge.setSubmitHook((operationId) =>
+      (operationId === mapWireId && rejectMap) ||
+        (operationId === unmapWireId && rejectCleanup)
+        ? 17
+        : 0);
+    const buffer = device.createBuffer({ size: 8, usage: 2 });
+    await expect(buffer.mapAsync(2, 0, 8)).rejects.toMatchObject({
+      name: 'OperationError',
+    });
+    expect(buffer.mapState).toBe('unmapped');
+    rejectMap = false;
+    bridge.setPromiseResultHook((event) => bufferMapResultEvent(event, {
+      variant: 'mapped-bytes',
+      pendingMapGeneration: '1',
+      mode: 2,
+      offset: '0',
+      size: '8',
+      ownedBytes: new Uint8Array(8),
+    }));
+    await expect(buffer.mapAsync(2, 0, 8)).resolves.toBeUndefined();
+    const mapRequests = codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUBuffer.mapAsync',
+    );
+    expect(mapRequests.map((encoding) =>
+      encoding.bufferLifecycle?.kind === 'map-async-v1'
+        ? encoding.bufferLifecycle.pendingMapGeneration
+        : undefined)).toEqual(['1', '1']);
+    expect(mapRequests.map((encoding) => encoding.deviceIngressOrdinal))
+      .toEqual(['2', '3']);
+    buffer.unmap();
+
+    const retryBuffer = device.createBuffer({
+      mappedAtCreation: true,
+      size: 8,
+      usage: 9,
+    });
+    const retryRange = retryBuffer.getMappedRange();
+    new Uint8Array(retryRange).set([8, 7, 6, 5, 4, 3, 2, 1]);
+    rejectCleanup = true;
+    expect(() => retryBuffer.unmap()).toThrow('rejected GPUBuffer.unmap');
+    expect(retryBuffer.mapState).toBe('unmapped');
+    expect(isDetachedArrayBuffer(retryRange)).toBe(true);
+    rejectCleanup = false;
+    expect(retryBuffer.unmap()).toBeUndefined();
+    const cleanupRequests = codecs.encodings
+      .filter((encoding) => encoding.operationId === 'GPUBuffer.unmap')
+      .slice(-2);
+    expect(cleanupRequests.map((encoding) =>
+      encoding.bufferLifecycle?.kind === 'cleanup-v1'
+        ? encoding.bufferLifecycle.cleanupGeneration
+        : undefined)).toEqual(['1', '1']);
+    expect(cleanupRequests.map((encoding) => encoding.deviceIngressOrdinal))
+      .toEqual(['6', '7']);
+    const retryBodies = cleanupRequests.map((encoding) => encoding.bufferLifecycle);
+    for (const body of retryBodies) {
+      expect(body).toMatchObject({
+        kind: 'cleanup-v1',
+        cleanupGeneration: '1',
+        activeMapGeneration: '1',
+        activeMapMode: 2,
+      });
+      if (!body || body.kind !== 'cleanup-v1') {
+        throw new Error('missing cleanup retry body');
+      }
+      expect(Array.from(new Uint8Array(
+        body.writeback.buffer,
+        body.writeback.byteOffset,
+        body.writeback.byteLength,
+      ))).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
+    }
+    binding.revoke();
+  });
+
+  test('treats kind-2 receipt rejection as validation without an uncaptured event', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestLifecycleDevice(binding) as
+      TestLifecycleDevice & EventTarget;
+    const buffer = device.createBuffer({ size: 4, usage: 1 });
+    let uncapturedCount = 0;
+    device.addEventListener('uncapturederror', () => {
+      uncapturedCount += 1;
+    });
+    bridge.setPromiseResultHook((event) => {
+      bridge.emit({
+        ...event,
+        kind: 2,
+        errorKind: 1,
+        backendClass: 0,
+        status: 1,
+        payload: new Uint8Array(0),
+      } as NativeGpuEventV2);
+      const error = new Error('captured validation rejection');
+      error.name = 'GPUValidationError';
+      throw error;
+    });
+
+    await expect(buffer.mapAsync(1, 0, 4)).rejects.toMatchObject({
+      name: 'OperationError',
+    });
+    expect(buffer.mapState).toBe('unmapped');
+    expect(uncapturedCount).toBe(0);
+    binding.revoke();
+  });
+
+  test('rejects foreign brands and Web IDL failures before counters or bridge work', async () => {
+    const firstBridge = createFakeBridge();
+    const firstCodecs = createFakeCodecs();
+    const firstBinding = createProductionWebGpuPrivateBinding(
+      firstBridge,
+      firstCodecs,
+    );
+    const secondBridge = createFakeBridge();
+    const secondBinding = createProductionWebGpuPrivateBinding(
+      secondBridge,
+      createFakeCodecs(),
+    );
+    const firstDevice = await requestTestLifecycleDevice(firstBinding);
+    const secondDevice = await requestTestLifecycleDevice(secondBinding);
+    const firstBuffer = firstDevice.createBuffer({ size: 4, usage: 1 });
+    const foreignBuffer = secondDevice.createBuffer({ size: 4, usage: 1 });
+    const bufferPrototype = (
+      firstBinding.interfaceObjects.GPUBuffer as { readonly prototype: object }
+    ).prototype as {
+      mapAsync: (mode: unknown, offset?: unknown, size?: unknown) => Promise<unknown>;
+      destroy: () => void;
+    };
+    const firstBefore = firstBridge.submissions.length;
+    const secondBefore = secondBridge.submissions.length;
+    expect(() => Reflect.apply(bufferPrototype.mapAsync, foreignBuffer, [1]))
+      .toThrow(TypeError);
+    expect(() => Reflect.apply(bufferPrototype.destroy, foreignBuffer, []))
+      .toThrow(TypeError);
+    expect(firstBridge.submissions).toHaveLength(firstBefore);
+    expect(secondBridge.submissions).toHaveLength(secondBefore);
+
+    const conversionFailure = new Error('mode conversion failed');
+    const mode = Object.freeze({
+      [Symbol.toPrimitive]() {
+        throw conversionFailure;
+      },
+    });
+    await expect(firstBuffer.mapAsync(mode as unknown as number))
+      .rejects.toBe(conversionFailure);
+    expect(firstBridge.submissions).toHaveLength(firstBefore);
+    firstBridge.setPromiseResultHook((event) => bufferMapResultEvent(event, {
+      variant: 'provider-operation-error',
+      pendingMapGeneration: '1',
+      mode: 1,
+      offset: '0',
+      size: '4',
+      ownedBytes: new Uint8Array(0),
+    }));
+    await expect(firstBuffer.mapAsync(1, 0, 4)).rejects.toMatchObject({
+      name: 'OperationError',
+    });
+    expect(bufferLifecycleEncodings(firstCodecs, 'GPUBuffer.mapAsync').at(-1))
+      .toMatchObject({ kind: 'map-async-v1', pendingMapGeneration: '1' });
+    firstBinding.revoke();
+    secondBinding.revoke();
+  });
+
+  test('enforces the 4,096 nonoverlapping lease cap and detaches every issued range', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({
+      mappedAtCreation: true,
+      size: 4_097 * 8,
+      usage: 9,
+    });
+    const submissionsBeforeRanges = bridge.submissions.length;
+    const ranges: ArrayBuffer[] = [];
+    for (let index = 0; index < 4_096; index += 1) {
+      ranges.push(buffer.getMappedRange(index * 8, 4));
+    }
+    expect(bridge.submissions).toHaveLength(submissionsBeforeRanges);
+    expect(() => buffer.getMappedRange(4_096 * 8, 4)).toThrow('unavailable');
+    expect(buffer.destroy()).toBeUndefined();
+    expect(ranges.every(isDetachedArrayBuffer)).toBe(true);
+    expect(buffer.mapState).toBe('unmapped');
+    expect(bufferLifecycleEncodings(codecs, 'GPUBuffer.destroy').at(-1))
+      .toMatchObject({
+        kind: 'cleanup-v1',
+        cleanupAction: 2,
+        cleanupGeneration: '1',
+        activeMapGeneration: '1',
+      });
+    binding.revoke();
+  });
+
+  test('does not strongly retain accepted-destroy or rejected-create buffer churn', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs, {
+      enableStateInspection: true,
+    });
+    const device = await requestTestLifecycleDevice(binding);
+    for (let index = 0; index < 1_100; index += 1) {
+      const buffer = device.createBuffer({ size: 4, usage: 8 });
+      buffer.destroy();
+    }
+    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(0);
+
+    const createBufferWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUDevice.createBuffer',
+    )?.wireId;
+    if (createBufferWireId === undefined) {
+      throw new Error('missing GPUDevice.createBuffer route');
+    }
+    bridge.setSubmitHook((operationId) =>
+      operationId === createBufferWireId ? 23 : 0);
+    for (let index = 0; index < 1_100; index += 1) {
+      expect(() => device.createBuffer({
+        mappedAtCreation: true,
+        size: 0,
+        usage: 9,
+      })).toThrow('rejected GPUDevice.createBuffer');
+    }
+    expect(inspectBinding(binding).current.trackedBufferLifecycleCount).toBe(0);
+    binding.revoke();
+  });
+
+  test('preserves active views across spontaneous loss and detaches them on realm close', async () => {
+    const bridge = createFakeBridge();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      createFakeCodecs(),
+    );
+    const device = await requestTestLifecycleDevice(binding);
+    const buffer = device.createBuffer({
+      mappedAtCreation: true,
+      size: 8,
+      usage: 9,
+    });
+    const range = buffer.getMappedRange();
+    emitDeviceLoss(bridge, '301', '1');
+    await expect(device.lost).resolves.toMatchObject({ reason: 'unknown' });
+    expect(buffer.mapState).toBe('mapped');
+    expect(isDetachedArrayBuffer(range)).toBe(false);
+    binding.revoke();
+    expect(isDetachedArrayBuffer(range)).toBe(true);
   });
 });
