@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 pins Cargo's Windows MSVC linker across Git Bash product suites after physical public-probe success exposed Git for Windows' unrelated `link.exe` shadow)
 **Revised:** 2026-07-19 (ENG-24933 keeps 15 Windows `node:fs` metadata recipes residual after physical evidence proved their installed native terminals still emit no typed discovery/commit/repeat decisions)
 **Revised:** 2026-07-19 (ENG-24933 physically verifies Windows protected-artifact publication, callback principal invariants, and all nine startup-environment recipes after the access and flush repairs)
 **Revised:** 2026-07-19 (ENG-24933 replaces invalid Windows directory `sync_all` after protected-artifact hard-link publication with a post-link flush of the still-writable staged file handle)
@@ -1803,6 +1804,10 @@ lockdown has frozen intrinsic prototypes.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
 manifest, digest, patched export, and debugger-free profile, then explicitly
 selects `x86_64-pc-windows-msvc` for recipe generation and report execution.
+After the MSVC environment is configured, it also binds Cargo's target linker
+to the exact `link.exe` under `VCToolsInstallDir`. Product suites execute through
+Git Bash, whose unrelated Unix `link.exe` otherwise shadows the configured MSVC
+toolchain and can refuse Rust test linkage after every public probe has passed.
 Its armed physical test host derives the selected project root's stable object
 identity through the production platform helper, and preserves the target's
 complete normalized path components (including a Windows drive or verbatim

@@ -153,6 +153,16 @@ jobs:
       - name: Configure MSVC developer environment
         uses: ilammy/msvc-dev-cmd@v1
 
+      - name: Bind MSVC linker across Git Bash suites
+        shell: pwsh
+        run: |
+          $linker = Join-Path $env:VCToolsInstallDir "bin\Hostx64\x64\link.exe"
+          if (-not (Test-Path -LiteralPath $linker -PathType Leaf)) {
+            throw "MSVC linker is missing from the configured toolchain: $linker"
+          }
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linker" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Install Rust toolchain
         shell: pwsh
         run: |

@@ -58,3 +58,17 @@ test("verified Windows source builds survive later matrix failures", () => {
     ),
   );
 });
+
+test("Windows Git Bash suites retain the configured MSVC linker", () => {
+  const windowsJob = conformanceWorkflow.slice(
+    conformanceWorkflow.indexOf("conformance-windows:"),
+  );
+  const msvcSetup = windowsJob.indexOf("uses: ilammy/msvc-dev-cmd@v1");
+  const linkerBinding = windowsJob.indexOf(
+    "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linker",
+  );
+
+  expect(msvcSetup).toBeGreaterThanOrEqual(0);
+  expect(linkerBinding).toBeGreaterThan(msvcSetup);
+  expect(windowsJob).toContain('$env:VCToolsInstallDir "bin\\Hostx64\\x64\\link.exe"');
+});
