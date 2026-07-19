@@ -1360,6 +1360,67 @@ pub struct Runtime {
     compat_modes: Vec<String>,
 }
 
+// Reconcile CLI-owned identity after engines that eagerly install the shared
+// bundle, but before the runtime seals its compartment baseline.
+// @ref LLP 0012#decision — compatibility identity is coherent.
+// Install the same current-process exception bridge as stream-enhance for
+// exact platforms whose lean startup path does not evaluate that legacy shim.
+// @ref LLP 0003#the-event-loop — handled async exceptions do not become fatal.
+fn build_runtime_preload_bootstrap(
+    exec_path_json: &str,
+    exec_argv_json: &str,
+    raw_argv0_json: &str,
+    compat_modes_json: &str,
+) -> String {
+    let bun_compat_version_json =
+        serde_json::to_string(ibex_runtime::identity_generated::BUN_COMPAT_VERSION)
+            .expect("static Bun compatibility version serializes");
+    format!(
+        "\
+        globalThis.__exactExecPath = {};\n\
+        globalThis.__exactExecArgv = {};\n\
+        globalThis.__exactRawArgv0 = {};\n\
+        globalThis.__exactCompatModes = {};\n\
+        if (Array.isArray(globalThis.__exactCompatModes) && \
+            globalThis.__exactCompatModes.indexOf('bun') !== -1) {{\n\
+          if (!globalThis.Bun && globalThis.Exact) {{\n\
+            globalThis.Bun = globalThis.Exact;\n\
+          }}\n\
+          if (globalThis.process && \
+              globalThis.process.versions && \
+              typeof globalThis.process.versions === 'object' && \
+              typeof globalThis.process.versions.bun !== 'string') {{\n\
+            try {{\n\
+              Object.defineProperty(globalThis.process.versions, 'bun', {{\n\
+                value: {}, writable: false, enumerable: true, configurable: true\n\
+              }});\n\
+            }} catch (_) {{}}\n\
+          }}\n\
+        }}\n\
+        if (typeof globalThis.__exactUncaughtExceptionHandler !== 'function') {{\n\
+          globalThis.__exactUncaughtExceptionHandler = function(error) {{\n\
+            var currentProcess = globalThis.process;\n\
+            if (currentProcess && \
+                typeof currentProcess.listenerCount === 'function' && \
+                typeof currentProcess.emit === 'function' && \
+                currentProcess.listenerCount('uncaughtException') > 0) {{\n\
+              try {{\n\
+                currentProcess.emit('uncaughtException', error);\n\
+                return true;\n\
+              }} catch (_) {{}}\n\
+            }}\n\
+            return false;\n\
+          }};\n\
+        }}\n\
+        if (typeof globalThis.__exactWhich === 'function') {{\n\
+          if (globalThis.Exact) globalThis.Exact.which = globalThis.__exactWhich;\n\
+          if (globalThis.Bun) globalThis.Bun.which = globalThis.__exactWhich;\n\
+        }}\n\
+        ",
+        exec_path_json, exec_argv_json, raw_argv0_json, compat_modes_json, bun_compat_version_json,
+    )
+}
+
 impl Runtime {
     /// Build a runtime from CLI configuration.
     pub fn from_cli(cli: &Cli) -> Result<Self> {
@@ -1419,10 +1480,10 @@ impl Runtime {
             bundle_format,
             exec_argv: build_audit_exec_argv(cli),
             // Foreground audit is the explicit compatibility posture used by
-            // the cross-platform runtime suite. Seed its opt-in Bun control
-            // before the shared bundle computes process.versions; the
-            // Windows minimal bootstrap otherwise observes the environment
-            // late enough to install Bun without the matching versions.bun.
+            // the cross-platform runtime suite. Carry its opt-in Bun control
+            // into the preload: the Windows engine installs the shared bundle
+            // before this constructor returns, so load_runtime reconciles the
+            // already-created versions object before compartment finalization.
             // @ref LLP 0012#decision — compatibility identity is coherent.
             compat_modes: if cli.compat.as_deref() == Some("bun")
                 || crate::env_flag_enabled("EXACT_COMPAT_BUN")
@@ -1451,23 +1512,11 @@ impl Runtime {
             serde_json::to_string(&self.exec_argv).unwrap_or_else(|_| "[]".to_string());
         let compat_modes_json =
             serde_json::to_string(&self.compat_modes).unwrap_or_else(|_| "[]".to_string());
-        let preload_bootstrap = format!(
-            "\
-            globalThis.__exactExecPath = {};\n\
-            globalThis.__exactExecArgv = {};\n\
-            globalThis.__exactRawArgv0 = {};\n\
-            globalThis.__exactCompatModes = {};\n\
-            if (Array.isArray(globalThis.__exactCompatModes) && \
-                globalThis.__exactCompatModes.indexOf('bun') !== -1 && \
-                !globalThis.Bun && globalThis.Exact) {{\n\
-              globalThis.Bun = globalThis.Exact;\n\
-            }}\n\
-            if (typeof globalThis.__exactWhich === 'function') {{\n\
-              if (globalThis.Exact) globalThis.Exact.which = globalThis.__exactWhich;\n\
-              if (globalThis.Bun) globalThis.Bun.which = globalThis.__exactWhich;\n\
-            }}\n\
-            ",
-            exec_path_json, exec_argv_json, raw_argv0_json, compat_modes_json
+        let preload_bootstrap = build_runtime_preload_bootstrap(
+            &exec_path_json,
+            &exec_argv_json,
+            &raw_argv0_json,
+            &compat_modes_json,
         );
         self.engine.eval_immediate(&preload_bootstrap).await?;
         if cfg!(windows) {
@@ -7676,6 +7725,31 @@ mod tests {
             "tla: {tla}"
         );
         assert!(!tla.ends_with("\nvoid 0;"), "tla: {tla}");
+    }
+
+    #[test]
+    fn runtime_preload_reconciles_eager_windows_process_contracts() {
+        let preload =
+            build_runtime_preload_bootstrap("\"C:/ibex.exe\"", "[]", "\"ibex.exe\"", "[\"bun\"]");
+        assert!(
+            preload.contains("Object.defineProperty(globalThis.process.versions, 'bun'"),
+            "preload: {preload}"
+        );
+        assert!(
+            preload.contains(&format!(
+                "value: \"{}\"",
+                ibex_runtime::identity_generated::BUN_COMPAT_VERSION
+            )),
+            "preload: {preload}"
+        );
+        assert!(
+            preload.contains("globalThis.__exactUncaughtExceptionHandler = function(error)"),
+            "preload: {preload}"
+        );
+        assert!(
+            preload.contains("currentProcess.emit('uncaughtException', error)"),
+            "preload: {preload}"
+        );
     }
 
     #[test]

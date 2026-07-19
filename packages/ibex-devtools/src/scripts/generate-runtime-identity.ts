@@ -162,6 +162,7 @@ const rsOut =
   `pub const RELEASE_NAME: &str = ${JSON.stringify(identity.release.name)};\n` +
   `pub const NODE_VERSION: &str = ${JSON.stringify(identity.versions.node)};\n` +
   `pub const IBEX_VERSION: &str = ${JSON.stringify(identity.versions.ibex)};\n` +
+  `pub const BUN_COMPAT_VERSION: &str = ${JSON.stringify(identity.compat.bun.versionWhenEnabled)};\n` +
   `/// The full versions table as a JS object literal, for host bootstrap\n` +
   `/// snippets that seed process.versions before the runtime bundle loads.\n` +
   `pub const VERSIONS_JS_OBJECT: &str = ${JSON.stringify(versionsJsObject)};\n` +
