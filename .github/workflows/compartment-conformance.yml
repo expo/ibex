@@ -264,13 +264,16 @@ jobs:
           bun packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs --target x86_64-pc-windows-msvc --output $catalog
           if ($LASTEXITCODE -ne 0) { throw "focused recipe generation failed" }
           $env:IBEX_CAPSEC_RECIPE_CATALOG = $catalog
+          cargo test --bin ibex --features capsec-conformance-observer,openssl-crypto capsec_callback_invariant_mechanisms_smoke -- --test-threads=1 --nocapture 2>&1 |
+            Tee-Object -FilePath (Join-Path $directory "wrapper-and-callback-principal.log")
+          $callbackExit = $LASTEXITCODE
           $env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT = Join-Path $directory "startup-environment-evidence.json"
           cargo test --bin ibex --features capsec-conformance-observer,openssl-crypto capsec_public_startup_environment_batch -- --test-threads=1 --nocapture 2>&1 |
             Tee-Object -FilePath (Join-Path $directory "startup-environment.log")
-          if ($LASTEXITCODE -ne 0) { throw "focused startup-environment batch failed" }
-          cargo test --bin ibex --features capsec-conformance-observer,openssl-crypto capsec_callback_invariant_mechanisms_smoke -- --test-threads=1 --nocapture 2>&1 |
-            Tee-Object -FilePath (Join-Path $directory "wrapper-and-callback-principal.log")
-          if ($LASTEXITCODE -ne 0) { throw "focused wrapper/callback principal smoke failed" }
+          $startupExit = $LASTEXITCODE
+          if ($callbackExit -ne 0 -or $startupExit -ne 0) {
+            throw "focused principal evidence failed (wrapper/callback=$callbackExit, startup=$startupExit)"
+          }
 
       - name: Run the complete CapSec matrix and bind evidence
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
