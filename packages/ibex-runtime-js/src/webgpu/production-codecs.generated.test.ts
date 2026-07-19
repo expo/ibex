@@ -188,7 +188,7 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [{
         label: 'texture',
         format: 'rgba8unorm',
-        size: [32, 32],
+        size: [32, 64],
         usage: 23,
       }];
     case 'GPUDevice.createCommandEncoder':
@@ -535,7 +535,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUDevice.createBuffer', wireId: 1869756926 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
         { operationId: 'GPUDevice.createSampler', wireId: 3285037552 },
-        { operationId: 'GPUDevice.createTexture', wireId: 3876131162 },
+        { operationId: 'GPUDevice.createTexture', wireId: 4177957718 },
         { operationId: 'GPUTexture.createView', wireId: 1853125118 },
         { operationId: 'GPUDevice.createCommandEncoder', wireId: 4055478657 },
         { operationId: 'GPUDevice.createShaderModule', wireId: 599085487 },

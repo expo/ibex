@@ -4280,7 +4280,7 @@
           },
           {
             "operationId": "GPUDevice.createTexture",
-            "wireId": 3876131162,
+            "wireId": 4177957718,
             "request": {
               "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
               "catalog": {
@@ -4298,7 +4298,7 @@
                       "magic": "IBGQ",
                       "version": 1,
                       "codecTag": 19,
-                      "operationWireId": 3876131162
+                      "operationWireId": 4177957718
                     }
                   },
                   {
@@ -4437,7 +4437,7 @@
                 {
                   "carrierPath": "operation_id",
                   "operator": "equal",
-                  "value": 3876131162
+                  "value": 4177957718
                 },
                 {
                   "carrierPath": "flags",
@@ -4584,7 +4584,7 @@
                 {
                   "carrierPath": "record.operation_result.operation.operation_id",
                   "operator": "equal",
-                  "value": 3876131162
+                  "value": 4177957718
                 },
                 {
                   "carrierPath": "record.operation_result.operation.device_transition",
@@ -7854,8 +7854,8 @@
       },
       {
         "operationId": "GPUDevice.createTexture",
-        "wireId": 3876131162,
-        "semanticSha256": "0fbc619ba12cf1b4beb9a8f8c545f2386746f1c914ff75109d247d59dde3c283",
+        "wireId": 4177957718,
+        "semanticSha256": "3472baf7f06fe119e165f90e637ca1797edbd23364d0a4edb76d6211966e08bd",
         "memberKind": "method",
         "dispatchClass": "service-submit",
         "logicalExecutionKind": "service-enqueue",
@@ -8604,9 +8604,9 @@
         3373402978,
         3810427763,
         3865035710,
-        3876131162,
         4055478657,
-        4094543821
+        4094543821,
+        4177957718
       ]
     }
   }

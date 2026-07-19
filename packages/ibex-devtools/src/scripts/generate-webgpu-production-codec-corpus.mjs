@@ -2038,20 +2038,20 @@ function buildCorpus() {
   });
 
   const textureRawDescriptors = Object.freeze([
-    { dimension: "2d", format: "rgba8unorm", label: "texture", mipLevelCount: 1, sampleCount: 1, size: [32, 32], usage: 23, viewFormats: [] },
-    { format: "rgba8unorm", size: [64, 64], usage: 22 },
-    { format: "rgba8unorm", size: [32, 32], usage: 17 },
+    { dimension: "2d", format: "rgba8unorm", label: "texture", mipLevelCount: 1, sampleCount: 1, size: [32, 64], usage: 23, viewFormats: [] },
+    { format: "rgba8unorm", size: [64, 128], usage: 22 },
+    { format: "rgba8unorm", size: [32, 64], usage: 17 },
     { dimension: "2d", format: "rgba8unorm", label: "trackTexture", mipLevelCount: 1, sampleCount: 1, size: [512, 512], usage: 23, viewFormats: [] },
     { dimension: "2d", format: "rgba16float", label: "bezierTexture", mipLevelCount: 1, sampleCount: 1, size: [256, 128], usage: 31, viewFormats: [] },
   ]);
   const textureExpectedDescriptors = Object.freeze([
-    Object.freeze({ dimension: "2d", format: "rgba8unorm", label: "texture", mipLevelCount: 1, sampleCount: 1, size: Object.freeze({ depthOrArrayLayers: 1, height: 32, width: 32 }), usage: 23, viewFormats: Object.freeze([]) }),
-    Object.freeze({ dimension: "2d", format: "rgba8unorm", label: "", mipLevelCount: 1, sampleCount: 1, size: Object.freeze({ depthOrArrayLayers: 1, height: 64, width: 64 }), usage: 22, viewFormats: Object.freeze([]) }),
-    Object.freeze({ dimension: "2d", format: "rgba8unorm", label: "", mipLevelCount: 1, sampleCount: 1, size: Object.freeze({ depthOrArrayLayers: 1, height: 32, width: 32 }), usage: 17, viewFormats: Object.freeze([]) }),
+    Object.freeze({ dimension: "2d", format: "rgba8unorm", label: "texture", mipLevelCount: 1, sampleCount: 1, size: Object.freeze({ depthOrArrayLayers: 1, height: 64, width: 32 }), usage: 23, viewFormats: Object.freeze([]) }),
+    Object.freeze({ dimension: "2d", format: "rgba8unorm", label: "", mipLevelCount: 1, sampleCount: 1, size: Object.freeze({ depthOrArrayLayers: 1, height: 128, width: 64 }), usage: 22, viewFormats: Object.freeze([]) }),
+    Object.freeze({ dimension: "2d", format: "rgba8unorm", label: "", mipLevelCount: 1, sampleCount: 1, size: Object.freeze({ depthOrArrayLayers: 1, height: 64, width: 32 }), usage: 17, viewFormats: Object.freeze([]) }),
     Object.freeze({ dimension: "2d", format: "rgba8unorm", label: "trackTexture", mipLevelCount: 1, sampleCount: 1, size: Object.freeze({ depthOrArrayLayers: 1, height: 512, width: 512 }), usage: 23, viewFormats: Object.freeze([]) }),
     Object.freeze({ dimension: "2d", format: "rgba16float", label: "bezierTexture", mipLevelCount: 1, sampleCount: 1, size: Object.freeze({ depthOrArrayLayers: 1, height: 128, width: 256 }), usage: 31, viewFormats: Object.freeze([]) }),
   ]);
-  const textureBytes = Object.freeze([4_096, 16_384, 4_096, 1_048_576, 262_144]);
+  const textureBytes = Object.freeze([8_192, 32_768, 8_192, 1_048_576, 262_144]);
   const textureCorpus = buildResourceCorpus({
     operationId: createTextureOperationId,
     targetKind: "GPUTexture",
@@ -2075,7 +2075,7 @@ function buildCorpus() {
       ["logical-dimension-limit", { maxTextureDimension2D: 31 }],
       ["format-capability-missing", { allowedFormats: [] }],
       ["usage-format-mismatch", { usage: 0 }],
-      ["mip-sample-bounds", { mipLevelCount: 7 }],
+      ["mip-sample-bounds", { mipLevelCount: 8 }],
       ["view-format-incompatible", { viewFormats: ["bgra8unorm"] }],
       ["binding-view-dimension-incompatible", { textureBindingViewDimension: "cube" }],
       ["overlong-label", { label: "x".repeat(14) }],
@@ -2088,7 +2088,7 @@ function buildCorpus() {
       ["provider-completion-credit-exhausted", { completionCredit: 0 }],
     ],
   });
-  if (textureBytes.reduce((sum, value) => sum + value, 0) !== 1_335_296) {
+  if (textureBytes.reduce((sum, value) => sum + value, 0) !== 1_359_872) {
     fail("GPUDevice.createTexture checked workload byte evidence drifted");
   }
 
@@ -3985,8 +3985,8 @@ function buildCorpus() {
           textureCorpus.nativeRoute.completion.semanticTerminalMapping,
         reviewedWorkloadEvidence: {
           callCount: 5,
-          totalResourceBytes: 1_335_296,
-          extents: [[32, 32, 1], [64, 64, 1], [32, 32, 1], [512, 512, 1], [256, 128, 1]],
+          totalResourceBytes: 1_359_872,
+          extents: [[32, 64, 1], [64, 128, 1], [32, 64, 1], [512, 512, 1], [256, 128, 1]],
           formats: ["rgba8unorm", "rgba16float"],
           usages: [17, 22, 23, 31],
           mipLevelCounts: [1],

@@ -1056,7 +1056,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUDevice.createTexture",
-      "wireId": 3876131162,
+      "wireId": 4177957718,
       "interfaceName": "GPUDevice",
       "memberName": "createTexture",
       "memberKind": "method",

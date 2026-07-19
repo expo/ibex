@@ -3931,7 +3931,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       },
       {
         "operationId": "GPUDevice.createTexture",
-        "wireId": 3876131162,
+        "wireId": 4177957718,
         "request": {
           "payloadRole": "service-request-payload-decoder-plus-operation-specific-call-joins",
           "catalog": {
@@ -3949,7 +3949,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                   "magic": "IBGQ",
                   "version": 1,
                   "codecTag": 19,
-                  "operationWireId": 3876131162
+                  "operationWireId": 4177957718
                 }
               },
               {
@@ -4088,7 +4088,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "operation_id",
               "operator": "equal",
-              "value": 3876131162
+              "value": 4177957718
             },
             {
               "carrierPath": "flags",
@@ -4235,7 +4235,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
             {
               "carrierPath": "record.operation_result.operation.operation_id",
               "operator": "equal",
-              "value": 3876131162
+              "value": 4177957718
             },
             {
               "carrierPath": "record.operation_result.operation.device_transition",

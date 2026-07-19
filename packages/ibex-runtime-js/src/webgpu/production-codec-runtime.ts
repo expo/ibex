@@ -78,7 +78,7 @@ interface NativeCodecField {
       | 2544948076
       | 3373402978
       | 3285037552
-      | 3876131162
+      | 4177957718
       | 1853125118
       | 599085487
       | 4055478657;
@@ -369,7 +369,7 @@ interface NativeCodecCreateSamplerRoute {
 
 interface NativeCodecCreateTextureRoute {
   readonly operationId: 'GPUDevice.createTexture';
-  readonly wireId: 3876131162;
+  readonly wireId: 4177957718;
   readonly request: NativeCodecCreateBindGroupLayoutRoute['request'];
   readonly completion: NativeCodecCreateBindGroupLayoutRoute['completion'];
 }
@@ -699,7 +699,7 @@ const CREATE_SAMPLER_REQUEST_CODEC = 'gpu-create-sampler-service-request-v1';
 const CREATE_SAMPLER_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const CREATE_TEXTURE_OPERATION_ID = 'GPUDevice.createTexture';
-const CREATE_TEXTURE_WIRE_ID = 3876131162;
+const CREATE_TEXTURE_WIRE_ID = 4177957718;
 const CREATE_TEXTURE_REQUEST_CODEC = 'gpu-create-texture-service-request-v1';
 const CREATE_TEXTURE_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
