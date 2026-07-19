@@ -489,8 +489,8 @@ fn object_identity(path: &std::path::Path) -> serde_json::Value {
     .expect("serialize callback package identity")
 }
 
-fn prepare_package_fixture_with_initialization_read(
-    initialization_read: bool,
+fn prepare_package_fixture_with_initialization_observer(
+    initialization_observer_name: Option<&str>,
 ) -> PackageFixture {
     let directory = tempfile::tempdir().expect("create callback package fixture");
     let root = std::fs::canonicalize(directory.path()).expect("canonicalize callback fixture root");
@@ -503,27 +503,35 @@ fn prepare_package_fixture_with_initialization_read(
         r#"{"name":"image-lib","version":"2.4.1","main":"index.js"}"#,
     )
     .expect("write callback package manifest");
-    let source = if initialization_read {
-        r#"var __initializationRead = typeof process.env.PATH === 'string';
-module.exports = function(sink, observer, env) {
-  var sloppyThis = (function() { return this; })();
-  var result = {
+    let source = if let Some(observer_name) = initialization_observer_name {
+        format!(
+            r#"var __initializationObserverName = {observer_name};
+var __initializationObserver = globalThis[__initializationObserverName];
+if (typeof __initializationObserver !== 'function') throw new Error('Package initialization observer unavailable');
+var __initializationContext = __initializationObserver();
+delete globalThis[__initializationObserverName];
+module.exports = function(sink, observer, env) {{
+  var sloppyThis = (function() {{ return this; }})();
+  var result = {{
     context: observer(),
-    globals: {
+    globals: {{
       processType: typeof process,
       ibexType: typeof Ibex,
       functionType: typeof Function,
       evalType: typeof eval,
       sloppyThisProcessType: sloppyThis == null ? 'nullish' : typeof sloppyThis.process
-    }
-  };
-  try {
-    result.value = __initializationRead && typeof env.PATH === 'string';
-  }
-  catch (error) { result.threw = String(error && error.message || error); }
+    }}
+  }};
+  try {{
+    result.value = typeof env.PATH === 'string';
+  }}
+  catch (error) {{ result.threw = String(error && error.message || error); }}
   sink(result);
-};
-"#
+}};
+module.exports.__initializationContext = __initializationContext;
+"#,
+            observer_name = serde_json::to_string(observer_name).unwrap()
+        )
     } else {
         r#"module.exports = function(sink, observer, env) {
   var sloppyThis = (function() { return this; })();
@@ -544,6 +552,7 @@ module.exports = function(sink, observer, env) {
   sink(result);
 };
 "#
+        .to_owned()
     };
     std::fs::write(package_root.join("index.js"), source)
     .expect("write callback package source");
@@ -567,7 +576,7 @@ module.exports = function(sink, observer, env) {
 }
 
 fn prepare_package_fixture() -> PackageFixture {
-    prepare_package_fixture_with_initialization_read(false)
+    prepare_package_fixture_with_initialization_observer(None)
 }
 
 fn artifact_content_digest(bytes: &[u8]) -> capsec_semantics::model::Digest {
@@ -2242,13 +2251,30 @@ async fn capsec_callback_invariant_mechanisms_smoke() {
     // when a function created by that wrapper is called from root code. This
     // distinguishes the two Domain lifecycle points that HBC can collapse.
     {
-        let binding_package = prepare_package_fixture_with_initialization_read(true);
+        let mut observer_nonce = [0u8; 16];
+        getrandom::getrandom(&mut observer_nonce)
+            .expect("generate package initialization observer name");
+        let initialization_observer_name = format!(
+            "__ibexCapsecContextObserver_{}",
+            observer_nonce
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        let binding_package = prepare_package_fixture_with_initialization_observer(Some(
+            &initialization_observer_name,
+        ));
         let (host, digest) =
             build_callback_host(Some(&binding_package), Some("environment"), false, None);
         let _reset = install_armed_host(&host);
         let engine = armed_engine(&digest).await;
-        let initialization_session = "callback-smoke:package-wrapper-initialization";
-        begin_observation(initialization_session);
+        engine
+            .install_named_capsec_context_test_observer(
+                &initialization_observer_name,
+                Some("image-lib@2.4.1"),
+            )
+            .await
+            .expect("install package initialization context observer");
         assert_eq!(
             engine
                 .eval_immediate("require('image-lib'); 'ready'")
@@ -2257,15 +2283,20 @@ async fn capsec_callback_invariant_mechanisms_smoke() {
                 .as_deref(),
             Some("ready")
         );
-        let initialization_decisions = finish_observation(initialization_session);
-        assert_typed_decisions(
-            &initialization_decisions,
+        let initialization_context = engine
+            .eval_immediate(
+                "JSON.stringify({context: require('image-lib').__initializationContext})",
+            )
+            .await
+            .expect("read package initialization context")
+            .expect("package initialization context returned no result");
+        let initialization_context: serde_json::Value =
+            serde_json::from_str(&initialization_context)
+                .expect("package initialization context must be JSON");
+        assert_context_principal(
+            &initialization_context,
+            &host,
             &binding_package.principal,
-            &["requested", "commit"],
-            &["allow", "allow"],
-            &["static-floor", "static-floor"],
-            ENV_AUXILIARY_EDGE_ID,
-            "env:read",
         );
         let callback_session = "callback-smoke:package-exported-callback";
         let callback = invoke_package_environment_read(&engine, callback_session).await;

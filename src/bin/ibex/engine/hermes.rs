@@ -1409,7 +1409,6 @@ impl HermesEngine {
 
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     async fn install_capsec_context_test_observer(&self) -> Result<String> {
-        self.ensure_thread()?;
         let mut nonce = [0u8; 16];
         getrandom::getrandom(&mut nonce)
             .context("failed to generate an ephemeral CapSec context-observer name")?;
@@ -1418,15 +1417,37 @@ impl HermesEngine {
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
         let name = format!("__ibexCapsecContextObserver_{suffix}");
-        let name_c = CString::new(name.as_str()).expect("hex observer name has no interior NUL");
+        self.install_named_capsec_context_test_observer(&name, None)
+            .await?;
+        Ok(name)
+    }
+
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    async fn install_named_capsec_context_test_observer(
+        &self,
+        name: &str,
+        compartment_identity: Option<&str>,
+    ) -> Result<()> {
+        self.ensure_thread()?;
+        let name_c = CString::new(name).expect("hex observer name has no interior NUL");
+        let compartment_c = compartment_identity
+            .map(CString::new)
+            .transpose()
+            .context("compartment identity contains an interior NUL")?;
         let runtime = self.ensure_runtime().await?;
         let installed = runtime.with_runtime(|raw| unsafe {
-            ibex_test_install_capsec_context_observer(raw, name_c.as_ptr(), std::ptr::null())
+            ibex_test_install_capsec_context_observer(
+                raw,
+                name_c.as_ptr(),
+                compartment_c
+                    .as_ref()
+                    .map_or(std::ptr::null(), |identity| identity.as_ptr()),
+            )
         })?;
         if installed != 1 {
             anyhow::bail!("armed Hermes refused the ephemeral CapSec context observer");
         }
-        Ok(name)
+        Ok(())
     }
 
     async fn maybe_enable_debugger(&self) -> Result<()> {
