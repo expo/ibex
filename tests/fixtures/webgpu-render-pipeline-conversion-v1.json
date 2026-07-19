@@ -1,0 +1,95 @@
+{
+  "schema": "ibex/webgpu-render-pipeline-conversion-fixtures/1",
+  "source": {
+    "typegpuVersion": "0.11.9",
+    "exactCohortSha256": "20b31013e1f679cd4d6a8acdc5808683d5920ebf6aefbc47ae4fb83babe67e01",
+    "purpose": "Post-WebIDL presence fixtures for the four authenticated Exact TypeGPU render-pipeline cohorts"
+  },
+  "sharedOmissions": [
+    "vertex.constants",
+    "vertex.entryPoint",
+    "fragment.constants",
+    "fragment.entryPoint",
+    "depthStencil",
+    "multisample",
+    "fragment.targets[0].writeMask"
+  ],
+  "rows": [
+    {
+      "workload": "GeneticTextureUtility",
+      "label": "",
+      "vertexBuffersPresence": "omitted",
+      "primitivePresence": "present",
+      "primitive": {
+        "topology": "triangle-list"
+      },
+      "targetFormat": "rgba8unorm"
+    },
+    {
+      "workload": "GeneticTrack",
+      "label": "trackPipeline",
+      "vertexBuffersPresence": "present",
+      "vertexBuffers": [],
+      "primitivePresence": "omitted",
+      "targetFormat": "bgra8unorm"
+    },
+    {
+      "workload": "GeneticCar",
+      "label": "carPipeline",
+      "vertexBuffersPresence": "present",
+      "vertexBuffers": [
+        {
+          "arrayStride": 40,
+          "attributes": [
+            {
+              "format": "float32x2",
+              "offset": 0,
+              "shaderLocation": 0
+            },
+            {
+              "format": "float32",
+              "offset": 8,
+              "shaderLocation": 1
+            },
+            {
+              "format": "uint32",
+              "offset": 12,
+              "shaderLocation": 2
+            },
+            {
+              "format": "float32",
+              "offset": 16,
+              "shaderLocation": 3
+            }
+          ],
+          "stepMode": "instance"
+        }
+      ],
+      "primitivePresence": "present",
+      "primitive": {
+        "topology": "triangle-strip"
+      },
+      "targetFormat": "bgra8unorm",
+      "blend": {
+        "alpha": {
+          "dstFactor": "one-minus-src-alpha",
+          "operation": "add",
+          "srcFactor": "one"
+        },
+        "color": {
+          "dstFactor": "one-minus-src-alpha",
+          "operation": "add",
+          "srcFactor": "one"
+        }
+      }
+    },
+    {
+      "workload": "JellySlider",
+      "label": "pipeline",
+      "vertexBuffersPresence": "present",
+      "vertexBuffers": [],
+      "primitivePresence": "omitted",
+      "targetFormat": "bgra8unorm"
+    }
+  ]
+}

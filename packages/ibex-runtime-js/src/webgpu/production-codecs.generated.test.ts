@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
+import {
+  default as renderPipelineConversionFixtures,
+} from '../../../../tests/fixtures/webgpu-render-pipeline-conversion-v1.json';
+
 import type { NativeGpuEventV2 } from './native-bridge';
 import {
   EMBEDDED_EXECUTABLE_WEBGPU_CODECS,
@@ -64,6 +68,7 @@ const bindGroupLayout = wrapper('GPUBindGroupLayout');
 const canvasContext = wrapper('GPUCanvasContext');
 const commandBuffer = wrapper('GPUCommandBuffer');
 const commandEncoder = wrapper('GPUCommandEncoder');
+const pipelineLayout = wrapper('GPUPipelineLayout');
 const renderPass = wrapper('GPURenderPassEncoder');
 const renderPipeline = wrapper('GPURenderPipeline');
 const sampler = wrapper('GPUSampler');
@@ -71,6 +76,37 @@ const shaderModule = wrapper('GPUShaderModule');
 const texture = wrapper('GPUTexture');
 const textureView = wrapper('GPUTextureView');
 const externalTexture = wrapper('GPUExternalTexture');
+
+interface RenderPipelineFixtureBlendComponent {
+  readonly dstFactor: string;
+  readonly operation: string;
+  readonly srcFactor: string;
+}
+
+interface RenderPipelineFixtureRow {
+  readonly workload: string;
+  readonly label: string;
+  readonly vertexBuffersPresence: 'omitted' | 'present';
+  readonly vertexBuffers?: readonly Readonly<{
+    arrayStride: number;
+    attributes: readonly Readonly<{
+      format: string;
+      offset: number;
+      shaderLocation: number;
+    }>[];
+    stepMode?: string;
+  }>[];
+  readonly primitivePresence: 'omitted' | 'present';
+  readonly primitive?: Readonly<{ topology?: string }>;
+  readonly targetFormat: string;
+  readonly blend?: Readonly<{
+    alpha: RenderPipelineFixtureBlendComponent;
+    color: RenderPipelineFixtureBlendComponent;
+  }>;
+}
+
+const renderPipelineFixtureRows = renderPipelineConversionFixtures.rows as unknown as
+  readonly RenderPipelineFixtureRow[];
 
 function bindGroupLayoutDescriptor(): Readonly<Record<string, unknown>> {
   return Object.freeze({
@@ -245,8 +281,9 @@ function conversionArguments(operationId: string): readonly unknown[] {
       return [{ label: 'encoder' }];
     case 'GPUDevice.createRenderPipeline':
       return [{
+        layout: pipelineLayout,
         vertex: { module: shaderModule },
-        fragment: { module: shaderModule },
+        fragment: { module: shaderModule, targets: [{ format: 'bgra8unorm' }] },
       }];
     case 'GPUDevice.createShaderModule':
       return [{ label: 'shader', code: '@vertex fn main() {}' }];
@@ -1336,6 +1373,321 @@ describe('generated injection-only WebGPU executable codecs', () => {
       swizzle: 'rgba',
       usage: 0,
     });
+  });
+
+  test('preserves all four authenticated TypeGPU render cohort presences', () => {
+    expect(renderPipelineConversionFixtures.schema).toBe(
+      'ibex/webgpu-render-pipeline-conversion-fixtures/1',
+    );
+    expect(renderPipelineConversionFixtures.source.exactCohortSha256).toBe(
+      '20b31013e1f679cd4d6a8acdc5808683d5920ebf6aefbc47ae4fb83babe67e01',
+    );
+    expect(renderPipelineFixtureRows.map((row) => row.workload)).toEqual([
+      'GeneticTextureUtility',
+      'GeneticTrack',
+      'GeneticCar',
+      'JellySlider',
+    ]);
+
+    for (const row of renderPipelineFixtureRows) {
+      const vertex: Record<string, unknown> = { module: shaderModule };
+      if (row.vertexBuffersPresence === 'present') {
+        vertex.buffers = row.vertexBuffers ?? [];
+      }
+      const colorTarget: Record<string, unknown> = { format: row.targetFormat };
+      if (row.blend !== undefined) colorTarget.blend = row.blend;
+      const descriptor: Record<string, unknown> = {
+        label: row.label,
+        layout: pipelineLayout,
+        fragment: { module: shaderModule, targets: [colorTarget] },
+        vertex,
+      };
+      if (row.primitivePresence === 'present') {
+        descriptor.primitive = row.primitive ?? {};
+      }
+
+      const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+        .convertPublicArguments(
+          'GPUDevice.createRenderPipeline',
+          [descriptor],
+          wrappers,
+        ) as Readonly<Record<string, unknown>>;
+      const convertedVertex = converted.vertex as Readonly<Record<string, unknown>>;
+      const convertedFragment = converted.fragment as Readonly<Record<string, unknown>>;
+      const convertedTargets = convertedFragment.targets as readonly Readonly<
+        Record<string, unknown>
+      >[];
+
+      expect(converted).toEqual({
+        label: row.label,
+        layout: reference('GPUPipelineLayout'),
+        fragment: {
+          module: reference('GPUShaderModule'),
+          targets: [{
+            ...(row.blend === undefined ? {} : { blend: row.blend }),
+            format: row.targetFormat,
+          }],
+        },
+        ...(row.primitivePresence === 'present'
+          ? {
+              primitive: {
+                cullMode: 'none',
+                frontFace: 'ccw',
+                topology: row.primitive?.topology ?? 'triangle-list',
+                unclippedDepth: false,
+              },
+            }
+          : {}),
+        vertex: {
+          module: reference('GPUShaderModule'),
+          ...(row.vertexBuffersPresence === 'present'
+            ? {
+                buffers: (row.vertexBuffers ?? []).map((buffer) => ({
+                  arrayStride: buffer.arrayStride,
+                  attributes: buffer.attributes.map((attribute) => ({ ...attribute })),
+                  stepMode: buffer.stepMode ?? 'vertex',
+                })),
+              }
+            : {}),
+        },
+      });
+      expect(Object.hasOwn(converted, 'depthStencil')).toBe(false);
+      expect(Object.hasOwn(converted, 'multisample')).toBe(false);
+      expect(Object.hasOwn(converted, 'primitive')).toBe(
+        row.primitivePresence === 'present',
+      );
+      expect(Object.hasOwn(convertedVertex, 'buffers')).toBe(
+        row.vertexBuffersPresence === 'present',
+      );
+      expect(Object.hasOwn(convertedVertex, 'constants')).toBe(false);
+      expect(Object.hasOwn(convertedVertex, 'entryPoint')).toBe(false);
+      expect(Object.hasOwn(convertedFragment, 'constants')).toBe(false);
+      expect(Object.hasOwn(convertedFragment, 'entryPoint')).toBe(false);
+      expect(Object.hasOwn(convertedTargets[0], 'writeMask')).toBe(false);
+      expect(Object.isFrozen(converted)).toBe(true);
+      expect(Object.isFrozen(convertedVertex)).toBe(true);
+      expect(Object.isFrozen(convertedTargets)).toBe(true);
+    }
+  });
+
+  test('converts bounded depth-stencil state without erasing presence', () => {
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createRenderPipeline',
+        [{
+          layout: 'auto',
+          depthStencil: {
+            depthBias: -2.9,
+            depthBiasClamp: 1.25,
+            depthBiasSlopeScale: 0.5,
+            depthCompare: 'greater',
+            depthWriteEnabled: 1,
+            format: 'depth24plus-stencil8',
+            stencilBack: {
+              compare: 'less',
+              depthFailOp: 'replace',
+              failOp: 'zero',
+              passOp: 'invert',
+            },
+            stencilFront: {},
+            stencilReadMask: 0x00ff,
+            stencilWriteMask: 0xff00,
+          },
+          fragment: {
+            constants: {},
+            entryPoint: 'fs',
+            module: shaderModule,
+            targets: [{ format: 'rgba8unorm', writeMask: 0 }],
+          },
+          multisample: {
+            alphaToCoverageEnabled: 1,
+            count: 4,
+            mask: 3,
+          },
+          primitive: { stripIndexFormat: 'uint16' },
+          vertex: {
+            constants: { beta: 2, alpha: 1 },
+            entryPoint: 'vs',
+            module: shaderModule,
+            buffers: [undefined, null],
+          },
+        }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+
+    expect(converted).toEqual({
+      label: '',
+      layout: 'auto',
+      depthStencil: {
+        depthBias: -2,
+        depthBiasClamp: 1.25,
+        depthBiasSlopeScale: 0.5,
+        depthCompare: 'greater',
+        depthWriteEnabled: true,
+        format: 'depth24plus-stencil8',
+        stencilBack: {
+          compare: 'less',
+          depthFailOp: 'replace',
+          failOp: 'zero',
+          passOp: 'invert',
+        },
+        stencilFront: {
+          compare: 'always',
+          depthFailOp: 'keep',
+          failOp: 'keep',
+          passOp: 'keep',
+        },
+        stencilReadMask: 0x00ff,
+        stencilWriteMask: 0xff00,
+      },
+      fragment: {
+        constants: {},
+        entryPoint: 'fs',
+        module: reference('GPUShaderModule'),
+        targets: [{ format: 'rgba8unorm', writeMask: 0 }],
+      },
+      multisample: {
+        alphaToCoverageEnabled: true,
+        count: 4,
+        mask: 3,
+      },
+      primitive: {
+        cullMode: 'none',
+        frontFace: 'ccw',
+        stripIndexFormat: 'uint16',
+        topology: 'triangle-list',
+        unclippedDepth: false,
+      },
+      vertex: {
+        constants: { alpha: 1, beta: 2 },
+        entryPoint: 'vs',
+        module: reference('GPUShaderModule'),
+        buffers: [null, null],
+      },
+    });
+    expect(Object.keys(
+      (converted.vertex as Readonly<Record<string, unknown>>).constants as object,
+    )).toEqual(['alpha', 'beta']);
+  });
+
+  test('orders render WebIDL conversion and fails brands or bounds synchronously', () => {
+    const trace: string[] = [];
+    const observed = (
+      label: string,
+      values: Readonly<Record<string, unknown>>,
+    ): Record<string, unknown> => {
+      const result: Record<string, unknown> = {};
+      for (const [name, value] of Object.entries(values)) {
+        Object.defineProperty(result, name, {
+          enumerable: true,
+          get() {
+            trace.push(`${label}.${name}`);
+            return value;
+          },
+        });
+      }
+      return result;
+    };
+    const vertex = observed('vertex', {
+      constants: undefined,
+      entryPoint: undefined,
+      module: shaderModule,
+      buffers: undefined,
+    });
+    const descriptor = observed('pipeline', {
+      label: 'ordered',
+      layout: pipelineLayout,
+      depthStencil: undefined,
+      fragment: undefined,
+      multisample: undefined,
+      primitive: undefined,
+      vertex,
+    });
+    expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [descriptor],
+      wrappers,
+    )).toMatchObject({ label: 'ordered', layout: reference('GPUPipelineLayout') });
+    expect(trace).toEqual([
+      'pipeline.label',
+      'pipeline.layout',
+      'pipeline.depthStencil',
+      'pipeline.fragment',
+      'pipeline.multisample',
+      'pipeline.primitive',
+      'pipeline.vertex',
+      'vertex.constants',
+      'vertex.entryPoint',
+      'vertex.module',
+      'vertex.buffers',
+    ]);
+
+    const base = {
+      layout: pipelineLayout,
+      vertex: { module: shaderModule },
+    };
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{ vertex: { module: shaderModule } }],
+      wrappers,
+    )).toThrow('layout is required');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{ ...base, layout: bindGroupLayout }],
+      wrappers,
+    )).toThrow('wrong WebGPU object brand');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{ ...base, vertex: { module: pipelineLayout } }],
+      wrappers,
+    )).toThrow('wrong WebGPU object brand');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{ ...base, vertex: { module: shaderModule, buffers: Array(1025).fill(null) } }],
+      wrappers,
+    )).toThrow('reviewed sequence bound');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{
+        ...base,
+        vertex: {
+          module: shaderModule,
+          buffers: [{ arrayStride: 4, attributes: Array(1025).fill({
+            format: 'float32',
+            offset: 0,
+            shaderLocation: 0,
+          }) }],
+        },
+      }],
+      wrappers,
+    )).toThrow('reviewed sequence bound');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{
+        ...base,
+        fragment: {
+          module: shaderModule,
+          targets: Array(1025).fill(null),
+        },
+      }],
+      wrappers,
+    )).toThrow('reviewed sequence bound');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{
+        ...base,
+        depthStencil: { depthBias: 0x8000_0000, format: 'depth24plus' },
+      }],
+      wrappers,
+    )).toThrow('signed 32-bit integer');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{
+        ...base,
+        depthStencil: { depthBiasClamp: Infinity, format: 'depth24plus' },
+      }],
+      wrappers,
+    )).toThrow('finite float');
   });
 
   test('converts buffer lifecycle arguments and snapshots queue uploads synchronously', () => {

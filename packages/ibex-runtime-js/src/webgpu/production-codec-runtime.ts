@@ -3004,6 +3004,48 @@ const VERTEX_FORMATS = Object.freeze([
   'unorm8x4-bgra',
 ]);
 
+const BLEND_FACTORS = Object.freeze([
+  'zero',
+  'one',
+  'src',
+  'one-minus-src',
+  'src-alpha',
+  'one-minus-src-alpha',
+  'dst',
+  'one-minus-dst',
+  'dst-alpha',
+  'one-minus-dst-alpha',
+  'src-alpha-saturated',
+  'constant',
+  'one-minus-constant',
+  'src1',
+  'one-minus-src1',
+  'src1-alpha',
+  'one-minus-src1-alpha',
+]);
+
+const COMPARE_FUNCTIONS = Object.freeze([
+  'never',
+  'less',
+  'equal',
+  'less-equal',
+  'greater',
+  'not-equal',
+  'greater-equal',
+  'always',
+]);
+
+const STENCIL_OPERATIONS = Object.freeze([
+  'keep',
+  'zero',
+  'replace',
+  'invert',
+  'increment-clamp',
+  'decrement-clamp',
+  'increment-wrap',
+  'decrement-wrap',
+]);
+
 function isObjectLike(value: unknown): value is Record<PropertyKey, unknown> {
   return (typeof value === 'object' && value !== null) ||
     typeof value === 'function';
@@ -4724,6 +4766,19 @@ function u32(value: unknown, label: string, defaultValue?: number): number {
   return Object.is(integer, -0) ? 0 : integer;
 }
 
+function i32(value: unknown, label: string, defaultValue?: number): number {
+  if (value === undefined && defaultValue !== undefined) return defaultValue;
+  const converted = +(value as number);
+  if (!Number.isFinite(converted)) {
+    throw new TypeError(`${label} must be a signed 32-bit integer`);
+  }
+  const integer = Math.trunc(converted);
+  if (integer < -0x8000_0000 || integer > 0x7fff_ffff) {
+    throw new TypeError(`${label} must be a signed 32-bit integer`);
+  }
+  return Object.is(integer, -0) ? 0 : integer;
+}
+
 function u64Number(value: unknown, label: string): number {
   const converted = +(value as number);
   if (!Number.isFinite(converted)) {
@@ -5795,35 +5850,76 @@ function convertPipelineLayoutDescriptor(
 }
 
 function convertVertexBuffers(value: unknown, maximum: number): readonly unknown[] {
-  if (value === undefined) return Object.freeze([]);
-  const buffers = sequence(value, 'GPUVertexState.buffers', maximum);
-  return Object.freeze(buffers.map((buffer, bufferIndex) => {
-    if (buffer === null) return null;
-    const source = dictionary(buffer, `GPUVertexBufferLayout[${bufferIndex}]`);
-    const attributes = sequence(
-      source.attributes,
-      `GPUVertexBufferLayout[${bufferIndex}].attributes`,
-      maximum,
-    );
-    return frozenRecord({
-      arrayStride: u64Number(source.arrayStride, 'GPUVertexBufferLayout.arrayStride'),
-      stepMode: source.stepMode === undefined
+  const buffers = sequence(
+    value,
+    'GPUVertexState.buffers',
+    maximum,
+    (buffer, bufferIndex) => {
+      if (buffer === null || buffer === undefined) return null;
+      const source = dictionary(
+        buffer,
+        `GPUVertexBufferLayout[${bufferIndex}]`,
+      );
+      // Dictionary members are observed and converted in lexicographic order.
+      const arrayStrideValue = source.arrayStride;
+      if (arrayStrideValue === undefined) {
+        throw new TypeError('GPUVertexBufferLayout.arrayStride is required');
+      }
+      const arrayStride = u64Number(
+        arrayStrideValue,
+        'GPUVertexBufferLayout.arrayStride',
+      );
+      const attributesValue = source.attributes;
+      if (attributesValue === undefined) {
+        throw new TypeError('GPUVertexBufferLayout.attributes is required');
+      }
+      const attributes = sequence(
+        attributesValue,
+        `GPUVertexBufferLayout[${bufferIndex}].attributes`,
+        maximum,
+        (attribute) => {
+          const row = dictionary(attribute, 'GPUVertexAttribute');
+          const formatValue = row.format;
+          if (formatValue === undefined) {
+            throw new TypeError('GPUVertexAttribute.format is required');
+          }
+          const format = enumValue(
+            formatValue,
+            VERTEX_FORMATS,
+            'GPUVertexAttribute.format',
+          );
+          const offsetValue = row.offset;
+          if (offsetValue === undefined) {
+            throw new TypeError('GPUVertexAttribute.offset is required');
+          }
+          const offset = u64Number(offsetValue, 'GPUVertexAttribute.offset');
+          const shaderLocationValue = row.shaderLocation;
+          if (shaderLocationValue === undefined) {
+            throw new TypeError('GPUVertexAttribute.shaderLocation is required');
+          }
+          const shaderLocation = u32(
+            shaderLocationValue,
+            'GPUVertexAttribute.shaderLocation',
+          );
+          return frozenRecord({ format, offset, shaderLocation });
+        },
+      );
+      const stepModeValue = source.stepMode;
+      const stepMode = stepModeValue === undefined
         ? 'vertex'
         : enumValue(
-          source.stepMode,
+          stepModeValue,
           ['vertex', 'instance'],
           'GPUVertexBufferLayout.stepMode',
-        ),
-      attributes: Object.freeze(attributes.map((attribute) => {
-        const row = dictionary(attribute, 'GPUVertexAttribute');
-        return frozenRecord({
-          format: enumValue(row.format, VERTEX_FORMATS, 'GPUVertexAttribute.format'),
-          offset: u64Number(row.offset, 'GPUVertexAttribute.offset'),
-          shaderLocation: u32(row.shaderLocation, 'GPUVertexAttribute.shaderLocation'),
-        });
-      })),
-    });
-  }));
+        );
+      return frozenRecord({
+        arrayStride,
+        attributes: Object.freeze(attributes),
+        stepMode,
+      });
+    },
+  );
+  return Object.freeze(buffers);
 }
 
 function convertProgrammableStage(
@@ -5832,13 +5928,20 @@ function convertProgrammableStage(
   wrappers: ProductionGpuCodecWrapperAccess,
 ): Record<string, unknown> {
   const source = dictionary(value, label);
-  const result: Record<string, unknown> = {
-    module: wrappers.reference(source.module, 'GPUShaderModule'),
-    constants: convertConstants(source.constants, `${label}.constants`),
-  };
-  if (source.entryPoint !== undefined) {
-    result.entryPoint = webIdlString(source.entryPoint, `${label}.entryPoint`);
+  const result: Record<string, unknown> = {};
+  const constantsValue = source.constants;
+  if (constantsValue !== undefined) {
+    result.constants = convertConstants(constantsValue, `${label}.constants`);
   }
+  const entryPointValue = source.entryPoint;
+  if (entryPointValue !== undefined) {
+    result.entryPoint = webIdlString(entryPointValue, `${label}.entryPoint`);
+  }
+  const moduleValue = source.module;
+  if (moduleValue === undefined) {
+    throw new TypeError(`${label}.module is required`);
+  }
+  result.module = wrappers.reference(moduleValue, 'GPUShaderModule');
   return result;
 }
 
@@ -5847,21 +5950,252 @@ function convertBlendComponent(
   label: string,
 ): Readonly<Record<string, unknown>> {
   const source = dictionary(value, label);
+  const dstFactorValue = source.dstFactor;
+  const dstFactor = dstFactorValue === undefined
+    ? 'zero'
+    : enumValue(dstFactorValue, BLEND_FACTORS, `${label}.dstFactor`);
+  const operationValue = source.operation;
+  const operation = operationValue === undefined
+    ? 'add'
+    : enumValue(
+      operationValue,
+      ['add', 'subtract', 'reverse-subtract', 'min', 'max'],
+      `${label}.operation`,
+    );
+  const srcFactorValue = source.srcFactor;
+  const srcFactor = srcFactorValue === undefined
+    ? 'one'
+    : enumValue(srcFactorValue, BLEND_FACTORS, `${label}.srcFactor`);
   return frozenRecord({
-    operation: source.operation === undefined
-      ? 'add'
-      : enumValue(
-        source.operation,
-        ['add', 'subtract', 'reverse-subtract', 'min', 'max'],
-        `${label}.operation`,
-      ),
-    srcFactor: source.srcFactor === undefined
-      ? 'one'
-      : webIdlString(source.srcFactor, `${label}.srcFactor`),
-    dstFactor: source.dstFactor === undefined
-      ? 'zero'
-      : webIdlString(source.dstFactor, `${label}.dstFactor`),
+    dstFactor,
+    operation,
+    srcFactor,
   });
+}
+
+function convertBlendState(value: unknown): Readonly<Record<string, unknown>> {
+  const source = dictionary(value, 'GPUBlendState');
+  const alphaValue = source.alpha;
+  if (alphaValue === undefined) {
+    throw new TypeError('GPUBlendState.alpha is required');
+  }
+  const alpha = convertBlendComponent(alphaValue, 'GPUBlendState.alpha');
+  const colorValue = source.color;
+  if (colorValue === undefined) {
+    throw new TypeError('GPUBlendState.color is required');
+  }
+  const color = convertBlendComponent(colorValue, 'GPUBlendState.color');
+  return frozenRecord({ alpha, color });
+}
+
+function convertColorTargetState(
+  value: unknown,
+  textureFormats: readonly string[],
+): Readonly<Record<string, unknown>> {
+  const source = dictionary(value, 'GPUColorTargetState');
+  const result: Record<string, unknown> = {};
+  const blendValue = source.blend;
+  if (blendValue !== undefined) {
+    result.blend = convertBlendState(blendValue);
+  }
+  const formatValue = source.format;
+  if (formatValue === undefined) {
+    throw new TypeError('GPUColorTargetState.format is required');
+  }
+  result.format = enumValue(
+    formatValue,
+    textureFormats,
+    'GPUColorTargetState.format',
+  );
+  const writeMaskValue = source.writeMask;
+  if (writeMaskValue !== undefined) {
+    result.writeMask = u32(writeMaskValue, 'GPUColorTargetState.writeMask');
+  }
+  return frozenRecord(result);
+}
+
+function convertFragmentState(
+  value: unknown,
+  wrappers: ProductionGpuCodecWrapperAccess,
+  maximum: number,
+  textureFormats: readonly string[],
+): Readonly<Record<string, unknown>> {
+  const source = dictionary(value, 'GPUFragmentState');
+  const fragment = convertProgrammableStage(
+    source,
+    'GPUFragmentState',
+    wrappers,
+  );
+  const targetsValue = source.targets;
+  if (targetsValue === undefined) {
+    throw new TypeError('GPUFragmentState.targets is required');
+  }
+  fragment.targets = Object.freeze(sequence(
+    targetsValue,
+    'GPUFragmentState.targets',
+    maximum,
+    (target) => target === null || target === undefined
+      ? null
+      : convertColorTargetState(target, textureFormats),
+  ));
+  return frozenRecord(fragment);
+}
+
+function convertMultisampleState(value: unknown): Readonly<Record<string, unknown>> {
+  const source = dictionary(value, 'GPUMultisampleState');
+  const alphaToCoverageEnabled = Boolean(source.alphaToCoverageEnabled);
+  const countValue = source.count;
+  const count = u32(countValue, 'GPUMultisampleState.count', 1);
+  const maskValue = source.mask;
+  const mask = u32(maskValue, 'GPUMultisampleState.mask', 0xffff_ffff);
+  return frozenRecord({ alphaToCoverageEnabled, count, mask });
+}
+
+function convertPrimitiveState(value: unknown): Readonly<Record<string, unknown>> {
+  const source = dictionary(value, 'GPUPrimitiveState');
+  const cullModeValue = source.cullMode;
+  const cullMode = cullModeValue === undefined
+    ? 'none'
+    : enumValue(cullModeValue, ['none', 'front', 'back'], 'GPUPrimitiveState.cullMode');
+  const frontFaceValue = source.frontFace;
+  const frontFace = frontFaceValue === undefined
+    ? 'ccw'
+    : enumValue(frontFaceValue, ['ccw', 'cw'], 'GPUPrimitiveState.frontFace');
+  const stripIndexFormatValue = source.stripIndexFormat;
+  const stripIndexFormat = stripIndexFormatValue === undefined
+    ? undefined
+    : enumValue(
+      stripIndexFormatValue,
+      ['uint16', 'uint32'],
+      'GPUPrimitiveState.stripIndexFormat',
+    );
+  const topologyValue = source.topology;
+  const topology = topologyValue === undefined
+    ? 'triangle-list'
+    : enumValue(
+      topologyValue,
+      ['point-list', 'line-list', 'line-strip', 'triangle-list', 'triangle-strip'],
+      'GPUPrimitiveState.topology',
+    );
+  const unclippedDepth = Boolean(source.unclippedDepth);
+  return frozenRecord({
+    cullMode,
+    frontFace,
+    ...(stripIndexFormat === undefined ? {} : { stripIndexFormat }),
+    topology,
+    unclippedDepth,
+  });
+}
+
+function convertStencilFaceState(
+  value: unknown,
+  label: string,
+): Readonly<Record<string, unknown>> {
+  const source = dictionary(value, label);
+  const compareValue = source.compare;
+  const compare = compareValue === undefined
+    ? 'always'
+    : enumValue(compareValue, COMPARE_FUNCTIONS, `${label}.compare`);
+  const depthFailOpValue = source.depthFailOp;
+  const depthFailOp = depthFailOpValue === undefined
+    ? 'keep'
+    : enumValue(depthFailOpValue, STENCIL_OPERATIONS, `${label}.depthFailOp`);
+  const failOpValue = source.failOp;
+  const failOp = failOpValue === undefined
+    ? 'keep'
+    : enumValue(failOpValue, STENCIL_OPERATIONS, `${label}.failOp`);
+  const passOpValue = source.passOp;
+  const passOp = passOpValue === undefined
+    ? 'keep'
+    : enumValue(passOpValue, STENCIL_OPERATIONS, `${label}.passOp`);
+  return frozenRecord({ compare, depthFailOp, failOp, passOp });
+}
+
+function convertDepthStencilState(
+  value: unknown,
+  textureFormats: readonly string[],
+): Readonly<Record<string, unknown>> {
+  const source = dictionary(value, 'GPUDepthStencilState');
+  const depthBiasValue = source.depthBias;
+  const depthBias = i32(depthBiasValue, 'GPUDepthStencilState.depthBias', 0);
+  const depthBiasClampValue = source.depthBiasClamp;
+  const depthBiasClamp = depthBiasClampValue === undefined
+    ? 0
+    : restrictedFloat(
+      depthBiasClampValue,
+      'GPUDepthStencilState.depthBiasClamp',
+    );
+  const depthBiasSlopeScaleValue = source.depthBiasSlopeScale;
+  const depthBiasSlopeScale = depthBiasSlopeScaleValue === undefined
+    ? 0
+    : restrictedFloat(
+      depthBiasSlopeScaleValue,
+      'GPUDepthStencilState.depthBiasSlopeScale',
+    );
+  const depthCompareValue = source.depthCompare;
+  const depthCompare = depthCompareValue === undefined
+    ? 'always'
+    : enumValue(
+      depthCompareValue,
+      COMPARE_FUNCTIONS,
+      'GPUDepthStencilState.depthCompare',
+    );
+  const depthWriteEnabled = Boolean(source.depthWriteEnabled);
+  const formatValue = source.format;
+  if (formatValue === undefined) {
+    throw new TypeError('GPUDepthStencilState.format is required');
+  }
+  const format = enumValue(
+    formatValue,
+    textureFormats,
+    'GPUDepthStencilState.format',
+  );
+  const stencilBack = convertStencilFaceState(
+    source.stencilBack,
+    'GPUDepthStencilState.stencilBack',
+  );
+  const stencilFront = convertStencilFaceState(
+    source.stencilFront,
+    'GPUDepthStencilState.stencilFront',
+  );
+  const stencilReadMaskValue = source.stencilReadMask;
+  const stencilReadMask = u32(
+    stencilReadMaskValue,
+    'GPUDepthStencilState.stencilReadMask',
+    0xffff_ffff,
+  );
+  const stencilWriteMaskValue = source.stencilWriteMask;
+  const stencilWriteMask = u32(
+    stencilWriteMaskValue,
+    'GPUDepthStencilState.stencilWriteMask',
+    0xffff_ffff,
+  );
+  return frozenRecord({
+    depthBias,
+    depthBiasClamp,
+    depthBiasSlopeScale,
+    depthCompare,
+    depthWriteEnabled,
+    format,
+    stencilBack,
+    stencilFront,
+    stencilReadMask,
+    stencilWriteMask,
+  });
+}
+
+function convertVertexState(
+  value: unknown,
+  wrappers: ProductionGpuCodecWrapperAccess,
+  maximum: number,
+): Readonly<Record<string, unknown>> {
+  const source = dictionary(value, 'GPUVertexState');
+  const vertex = convertProgrammableStage(source, 'GPUVertexState', wrappers);
+  const buffersValue = source.buffers;
+  if (buffersValue !== undefined) {
+    vertex.buffers = convertVertexBuffers(buffersValue, maximum);
+  }
+  return frozenRecord(vertex);
 }
 
 function convertRenderPipelineDescriptor(
@@ -5871,89 +6205,49 @@ function convertRenderPipelineDescriptor(
   textureFormats: readonly string[],
 ): unknown {
   const source = dictionary(value, 'GPURenderPipelineDescriptor');
-  if (source.vertex === undefined) {
+  // Inherited dictionary members are observed first, followed by the derived
+  // members in lexicographic order. Conversion immediately follows each Get.
+  const label = optionalLabel(source);
+  const layoutValue = source.layout;
+  if (layoutValue === undefined) {
+    throw new TypeError('GPUPipelineDescriptorBase.layout is required');
+  }
+  const layout = isObjectLike(layoutValue)
+    ? wrappers.reference(layoutValue, 'GPUPipelineLayout')
+    : enumValue(layoutValue, ['auto'], 'GPUPipelineDescriptorBase.layout');
+  const result: Record<string, unknown> = {
+    label,
+    layout,
+  };
+  const depthStencilValue = source.depthStencil;
+  if (depthStencilValue !== undefined) {
+    result.depthStencil = convertDepthStencilState(
+      depthStencilValue,
+      textureFormats,
+    );
+  }
+  const fragmentValue = source.fragment;
+  if (fragmentValue !== undefined) {
+    result.fragment = convertFragmentState(
+      fragmentValue,
+      wrappers,
+      maximum,
+      textureFormats,
+    );
+  }
+  const multisampleValue = source.multisample;
+  if (multisampleValue !== undefined) {
+    result.multisample = convertMultisampleState(multisampleValue);
+  }
+  const primitiveValue = source.primitive;
+  if (primitiveValue !== undefined) {
+    result.primitive = convertPrimitiveState(primitiveValue);
+  }
+  const vertexValue = source.vertex;
+  if (vertexValue === undefined) {
     throw new TypeError('GPURenderPipelineDescriptor.vertex is required');
   }
-  const vertexSource = dictionary(source.vertex, 'GPUVertexState');
-  const vertex = convertProgrammableStage(
-    vertexSource,
-    'GPUVertexState',
-    wrappers,
-  );
-  vertex.buffers = convertVertexBuffers(vertexSource.buffers, maximum);
-  const result: Record<string, unknown> = {
-    label: optionalLabel(source),
-    layout: source.layout === undefined
-      ? 'auto'
-      : enumValue(source.layout, ['auto'], 'GPUPipelineDescriptorBase.layout'),
-    vertex: frozenRecord(vertex),
-  };
-  if (source.fragment !== undefined) {
-    const fragmentSource = dictionary(source.fragment, 'GPUFragmentState');
-    const fragment = convertProgrammableStage(
-      fragmentSource,
-      'GPUFragmentState',
-      wrappers,
-    );
-    const targets = fragmentSource.targets === undefined
-      ? []
-      : sequence(
-        fragmentSource.targets,
-        'GPUFragmentState.targets',
-        maximum,
-      );
-    fragment.targets = Object.freeze(targets.map((target) => {
-      if (target === null) return null;
-      const row = dictionary(target, 'GPUColorTargetState');
-      const targetResult: Record<string, unknown> = {
-        format: enumValue(row.format, textureFormats, 'GPUColorTargetState.format'),
-        writeMask: u32(row.writeMask, 'GPUColorTargetState.writeMask', 0xf),
-      };
-      if (row.blend !== undefined) {
-        const blend = dictionary(row.blend, 'GPUBlendState');
-        targetResult.blend = frozenRecord({
-          color: convertBlendComponent(blend.color, 'GPUBlendState.color'),
-          alpha: convertBlendComponent(blend.alpha, 'GPUBlendState.alpha'),
-        });
-      }
-      return frozenRecord(targetResult);
-    }));
-    result.fragment = frozenRecord(fragment);
-  }
-  const primitive = dictionary(source.primitive, 'GPUPrimitiveState');
-  result.primitive = frozenRecord({
-    topology: primitive.topology === undefined
-      ? 'triangle-list'
-      : enumValue(
-        primitive.topology,
-        ['point-list', 'line-list', 'line-strip', 'triangle-list', 'triangle-strip'],
-        'GPUPrimitiveState.topology',
-      ),
-    stripIndexFormat: primitive.stripIndexFormat === undefined
-      ? undefined
-      : enumValue(
-        primitive.stripIndexFormat,
-        ['uint16', 'uint32'],
-        'GPUPrimitiveState.stripIndexFormat',
-      ),
-    frontFace: primitive.frontFace === undefined
-      ? 'ccw'
-      : enumValue(primitive.frontFace, ['ccw', 'cw'], 'GPUPrimitiveState.frontFace'),
-    cullMode: primitive.cullMode === undefined
-      ? 'none'
-      : enumValue(
-        primitive.cullMode,
-        ['none', 'front', 'back'],
-        'GPUPrimitiveState.cullMode',
-      ),
-    unclippedDepth: Boolean(primitive.unclippedDepth),
-  });
-  const multisample = dictionary(source.multisample, 'GPUMultisampleState');
-  result.multisample = frozenRecord({
-    count: u32(multisample.count, 'GPUMultisampleState.count', 1),
-    mask: u32(multisample.mask, 'GPUMultisampleState.mask', 0xffff_ffff),
-    alphaToCoverageEnabled: Boolean(multisample.alphaToCoverageEnabled),
-  });
+  result.vertex = convertVertexState(vertexValue, wrappers, maximum);
   return frozenRecord(result);
 }
 

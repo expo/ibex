@@ -237,6 +237,7 @@ function createFakeCodecs(
         operationId === 'GPUDevice.createTexture' ||
         operationId === 'GPUDevice.createBindGroup' ||
         operationId === 'GPUDevice.createBindGroupLayout' ||
+        operationId === 'GPUDevice.createRenderPipeline' ||
         operationId === 'GPUTexture.createView' ||
         operationId === 'GPUCanvasContext.configure' ||
         operationId === 'GPURenderPassEncoder.setPipeline'
@@ -509,6 +510,7 @@ interface TestRecordingDevice extends TestGpuDevice {
   createBindGroup(descriptor: unknown): object;
   createBuffer(descriptor: unknown): TestBuffer;
   createCommandEncoder(descriptor?: unknown): TestCommandEncoder;
+  createPipelineLayout(descriptor: unknown): object;
   createRenderPipeline(descriptor: unknown): object;
   createShaderModule(descriptor: unknown): object;
   createTexture(descriptor: unknown): object;
@@ -1535,7 +1537,10 @@ describe('production-private WebGPU wrapper factory', () => {
     });
 
     const shader = device.createShaderModule({ code: '@vertex fn main() {}' });
-    const pipeline = device.createRenderPipeline({ vertex: { module: shader } });
+    const pipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: shader },
+    });
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({ colorAttachments: [] });
     pass.setPipeline(pipeline);
@@ -1609,6 +1614,82 @@ describe('production-private WebGPU wrapper factory', () => {
     expect('GPUDevice' in globalObject).toBe(false);
   });
 
+  test('preserves cross-device render lineage and rejects foreign brands', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs([], { distinctLiveDevices: true });
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const firstDevice = await requestTestRecordingDevice(binding);
+    const secondDevice = await requestTestRecordingDevice(binding);
+    const firstShader = firstDevice.createShaderModule({
+      code: '@vertex fn main() {}',
+    });
+    const secondLayout = secondDevice.createPipelineLayout({
+      bindGroupLayouts: [],
+    });
+
+    firstDevice.createRenderPipeline({
+      layout: secondLayout,
+      vertex: { module: firstShader },
+    });
+    const crossDeviceEncoding = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUDevice.createRenderPipeline',
+    );
+    if (!crossDeviceEncoding) throw new Error('missing render pipeline encoding');
+    expect(crossDeviceEncoding.receiver).toMatchObject({
+      kind: 'GPUDevice',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    expect(crossDeviceEncoding.convertedArguments).toMatchObject({
+      layout: {
+        kind: 'GPUPipelineLayout',
+        logicalDeviceId: '311',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      vertex: {
+        module: {
+          kind: 'GPUShaderModule',
+          logicalDeviceId: '301',
+          logicalDeviceGeneration: '1',
+          providerGeneration: '7',
+        },
+      },
+    });
+
+    const foreignBridge = createFakeBridge();
+    const foreignCodecs = createFakeCodecs();
+    const foreignBinding = createProductionWebGpuPrivateBinding(
+      foreignBridge,
+      foreignCodecs,
+      { enableStateInspection: true },
+    );
+    const foreignDevice = await requestTestRecordingDevice(foreignBinding);
+    const foreignLayout = foreignDevice.createPipelineLayout({
+      bindGroupLayouts: [],
+    });
+    const beforeForeign = inspectBinding(binding).current;
+    const encodingsBeforeForeign = codecs.encodings.length;
+    const submissionsBeforeForeign = bridge.submissions.length;
+    expect(() => firstDevice.createRenderPipeline({
+      layout: foreignLayout,
+      vertex: { module: firstShader },
+    })).toThrow(TypeError);
+    expect(codecs.encodings).toHaveLength(encodingsBeforeForeign);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeForeign);
+    expect(inspectBinding(binding).current.allocatedWrapperCount).toBe(
+      beforeForeign.allocatedWrapperCount,
+    );
+
+    foreignBinding.revoke();
+    binding.revoke();
+  });
+
   test('seals the staged command program with copied overloads and full lineage without provider dispatch', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
@@ -1647,6 +1728,7 @@ describe('production-private WebGPU wrapper factory', () => {
     });
     const shader = device.createShaderModule({ code: '@vertex fn main() {}' });
     const renderPipeline = device.createRenderPipeline({
+      layout: 'auto',
       vertex: { module: shader },
     });
     const encoder = device.createCommandEncoder({ label: 'staged-program' });
