@@ -3956,13 +3956,13 @@ function convertExtent3D(
       throw new TypeError('GPUTextureDescriptor.size @@iterator must be callable');
     }
     const sourceIterator = Reflect.apply(iteratorMethod, value, []);
-    if (!isObjectLike(sourceIterator)) {
+    if (!isIteratorObjectForNativeForOf(sourceIterator)) {
       throw new TypeError('GPUTextureDescriptor.size iterator must be an object');
     }
     const converted: number[] = [];
     const iterable = {
       [Symbol.iterator]() {
-        return sourceIterator as Iterator<unknown>;
+        return sourceIterator;
       },
     };
     for (const member of iterable) {
@@ -4023,14 +4023,14 @@ function sequence(
   }
   const output: unknown[] = [];
   const sourceIterator = Reflect.apply(iterator, value, []);
-  if (!isObjectLike(sourceIterator)) {
+  if (!isIteratorObjectForNativeForOf(sourceIterator)) {
     throw new TypeError(`${label} iterator must be an object`);
   }
   // The wrapper lets native for-of own IteratorStep and IteratorClose while
   // preserving the single observable Get/Call of the source @@iterator.
   const iterable = {
     [Symbol.iterator]() {
-      return sourceIterator as Iterator<unknown>;
+      return sourceIterator;
     },
   };
   for (const member of iterable) {
@@ -4042,9 +4042,20 @@ function sequence(
   return output;
 }
 
-function frozenRecord(
-  entries: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
+// The manual prefix of Web IDL's GetIterator has established only that the
+// result is an object at this point. Native for-of must remain responsible for
+// the observable Get of `next`, its callability check, IteratorStep, and
+// IteratorClose. This guard therefore narrows the object for TypeScript
+// without eagerly touching any of those user-observable properties.
+function isIteratorObjectForNativeForOf(
+  value: unknown,
+): value is Iterator<unknown, unknown, unknown> {
+  return isObjectLike(value);
+}
+
+function frozenRecord<const Entries extends Readonly<Record<string, unknown>>>(
+  entries: Entries,
+): Readonly<Entries> {
   return Object.freeze(entries);
 }
 
@@ -5994,9 +6005,13 @@ function validateCreateBindGroupLayoutDescriptorForService(
     'sint',
     'uint',
   ]);
-  const textureViewDimensions = new Set(BIND_GROUP_LAYOUT_VIEW_DIMENSIONS);
+  const textureViewDimensions = new Set<string>(
+    BIND_GROUP_LAYOUT_VIEW_DIMENSIONS,
+  );
   const storageAccessValues = new Set(['write-only', 'read-only', 'read-write']);
-  const storageViewDimensions = new Set(BIND_GROUP_LAYOUT_VIEW_DIMENSIONS);
+  const storageViewDimensions = new Set<string>(
+    BIND_GROUP_LAYOUT_VIEW_DIMENSIONS,
+  );
   const resourceNames = [
     'buffer',
     'externalTexture',
