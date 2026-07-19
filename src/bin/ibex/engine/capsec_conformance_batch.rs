@@ -541,11 +541,14 @@ fn target_absence_does_not_inherit_callable_setup_terminals() {
     };
 
     assert_eq!(native_auxiliary_worker_terminal(&invocation), None);
+    invocation.global_name = "__exactFsFdAsync".into();
+    assert!(!native_retained_descriptor_cleanup_required(&invocation));
     invocation.expected_result = "return".into();
     assert_eq!(
         native_auxiliary_worker_terminal(&invocation),
         Some("native-op:__exactFsOpen")
     );
+    assert!(native_retained_descriptor_cleanup_required(&invocation));
 }
 
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
@@ -1385,6 +1388,21 @@ fn native_auxiliary_worker_terminal(
     }
 }
 
+fn native_retained_descriptor_cleanup_required(invocation: &NativePublicInvocation) -> bool {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // target absence proves that no callable was entered, so it cannot own a
+    // setup descriptor or require callable-only cleanup.
+    invocation.expected_result != "absent"
+        && matches!(
+            invocation.global_name.as_str(),
+            "__exactFsFstatSync"
+                | "__exactFsFsyncSync"
+                | "__exactFsFdatasyncSync"
+                | "__exactFsFtruncateSync"
+                | "__exactFsFdAsync"
+        )
+}
+
 fn observed_typed_values(
     session_id: &str,
     observed: Vec<ibex_runtime::host::ObservedTypedDecision>,
@@ -2186,14 +2204,9 @@ async fn execute_native_public_recipe(
         .expect("native public invocation returned no result");
     let mut invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
-    if matches!(
-        invocation.global_name.as_str(),
-        "__exactFsFstatSync"
-            | "__exactFsFsyncSync"
-            | "__exactFsFdatasyncSync"
-            | "__exactFsFtruncateSync"
-            | "__exactFsFdAsync"
-    ) || (invocation.global_name == "__exactFsStatAsync"
+    if native_retained_descriptor_cleanup_required(invocation)
+        || (invocation.expected_result != "absent"
+            && invocation.global_name == "__exactFsStatAsync"
         && setup_state.fs_file_descriptor.is_some())
     {
         let descriptor = setup_state

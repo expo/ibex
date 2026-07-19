@@ -1802,7 +1802,9 @@ as branchless `absent` evidence; the legacy reverse-DNS, Unix-socket, and UDP
 error placeholders are not installed.
 The physical public-probe validator likewise does not attach argument setup,
 worker, or cleanup terminals to a target-absence recipe: reading a missing
-global cannot execute any of those callable-only paths.
+global cannot execute any of those callable-only paths. The physical executor
+uses the same rule and therefore never demands or closes a retained descriptor
+after a successful missing-global observation.
 Closed armed-native-global evidence binds its public invocation to the
 installation branch applicable to the authenticated target (`macos`, `apple`,
 `posix`, or `default` on Apple; `windows` or `default` on Windows). A
