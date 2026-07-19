@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 binds callback-invariant batch cardinality to each target's build-filtered source surface instead of retaining the pre-filter shared count)
 **Revised:** 2026-07-18 (ENG-24933 keeps target-absence evidence free of callable-only argument setup, worker, and cleanup terminals)
 **Revised:** 2026-07-18 (ENG-24933 removes callable Windows error placeholders for branchless target-absent DNS/Unix/UDP globals so feature detection and physical absence evidence agree)
 **Revised:** 2026-07-18 (ENG-24933 reads Windows first-party module source through component-relative native handles, rejecting reparse traversal and root substitution before physical evidence can count)
@@ -765,8 +766,14 @@ that would mint them; this removes 180 inapplicable callback-invariant
 obligations instead of pretending those unreachable members are independent
 APIs. The 232 source-derived storage cells raise each exact target to 618
 closed fixtures; the loaded Apple engine passes the complete batch with zero
-typed or legacy decisions. Its reduced 2,710-fixture callback-invariant batch
-also passes against the same catalog and loaded engine. The application runtime
+typed or legacy decisions. The current target-filtered callback-invariant
+batches contain 2,700 Apple fixtures and 2,698 Windows fixtures: the four
+target-wide scenarios retain 507 fixtures apiece, while `cannot-widen-authority`
+and `post-lockdown-invariant` bind 332 Apple or 331 Windows source surfaces,
+plus eight bounded non-capability mechanisms. The harness asserts those exact
+target-local counts before execution and still validates every recipe's source
+binding; one target cannot borrow the other's inapplicable surface. The
+application runtime
 does not install the worklet-only `worklet`, `measure`, or
 `scheduleOnAppRuntime` namespaces. Eleven exact source facets now prove that
 runtime-variant boundary through physical absence, including `worklet.clamp`

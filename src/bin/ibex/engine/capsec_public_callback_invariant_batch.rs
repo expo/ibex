@@ -2297,12 +2297,20 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    let target_wide_scenario_count = match catalog.target.triple.as_str() {
-        "aarch64-apple-darwin" => 507,
-        "x86_64-pc-windows-msvc" => 507,
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // Keep the reviewed callback shape target-specific after build-graph
+    // filtering; Windows excludes one additional inapplicable invariant
+    // surface and neither target may borrow the other's count.
+    let (target_wide_scenario_count, invariant_surface_count) =
+        match catalog.target.triple.as_str() {
+        "aarch64-apple-darwin" => (507, 332),
+        "x86_64-pc-windows-msvc" => (507, 331),
         target => panic!("callback invariant batch has no reviewed target shape for {target}"),
     };
-    assert_eq!(recipes.len(), target_wide_scenario_count * 4 + 682);
+    assert_eq!(
+        recipes.len(),
+        target_wide_scenario_count * 4 + invariant_surface_count * 2 + 8
+    );
     assert_eq!(
         by_scenario.get("attribution-missing-deny"),
         Some(&target_wide_scenario_count)
@@ -2319,8 +2327,14 @@ async fn capsec_public_callback_invariant_batch() {
         by_scenario.get("snapshot-mismatch-deny"),
         Some(&target_wide_scenario_count)
     );
-    assert_eq!(by_scenario.get("cannot-widen-authority"), Some(&337));
-    assert_eq!(by_scenario.get("post-lockdown-invariant"), Some(&337));
+    assert_eq!(
+        by_scenario.get("cannot-widen-authority"),
+        Some(&invariant_surface_count)
+    );
+    assert_eq!(
+        by_scenario.get("post-lockdown-invariant"),
+        Some(&invariant_surface_count)
+    );
     assert_eq!(by_scenario.get("non-capability"), Some(&8));
     let (branches, edges) = checked_registry_rows();
     for recipe in &recipes {
