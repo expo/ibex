@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_116);
+    expect(recipes.summary.requiredFixtures).toBe(23_117);
     expect(recipes.summary.fullyExecutableFixtures).toBe(5_303);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_813);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_814);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -203,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_116);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_117);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_973);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_143);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_144);
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
