@@ -160,10 +160,12 @@ report a matching HBC version while rejecting modern optional syntax. The
 managed Windows toolchain now builds the same pinned patched Hermes source as
 Apple/Linux. Native bootstrap installs the shared-runtime source before
 compartment sealing and structural lockdown, so the runtime never attempts to
-add required polyfills to already-frozen intrinsics. `build.rs` still skips
-shared-runtime HBC generation on Windows until the compiler path separately
-proves the modern bundle syntax; changing the runtime artifact does not
-silently remove that fallback boundary `[observed]`
+add required polyfills to already-frozen intrinsics. Required per-file stages,
+including console enhancement, likewise evaluate their generated source
+headers instead of being omitted. `build.rs` still skips shared-runtime and
+per-file bootstrap HBC generation on Windows until the compiler path separately
+proves the modern syntax; changing the runtime artifact does not silently
+remove that fallback boundary `[observed]`
 (`src/engine/hermes_bootstrap.cc`; `build.rs`;
 `scripts/build-hermes-windows.ps1`).
 

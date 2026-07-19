@@ -85,22 +85,18 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
   console.setProperty(rt, "dir", makeLogFunction(rt, 0));
   rt.global().setProperty(rt, "console", std::move(console));
 
+  // @ref LLP 0005#bytecode-precompilation-hermesc — Windows participates in
+  // required bootstrap stages through generated source headers even though its
+  // Hermes bootstrap-HBC path remains disabled.
   bool skip_console_enhance = env_flag_enabled("EX_SKIP_STARTUP_CONSOLE_ENHANCE");
-#if defined(_WIN32)
-  skip_console_enhance = true;
-#endif
   bool source_console_enhance = env_flag_enabled("EX_CONSOLE_ENHANCE_SOURCE");
   bool console_enhance_hbc =
       env_flag_enabled("EX_CONSOLE_ENHANCE_HBC") || !source_console_enhance;
   if (skip_console_enhance) {
     if (tracing) {
-#if defined(_WIN32)
-      fprintf(stderr, "[startup]   console_enhance skipped on Windows\n");
-#else
       fprintf(stderr,
               "[startup]   console_enhance skipped (set EX_SKIP_STARTUP_CONSOLE_ENHANCE=0 "
               "to re-enable)\n");
-#endif
     }
     if (handle->armed) {
       reportStartupFailure(handle, "Console enhance", "disabled by startup control");
