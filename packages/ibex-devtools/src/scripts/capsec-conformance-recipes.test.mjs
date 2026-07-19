@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_117);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_969);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_148);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_967);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_150);
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
@@ -273,6 +273,17 @@ describe("exact-target CapSec executable recipes", () => {
       expect(recipe.publicSurfaceProbe).toBeNull();
       expect(recipe.residualReasons).toContain(
         "native-public-prerequisite-not-typed-on-target",
+      );
+    }
+    for (const globalName of ["__exactUdpClose", "__exactUdpSocket"]) {
+      const recipe = windowsRecipes.recipes.find(
+        (candidate) =>
+          candidate.terminalObservedKey === `native-op:${globalName}` &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe.publicSurfaceProbe).toBeNull();
+      expect(recipe.residualReasons).toContain(
+        "native-public-operation-not-installed-on-target",
       );
     }
     const windowsExcludedDefaultGlobals = new Set([

@@ -2288,11 +2288,30 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactUdpClose",
-    nativeNoEffectTemplate(1, [
-      nativeResultArgument("__exactUdpSocket", 1, [literalArgument("udp4")]),
-    ]),
+    nativeNoEffectTemplate(
+      1,
+      [
+        nativeResultArgument("__exactUdpSocket", 1, [
+          literalArgument("udp4"),
+        ]),
+      ],
+      [],
+      null,
+      {
+        unsupportedTargetReason:
+          "native-public-operation-not-installed-on-target",
+        unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+      },
+    ),
   ],
-  ["__exactUdpSocket", nativeNoEffectTemplate(1, [literalArgument("udp4")])],
+  [
+    "__exactUdpSocket",
+    nativeNoEffectTemplate(1, [literalArgument("udp4")], [], null, {
+      unsupportedTargetReason:
+        "native-public-operation-not-installed-on-target",
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
+    }),
+  ],
   [
     "__exactVerifySync",
     nativeNoEffectTemplate(6, [
