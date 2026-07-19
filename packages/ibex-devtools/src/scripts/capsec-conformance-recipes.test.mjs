@@ -2733,7 +2733,14 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
             0 &&
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
-            "closed-armed-native-global-absence",
+            "closed-armed-native-global-absence" &&
+          Object.hasOwn(
+            recipe.publicSurfaceProbe.invocation.operation,
+            "memberName",
+          ) &&
+          recipe.publicSurfaceProbe.invocation.operation.memberName ===
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+              .memberName,
       ),
     ).toBe(true);
     expect(

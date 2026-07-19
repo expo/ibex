@@ -171,6 +171,9 @@ const initialSourceRevision = git("rev-parse", "HEAD").toString("utf8").trim();
 const initialSourceTree = git("rev-parse", "HEAD^{tree}")
   .toString("utf8")
   .trim();
+const initialSourceTreeDigest = taggedDigest(
+  Buffer.from(`${initialSourceTree}\n`, "utf8"),
+);
 if (git("status", "--porcelain").toString("utf8").trim()) {
   throw new Error(
     "conformance execution requires a clean committed source tree",
@@ -180,6 +183,9 @@ const rules = readJsonStrict(
   path.join(capsecRoot, "registry/policy-rules.json"),
 );
 const target = selectCandidateTarget(rules, option("--target"));
+const coverage = readJsonStrict(
+  path.join(capsecRoot, "registry/coverage-edges.json"),
+);
 
 const evidenceRoot = path.join(repoRoot, "target");
 if (!fs.existsSync(evidenceRoot)) fs.mkdirSync(evidenceRoot, { mode: 0o700 });
@@ -401,6 +407,18 @@ const publicExecutions = mergePublicBatchExecutions({
   recipeCatalog,
   loadedEngineIdentity,
 });
+// Validate the complete cross-batch envelope before the hour-scale product
+// suites. Each shard validates its own runtime record; this step also proves
+// that every record still matches the independently authored recipe catalog.
+const publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
+  recipeCatalog,
+  sourceRevision: initialSourceRevision,
+  sourceTreeDigest: initialSourceTreeDigest,
+  target,
+  engine: engineBinding,
+  coverage,
+  executions: publicExecutions,
+});
 commandEvidence.push(...runMatrixCommands(CONFORMANCE_PRODUCT_COMMANDS));
 commandEvidence.push(
   runEngineAttestation(
@@ -432,9 +450,6 @@ if (
   );
 }
 
-const coverage = readJsonStrict(
-  path.join(capsecRoot, "registry/coverage-edges.json"),
-);
 const implementation = readJsonStrict(
   path.join(capsecRoot, "generated/implementation-manifest.json"),
 );
@@ -463,7 +478,7 @@ const canonicalDigest = (value) =>
   taggedDigest(Buffer.from(canonicalJson(value), "utf8"));
 const bindings = {
   sourceRevision: initialSourceRevision,
-  sourceTreeDigest: taggedDigest(Buffer.from(`${initialSourceTree}\n`, "utf8")),
+  sourceTreeDigest: initialSourceTreeDigest,
   engine: engineBinding,
   vocabularyDigest,
   registryDigest,
@@ -501,15 +516,6 @@ if (outputDispositionEvidenceInputPath) {
   }
   bindings.outputDispositionEvidenceRawContentDigest = taggedDigest(bytes);
 }
-const publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
-  recipeCatalog,
-  sourceRevision: bindings.sourceRevision,
-  sourceTreeDigest: bindings.sourceTreeDigest,
-  target,
-  engine: bindings.engine,
-  coverage,
-  executions: publicExecutions,
-});
 if (publicSurfaceEvidenceInputPath) {
   const suppliedEvidence = readJsonStrict(
     path.resolve(repoRoot, publicSurfaceEvidenceInputPath),

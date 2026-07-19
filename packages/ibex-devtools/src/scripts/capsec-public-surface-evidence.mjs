@@ -52,12 +52,19 @@ const PRIVATE_CWD_FACADE_SOURCE_REFS = Object.freeze([
   "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.cwd",
 ]);
 const NATIVE_FILESYSTEM_DENIAL_GLOBALS = new Set([
+  "__exactAppendFile",
+  "__exactFsOpen",
+  "__exactFsOpenAsync",
   "__exactFsPathAsync",
   "__exactLstat",
+  "__exactMkdir",
   "__exactReadFile",
+  "__exactReaddir",
   "__exactRealpath",
   "__exactStat",
   "__exactStatfs",
+  "__exactTruncate",
+  "__exactWriteFile",
 ]);
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — the
 // dispatcher remains the public surface, while typed evidence must select its
@@ -69,20 +76,53 @@ const NATIVE_ASYNC_WORKER_TERMINALS = new Map([
   ["statfs", "native-op:__exactStatfs"],
   ["truncate", "native-op:__exactTruncate"],
 ]);
+const NATIVE_RETAINED_FS_AUXILIARY_TERMINALS = new Map(
+  [
+    "__exactFsFdAsync",
+    "__exactFsFchmodSync",
+    "__exactFsFdatasyncSync",
+    "__exactFsFstatSync",
+    "__exactFsFsyncSync",
+    "__exactFsFtruncateSync",
+    "__exactFsFutimesSync",
+    "__exactFsOpenAsync",
+  ].map((globalName) => [globalName, "native-op:__exactFsOpen"]),
+);
+const CLOSED_SQLITE_CARRIER_OPERATIONS = new Set([
+  "sqlite-cr-sqlite-enable",
+  "sqlite-extension-load",
+]);
 
 export function nativeAsyncWorkerTerminal(authored) {
   if (
     authored?.invocationSchema !==
       "ibex/capsec-native-global-invocation/1" ||
-    authored.kind !== "native-global-function" ||
-    authored.globalName !== "__exactFsPathAsync"
+    authored.kind !== "native-global-function"
   ) {
     return null;
   }
+  const retainedFsTerminal = NATIVE_RETAINED_FS_AUXILIARY_TERMINALS.get(
+    authored.globalName,
+  );
+  if (retainedFsTerminal) return retainedFsTerminal;
+  if (authored.globalName !== "__exactFsPathAsync") return null;
   const operation = authored.arguments?.[0];
   return operation?.kind === "json-literal"
     ? NATIVE_ASYNC_WORKER_TERMINALS.get(operation.value) ?? null
     : null;
+}
+
+export function validateNativeFilesystemDenialRecipeDescriptor(authored) {
+  if (
+    authored?.invocationSchema !==
+      "ibex/capsec-native-global-invocation/1" ||
+    authored.kind !== "native-global-function" ||
+    !NATIVE_FILESYSTEM_DENIAL_GLOBALS.has(authored.globalName) ||
+    authored.expectedDenyMessageFragment !== "filesystem policy denied"
+  ) {
+    throw new Error("unreviewed native denial expectation");
+  }
+  return authored;
 }
 
 // Independent verifier authority for the small curated startup family. Keep
@@ -216,14 +256,18 @@ const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
   ],
 ]);
 
-function exactKeys(value, keys, label) {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    canonicalJson(Object.keys(value).sort(compareText)) !==
+function hasExactKeys(value, keys) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    canonicalJson(Object.keys(value).sort(compareText)) ===
       canonicalJson([...keys].sort(compareText))
-  ) {
+  );
+}
+
+function exactKeys(value, keys, label) {
+  if (!hasExactKeys(value, keys)) {
     throw new Error(`${label} has unknown or missing fields`);
   }
 }
@@ -995,14 +1039,14 @@ function validateRuntimeInvocation(observation, recipe) {
           `${recipe.fixtureId}: ordinary native invocation carries private facade authority`,
         );
       }
-      if (
-        hasTopLevelDenyFragment &&
-        (!NATIVE_FILESYSTEM_DENIAL_GLOBALS.has(authored.globalName) ||
-          authored.expectedDenyMessageFragment !== "filesystem policy denied")
-      ) {
-        throw new Error(
-          `${recipe.fixtureId}: unreviewed native denial expectation`,
-        );
+      if (hasTopLevelDenyFragment) {
+        try {
+          validateNativeFilesystemDenialRecipeDescriptor(authored);
+        } catch {
+          throw new Error(
+            `${recipe.fixtureId}: unreviewed native denial expectation`,
+          );
+        }
       }
     }
     if (requiresCompletion) {
@@ -1458,6 +1502,13 @@ function validateRuntimeInvocation(observation, recipe) {
         canonicalJson(
           descriptor.sourceMetadata?.enforcementRouteEvidence?.terminals,
         ) !== canonicalJson(["__exactSqliteLoadExtension"]) ||
+        canonicalJson(recipe.route?.surfaceObservedKeys) !==
+          canonicalJson([recipe.terminalObservedKey]) ||
+        canonicalJson(
+          recipe.route?.alternatives?.map(
+            (alternative) => alternative.terminalObservedKey,
+          ),
+        ) !== canonicalJson(["native-op:__exactSqliteLoadExtension"]) ||
         authored.operation.constructorExportName !== constructorExportName ||
         authored.operation.methodName !== "loadExtension" ||
         canonicalJson(authored.operation.moduleSpecifiers) !==
@@ -1543,6 +1594,18 @@ function validateRuntimeInvocation(observation, recipe) {
             []
           )].sort(),
         ) !== canonicalJson([...expectedTerminals].sort()) ||
+        canonicalJson(recipe.route?.surfaceObservedKeys) !==
+          canonicalJson([recipe.terminalObservedKey]) ||
+        canonicalJson(
+          [
+            ...(recipe.route?.alternatives?.map(
+              (alternative) => alternative.terminalObservedKey,
+            ) ?? []),
+          ].sort(),
+        ) !==
+          canonicalJson(
+            expectedTerminals.map((terminal) => `native-op:${terminal}`).sort(),
+          ) ||
         authored.operation.constructorExportName !== constructorExportName ||
         authored.operation.methodName !== "enableCrSqlite" ||
         canonicalJson(authored.operation.moduleSpecifiers) !==
@@ -1628,31 +1691,95 @@ function validateRuntimeInvocation(observation, recipe) {
         alternative("default", defaultSourceRef),
         alternative("windows", windowsSourceRef),
       ];
-      const expectedMetadata =
+      const expectedReturnKind = new Map([
+        ["integer-zero", "scalar"],
+        ["no-event", "void"],
+        ["null-pointer", "pointer"],
+      ]).get(expected?.[1]);
+      const metadata = descriptor.sourceMetadata;
+      const definitions = metadata?.definitions;
+      const outputContracts = metadata?.outputContracts;
+      const metadataSources = [
+        ["default", defaultSourceRef],
+        ["windows", windowsSourceRef],
+      ];
+      const resolvedOutputContract = (contract, sourceRef) => {
+        if (
+          !hasExactKeys(contract, [
+            "bufferLengthPairs",
+            "functionName",
+            "language",
+            "outputChannels",
+            "parameters",
+            "return",
+            "schema",
+            "sourceRef",
+            "status",
+            "unresolved",
+          ]) ||
+          contract.schema !== "ibex/host-abi-output-contract/1" ||
+          contract.language !== "c++" ||
+          contract.functionName !== functionName ||
+          contract.sourceRef !== sourceRef ||
+          contract.status !== "resolved" ||
+          !Array.isArray(contract.bufferLengthPairs) ||
+          !Array.isArray(contract.outputChannels) ||
+          !Array.isArray(contract.parameters) ||
+          !hasExactKeys(contract.return, ["kind", "ownership", "role", "type"]) ||
+          contract.return.kind !== expectedReturnKind ||
+          canonicalJson(contract.unresolved) !== canonicalJson([])
+        ) {
+          return false;
+        }
+        return expectedReturnKind === "void"
+          ? contract.outputChannels.length === 0
+          : contract.outputChannels.length === 1 &&
+              contract.outputChannels[0]?.kind === expectedReturnKind &&
+              contract.outputChannels[0]?.role === "return" &&
+              contract.outputChannels[0]?.selector === "[[return]]";
+      };
+      const hostMetadataBound =
+        hasExactKeys(metadata, [
+          "alternatives",
+          "branches",
+          "definitions",
+          "outputContracts",
+          "provenanceLimitation",
+        ]) &&
+        canonicalJson(metadata.alternatives) === canonicalJson(alternatives) &&
+        canonicalJson(metadata.branches) === canonicalJson(alternatives) &&
+        metadata.provenanceLimitation ===
+          "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures." &&
+        Array.isArray(definitions) &&
+        definitions.length === metadataSources.length &&
+        Array.isArray(outputContracts) &&
+        outputContracts.length === metadataSources.length &&
+        metadataSources.every(([targetVariant, sourceRef], index) => {
+          const definition = definitions[index];
+          const contract = outputContracts[index];
+          return (
+            hasExactKeys(definition, [
+              "language",
+              "outputContract",
+              "sourceRef",
+              "targetVariant",
+              "unsafe",
+              "weak",
+            ]) &&
+            definition.language === "c++" &&
+            definition.sourceRef === sourceRef &&
+            definition.targetVariant === targetVariant &&
+            definition.unsafe === false &&
+            definition.weak === false &&
+            canonicalJson(definition.outputContract) ===
+              canonicalJson(contract) &&
+            resolvedOutputContract(contract, sourceRef)
+          );
+        });
+      const sourceMetadataBound =
         authored.surfaceKind === "host-abi"
-          ? {
-              alternatives,
-              branches: structuredClone(alternatives),
-              definitions: [
-                {
-                  language: "c++",
-                  sourceRef: defaultSourceRef,
-                  targetVariant: "default",
-                  unsafe: false,
-                  weak: false,
-                },
-                {
-                  language: "c++",
-                  sourceRef: windowsSourceRef,
-                  targetVariant: "windows",
-                  unsafe: false,
-                  weak: false,
-                },
-              ],
-              provenanceLimitation:
-                "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
-            }
-          : null;
+          ? hostMetadataBound
+          : descriptor.sourceMetadata === null;
       if (
         expected === undefined ||
         !["host-abi", "native-op"].includes(authored.surfaceKind) ||
@@ -1666,8 +1793,7 @@ function validateRuntimeInvocation(observation, recipe) {
         descriptor.selectedSourceRef !== expectedSelectedSourceRef ||
         canonicalJson(descriptor.sourceRefs) !==
           canonicalJson([defaultSourceRef, windowsSourceRef]) ||
-        canonicalJson(descriptor.sourceMetadata) !==
-          canonicalJson(expectedMetadata) ||
+        sourceMetadataBound !== true ||
         authored.operation.expectedCallResult !== expected[1] ||
         authored.operation.expectedError !==
           `debugger ABI ${functionName} is unavailable in the no-debugger exact target`
@@ -2515,14 +2641,19 @@ function validateRuntimeInvocation(observation, recipe) {
       }
     }
   } else if (authored.expectedResult === "permission-denied") {
-    const expectedFragment =
+    const authoredFragment =
       authored.expectedDenyMessageFragment ??
-      authored.publicAccess?.expectedDenyMessageFragment ??
-      "Permission denied";
+      authored.publicAccess?.expectedDenyMessageFragment;
+    const expectedFragment = authoredFragment ?? "Permission denied";
+    const errorMessage = invocation.result.errorMessage;
+    const fragmentMatched =
+      typeof errorMessage === "string" &&
+      (authoredFragment === undefined
+        ? errorMessage.toLowerCase().includes(expectedFragment.toLowerCase())
+        : errorMessage.includes(expectedFragment));
     if (
       invocation.result.kind !== "throw" ||
-      typeof invocation.result.errorMessage !== "string" ||
-      !invocation.result.errorMessage.includes(expectedFragment)
+      !fragmentMatched
     ) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
     }
@@ -3321,9 +3452,15 @@ export function validatePublicFixtureRuntimeObservation(
     recipe.route?.alternatives?.length === 0 &&
     canonicalJson(recipe.route?.surfaceObservedKeys) ===
       canonicalJson([terminalObservedKey]);
+  const closedSqliteCarrierClosure =
+    recipe.classification === "closed" &&
+    recipe.scenario === "closed" &&
+    CLOSED_SQLITE_CARRIER_OPERATIONS.has(authored.operation?.kind) &&
+    observation.typedDecisions.length === 0 &&
+    terminalObservedKey === recipe.terminalObservedKey;
   const allowed = auxiliaryCarrier
     ? [recipe.publicSurfaceProbe.surfaceObservedKey]
-    : directTerminalBuiltinClosure
+    : directTerminalBuiltinClosure || closedSqliteCarrierClosure
       ? [terminalObservedKey]
       : recipe.route?.alternatives?.map(
           (alternative) => alternative.terminalObservedKey,

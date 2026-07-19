@@ -6,6 +6,7 @@ import {
   buildPublicSurfaceExecutionArtifact,
   mergePublicBatchExecutions,
   nativeAsyncWorkerTerminal,
+  validateNativeFilesystemDenialRecipeDescriptor,
   validatePublicSurfaceExecutionArtifact,
   validateStartupEnvironmentRecipeDescriptor,
 } from "./capsec-public-surface-evidence.mjs";
@@ -42,6 +43,10 @@ const coverage = {
     {
       id: "edge.mkdir-worker",
       surface: { kind: "native-op", name: "__exactMkdir" },
+    },
+    {
+      id: "edge.fsopen-worker",
+      surface: { kind: "native-op", name: "__exactFsOpen" },
     },
     {
       id: "edge.callback-terminal",
@@ -849,8 +854,14 @@ function completeClosedSqliteExtensionCatalog() {
   recipe.fixtureId = "fixture.builtin.sqlite.load-extension.closed";
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives = [
+    {
+      terminalObservedKey: "native-op:__exactSqliteLoadExtension",
+      proofPaths: [
+        `${recipe.terminalObservedKey} -> native-op:__exactSqliteLoadExtension`,
+      ],
+    },
+  ];
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "builtin",
@@ -898,8 +909,14 @@ function completeClosedSqliteCrSqliteCatalog() {
   recipe.fixtureId = "fixture.builtin.sqlite.enable-crsqlite.closed";
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
-  recipe.route.alternatives[0].terminalObservedKey =
-    recipe.terminalObservedKey;
+  recipe.route.alternatives = [
+    "__exactCrSqlitePath",
+    "__exactSqliteLoadCrSqlite",
+    "__exactSqliteLoadExtension",
+  ].map((terminal) => ({
+    terminalObservedKey: `native-op:${terminal}`,
+    proofPaths: [`${recipe.terminalObservedKey} -> native-op:${terminal}`],
+  }));
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceName: "export:exact_sqlite:Database.enableCrSqlite",
@@ -926,6 +943,50 @@ function completeClosedDebuggerAbiCatalog() {
     `src/engine/hermes_runtime_debugger.cc#${functionName}`;
   const windowsSourceRef =
     `src/engine/hermes_runtime_platform_windows.cc#${functionName}`;
+  const alternatives = [
+    ["default", defaultSourceRef],
+    ["windows", windowsSourceRef],
+  ].map(([targetVariant, sourceRef]) => ({
+    id: targetVariant,
+    kind: "alternative",
+    sourceRefs: [sourceRef],
+    stubDisposition: "not-structurally-proven",
+    targetVariant,
+  }));
+  const outputContract = (sourceRef) => ({
+    bufferLengthPairs: [],
+    functionName,
+    language: "c++",
+    outputChannels: [
+      {
+        kind: "pointer",
+        ownership: {
+          kind: "caller-owned",
+          releaseFunction: "ex_hermes_free_string",
+        },
+        role: "return",
+        selector: "[[return]]",
+      },
+    ],
+    parameters: [],
+    return: {
+      kind: "pointer",
+      ownership: {
+        kind: "caller-owned",
+        releaseFunction: "ex_hermes_free_string",
+      },
+      role: "value",
+      type: { canonical: "char *", tokens: ["char", "*"] },
+    },
+    schema: "ibex/host-abi-output-contract/1",
+    sourceRef,
+    status: "resolved",
+    unresolved: [],
+  });
+  const outputContracts = [
+    outputContract(defaultSourceRef),
+    outputContract(windowsSourceRef),
+  ];
   const sourceDescriptor = {
     kind: "closed-debugger-abi",
     surfaceObservedKey: `host-abi:${functionName}`,
@@ -934,54 +995,20 @@ function completeClosedDebuggerAbiCatalog() {
     targetTriple: "aarch64-apple-darwin",
     sourceRefs: [defaultSourceRef, windowsSourceRef],
     sourceMetadata: {
-      alternatives: [
-        {
-          id: "default",
-          kind: "alternative",
-          sourceRefs: [defaultSourceRef],
-          stubDisposition: "not-structurally-proven",
-          targetVariant: "default",
-        },
-        {
-          id: "windows",
-          kind: "alternative",
-          sourceRefs: [windowsSourceRef],
-          stubDisposition: "not-structurally-proven",
-          targetVariant: "windows",
-        },
-      ],
-      branches: [
-        {
-          id: "default",
-          kind: "alternative",
-          sourceRefs: [defaultSourceRef],
-          stubDisposition: "not-structurally-proven",
-          targetVariant: "default",
-        },
-        {
-          id: "windows",
-          kind: "alternative",
-          sourceRefs: [windowsSourceRef],
-          stubDisposition: "not-structurally-proven",
-          targetVariant: "windows",
-        },
-      ],
+      alternatives,
+      branches: structuredClone(alternatives),
       definitions: [
-        {
-          language: "c++",
-          sourceRef: defaultSourceRef,
-          targetVariant: "default",
-          unsafe: false,
-          weak: false,
-        },
-        {
-          language: "c++",
-          sourceRef: windowsSourceRef,
-          targetVariant: "windows",
-          unsafe: false,
-          weak: false,
-        },
-      ],
+        ["default", defaultSourceRef],
+        ["windows", windowsSourceRef],
+      ].map(([targetVariant, sourceRef], index) => ({
+        language: "c++",
+        outputContract: structuredClone(outputContracts[index]),
+        sourceRef,
+        targetVariant,
+        unsafe: false,
+        weak: false,
+      })),
+      outputContracts,
       provenanceLimitation:
         "ABI definitions are source-structural evidence; supported/unsupported target semantics require fixtures.",
     },
@@ -1122,6 +1149,7 @@ function completeClosedArmedNativeGlobalCatalog() {
     operation: {
       kind: "armed-native-global-absence",
       globalName: "__exactExit",
+      memberName: null,
       expectedError: "armed runtime does not expose __exactExit",
     },
   });
@@ -1195,7 +1223,7 @@ function completeClosedArmedWorkletGlobalCatalog({
     operation: {
       kind: "armed-native-global-absence",
       globalName,
-      ...(memberName === null ? {} : { memberName }),
+      memberName,
       expectedError: `armed runtime does not expose ${exportName}`,
     },
   });
@@ -2605,6 +2633,18 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/public memory-database call/);
+
+    const handLabeledRoute = structuredClone(recipe);
+    handLabeledRoute.route.alternatives[0].terminalObservedKey =
+      recipe.terminalObservedKey;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: handLabeledRoute,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(handLabeledRoute),
+        coverage,
+      }),
+    ).toThrow(/public memory-database call/);
   });
 
   test("accepts cr-sqlite closure only through both public aliases", () => {
@@ -2647,14 +2687,59 @@ describe("CapSec public-surface promotion evidence", () => {
   test("accepts debugger ABI closure only for the physical no-debugger target result", () => {
     const catalog = completeClosedDebuggerAbiCatalog();
     const recipe = catalog.recipes[0];
+    const execution = buildPublicFixtureEvidence({
+      recipe,
+      engineBinaryDigest: engine.binaryDigest,
+      runtimeObservation: closedRuntimeObservation(recipe),
+      coverage,
+    });
     expect(() =>
-      buildPublicFixtureEvidence({
-        recipe,
-        engineBinaryDigest: engine.binaryDigest,
-        runtimeObservation: closedRuntimeObservation(recipe),
+      buildPublicSurfaceExecutionArtifact({
+        recipeCatalog: catalog,
+        sourceRevision: "a".repeat(40),
+        sourceTreeDigest:
+          "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        target,
+        engine,
         coverage,
+        executions: [execution],
       }),
     ).not.toThrow();
+
+    const missingContracts = structuredClone(recipe);
+    delete missingContracts.publicSurfaceProbe.invocation.sourceDescriptor
+      .sourceMetadata.outputContracts;
+    missingContracts.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        missingContracts.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: missingContracts,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(missingContracts),
+        coverage,
+      }),
+    ).toThrow(/physical no-debugger target/);
+
+    const mismatchedDefinitionContract = structuredClone(recipe);
+    mismatchedDefinitionContract.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.definitions[0].outputContract.status =
+      "unresolved";
+    mismatchedDefinitionContract.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        mismatchedDefinitionContract.publicSurfaceProbe.invocation
+          .sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: mismatchedDefinitionContract,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(
+          mismatchedDefinitionContract,
+        ),
+        coverage,
+      }),
+    ).toThrow(/physical no-debugger target/);
 
     const windows = structuredClone(recipe);
     windows.publicSurfaceProbe.invocation.sourceDescriptor.targetTriple =
@@ -3366,6 +3451,39 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/exact retained-object refusal/);
   });
 
+  test("accepts platform-cased generic permission-denial messages", () => {
+    const recipe = completeCatalog().recipes[0];
+    recipe.scenario = "deny";
+    recipe.publicSurfaceProbe.invocation.expectedResult =
+      "permission-denied";
+    const observation = runtimeObservation(recipe);
+    observation.invocation.result = {
+      kind: "throw",
+      errorName: "Error",
+      errorMessage:
+        "EACCES: permission denied, lstat '/project/capsec-stat-fixture.txt'",
+    };
+    observation.typedDecisions[0].evidence.outcome = "deny";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    observation.invocation.result.errorMessage = "unrelated filesystem error";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/public invocation did not deny/);
+  });
+
   test("binds the native async dispatcher to its exact worker terminal", () => {
     const recipe = completeCatalog().recipes[0];
     recipe.terminalObservedKey = "native-op:__exactFsPathAsync";
@@ -3505,8 +3623,32 @@ describe("CapSec public-surface promotion evidence", () => {
     for (const [operation, terminal] of expected) {
       expect(nativeAsyncWorkerTerminal(descriptor(operation))).toBe(terminal);
     }
+    for (const globalName of [
+      "__exactFsFdAsync",
+      "__exactFsFchmodSync",
+      "__exactFsFdatasyncSync",
+      "__exactFsFstatSync",
+      "__exactFsFsyncSync",
+      "__exactFsFtruncateSync",
+      "__exactFsFutimesSync",
+      "__exactFsOpenAsync",
+    ]) {
+      expect(
+        nativeAsyncWorkerTerminal(
+          descriptor("unrelated", { globalName, arguments: [] }),
+        ),
+      ).toBe("native-op:__exactFsOpen");
+    }
     expect(nativeAsyncWorkerTerminal(descriptor("mkdtemp"))).toBeNull();
     expect(nativeAsyncWorkerTerminal(descriptor("chmod"))).toBeNull();
+    expect(
+      nativeAsyncWorkerTerminal(
+        descriptor("unrelated", {
+          globalName: "__exactFsOpen",
+          arguments: [],
+        }),
+      ),
+    ).toBeNull();
     expect(
       nativeAsyncWorkerTerminal(
         descriptor("mkdir", { globalName: "__exactMkdir" }),
@@ -3517,6 +3659,46 @@ describe("CapSec public-surface promotion evidence", () => {
         descriptor("mkdir", { arguments: [{ kind: "generated-value" }] }),
       ),
     ).toBeNull();
+  });
+
+  test("keeps native filesystem denial expectations on the reviewed globals", () => {
+    const descriptor = (globalName, expectedDenyMessageFragment) => ({
+      invocationSchema: "ibex/capsec-native-global-invocation/1",
+      kind: "native-global-function",
+      globalName,
+      expectedDenyMessageFragment,
+    });
+    for (const globalName of [
+      "__exactAppendFile",
+      "__exactFsOpen",
+      "__exactFsOpenAsync",
+      "__exactFsPathAsync",
+      "__exactLstat",
+      "__exactMkdir",
+      "__exactReadFile",
+      "__exactReaddir",
+      "__exactRealpath",
+      "__exactStat",
+      "__exactStatfs",
+      "__exactTruncate",
+      "__exactWriteFile",
+    ]) {
+      expect(() =>
+        validateNativeFilesystemDenialRecipeDescriptor(
+          descriptor(globalName, "filesystem policy denied"),
+        ),
+      ).not.toThrow();
+    }
+    expect(() =>
+      validateNativeFilesystemDenialRecipeDescriptor(
+        descriptor("__exactUnknownFsOperation", "filesystem policy denied"),
+      ),
+    ).toThrow(/unreviewed native denial expectation/);
+    expect(() =>
+      validateNativeFilesystemDenialRecipeDescriptor(
+        descriptor("__exactLstat", "Permission denied"),
+      ),
+    ).toThrow(/unreviewed native denial expectation/);
   });
 
   test("accepts a source-bound zero-effect host ABI branch with cleanup", () => {

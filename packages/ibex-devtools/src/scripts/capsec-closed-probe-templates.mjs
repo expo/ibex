@@ -1303,9 +1303,7 @@ function armedNativeGlobalAbsenceProbe({
       operation: {
         kind: "armed-native-global-absence",
         globalName,
-        ...(metadata.memberName === null
-          ? {}
-          : { memberName: metadata.memberName }),
+        memberName: metadata.memberName,
         expectedError,
       },
       expectedResult: "closed",
