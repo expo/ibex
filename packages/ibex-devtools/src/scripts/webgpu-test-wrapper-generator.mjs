@@ -35,6 +35,13 @@ export {
   WRAPPER_ROUTE_COUNT,
 };
 
+const EXPECTED_QUEUE_SUBMIT_COMMAND_RECORD_TYPE_SHA256 =
+  "432138a1cc45bccd3a7ffce4a53e391a3bd0a321ce7393e7a097410a9206d758";
+const EXPECTED_QUEUE_SUBMIT_REQUEST_BODY_TYPE_SHA256 =
+  "db9e3537ef359719593b74e73ebbe670c35a4a9e4235cbd3bdecc3ce57cf5683";
+const EXPECTED_QUEUE_SUBMIT_NATIVE_ROUTE_SHA256 =
+  "1a75cadd6062c5194e9c6ef5da0abbe022e6ef0418c91be25dc0560121e11322";
+
 function assert(condition, message) {
   if (!condition) throw new Error("webgpu test-wrapper authority: " + message);
 }
@@ -330,7 +337,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -433,6 +440,7 @@ function validateNativeCodecPrograms(payload) {
       "bufferMapAsyncRequestBodyV1",
       "canonicalValueV1",
       "commandEncoderDescriptorV1",
+      "commandRecordV1",
       "completeDeviceLimitsV1",
       "gpuDeviceCompletionBodyV1",
       "headerV1",
@@ -440,6 +448,7 @@ function validateNativeCodecPrograms(payload) {
       "optionalReferenceV1",
       "ownedBytesV1",
       "pipelineLayoutDescriptorV1",
+      "queueSubmitRequestBodyV1",
       "queueWriteBufferRequestBodyV1",
       "requestAdapterOptionsV1",
       "requestDeviceDescriptorV1",
@@ -553,6 +562,87 @@ function validateNativeCodecPrograms(payload) {
       ],
     },
     "native queue writeBuffer request body type",
+  );
+  assertDigest(
+    canonicalDigest(
+      "ibex/webgpu-native-codec-program/command-record-v1",
+      types.commandRecordV1,
+    ),
+    EXPECTED_QUEUE_SUBMIT_COMMAND_RECORD_TYPE_SHA256,
+    "native queue submit command-record type",
+  );
+  assertCanonical(
+    types.commandRecordV1.identityClasses,
+    [
+      {
+        name: "active-route",
+        tag: 1,
+        operationIdSource: "productionPlan.routes[operationId].wireId",
+        operationIdentitySha256: "32-zero-bytes",
+      },
+      {
+        name: "staged-local",
+        tag: 2,
+        operationIdSource:
+          "productionPlan.stagedWorkloadClosure.localRecordingSubset.operations[operationId].localRecordId",
+        operationIdentitySha256Source:
+          "productionPlan.stagedWorkloadClosure.localRecordingSubset.operations[operationId].recordIdentitySha256",
+      },
+    ],
+    "native queue submit record identity authority",
+  );
+  assertCanonical(
+    types.commandRecordV1.operationVariants.map(
+      ({ name, tag, identityClass, recordRole }) => ({
+        name,
+        tag,
+        identityClass,
+        recordRole,
+      }),
+    ),
+    [
+      { name: "GPUCanvasContext.getCurrentTexture", tag: 0, identityClass: "active-route", recordRole: "timeline-only" },
+      { name: "GPUCommandEncoder.beginComputePass", tag: 1, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.beginRenderPass", tag: 2, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.clearBuffer", tag: 3, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.copyBufferToBuffer", tag: 4, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.copyTextureToTexture", tag: 5, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUComputePassEncoder.setPipeline", tag: 6, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUComputePassEncoder.setBindGroup", tag: 7, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUComputePassEncoder.dispatchWorkgroups", tag: 8, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPUComputePassEncoder.end", tag: 9, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.setPipeline", tag: 10, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.setBindGroup", tag: 11, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.setVertexBuffer", tag: 12, identityClass: "staged-local", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.draw", tag: 13, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPURenderPassEncoder.end", tag: 14, identityClass: "active-route", recordRole: "command-program" },
+      { name: "GPUCommandEncoder.finish", tag: 15, identityClass: "active-route", recordRole: "command-program" },
+    ],
+    "native queue submit operation-variant table",
+  );
+  assertDigest(
+    canonicalDigest(
+      "ibex/webgpu-native-codec-program/queue-submit-request-body-v1",
+      types.queueSubmitRequestBodyV1,
+    ),
+    EXPECTED_QUEUE_SUBMIT_REQUEST_BODY_TYPE_SHA256,
+    "native queue submit request-body type",
+  );
+  assertCanonical(
+    types.queueSubmitRequestBodyV1.programDigest,
+    {
+      algorithm: "sha256",
+      domainUtf8WithTrailingNul: "exact/webgpu-command-program/v1\0",
+      inputOrder: [
+        "domain-utf8-bytes-without-length-prefix",
+        "commandBufferRef-objectReferenceV1",
+        "invalid-u8",
+        "finishRecordPosition-u32le",
+        "recordIndexCount-u32le",
+        "for-each-index-in-program-order-recordByteLength-u32le-plus-exact-commandRecordV1-bytes",
+      ],
+    },
+    "native queue submit program digest",
   );
   assertCanonical(
     types.headerV1,
@@ -3426,6 +3516,162 @@ function validateNativeCodecPrograms(payload) {
   );
   assert(queueWriteBufferRoute.completion.noTrailingBytes === true,
     "native queue writeBuffer completion must reject trailing bytes");
+
+  const queueSubmitRoute = program.routes.find(
+    (candidate) => candidate.operationId === "GPUQueue.submit",
+  );
+  const queueSubmitOperation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPUQueue.submit",
+  );
+  assert(
+    queueSubmitRoute && queueSubmitOperation &&
+      queueSubmitRoute.wireId === 308839175 &&
+      queueSubmitRoute.wireId === queueSubmitOperation.wireId,
+    "native queue submit operation identity drifted",
+  );
+  assertDigest(
+    canonicalDigest(
+      "ibex/webgpu-native-codec-program/queue-submit-route-v1",
+      queueSubmitRoute,
+    ),
+    EXPECTED_QUEUE_SUBMIT_NATIVE_ROUTE_SHA256,
+    "native queue submit route",
+  );
+  const queueSubmitRequestCatalogIndex =
+    payload.codecCatalog.serviceArguments.findIndex(
+      (codec) => codec.tag === queueSubmitOperation.serviceArgumentCodec,
+    );
+  const queueSubmitCompletionCatalogIndex =
+    payload.codecCatalog.serviceCompletions.findIndex(
+      (codec) => codec.tag === queueSubmitOperation.serviceCompletionCodec,
+    );
+  assertCanonical(
+    queueSubmitRoute.request.catalog,
+    {
+      name: "serviceArguments",
+      tag: "gpu-sealed-command-program-sequence-service-request-v1",
+      wireTag: queueSubmitRequestCatalogIndex + 1,
+    },
+    "native queue submit request catalog selection",
+  );
+  assertCanonical(
+    queueSubmitRoute.request.payload.fields,
+    [
+      {
+        name: "header",
+        type: "headerV1",
+        constants: {
+          magic: envelope.codecLayout.requestMagic,
+          version: envelope.codecLayout.version,
+          codecTag: queueSubmitRequestCatalogIndex + 1,
+          operationWireId: queueSubmitOperation.wireId,
+        },
+      },
+      { name: "receiver", type: "objectReferenceV1" },
+      { name: "target", type: "optionalReferenceV1" },
+      { name: "capturedScopeId", type: "u64le" },
+      { name: "adapterOrdinal", type: "u64le" },
+      { name: "deviceIngressOrdinal", type: "u64le" },
+      { name: "queueIngressOrdinal", type: "u64le" },
+      { name: "body", type: "queueSubmitRequestBodyV1" },
+    ],
+    "native queue submit request layout",
+  );
+  assertCanonical(
+    queueSubmitRoute.request.executablePrerequisites,
+    [],
+    "native queue submit executable prerequisites",
+  );
+  assert(
+    queueSubmitRoute.request.noTrailingBytes === true &&
+      queueSubmitRoute.completion.noTrailingBytes === true,
+    "native queue submit codec must reject trailing bytes",
+  );
+  assertCanonical(
+    queueSubmitRoute.completion.catalog,
+    {
+      name: "serviceCompletions",
+      tag: "terminal-receipt-service-completion-v1",
+      wireTag: queueSubmitCompletionCatalogIndex + 1,
+    },
+    "native queue submit completion catalog selection",
+  );
+  assertCanonical(
+    queueSubmitRoute.completion.payload,
+    { kind: "empty", exactLengthBytes: 0 },
+    "native queue submit completion payload",
+  );
+  assertCanonical(
+    queueSubmitRoute.completion.semanticTerminalMapping,
+    {
+      authorityPath:
+        "semanticProjection.providerRoutingPrograms[operationId=GPUQueue.submit]",
+      terminals: [
+        {
+          terminalId: "webidl-rejection",
+          errorTiming: "synchronous-webidl",
+          resultDisposition: "throw",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+          event: {
+            kind: "no-service-call",
+            completionPayloadEncoderEligibility:
+              "excluded-before-service-ingress",
+          },
+        },
+        {
+          terminalId: "later-predicate-rejection",
+          errorTiming: "device-timeline",
+          resultDisposition: "return-undefined-and-report-error",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+          event: {
+            kind: "operation-result",
+            kindValue: 1,
+            kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+            resultKind: 0,
+            resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+            status: 0,
+            completionVariant: "later-predicate-rejection",
+            publicExposure:
+              "none-wrapper-already-returned-device-error-delivered-separately",
+          },
+        },
+        {
+          terminalId: "operation-success",
+          errorTiming: "none",
+          resultDisposition: "return-undefined",
+          providerTokenCount: 1,
+          physicalSequenceCount: 1,
+          event: {
+            kind: "operation-result",
+            kindValue: 1,
+            kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+            resultKind: 0,
+            resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+            status: 0,
+            completionVariant: "operation-success",
+            publicExposure: "none-wrapper-already-returned",
+          },
+        },
+      ],
+    },
+    "native queue submit semantic terminal mapping",
+  );
+  assertCanonical(
+    queueSubmitRoute.completion.variants.map((variant) => variant.name),
+    ["later-predicate-rejection", "operation-success"],
+    "native queue submit completion variants",
+  );
+  assertCanonical(
+    queueSubmitRoute.completion.serviceResultJoins,
+    [{
+      payloadPath: "empty-payload-selected-variant",
+      serviceResultPath: "queueSubmitTerminal",
+      operator: "selects-exact-completion-variant",
+    }],
+    "native queue submit service-result joins",
+  );
 }
 
 export function validateWebGpuWrapperAuthority(authority) {
@@ -3460,7 +3706,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

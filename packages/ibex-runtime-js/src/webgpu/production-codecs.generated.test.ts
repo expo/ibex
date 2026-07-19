@@ -401,6 +401,8 @@ function serviceInput(
       bufferOffset: 0,
       bytes: new Uint8Array([1, 2, 3, 4]),
     })
+    : operationId === 'GPUQueue.submit'
+    ? Object.freeze({ commandBuffers: Object.freeze([]) })
     : Object.freeze({ sample: true }),
 ): ProductionGpuServiceEncodingInput {
   const route = WEBGPU_PRODUCTION_PLAN.routes.find(
@@ -429,7 +431,7 @@ function serviceInput(
       : '3',
     queueIngressOrdinal: receiverKind === 'GPUQueue' ? '2' : '0',
     sealedLocalTimeline: requestAdapter || requestDevice || bufferLifecycle ||
-        operationId === 'GPUQueue.writeBuffer'
+        operationId === 'GPUQueue.writeBuffer' || operationId === 'GPUQueue.submit'
       ? Object.freeze([])
       : deviceDestroy
       ? Object.freeze([
@@ -618,7 +620,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -649,6 +651,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUBuffer.mapAsync', wireId: 1760273919 },
         { operationId: 'GPUBuffer.unmap', wireId: 1228615721 },
         { operationId: 'GPUQueue.writeBuffer', wireId: 404589710 },
+        { operationId: 'GPUQueue.submit', wireId: 308839175 },
       ],
     });
     const destroyProgram = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
@@ -1609,6 +1612,8 @@ describe('generated injection-only WebGPU executable codecs', () => {
               bufferOffset: 0,
               bytes: [1, 2, 3, 4],
             }
+            : route.operationId === 'GPUQueue.submit'
+            ? { commandBuffers: [], wrapperValidationError: undefined }
             : route.operationId === 'GPUDevice.createBindGroup'
             ? convertedBindGroupDescriptor()
             : route.operationId === 'GPUDevice.createBindGroupLayout'
@@ -4454,7 +4459,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
   });
 
-  test('encodes one affine GPUQueue.writeBuffer snapshot and keeps submit injection-incomplete', () => {
+  test('encodes one affine GPUQueue.writeBuffer snapshot and an empty queue submit', () => {
     const source = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
     const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
       .convertPublicArguments(
@@ -4545,25 +4550,30 @@ describe('generated injection-only WebGPU executable codecs', () => {
           'gpu-sealed-command-program-sequence-service-request-v1',
     );
     expect(submitCodec).toMatchObject({
-      executableFromCurrentAuthenticatedInputs: false,
-      unavailableSemanticFields: [
-        'receiverQueueRef',
-        'commandBufferRecords',
-        'deviceGeneration',
-        'queueIngressOrdinal',
-        'capturedScopeId',
-        'recordOperationProvenance',
-        'passOrder',
-        'textureViewRefs',
-        'pipelineRefs',
-        'drawArguments',
-        'finishState',
-        'commandProgramDigest',
-      ],
+      nativeProgramPrerequisitesRepresented: true,
+      executableFromCurrentAuthenticatedInputs: true,
+      unavailableSemanticFields: [],
     });
-    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
-      .encodeNativeCodegenRequest(serviceInput('GPUQueue.submit')))
-      .toThrow('no reviewed native codegen request program');
+    const submitPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput('GPUQueue.submit'));
+    expect(submitPayload.slice(0, 12)).toEqual(Uint8Array.from([
+      0x49, 0x42, 0x47, 0x51,
+      1, 0,
+      11, 0,
+      7, 0x83, 0x68, 0x12,
+    ]));
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      submitPayload,
+    )).toMatchObject({
+      operationId: 'GPUQueue.submit',
+      codec: 'gpu-sealed-command-program-sequence-service-request-v1',
+      sealedLocalTimeline: [],
+      recordTable: [],
+      convertedArguments: {
+        commandBuffers: [],
+        wrapperValidationError: undefined,
+      },
+    });
   });
 
   test('encodes all typed mapAsync completions and rejects carrier, variant, extent, truncation, and trailing-byte drift', () => {

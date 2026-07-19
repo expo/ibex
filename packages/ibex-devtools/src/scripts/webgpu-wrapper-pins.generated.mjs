@@ -2,11 +2,11 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "4ef9cd465a3baab877edfbb726585009fc14bf1d5079931929e2cbbffad40e71",
+  "projection": "777d5a8854e2d00d4a20307d55ac255afba3bab48d98191ca2945d19ab34a54c",
   "operationSet": "c43546dc6a8cf05a333cbce2109f3acc1b4bfcfb943fe449105a7d241211638b",
   "semanticProgramSet": "25f4676ddd1b63d212c07e78976871d19c769da1ecae15b8f6c4a67f742d8926",
   "runtimeRouting": "30dae05c8a47da21dc37dcecb224e6ccdc2fac69ada8329fe04e0d71029e5a7a",
-  "webgpuCVocabulary": "403815c60ab00a712a3f41a6f382a2044675575860159183a4b376c79d623ccd"
+  "webgpuCVocabulary": "a7ae48d8a186a41845d5ebf7404a84a5410af99cba697f97373fea3009f0d766"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   "semanticProjection": "a93ae9932b1d82602a6a9f0b60344c8a5a4e192a3fdec87c75fb00ed19134452",
@@ -300,7 +300,8 @@ export const NATIVE_CODEC_ROUTE_IDS = Object.freeze([
   "GPUBuffer.destroy",
   "GPUBuffer.mapAsync",
   "GPUBuffer.unmap",
-  "GPUQueue.writeBuffer"
+  "GPUQueue.writeBuffer",
+  "GPUQueue.submit"
 ]);
 export const CONDITIONAL_PROVIDER_OPERATION_IDS = Object.freeze([
   "GPU.requestAdapter",

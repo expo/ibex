@@ -64,6 +64,7 @@ interface NativeCodecField {
     'bufferMapAsyncRequestBodyV1' |
     'bufferMapAsyncCompletionBodyV1' |
     'queueWriteBufferRequestBodyV1' |
+    'queueSubmitRequestBodyV1' |
     'ownedBytesV1';
   readonly catalog?: 'objectKindTags';
   readonly constraintType?:
@@ -81,7 +82,7 @@ interface NativeCodecField {
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24;
     operationWireId:
       | 1660448199
       | 194635792
@@ -98,7 +99,8 @@ interface NativeCodecField {
       | 3314731466
       | 1760273919
       | 1228615721
-      | 404589710;
+      | 404589710
+      | 308839175;
   }>;
   readonly constant?: 1;
   readonly constraint?: 'positive' | 'boolean-zero-or-one';
@@ -212,9 +214,10 @@ interface NativeCodecCatalogReference {
     | 'gpu-buffer-map-async-service-request-v1'
     | 'gpu-buffer-unmap-service-request-v1'
     | 'gpu-queue-write-buffer-service-request-v1'
+    | 'gpu-sealed-command-program-sequence-service-request-v1'
     | 'gpu-buffer-map-async-service-completion-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24;
 }
 
 interface NativeCodecCompletionVariant {
@@ -523,10 +526,17 @@ interface NativeCodecQueueWriteBufferRoute {
   readonly completion: NativeCodecBufferLifecycleRoute['completion'];
 }
 
+interface NativeCodecQueueSubmitRoute {
+  readonly operationId: 'GPUQueue.submit';
+  readonly wireId: 308839175;
+  readonly request: NativeCodecBufferLifecycleRoute['request'];
+  readonly completion: NativeCodecBufferLifecycleRoute['completion'];
+}
+
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -612,6 +622,8 @@ export interface NativeCodecProgramsV2 {
     bufferMapAsyncRequestBodyV1: Readonly<Record<string, unknown>>;
     bufferMapAsyncCompletionBodyV1: Readonly<Record<string, unknown>>;
     queueWriteBufferRequestBodyV1: Readonly<Record<string, unknown>>;
+    commandRecordV1: Readonly<Record<string, unknown>>;
+    queueSubmitRequestBodyV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
     shaderModuleDescriptorV1: Readonly<Record<string, unknown>>;
     sortedUniqueFeatureSequenceV1: Readonly<Record<string, unknown>>;
@@ -636,6 +648,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecDeviceDestroyRoute
     | NativeCodecBufferLifecycleRoute
     | NativeCodecQueueWriteBufferRoute
+    | NativeCodecQueueSubmitRoute
   )[];
 }
 
@@ -782,8 +795,11 @@ const PRODUCTION_WRAPPER_KINDS = Object.freeze([
   'GPUShaderModule',
   'GPURenderPipeline',
   'GPUCommandEncoder',
+  'GPUComputePipeline',
+  'GPUComputePassEncoder',
   'GPURenderPassEncoder',
   'GPUCommandBuffer',
+  'GPUQuerySet',
   'GPUCanvasContext',
 ] as const satisfies readonly ProductionGpuWrapperKind[]);
 
@@ -877,6 +893,18 @@ const QUEUE_WRITE_BUFFER_REQUEST_CODEC =
 const QUEUE_WRITE_BUFFER_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
 const QUEUE_WRITE_BUFFER_FIXED_PAYLOAD_BYTES = 143;
+const QUEUE_SUBMIT_OPERATION_ID = 'GPUQueue.submit';
+const QUEUE_SUBMIT_WIRE_ID = 308839175;
+const QUEUE_SUBMIT_REQUEST_CODEC =
+  'gpu-sealed-command-program-sequence-service-request-v1';
+const QUEUE_SUBMIT_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
+const QUEUE_SUBMIT_RECORD_TABLE_MAX_COUNT = 2_048;
+const QUEUE_SUBMIT_PROGRAM_MAX_COUNT = 1_024;
+const QUEUE_SUBMIT_PROGRAM_RECORD_MAX_COUNT = 1_024;
+const QUEUE_SUBMIT_LOGICAL_ERROR_MAX_BYTES = 4_096;
+const QUEUE_SUBMIT_PROGRAM_DIGEST_DOMAIN =
+  'exact/webgpu-command-program/v1\0';
 
 const EXPECTED_WEBGPU_CARRIER_CONSTANTS = Object.freeze({
   EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: 1,
@@ -897,6 +925,18 @@ const EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256 =
   '371b04e7963c5e5c62c110134573aa4dae3a804389ea0df021c636ea1ec27063';
 const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
   'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
+const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
+  '7a59f736947398c326440be76b8a1611dc2edddd6ac90251347ef78ebfc9b2b2';
+
+type NativeCodecProgramsWithoutQueueSubmitTypes = Omit<
+  NativeCodecProgramsV2,
+  'types'
+> & {
+  readonly types: Omit<
+    NativeCodecProgramsV2['types'],
+    'commandRecordV1' | 'queueSubmitRequestBodyV1'
+  >;
+};
 
 const EXPECTED_COMPLETE_LIMIT_NAMES = Object.freeze([
   'maxTextureDimension1D',
@@ -949,7 +989,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -2918,7 +2958,7 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
       noTrailingBytes: true,
     },
   }],
-} as const satisfies NativeCodecProgramsV2);
+} as const satisfies NativeCodecProgramsWithoutQueueSubmitTypes);
 
 const VERTEX_FORMATS = Object.freeze([
   'uint8',
@@ -3016,8 +3056,7 @@ function rotateRight32(value: number, count: number): number {
   return ((value >>> count) | (value << (32 - count))) >>> 0;
 }
 
-function sha256HexUtf8(value: string): string {
-  const input = encodeUtf8(value);
+function sha256Bytes(input: Uint8Array): Uint8Array {
   const bitLength = input.length * 8;
   const paddedLength = Math.ceil((input.length + 9) / 64) * 64;
   const padded = new Uint8Array(paddedLength);
@@ -3071,9 +3110,20 @@ function sha256HexUtf8(value: string): string {
     state[6] = (state[6] + g) >>> 0;
     state[7] = (state[7] + h) >>> 0;
   }
-  return state
-    .map((word) => word.toString(16).padStart(8, '0'))
-    .join('');
+  const digest = new Uint8Array(32);
+  const digestView = new DataView(digest.buffer);
+  for (let index = 0; index < state.length; index += 1) {
+    digestView.setUint32(index * 4, state[index], false);
+  }
+  return digest;
+}
+
+function bytesHex(value: Uint8Array): string {
+  return Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function sha256HexUtf8(value: string): string {
+  return bytesHex(sha256Bytes(encodeUtf8(value)));
 }
 
 interface ValidatedNativeCodecProgram {
@@ -3093,6 +3143,7 @@ interface ValidatedNativeCodecProgram {
   readonly bufferMapAsyncRoute: NativeCodecBufferLifecycleRoute;
   readonly bufferUnmapRoute: NativeCodecBufferLifecycleRoute;
   readonly queueWriteBufferRoute: NativeCodecQueueWriteBufferRoute;
+  readonly queueSubmitRoute: NativeCodecQueueSubmitRoute;
   readonly noneResultKind: 0;
   readonly nullResultKind: 2;
   readonly objectResultKind: 3;
@@ -3298,8 +3349,16 @@ function validateNativeCodecProgram(
   manifest: ExecutableWebGpuCodecManifest,
   expectedObjectKindTags: Readonly<Record<string, number>>,
 ): ValidatedNativeCodecProgram {
+  const {
+    commandRecordV1,
+    queueSubmitRequestBodyV1,
+    ...nativeTypesWithoutQueueSubmit
+  } = manifest.nativeCodecPrograms.types;
+  void commandRecordV1;
+  void queueSubmitRequestBodyV1;
   const programWithoutDeviceObjectCreationRoutes = {
     ...manifest.nativeCodecPrograms,
+    types: nativeTypesWithoutQueueSubmit,
     routes: manifest.nativeCodecPrograms.routes.filter(
       (candidate) =>
         candidate.operationId !== CREATE_BIND_GROUP_OPERATION_ID &&
@@ -3314,7 +3373,8 @@ function validateNativeCodecProgram(
         candidate.operationId !== BUFFER_DESTROY_OPERATION_ID &&
         candidate.operationId !== BUFFER_MAP_ASYNC_OPERATION_ID &&
         candidate.operationId !== BUFFER_UNMAP_OPERATION_ID &&
-        candidate.operationId !== QUEUE_WRITE_BUFFER_OPERATION_ID,
+        candidate.operationId !== QUEUE_WRITE_BUFFER_OPERATION_ID &&
+        candidate.operationId !== QUEUE_SUBMIT_OPERATION_ID,
     ),
   };
   if (
@@ -3363,6 +3423,22 @@ function validateNativeCodecProgram(
       EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256
   ) {
     throw new Error('Invalid authenticated GPUQueue.writeBuffer codec program');
+  }
+  const queueSubmitProgram = {
+    types: {
+      commandRecordV1: manifest.nativeCodecPrograms.types.commandRecordV1,
+      queueSubmitRequestBodyV1:
+        manifest.nativeCodecPrograms.types.queueSubmitRequestBodyV1,
+    },
+    routes: manifest.nativeCodecPrograms.routes.filter(
+      (candidate) => candidate.operationId === QUEUE_SUBMIT_OPERATION_ID,
+    ),
+  };
+  if (
+    sha256HexUtf8(canonicalManifestJson(queueSubmitProgram)) !==
+      EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256
+  ) {
+    throw new Error('Invalid authenticated GPUQueue.submit codec program');
   }
   const route = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecRequestAdapterRoute =>
@@ -3427,6 +3503,10 @@ function validateNativeCodecProgram(
   const queueWriteBufferRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecQueueWriteBufferRoute =>
       candidate.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID,
+  );
+  const queueSubmitRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecQueueSubmitRoute =>
+      candidate.operationId === QUEUE_SUBMIT_OPERATION_ID,
   );
   const planRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === REQUEST_ADAPTER_OPERATION_ID,
@@ -3571,8 +3651,13 @@ function validateNativeCodecProgram(
   );
   const queueSubmitRequestCodec = manifest.serviceArguments.find(
     (candidate) =>
-      candidate.tag ===
-        'gpu-sealed-command-program-sequence-service-request-v1',
+      candidate.tag === QUEUE_SUBMIT_REQUEST_CODEC,
+  );
+  const queueSubmitPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === QUEUE_SUBMIT_OPERATION_ID,
+  );
+  const queueSubmitCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === QUEUE_SUBMIT_COMPLETION_CODEC,
   );
   const nullVariant = route?.completion.variants.find(
     (variant) => variant.name === 'null',
@@ -4257,10 +4342,10 @@ function validateNativeCodecProgram(
     )
     .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
-    manifest.nativeCodecPrograms.routes.length !== 16 ||
+    manifest.nativeCodecPrograms.routes.length !== 17 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 16 ||
+    ).size !== 17 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupRoute ||
@@ -4277,6 +4362,7 @@ function validateNativeCodecProgram(
     !bufferMapAsyncRoute ||
     !bufferUnmapRoute ||
     !queueWriteBufferRoute ||
+    !queueSubmitRoute ||
     canonicalManifestJson(createCommandEncoderRoute) !==
       canonicalManifestJson(expectedCreateCommandEncoderRoute) ||
     canonicalManifestJson(createShaderModuleRoute) !==
@@ -4483,22 +4569,16 @@ function validateNativeCodecProgram(
     queueWriteBufferRequestCodec.unavailableSemanticFields.length !== 0 ||
     queueWriteBufferCompletionCodec?.wireTag !==
       queueWriteBufferRoute.completion.catalog.wireTag ||
-    queueSubmitRequestCodec?.executableFromCurrentAuthenticatedInputs !== false ||
-    canonicalManifestJson(queueSubmitRequestCodec.unavailableSemanticFields) !==
-      canonicalManifestJson([
-        'receiverQueueRef',
-        'commandBufferRecords',
-        'deviceGeneration',
-        'queueIngressOrdinal',
-        'capturedScopeId',
-        'recordOperationProvenance',
-        'passOrder',
-        'textureViewRefs',
-        'pipelineRefs',
-        'drawArguments',
-        'finishState',
-        'commandProgramDigest',
-      ]) ||
+    !queueSubmitPlanRoute ||
+    queueSubmitPlanRoute.wireId !== QUEUE_SUBMIT_WIRE_ID ||
+    queueSubmitPlanRoute.serviceArgumentCodec !== QUEUE_SUBMIT_REQUEST_CODEC ||
+    queueSubmitPlanRoute.serviceCompletionCodec !== QUEUE_SUBMIT_COMPLETION_CODEC ||
+    queueSubmitRequestCodec?.wireTag !== queueSubmitRoute.request.catalog.wireTag ||
+    queueSubmitRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    queueSubmitRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    queueSubmitRequestCodec.unavailableSemanticFields.length !== 0 ||
+    queueSubmitCompletionCodec?.wireTag !==
+      queueSubmitRoute.completion.catalog.wireTag ||
     manifest.layout.requestMagic !== 'IBGQ' ||
     manifest.layout.resultMagic !== 'IBGR' ||
     manifest.layout.version !== 1 ||
@@ -4559,6 +4639,8 @@ function validateNativeCodecProgram(
     bufferUnmapRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
     queueWriteBufferRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    queueSubmitRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
     throw new Error('Generated WebGPU native codec program cross-link drifted');
@@ -4580,6 +4662,7 @@ function validateNativeCodecProgram(
     bufferMapAsyncRoute,
     bufferUnmapRoute,
     queueWriteBufferRoute,
+    queueSubmitRoute,
     noneResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
     nullResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NULL_V2,
     objectResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_OBJECT_V2,
@@ -6928,6 +7011,1218 @@ function positiveIdentity(value: string, label: string): string {
   return value;
 }
 
+interface QueueSubmitRecordSpec {
+  readonly tag: number;
+  readonly operationName: string;
+  readonly identityClass: 'active-route' | 'staged-local';
+  readonly operationId: number;
+  readonly operationIdentitySha256: string | null;
+  readonly commandRecord: boolean;
+}
+
+const QUEUE_SUBMIT_RECORD_VARIANTS = Object.freeze([
+  ['GPUCanvasContext.getCurrentTexture', 0, false],
+  ['GPUCommandEncoder.beginComputePass', 1, true],
+  ['GPUCommandEncoder.beginRenderPass', 2, true],
+  ['GPUCommandEncoder.clearBuffer', 3, true],
+  ['GPUCommandEncoder.copyBufferToBuffer', 4, true],
+  ['GPUCommandEncoder.copyTextureToTexture', 5, true],
+  ['GPUComputePassEncoder.setPipeline', 6, true],
+  ['GPUComputePassEncoder.setBindGroup', 7, true],
+  ['GPUComputePassEncoder.dispatchWorkgroups', 8, true],
+  ['GPUComputePassEncoder.end', 9, true],
+  ['GPURenderPassEncoder.setPipeline', 10, true],
+  ['GPURenderPassEncoder.setBindGroup', 11, true],
+  ['GPURenderPassEncoder.setVertexBuffer', 12, true],
+  ['GPURenderPassEncoder.draw', 13, true],
+  ['GPURenderPassEncoder.end', 14, true],
+  ['GPUCommandEncoder.finish', 15, true],
+] as const);
+
+function buildQueueSubmitRecordSpecs(): Readonly<{
+  byName: ReadonlyMap<string, QueueSubmitRecordSpec>;
+  byTag: ReadonlyMap<number, QueueSubmitRecordSpec>;
+}> {
+  const staged = new Map<
+    string,
+    (typeof WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.operations)[number]
+  >(
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.operations
+      .map((entry) => [entry.operationId, entry] as const),
+  );
+  const active = new Map<
+    string,
+    (typeof WEBGPU_PRODUCTION_PLAN.routes)[number]
+  >(
+    WEBGPU_PRODUCTION_PLAN.routes.map((entry) => [entry.operationId, entry] as const),
+  );
+  const specs = QUEUE_SUBMIT_RECORD_VARIANTS.map(
+    ([operationName, tag, commandRecord]): QueueSubmitRecordSpec => {
+      const stagedEntry = staged.get(operationName);
+      const activeEntry = active.get(operationName);
+      if ((stagedEntry === undefined) === (activeEntry === undefined)) {
+        throw new Error(`Queue-submit record identity is ambiguous: ${operationName}`);
+      }
+      if (stagedEntry) {
+        if (
+          stagedEntry.logicalExecutionKind !== 'wrapper-local-recording' ||
+          stagedEntry.terminalDisposition !==
+            'sealed-logical-record-no-provider-submit' ||
+          stagedEntry.routingDisposition !==
+            'construction-private-non-installing-non-routing' ||
+          !/^[0-9a-f]{64}$/u.test(stagedEntry.recordIdentitySha256)
+        ) {
+          throw new Error(`Invalid staged queue-submit identity: ${operationName}`);
+        }
+        return Object.freeze({
+          tag,
+          operationName,
+          identityClass: 'staged-local',
+          operationId: stagedEntry.localRecordId,
+          operationIdentitySha256: stagedEntry.recordIdentitySha256,
+          commandRecord,
+        });
+      }
+      if (
+        activeEntry?.providerSubmission !== 'none' ||
+        activeEntry.operationInstanceIdentity !==
+          'wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record'
+      ) {
+        throw new Error(`Invalid active queue-submit identity: ${operationName}`);
+      }
+      return Object.freeze({
+        tag,
+        operationName,
+        identityClass: 'active-route',
+        operationId: activeEntry.wireId,
+        operationIdentitySha256: null,
+        commandRecord,
+      });
+    },
+  );
+  return Object.freeze({
+    byName: new Map(specs.map((spec) => [spec.operationName, spec])),
+    byTag: new Map(specs.map((spec) => [spec.tag, spec])),
+  });
+}
+
+function exactKeys(
+  value: Readonly<Record<string, unknown>>,
+  required: readonly string[],
+  optional: readonly string[],
+  label: string,
+): void {
+  const keys = Object.keys(value);
+  const allowed = new Set([...required, ...optional]);
+  if (
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
+    keys.some((key) => !allowed.has(key))
+  ) {
+    throw new TypeError(`${label} is not a closed record`);
+  }
+}
+
+function submitRecord(value: unknown, label: string): Readonly<Record<string, unknown>> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError(`${label} must be a record`);
+  }
+  return value as Readonly<Record<string, unknown>>;
+}
+
+function submitU32(value: unknown, label: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0 ||
+      (value as number) > 0xffff_ffff) {
+    throw new TypeError(`${label} must be a u32`);
+  }
+  return value as number;
+}
+
+function submitU64(value: unknown, label: string): number {
+  return u64Number(value, label);
+}
+
+function submitString(value: unknown, label: string): string {
+  if (typeof value !== 'string') throw new TypeError(`${label} must be a string`);
+  encodeUtf8(value);
+  return value;
+}
+
+function submitReference(
+  value: unknown,
+  label: string,
+  expectedKind?: ProductionGpuWrapperKind,
+  permitDeviceLessWrapper = false,
+): ProductionGpuServiceEncodingInput['receiver'] {
+  const record = submitRecord(value, label);
+  exactKeys(record, [
+    'kind',
+    'objectId',
+    'objectGeneration',
+    'logicalDeviceId',
+    'logicalDeviceGeneration',
+    'providerGeneration',
+  ], [], label);
+  const kind = record.kind;
+  if (
+    typeof kind !== 'string' ||
+    !(PRODUCTION_WRAPPER_KINDS as readonly string[]).includes(kind) ||
+    (expectedKind !== undefined && kind !== expectedKind)
+  ) {
+    throw new TypeError(`${label} has the wrong object kind`);
+  }
+  for (const field of [
+    'objectId',
+    'objectGeneration',
+    'logicalDeviceId',
+    'logicalDeviceGeneration',
+    'providerGeneration',
+  ] as const) {
+    if (typeof record[field] !== 'string') {
+      throw new TypeError(`${label}.${field} must be a canonical u64 string`);
+    }
+    parseU64Decimal(record[field] as string);
+  }
+  positiveIdentity(record.objectId as string, `${label}.objectId`);
+  positiveIdentity(record.objectGeneration as string, `${label}.objectGeneration`);
+  if (permitDeviceLessWrapper && (kind === 'GPU' || kind === 'GPUAdapter')) {
+    if (
+      record.logicalDeviceId !== '0' ||
+      record.logicalDeviceGeneration !== '0' ||
+      (kind === 'GPU'
+        ? record.providerGeneration !== '0'
+        : record.providerGeneration === '0')
+    ) {
+      throw new TypeError(`${label} has invalid device-less provenance`);
+    }
+  } else {
+    positiveIdentity(record.logicalDeviceId as string, `${label}.logicalDeviceId`);
+    positiveIdentity(
+      record.logicalDeviceGeneration as string,
+      `${label}.logicalDeviceGeneration`,
+    );
+    positiveIdentity(
+      record.providerGeneration as string,
+      `${label}.providerGeneration`,
+    );
+  }
+  return Object.freeze(record) as ProductionGpuServiceEncodingInput['receiver'];
+}
+
+function sameReference(
+  left: ProductionGpuServiceEncodingInput['receiver'],
+  right: ProductionGpuServiceEncodingInput['receiver'],
+): boolean {
+  return left.kind === right.kind &&
+    left.objectId === right.objectId &&
+    left.objectGeneration === right.objectGeneration &&
+    left.logicalDeviceId === right.logicalDeviceId &&
+    left.logicalDeviceGeneration === right.logicalDeviceGeneration &&
+    left.providerGeneration === right.providerGeneration;
+}
+
+function sameDeviceReference(
+  value: ProductionGpuServiceEncodingInput['receiver'],
+  device: ProductionGpuServiceEncodingInput['receiver'],
+): boolean {
+  return value.logicalDeviceId === device.logicalDeviceId &&
+    value.logicalDeviceGeneration === device.logicalDeviceGeneration &&
+    value.providerGeneration === device.providerGeneration;
+}
+
+function submitOptionalReference(
+  value: unknown,
+  label: string,
+  device: ProductionGpuServiceEncodingInput['receiver'],
+  expectedKind?: ProductionGpuWrapperKind,
+): ProductionGpuServiceEncodingInput['receiver'] | null {
+  if (value === null) return null;
+  const reference = submitReference(value, label, expectedKind);
+  if (!sameDeviceReference(reference, device)) {
+    throw new TypeError(`${label} has foreign device provenance`);
+  }
+  return reference;
+}
+
+function validateReferenceSequence(
+  value: unknown,
+  label: string,
+  kind: ProductionGpuWrapperKind,
+  maximum: number,
+): readonly ProductionGpuServiceEncodingInput['receiver'][] {
+  if (!Array.isArray(value) || value.length > maximum) {
+    throw new TypeError(`${label} must be a bounded reference sequence`);
+  }
+  const references = value.map((entry, index) =>
+    submitReference(entry, `${label}[${index}]`, kind));
+  for (let index = 1; index < references.length; index += 1) {
+    const left = references[index - 1]!;
+    const right = references[index]!;
+    const leftKey = `${left.objectId}/${left.objectGeneration}`;
+    const rightKey = `${right.objectId}/${right.objectGeneration}`;
+    if (leftKey >= rightKey) {
+      throw new TypeError(`${label} is not strictly sorted and unique`);
+    }
+  }
+  return references as readonly ProductionGpuServiceEncodingInput['receiver'][];
+}
+
+function validateQueueSubmitArgument(
+  spec: QueueSubmitRecordSpec,
+  value: unknown,
+  _device: ProductionGpuServiceEncodingInput['receiver'],
+  maximum: number,
+): void {
+  const record = value === null || Array.isArray(value)
+    ? null
+    : submitRecord(value, `${spec.operationName} arguments`);
+  const ref = (
+    candidate: unknown,
+    label: string,
+    kind?: ProductionGpuWrapperKind,
+  ) => submitReference(candidate, label, kind, true);
+  const optionalU64 = (candidate: unknown, label: string) => {
+    if (candidate !== null) submitU64(candidate, label);
+  };
+  const bindGroupArguments = () => {
+    if (!record) throw new TypeError(`${spec.operationName} arguments are missing`);
+    exactKeys(record, ['index', 'bindGroup', 'dynamicOffsets', 'overload'], [], spec.operationName);
+    submitU32(record.index, `${spec.operationName}.index`);
+    if (record.bindGroup !== null) ref(record.bindGroup, `${spec.operationName}.bindGroup`, 'GPUBindGroup');
+    if (!Array.isArray(record.dynamicOffsets) || record.dynamicOffsets.length > maximum) {
+      throw new TypeError(`${spec.operationName}.dynamicOffsets is not bounded`);
+    }
+    record.dynamicOffsets.forEach((entry, index) =>
+      submitU32(entry, `${spec.operationName}.dynamicOffsets[${index}]`));
+    if (record.overload !== 'iterable' && record.overload !== 'uint32-range') {
+      throw new TypeError(`${spec.operationName}.overload is invalid`);
+    }
+  };
+
+  switch (spec.operationName) {
+    case 'GPUCanvasContext.getCurrentTexture':
+    case 'GPURenderPassEncoder.end':
+      if (value !== null) throw new TypeError(`${spec.operationName} arguments must be null`);
+      return;
+    case 'GPUCommandEncoder.beginComputePass': {
+      if (!record) throw new TypeError('beginComputePass arguments are missing');
+      exactKeys(record, ['label', 'timestampWrites'], [], spec.operationName);
+      submitString(record.label, `${spec.operationName}.label`);
+      if (record.timestampWrites !== null) {
+        const timestamp = submitRecord(record.timestampWrites, 'timestampWrites');
+        exactKeys(timestamp, [
+          'beginningOfPassWriteIndex',
+          'endOfPassWriteIndex',
+          'querySet',
+        ], [], 'timestampWrites');
+        if (timestamp.beginningOfPassWriteIndex !== null) {
+          submitU32(timestamp.beginningOfPassWriteIndex, 'beginningOfPassWriteIndex');
+        }
+        if (timestamp.endOfPassWriteIndex !== null) {
+          submitU32(timestamp.endOfPassWriteIndex, 'endOfPassWriteIndex');
+        }
+        if (timestamp.querySet !== null) {
+          // The wrapper intentionally records any branded wrapper here and
+          // carries a logical validation error for a non-query-set brand.
+          ref(timestamp.querySet, 'timestampWrites.querySet');
+        }
+      }
+      return;
+    }
+    case 'GPUCommandEncoder.beginRenderPass': {
+      if (!record) throw new TypeError('beginRenderPass arguments are missing');
+      exactKeys(record, ['label', 'colorAttachments'], [], spec.operationName);
+      submitString(record.label, `${spec.operationName}.label`);
+      if (!Array.isArray(record.colorAttachments) ||
+          record.colorAttachments.length > maximum) {
+        throw new TypeError('beginRenderPass color attachments are not bounded');
+      }
+      record.colorAttachments.forEach((attachment, index) => {
+        if (attachment === null) return;
+        const row = submitRecord(attachment, `colorAttachments[${index}]`);
+        exactKeys(row, ['view', 'loadOp', 'storeOp'], [
+          'resolveTarget', 'clearValue', 'depthSlice',
+        ], `colorAttachments[${index}]`);
+        ref(row.view, `colorAttachments[${index}].view`, 'GPUTextureView');
+        if (row.resolveTarget !== undefined) {
+          ref(row.resolveTarget, `colorAttachments[${index}].resolveTarget`, 'GPUTextureView');
+        }
+        if (row.loadOp !== 'load' && row.loadOp !== 'clear') {
+          throw new TypeError('Invalid render-pass loadOp');
+        }
+        if (row.storeOp !== 'store' && row.storeOp !== 'discard') {
+          throw new TypeError('Invalid render-pass storeOp');
+        }
+        if (row.clearValue !== undefined) {
+          const color = submitRecord(row.clearValue, 'clearValue');
+          exactKeys(color, ['r', 'g', 'b', 'a'], [], 'clearValue');
+          for (const channel of ['r', 'g', 'b', 'a'] as const) {
+            if (typeof color[channel] !== 'number' || !Number.isFinite(color[channel])) {
+              throw new TypeError(`clearValue.${channel} must be finite`);
+            }
+          }
+        }
+        if (row.depthSlice !== undefined) submitU32(row.depthSlice, 'depthSlice');
+      });
+      return;
+    }
+    case 'GPUCommandEncoder.clearBuffer':
+      if (!record) throw new TypeError('clearBuffer arguments are missing');
+      exactKeys(record, ['buffer', 'offset', 'size'], [], spec.operationName);
+      ref(record.buffer, 'clearBuffer.buffer', 'GPUBuffer');
+      submitU64(record.offset, 'clearBuffer.offset');
+      optionalU64(record.size, 'clearBuffer.size');
+      return;
+    case 'GPUCommandEncoder.copyBufferToBuffer':
+      if (!record) throw new TypeError('copyBufferToBuffer arguments are missing');
+      exactKeys(record, [
+        'source', 'sourceOffset', 'destination', 'destinationOffset', 'size', 'overload',
+      ], [], spec.operationName);
+      ref(record.source, 'copyBufferToBuffer.source', 'GPUBuffer');
+      ref(record.destination, 'copyBufferToBuffer.destination', 'GPUBuffer');
+      submitU64(record.sourceOffset, 'copyBufferToBuffer.sourceOffset');
+      submitU64(record.destinationOffset, 'copyBufferToBuffer.destinationOffset');
+      optionalU64(record.size, 'copyBufferToBuffer.size');
+      if (record.overload !== 'short' && record.overload !== 'full') {
+        throw new TypeError('copyBufferToBuffer overload is invalid');
+      }
+      return;
+    case 'GPUCommandEncoder.copyTextureToTexture': {
+      if (!record) throw new TypeError('copyTextureToTexture arguments are missing');
+      exactKeys(record, ['source', 'destination', 'copySize'], [], spec.operationName);
+      for (const name of ['source', 'destination'] as const) {
+        const side = submitRecord(record[name], `copyTextureToTexture.${name}`);
+        exactKeys(side, ['aspect', 'mipLevel', 'origin', 'texture'], [], name);
+        if (side.aspect !== 'all' && side.aspect !== 'stencil-only' &&
+            side.aspect !== 'depth-only') throw new TypeError('Invalid texture aspect');
+        submitU32(side.mipLevel, `${name}.mipLevel`);
+        ref(side.texture, `${name}.texture`, 'GPUTexture');
+        const origin = submitRecord(side.origin, `${name}.origin`);
+        exactKeys(origin, ['x', 'y', 'z'], [], `${name}.origin`);
+        for (const axis of ['x', 'y', 'z'] as const) submitU32(origin[axis], `${name}.${axis}`);
+      }
+      const extent = submitRecord(record.copySize, 'copyTextureToTexture.copySize');
+      exactKeys(extent, ['width', 'height', 'depthOrArrayLayers'], [], 'copySize');
+      submitU32(extent.width, 'copySize.width');
+      submitU32(extent.height, 'copySize.height');
+      submitU32(extent.depthOrArrayLayers, 'copySize.depthOrArrayLayers');
+      return;
+    }
+    case 'GPUComputePassEncoder.setPipeline':
+      if (!record) throw new TypeError('compute setPipeline arguments are missing');
+      exactKeys(record, ['pipeline'], [], spec.operationName);
+      // The staged wrapper records an arbitrary branded wrapper and marks a
+      // non-compute pipeline as a device-timeline validation error.
+      ref(record.pipeline, 'compute setPipeline.pipeline');
+      return;
+    case 'GPUComputePassEncoder.setBindGroup':
+    case 'GPURenderPassEncoder.setBindGroup':
+      bindGroupArguments();
+      return;
+    case 'GPUComputePassEncoder.dispatchWorkgroups':
+      if (!record) throw new TypeError('dispatchWorkgroups arguments are missing');
+      exactKeys(record, [
+        'workgroupCountX', 'workgroupCountY', 'workgroupCountZ',
+      ], [], spec.operationName);
+      submitU32(record.workgroupCountX, 'workgroupCountX');
+      submitU32(record.workgroupCountY, 'workgroupCountY');
+      submitU32(record.workgroupCountZ, 'workgroupCountZ');
+      return;
+    case 'GPUComputePassEncoder.end':
+      if (!record) throw new TypeError('compute end arguments are missing');
+      exactKeys(record, ['usedBindGroups'], [], spec.operationName);
+      validateReferenceSequence(
+        record.usedBindGroups,
+        'compute end usedBindGroups',
+        'GPUBindGroup',
+        maximum,
+      );
+      return;
+    case 'GPURenderPassEncoder.setPipeline':
+      ref(value, 'render setPipeline.pipeline', 'GPURenderPipeline');
+      return;
+    case 'GPURenderPassEncoder.setVertexBuffer':
+      if (!record) throw new TypeError('setVertexBuffer arguments are missing');
+      exactKeys(record, ['slot', 'buffer', 'offset', 'size'], [], spec.operationName);
+      submitU32(record.slot, 'setVertexBuffer.slot');
+      if (record.buffer !== null) ref(record.buffer, 'setVertexBuffer.buffer', 'GPUBuffer');
+      submitU64(record.offset, 'setVertexBuffer.offset');
+      optionalU64(record.size, 'setVertexBuffer.size');
+      return;
+    case 'GPURenderPassEncoder.draw':
+      if (!Array.isArray(value) || value.length !== 4) {
+        throw new TypeError('draw arguments must contain four u32 values');
+      }
+      value.forEach((entry, index) => submitU32(entry, `draw[${index}]`));
+      return;
+    case 'GPUCommandEncoder.finish':
+      if (!record) throw new TypeError('finish arguments are missing');
+      exactKeys(record, ['descriptor', 'usedBindGroups'], [], spec.operationName);
+      {
+        const descriptor = submitRecord(record.descriptor, 'finish.descriptor');
+        exactKeys(descriptor, ['label'], [], 'finish.descriptor');
+        submitString(descriptor.label, 'finish.descriptor.label');
+      }
+      validateReferenceSequence(
+        record.usedBindGroups,
+        'finish.usedBindGroups',
+        'GPUBindGroup',
+        maximum,
+      );
+      return;
+  }
+}
+
+function hexDigestBytes(value: string, label: string): Uint8Array {
+  if (!/^[0-9a-f]{64}$/u.test(value)) {
+    throw new TypeError(`${label} must be a lowercase SHA-256 digest`);
+  }
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function constantTimeBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  let difference = 0;
+  for (let index = 0; index < left.byteLength; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
+}
+
+interface ValidatedQueueSubmitRecord {
+  readonly source: Readonly<Record<string, unknown>>;
+  readonly spec: QueueSubmitRecordSpec;
+  readonly operationInstanceId: string;
+  readonly deviceIngressOrdinal: string;
+  readonly capturedScopeId: string;
+  readonly receiver: ProductionGpuServiceEncodingInput['receiver'];
+  readonly commandEncoder: ProductionGpuServiceEncodingInput['receiver'] | null;
+  readonly pass: ProductionGpuServiceEncodingInput['receiver'] | null;
+  readonly target: ProductionGpuServiceEncodingInput['receiver'] | null;
+  readonly argumentBody: unknown;
+  readonly logicalError: Readonly<{ name: string; message: string }> | null;
+}
+
+function compareU64(left: string, right: string): number {
+  parseU64Decimal(left);
+  parseU64Decimal(right);
+  return left.length - right.length || (left < right ? -1 : left > right ? 1 : 0);
+}
+
+function queueSubmitLogicalError(
+  value: unknown,
+  label: string,
+): Readonly<{ name: string; message: string }> | null {
+  if (value === null || value === undefined) return null;
+  const record = submitRecord(value, label);
+  exactKeys(record, ['name', 'message'], [], label);
+  if (
+    record.name !== 'GPUValidationError' &&
+    record.name !== 'GPUOutOfMemoryError' &&
+    record.name !== 'GPUInternalError'
+  ) {
+    throw new TypeError(`${label}.name is not a closed WebGPU error kind`);
+  }
+  const message = submitString(record.message, `${label}.message`);
+  if (encodeUtf8(message).byteLength > QUEUE_SUBMIT_LOGICAL_ERROR_MAX_BYTES) {
+    throw new TypeError(`${label}.message exceeds its reviewed byte bound`);
+  }
+  return Object.freeze({ name: record.name, message });
+}
+
+function validateQueueSubmitRecord(
+  value: unknown,
+  specs: ReadonlyMap<string, QueueSubmitRecordSpec>,
+  device: ProductionGpuServiceEncodingInput['receiver'],
+  maximum: number,
+): ValidatedQueueSubmitRecord {
+  const source = submitRecord(value, 'GPUQueue.submit record');
+  exactKeys(source, [
+    'recordIdentityClass',
+    'operationId',
+    'operationName',
+    'operationIdentitySha256',
+    'operationInstanceId',
+    'deviceIngressOrdinal',
+    'capturedScopeId',
+    'receiverRef',
+    'commandEncoderRef',
+    'passRef',
+    'wrapperAllocatedTargetRef',
+    'argumentBody',
+    'logicalError',
+  ], [], 'GPUQueue.submit record');
+  if (typeof source.operationName !== 'string') {
+    throw new TypeError('GPUQueue.submit record operation name is missing');
+  }
+  const spec = specs.get(source.operationName);
+  if (
+    !spec ||
+    source.recordIdentityClass !== spec.identityClass ||
+    source.operationId !== spec.operationId ||
+    source.operationIdentitySha256 !== spec.operationIdentitySha256
+  ) {
+    throw new TypeError('GPUQueue.submit record operation provenance is invalid');
+  }
+  if (typeof source.operationInstanceId !== 'string' ||
+      typeof source.deviceIngressOrdinal !== 'string' ||
+      typeof source.capturedScopeId !== 'string') {
+    throw new TypeError('GPUQueue.submit record ordinals are not canonical u64 strings');
+  }
+  const operationInstanceId = positiveIdentity(
+    source.operationInstanceId,
+    'GPUQueue.submit record operationInstanceId',
+  );
+  const deviceIngressOrdinal = positiveIdentity(
+    source.deviceIngressOrdinal,
+    'GPUQueue.submit record deviceIngressOrdinal',
+  );
+  parseU64Decimal(operationInstanceId);
+  parseU64Decimal(deviceIngressOrdinal);
+  parseU64Decimal(source.capturedScopeId);
+  const receiver = submitReference(source.receiverRef, 'record.receiverRef');
+  if (!sameDeviceReference(receiver, device)) {
+    throw new TypeError('GPUQueue.submit record receiver has foreign device provenance');
+  }
+  const commandEncoder = submitOptionalReference(
+    source.commandEncoderRef,
+    'record.commandEncoderRef',
+    device,
+    'GPUCommandEncoder',
+  );
+  const pass = submitOptionalReference(
+    source.passRef,
+    'record.passRef',
+    device,
+  );
+  const target = submitOptionalReference(
+    source.wrapperAllocatedTargetRef,
+    'record.wrapperAllocatedTargetRef',
+    device,
+  );
+  const requireEncoderReceiver = (
+    allocatedPassKind?: 'GPUComputePassEncoder' | 'GPURenderPassEncoder',
+  ) => {
+    const passProjectionIsValid = allocatedPassKind === undefined
+      ? pass === null
+      : pass?.kind === allocatedPassKind && target !== null &&
+        sameReference(pass, target);
+    if (receiver.kind !== 'GPUCommandEncoder' || !commandEncoder ||
+        !sameReference(receiver, commandEncoder) || !passProjectionIsValid) {
+      throw new TypeError(`${spec.operationName} encoder provenance is invalid`);
+    }
+  };
+  const requirePassReceiver = (kind: 'GPUComputePassEncoder' | 'GPURenderPassEncoder') => {
+    if (receiver.kind !== kind || pass === null || pass.kind !== kind ||
+        !sameReference(receiver, pass) || commandEncoder === null || target !== null) {
+      throw new TypeError(`${spec.operationName} pass provenance is invalid`);
+    }
+  };
+  switch (spec.operationName) {
+    case 'GPUCanvasContext.getCurrentTexture':
+      if (receiver.kind !== 'GPUCanvasContext' || commandEncoder !== null ||
+          pass !== null || target?.kind !== 'GPUTexture') {
+        throw new TypeError('Timeline-only canvas-current provenance is invalid');
+      }
+      break;
+    case 'GPUCommandEncoder.beginComputePass':
+      requireEncoderReceiver('GPUComputePassEncoder');
+      if (target?.kind !== 'GPUComputePassEncoder') {
+        throw new TypeError('beginComputePass target provenance is invalid');
+      }
+      break;
+    case 'GPUCommandEncoder.beginRenderPass':
+      requireEncoderReceiver('GPURenderPassEncoder');
+      if (target?.kind !== 'GPURenderPassEncoder') {
+        throw new TypeError('beginRenderPass target provenance is invalid');
+      }
+      break;
+    case 'GPUCommandEncoder.finish':
+      requireEncoderReceiver();
+      if (target?.kind !== 'GPUCommandBuffer') {
+        throw new TypeError('finish target provenance is invalid');
+      }
+      break;
+    case 'GPUCommandEncoder.clearBuffer':
+    case 'GPUCommandEncoder.copyBufferToBuffer':
+    case 'GPUCommandEncoder.copyTextureToTexture':
+      requireEncoderReceiver();
+      if (target !== null) {
+        throw new TypeError(`${spec.operationName} may not allocate a target`);
+      }
+      break;
+    case 'GPUComputePassEncoder.setPipeline':
+    case 'GPUComputePassEncoder.setBindGroup':
+    case 'GPUComputePassEncoder.dispatchWorkgroups':
+    case 'GPUComputePassEncoder.end':
+      requirePassReceiver('GPUComputePassEncoder');
+      break;
+    case 'GPURenderPassEncoder.setPipeline':
+    case 'GPURenderPassEncoder.setBindGroup':
+    case 'GPURenderPassEncoder.setVertexBuffer':
+    case 'GPURenderPassEncoder.draw':
+    case 'GPURenderPassEncoder.end':
+      requirePassReceiver('GPURenderPassEncoder');
+      break;
+  }
+  validateQueueSubmitArgument(
+    spec,
+    source.argumentBody,
+    device,
+    maximum,
+  );
+  return Object.freeze({
+    source,
+    spec,
+    operationInstanceId,
+    deviceIngressOrdinal,
+    capturedScopeId: source.capturedScopeId,
+    receiver,
+    commandEncoder,
+    pass,
+    target,
+    argumentBody: source.argumentBody,
+    logicalError: queueSubmitLogicalError(source.logicalError, 'record.logicalError'),
+  });
+}
+
+function writeOptionalSubmitReference(
+  writer: Writer,
+  value: ProductionGpuServiceEncodingInput['receiver'] | null,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+): void {
+  writer.u8(value === null ? 0 : 1);
+  if (value !== null) writeReference(writer, value, objectKinds);
+}
+
+function readOptionalSubmitReference(
+  reader: Reader,
+  objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
+): ProductionGpuServiceEncodingInput['receiver'] | null {
+  const presence = reader.u8();
+  if (presence !== 0 && presence !== 1) {
+    throw new TypeError('Invalid queue-submit optional-reference tag');
+  }
+  return presence === 0 ? null : readReference(reader, objectKindsByTag);
+}
+
+function queueSubmitLogicalErrorTag(name: string): number {
+  if (name === 'GPUValidationError') return 1;
+  if (name === 'GPUOutOfMemoryError') return 2;
+  if (name === 'GPUInternalError') return 3;
+  throw new TypeError('Unknown queue-submit logical error kind');
+}
+
+function writeQueueSubmitLogicalError(
+  writer: Writer,
+  value: Readonly<{ name: string; message: string }> | null,
+): void {
+  if (value === null) {
+    writer.u8(0);
+    return;
+  }
+  writer.u8(queueSubmitLogicalErrorTag(value.name));
+  writer.string(value.message, QUEUE_SUBMIT_LOGICAL_ERROR_MAX_BYTES);
+}
+
+function readQueueSubmitLogicalError(
+  reader: Reader,
+): Readonly<{ name: string; message: string }> | null {
+  const tag = reader.u8();
+  if (tag === 0) return null;
+  const names = [
+    '',
+    'GPUValidationError',
+    'GPUOutOfMemoryError',
+    'GPUInternalError',
+  ] as const;
+  const name = names[tag];
+  if (!name) throw new TypeError('Unknown queue-submit logical error tag');
+  return Object.freeze({
+    name,
+    message: reader.string(QUEUE_SUBMIT_LOGICAL_ERROR_MAX_BYTES),
+  });
+}
+
+function encodeQueueSubmitRecord(
+  record: ValidatedQueueSubmitRecord,
+  maximum: number,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+  layout: ExecutableWebGpuCodecManifest['layout'],
+): Uint8Array {
+  const writer = new Writer(maximum);
+  writer.u8(record.spec.identityClass === 'active-route' ? 1 : 2);
+  writer.u8(record.spec.tag);
+  writer.u16(0);
+  writer.u32(record.spec.operationId);
+  writer.raw(record.spec.operationIdentitySha256 === null
+    ? new Uint8Array(32)
+    : hexDigestBytes(record.spec.operationIdentitySha256, 'record identity'));
+  writer.u64(record.operationInstanceId);
+  writer.u64(record.deviceIngressOrdinal);
+  writer.u64(record.capturedScopeId);
+  writeReference(writer, record.receiver, objectKinds);
+  writeOptionalSubmitReference(writer, record.commandEncoder, objectKinds);
+  writeOptionalSubmitReference(writer, record.pass, objectKinds);
+  writeOptionalSubmitReference(writer, record.target, objectKinds);
+  writeQueueSubmitLogicalError(writer, record.logicalError);
+  writer.value(record.argumentBody, layout);
+  return writer.finish();
+}
+
+function readQueueSubmitRecord(
+  bytes: Uint8Array,
+  specs: ReadonlyMap<number, QueueSubmitRecordSpec>,
+  device: ProductionGpuServiceEncodingInput['receiver'],
+  maximum: number,
+  objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
+  layout: ExecutableWebGpuCodecManifest['layout'],
+): Readonly<Record<string, unknown>> {
+  const reader = new Reader(bytes, maximum);
+  const identityClassTag = reader.u8();
+  const spec = specs.get(reader.u8());
+  if (!spec || (identityClassTag !== 1 && identityClassTag !== 2) ||
+      (identityClassTag === 1) !== (spec.identityClass === 'active-route')) {
+    throw new TypeError('Queue-submit record identity class/tag mismatch');
+  }
+  if (reader.u16() !== 0 || reader.u32() !== spec.operationId) {
+    throw new TypeError('Queue-submit record identity header mismatch');
+  }
+  const identityDigest = reader.raw(32);
+  const expectedDigest = spec.operationIdentitySha256 === null
+    ? new Uint8Array(32)
+    : hexDigestBytes(spec.operationIdentitySha256, 'record identity');
+  if (!constantTimeBytesEqual(identityDigest, expectedDigest)) {
+    throw new TypeError('Queue-submit record identity digest mismatch');
+  }
+  const operationInstanceId = reader.u64();
+  const deviceIngressOrdinal = reader.u64();
+  const capturedScopeId = reader.u64();
+  const receiverRef = readReference(reader, objectKindsByTag);
+  const commandEncoderRef = readOptionalSubmitReference(reader, objectKindsByTag);
+  const passRef = readOptionalSubmitReference(reader, objectKindsByTag);
+  const wrapperAllocatedTargetRef = readOptionalSubmitReference(
+    reader,
+    objectKindsByTag,
+  );
+  const logicalError = readQueueSubmitLogicalError(reader);
+  const argumentBody = reader.value(layout);
+  reader.done();
+  const decoded = Object.freeze({
+    recordIdentityClass: spec.identityClass,
+    operationId: spec.operationId,
+    operationName: spec.operationName,
+    operationIdentitySha256: spec.operationIdentitySha256,
+    operationInstanceId,
+    deviceIngressOrdinal,
+    capturedScopeId,
+    receiverRef,
+    commandEncoderRef,
+    passRef,
+    wrapperAllocatedTargetRef,
+    argumentBody,
+    logicalError,
+  });
+  validateQueueSubmitRecord(decoded, new Map([[spec.operationName, spec]]), device, maximum);
+  return decoded;
+}
+
+interface QueueSubmitEncodedProgram {
+  readonly commandBuffer: ProductionGpuServiceEncodingInput['receiver'];
+  readonly invalid: boolean;
+  readonly finishRecordPosition: number;
+  readonly recordIndices: readonly number[];
+  readonly digest: Uint8Array;
+}
+
+interface QueueSubmitEncodedBody {
+  readonly recordBytes: readonly Uint8Array[];
+  readonly pendingTimelineIndices: readonly number[];
+  readonly programs: readonly QueueSubmitEncodedProgram[];
+  readonly wrapperValidationError: Readonly<{ name: string; message: string }> | null;
+}
+
+function queueSubmitProgramDigest(
+  commandBuffer: ProductionGpuServiceEncodingInput['receiver'],
+  invalid: boolean,
+  finishRecordPosition: number,
+  recordIndices: readonly number[],
+  recordBytes: readonly Uint8Array[],
+  maximum: number,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+): Uint8Array {
+  const writer = new Writer(maximum);
+  writer.raw(encodeUtf8(QUEUE_SUBMIT_PROGRAM_DIGEST_DOMAIN));
+  writeReference(writer, commandBuffer, objectKinds);
+  writer.u8(invalid ? 1 : 0);
+  writer.u32(finishRecordPosition);
+  writer.u32(recordIndices.length);
+  for (const recordIndex of recordIndices) {
+    const bytes = recordBytes[recordIndex];
+    if (!bytes) throw new TypeError('Queue-submit program index is out of range');
+    writer.u32(bytes.byteLength);
+    writer.raw(bytes);
+  }
+  return sha256Bytes(writer.finish());
+}
+
+function validateQueueSubmitRequestFields(
+  input: ProductionGpuServiceEncodingInput,
+  specs: Readonly<{
+    byName: ReadonlyMap<string, QueueSubmitRecordSpec>;
+    byTag: ReadonlyMap<number, QueueSubmitRecordSpec>;
+  }>,
+  maximum: number,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+  layout: ExecutableWebGpuCodecManifest['layout'],
+): QueueSubmitEncodedBody {
+  if (
+    input.receiver.kind !== 'GPUQueue' ||
+    input.target !== undefined ||
+    input.adapterOrdinal !== '0'
+  ) {
+    throw new TypeError('GPUQueue.submit violates its receiver/target projection');
+  }
+  for (const [name, value] of [
+    ['objectId', input.receiver.objectId],
+    ['objectGeneration', input.receiver.objectGeneration],
+    ['logicalDeviceId', input.receiver.logicalDeviceId],
+    ['logicalDeviceGeneration', input.receiver.logicalDeviceGeneration],
+    ['providerGeneration', input.receiver.providerGeneration],
+    ['deviceIngressOrdinal', input.deviceIngressOrdinal],
+    ['queueIngressOrdinal', input.queueIngressOrdinal],
+  ] as const) positiveIdentity(value, `GPUQueue.submit ${name}`);
+  parseU64Decimal(input.capturedScopeId);
+  if (!Array.isArray(input.sealedLocalTimeline) ||
+      input.sealedLocalTimeline.length > QUEUE_SUBMIT_PROGRAM_RECORD_MAX_COUNT) {
+    throw new TypeError('GPUQueue.submit pending timeline exceeds its bound');
+  }
+  const converted = submitRecord(
+    input.convertedArguments,
+    'GPUQueue.submit converted arguments',
+  );
+  exactKeys(converted, ['commandBuffers'], ['wrapperValidationError'],
+    'GPUQueue.submit converted arguments');
+  if (!Array.isArray(converted.commandBuffers) ||
+      converted.commandBuffers.length > QUEUE_SUBMIT_PROGRAM_MAX_COUNT) {
+    throw new TypeError('GPUQueue.submit command buffer sequence exceeds its bound');
+  }
+  const wrapperValidationError = queueSubmitLogicalError(
+    converted.wrapperValidationError,
+    'GPUQueue.submit wrapperValidationError',
+  );
+  const allSources = new Set<object>();
+  for (const record of input.sealedLocalTimeline) {
+    if (typeof record !== 'object' || record === null || Array.isArray(record)) {
+      throw new TypeError('GPUQueue.submit pending timeline contains a non-record');
+    }
+    allSources.add(record);
+  }
+  let aggregateProgramRecordCount = 0;
+  const sourcePrograms = converted.commandBuffers.map((entry, programIndex) => {
+    const program = submitRecord(entry, `GPUQueue.submit program[${programIndex}]`);
+    exactKeys(program, ['commandBuffer', 'invalid', 'records'], [],
+      `GPUQueue.submit program[${programIndex}]`);
+    const commandBuffer = submitReference(
+      program.commandBuffer,
+      `GPUQueue.submit program[${programIndex}].commandBuffer`,
+      'GPUCommandBuffer',
+    );
+    if (!sameDeviceReference(commandBuffer, input.receiver)) {
+      throw new TypeError('GPUQueue.submit command buffer has foreign device provenance');
+    }
+    if (typeof program.invalid !== 'boolean' || !Array.isArray(program.records) ||
+        program.records.length > QUEUE_SUBMIT_PROGRAM_RECORD_MAX_COUNT) {
+      throw new TypeError('GPUQueue.submit command program has an invalid shape');
+    }
+    if (
+      program.records.length >
+        QUEUE_SUBMIT_PROGRAM_RECORD_MAX_COUNT - aggregateProgramRecordCount
+    ) {
+      throw new TypeError('GPUQueue.submit aggregate command records exceed their bound');
+    }
+    aggregateProgramRecordCount += program.records.length;
+    const seen = new Set<object>();
+    for (const record of program.records) {
+      if (typeof record !== 'object' || record === null || Array.isArray(record)) {
+        throw new TypeError('GPUQueue.submit command program contains a non-record');
+      }
+      if (seen.has(record)) {
+        throw new TypeError('GPUQueue.submit command program reuses one record index');
+      }
+      seen.add(record);
+      allSources.add(record);
+    }
+    return Object.freeze({
+      commandBuffer,
+      invalid: program.invalid,
+      records: program.records as readonly object[],
+    });
+  });
+  if (allSources.size > QUEUE_SUBMIT_RECORD_TABLE_MAX_COUNT) {
+    throw new TypeError('GPUQueue.submit unique record table exceeds its bound');
+  }
+  const validated = [...allSources].map((source) =>
+    validateQueueSubmitRecord(source, specs.byName, input.receiver, maximum));
+  validated.sort((left, right) =>
+    compareU64(left.deviceIngressOrdinal, right.deviceIngressOrdinal));
+  const operationInstances = new Set<string>();
+  const ingressOrdinals = new Set<string>();
+  for (const record of validated) {
+    if (operationInstances.has(record.operationInstanceId) ||
+        ingressOrdinals.has(record.deviceIngressOrdinal) ||
+        compareU64(record.deviceIngressOrdinal, input.deviceIngressOrdinal) >= 0) {
+      throw new TypeError(
+        'GPUQueue.submit record identities must be unique and precede submit ingress',
+      );
+    }
+    operationInstances.add(record.operationInstanceId);
+    ingressOrdinals.add(record.deviceIngressOrdinal);
+  }
+  const sourceToIndex = new Map<object, number>(
+    validated.map((record, index) => [record.source, index]),
+  );
+  const pendingTimelineIndices = input.sealedLocalTimeline.map((record) =>
+    sourceToIndex.get(record as object)!);
+  for (let index = 1; index < pendingTimelineIndices.length; index += 1) {
+    if (pendingTimelineIndices[index - 1] >= pendingTimelineIndices[index]) {
+      throw new TypeError('GPUQueue.submit pending timeline indices are not ordered');
+    }
+  }
+  const recordBytes = validated.map((record) =>
+    encodeQueueSubmitRecord(record, maximum, objectKinds, layout));
+  const programs = sourcePrograms.map((program, programIndex) => {
+    const recordIndices = program.records.map((record) => sourceToIndex.get(record)!);
+    for (let index = 1; index < recordIndices.length; index += 1) {
+      if (recordIndices[index - 1] >= recordIndices[index]) {
+        throw new TypeError(`GPUQueue.submit program[${programIndex}] indices are not ordered`);
+      }
+    }
+    let finishRecordPosition = -1;
+    for (let index = 0; index < recordIndices.length; index += 1) {
+      const record = validated[recordIndices[index]];
+      if (record.spec.operationName === 'GPUCommandEncoder.finish' &&
+          record.target !== null && sameReference(record.target, program.commandBuffer)) {
+        if (finishRecordPosition !== -1) {
+          throw new TypeError('GPUQueue.submit program has duplicate matching finish records');
+        }
+        finishRecordPosition = index;
+      }
+      if (!record.spec.commandRecord) {
+        throw new TypeError('GPUQueue.submit program references a timeline-only record');
+      }
+    }
+    if (finishRecordPosition < 0) {
+      throw new TypeError('GPUQueue.submit program lacks its exact finish target');
+    }
+    return Object.freeze({
+      commandBuffer: program.commandBuffer,
+      invalid: program.invalid,
+      finishRecordPosition,
+      recordIndices: Object.freeze(recordIndices),
+      digest: queueSubmitProgramDigest(
+        program.commandBuffer,
+        program.invalid,
+        finishRecordPosition,
+        recordIndices,
+        recordBytes,
+        maximum,
+        objectKinds,
+      ),
+    });
+  });
+  return Object.freeze({
+    recordBytes: Object.freeze(recordBytes),
+    pendingTimelineIndices: Object.freeze(pendingTimelineIndices),
+    programs: Object.freeze(programs),
+    wrapperValidationError,
+  });
+}
+
+function writeQueueSubmitBody(
+  writer: Writer,
+  body: QueueSubmitEncodedBody,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+): void {
+  writer.u32(body.recordBytes.length);
+  for (const record of body.recordBytes) {
+    writer.u32(record.byteLength);
+    writer.raw(record);
+  }
+  writer.u32(body.pendingTimelineIndices.length);
+  for (const recordIndex of body.pendingTimelineIndices) writer.u32(recordIndex);
+  writer.u32(body.programs.length);
+  for (const program of body.programs) {
+    writeReference(writer, program.commandBuffer, objectKinds);
+    writer.u8(program.invalid ? 1 : 0);
+    writer.u32(program.finishRecordPosition);
+    writer.u32(program.recordIndices.length);
+    for (const recordIndex of program.recordIndices) writer.u32(recordIndex);
+    writer.raw(program.digest);
+  }
+  writeQueueSubmitLogicalError(writer, body.wrapperValidationError);
+}
+
+function readQueueSubmitBody(
+  reader: Reader,
+  specs: Readonly<{
+    byName: ReadonlyMap<string, QueueSubmitRecordSpec>;
+    byTag: ReadonlyMap<number, QueueSubmitRecordSpec>;
+  }>,
+  device: ProductionGpuServiceEncodingInput['receiver'],
+  submitDeviceIngressOrdinal: string,
+  maximum: number,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+  objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
+  layout: ExecutableWebGpuCodecManifest['layout'],
+): Readonly<{
+  recordTable: readonly Readonly<Record<string, unknown>>[];
+  pendingTimeline: readonly Readonly<Record<string, unknown>>[];
+  commandBuffers: readonly Readonly<Record<string, unknown>>[];
+  wrapperValidationError: Readonly<{ name: string; message: string }> | null;
+}> {
+  const recordCount = reader.u32();
+  if (recordCount > QUEUE_SUBMIT_RECORD_TABLE_MAX_COUNT) {
+    throw new TypeError('GPUQueue.submit record table exceeds its bound');
+  }
+  const rawRecords: Uint8Array[] = [];
+  const recordTable: Readonly<Record<string, unknown>>[] = [];
+  const operationInstances = new Set<string>();
+  const ingressOrdinals = new Set<string>();
+  for (let index = 0; index < recordCount; index += 1) {
+    const length = reader.u32();
+    if (length === 0 || length > maximum) {
+      throw new TypeError('GPUQueue.submit record length is invalid');
+    }
+    const bytes = reader.raw(length);
+    const record = readQueueSubmitRecord(
+      bytes,
+      specs.byTag,
+      device,
+      maximum,
+      objectKindsByTag,
+      layout,
+    );
+    const operationInstanceId = record.operationInstanceId as string;
+    const ingress = record.deviceIngressOrdinal as string;
+    if (
+      operationInstances.has(operationInstanceId) ||
+      ingressOrdinals.has(ingress) ||
+      compareU64(ingress, submitDeviceIngressOrdinal) >= 0 ||
+      (index > 0 && compareU64(
+        recordTable[index - 1].deviceIngressOrdinal as string,
+        ingress,
+      ) >= 0)
+    ) {
+      throw new TypeError('GPUQueue.submit record table identities/order are invalid');
+    }
+    operationInstances.add(operationInstanceId);
+    ingressOrdinals.add(ingress);
+    rawRecords.push(bytes);
+    recordTable.push(record);
+  }
+  const readIndices = (count: number, label: string): readonly number[] => {
+    if (count > QUEUE_SUBMIT_PROGRAM_RECORD_MAX_COUNT) {
+      throw new TypeError(`${label} exceeds its bound`);
+    }
+    const indices: number[] = [];
+    for (let index = 0; index < count; index += 1) {
+      const recordIndex = reader.u32();
+      if (recordIndex >= recordCount ||
+          (index > 0 && indices[index - 1] >= recordIndex)) {
+        throw new TypeError(`${label} indices are out of range, reused, or unordered`);
+      }
+      indices.push(recordIndex);
+    }
+    return Object.freeze(indices);
+  };
+  const pendingIndices = readIndices(reader.u32(), 'GPUQueue.submit pending timeline');
+  const referencedRecordIndices = new Set(pendingIndices);
+  const programCount = reader.u32();
+  if (programCount > QUEUE_SUBMIT_PROGRAM_MAX_COUNT) {
+    throw new TypeError('GPUQueue.submit command buffer count exceeds its bound');
+  }
+  const commandBuffers: Readonly<Record<string, unknown>>[] = [];
+  let aggregateProgramRecordCount = 0;
+  for (let programIndex = 0; programIndex < programCount; programIndex += 1) {
+    const commandBuffer = readReference(reader, objectKindsByTag);
+    if (commandBuffer.kind !== 'GPUCommandBuffer' ||
+        !sameDeviceReference(commandBuffer, device)) {
+      throw new TypeError('GPUQueue.submit command buffer provenance is invalid');
+    }
+    const invalidTag = reader.u8();
+    if (invalidTag !== 0 && invalidTag !== 1) {
+      throw new TypeError('GPUQueue.submit command buffer invalid tag is not boolean');
+    }
+    const finishRecordPosition = reader.u32();
+    const recordIndices = readIndices(
+      reader.u32(),
+      `GPUQueue.submit program[${programIndex}]`,
+    );
+    if (
+      recordIndices.length >
+        QUEUE_SUBMIT_PROGRAM_RECORD_MAX_COUNT - aggregateProgramRecordCount
+    ) {
+      throw new TypeError('GPUQueue.submit aggregate command records exceed their bound');
+    }
+    aggregateProgramRecordCount += recordIndices.length;
+    for (const recordIndex of recordIndices) referencedRecordIndices.add(recordIndex);
+    if (finishRecordPosition >= recordIndices.length) {
+      throw new TypeError('GPUQueue.submit finish position is out of range');
+    }
+    for (const recordIndex of recordIndices) {
+      const spec = specs.byName.get(recordTable[recordIndex].operationName as string);
+      if (!spec?.commandRecord) {
+        throw new TypeError('GPUQueue.submit program references a timeline-only record');
+      }
+    }
+    const finish = recordTable[recordIndices[finishRecordPosition]];
+    if (
+      finish.operationName !== 'GPUCommandEncoder.finish' ||
+      !sameReference(
+        finish.wrapperAllocatedTargetRef as ProductionGpuServiceEncodingInput['receiver'],
+        commandBuffer,
+      )
+    ) {
+      throw new TypeError('GPUQueue.submit finish target/position mismatch');
+    }
+    const digest = reader.raw(32);
+    const expectedDigest = queueSubmitProgramDigest(
+      commandBuffer,
+      invalidTag === 1,
+      finishRecordPosition,
+      recordIndices,
+      rawRecords,
+      maximum,
+      objectKinds,
+    );
+    if (!constantTimeBytesEqual(digest, expectedDigest)) {
+      throw new TypeError('GPUQueue.submit command program digest mismatch');
+    }
+    commandBuffers.push(Object.freeze({
+      commandBuffer,
+      invalid: invalidTag === 1,
+      records: Object.freeze(recordIndices.map((index) => recordTable[index])),
+      recordIndices,
+      finishRecordPosition,
+      commandProgramDigest: bytesHex(digest),
+    }));
+  }
+  const wrapperValidationError = readQueueSubmitLogicalError(reader);
+  if (referencedRecordIndices.size !== recordCount) {
+    throw new TypeError('GPUQueue.submit record table is not the exact index union');
+  }
+  return Object.freeze({
+    recordTable: Object.freeze(recordTable),
+    pendingTimeline: Object.freeze(pendingIndices.map((index) => recordTable[index])),
+    commandBuffers: Object.freeze(commandBuffers),
+    wrapperValidationError,
+  });
+}
+
 interface RequestAdapterReferenceLike {
   readonly kind?: unknown;
   readonly objectId?: unknown;
@@ -8894,7 +10189,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -9028,6 +10323,7 @@ export function createExecutableWebGpuCodecs(
       kind as ProductionGpuWrapperKind,
     ]),
   );
+  const queueSubmitRecordSpecs = buildQueueSubmitRecordSpecs();
   const routes = new Map<string, ProductionRoute>(
     WEBGPU_PRODUCTION_PLAN.routes.map((route) => [route.operationId, route]),
   );
@@ -9174,6 +10470,7 @@ export function createExecutableWebGpuCodecs(
     if (!codec) throw new TypeError('Unknown WebGPU service request codec');
     let bufferLifecycleBody: BufferLifecycleBody | undefined;
     let queueWriteBufferBody: QueueWriteBufferBody | undefined;
+    let queueSubmitBody: QueueSubmitEncodedBody | undefined;
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
       validateRequestAdapterRequestFields(
         input.receiver,
@@ -9373,6 +10670,17 @@ export function createExecutableWebGpuCodecs(
           'GPUQueue.writeBuffer source snapshot was already consumed',
         );
       }
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.queueSubmitRoute.operationId
+    ) {
+      queueSubmitBody = validateQueueSubmitRequestFields(
+        input,
+        queueSubmitRecordSpecs,
+        manifest.maxPayloadBytes,
+        objectKinds,
+        manifest.layout,
+      );
     }
     const writer = new Writer(manifest.maxPayloadBytes);
     writeHeader(
@@ -9408,6 +10716,10 @@ export function createExecutableWebGpuCodecs(
       const payload = writer.finish();
       consumedQueueWriteBufferSnapshots.add(queueWriteBufferBody.bytes);
       return payload;
+    }
+    if (queueSubmitBody) {
+      writeQueueSubmitBody(writer, queueSubmitBody, objectKinds);
+      return writer.finish();
     }
     writer.value(input.sealedLocalTimeline, manifest.layout);
     writer.value(input.convertedArguments, manifest.layout);
@@ -9467,7 +10779,9 @@ export function createExecutableWebGpuCodecs(
         requestAdapterNativeProgram.bufferMapAsyncRoute.operationId &&
       input.operationId !== requestAdapterNativeProgram.bufferUnmapRoute.operationId &&
       input.operationId !==
-        requestAdapterNativeProgram.queueWriteBufferRoute.operationId
+        requestAdapterNativeProgram.queueWriteBufferRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.queueSubmitRoute.operationId
     ) {
       throw new TypeError(
         `${input.operationId} has no reviewed native codegen request program`,
@@ -9815,6 +11129,7 @@ export function createExecutableWebGpuCodecs(
       route.operationId === BUFFER_UNMAP_OPERATION_ID;
     const queueWriteBufferRoute =
       route.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID;
+    const queueSubmitRoute = route.operationId === QUEUE_SUBMIT_OPERATION_ID;
     const bufferLifecycle = bufferLifecycleRoute
       ? readBufferLifecycleBody(
           reader,
@@ -9829,8 +11144,22 @@ export function createExecutableWebGpuCodecs(
           objectKindsByTag,
         )
       : undefined;
+    const queueSubmit = queueSubmitRoute
+      ? readQueueSubmitBody(
+          reader,
+          queueSubmitRecordSpecs,
+          receiver,
+          deviceIngressOrdinal,
+          manifest.maxPayloadBytes,
+          objectKinds,
+          objectKindsByTag,
+          manifest.layout,
+        )
+      : undefined;
     const closedBodyTimeline: readonly unknown[] = Object.freeze([]);
-    const sealedLocalTimeline = bufferLifecycleRoute || queueWriteBufferRoute
+    const sealedLocalTimeline = queueSubmit
+      ? queueSubmit.pendingTimeline
+      : bufferLifecycleRoute || queueWriteBufferRoute
       ? closedBodyTimeline
       : reader.value(manifest.layout);
     const convertedArguments = bufferLifecycle?.kind === 'map-async-v1'
@@ -9856,6 +11185,12 @@ export function createExecutableWebGpuCodecs(
             'GPUQueue.writeBuffer destination offset',
           ),
           bytes: queueWriteBuffer.bytes,
+        })
+      : queueSubmit
+      ? Object.freeze({
+          commandBuffers: queueSubmit.commandBuffers,
+          wrapperValidationError:
+            queueSubmit.wrapperValidationError ?? undefined,
         })
       : reader.value(manifest.layout);
     reader.done();
@@ -10056,6 +11391,17 @@ export function createExecutableWebGpuCodecs(
         sealedLocalTimeline: closedBodyTimeline,
         convertedArguments,
       }, manifest.maxPayloadBytes);
+    } else if (queueSubmit) {
+      submitReference(receiver, 'GPUQueue.submit receiver', 'GPUQueue');
+      if (
+        receiver.kind !== 'GPUQueue' ||
+        target !== null ||
+        adapterOrdinal !== '0' ||
+        deviceIngressOrdinal === '0' ||
+        queueIngressOrdinal === '0'
+      ) {
+        throw new TypeError('GPUQueue.submit decoded carrier projection is invalid');
+      }
     }
     const inspectedBufferLifecycle = bufferLifecycle?.kind === 'cleanup-v1'
       ? Object.freeze({
@@ -10089,6 +11435,7 @@ export function createExecutableWebGpuCodecs(
       queueIngressOrdinal,
       sealedLocalTimeline,
       convertedArguments: inspectedConvertedArguments,
+      ...(queueSubmit ? { recordTable: queueSubmit.recordTable } : {}),
       ...(inspectedBufferLifecycle
         ? { bufferLifecycle: inspectedBufferLifecycle }
         : {}),

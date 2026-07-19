@@ -52,6 +52,7 @@ const bufferDestroyOperationId = "GPUBuffer.destroy";
 const bufferMapAsyncOperationId = "GPUBuffer.mapAsync";
 const bufferUnmapOperationId = "GPUBuffer.unmap";
 const queueWriteBufferOperationId = "GPUQueue.writeBuffer";
+const queueSubmitOperationId = "GPUQueue.submit";
 
 function fail(message) {
   throw new Error(message);
@@ -4894,20 +4895,18 @@ function buildCorpus() {
       candidate.tag ===
         "gpu-sealed-command-program-sequence-service-request-v1",
   );
-  const queueSubmitUnavailableFields = [
-    "receiverQueueRef",
-    "commandBufferRecords",
-    "deviceGeneration",
-    "queueIngressOrdinal",
-    "capturedScopeId",
-    "recordOperationProvenance",
-    "passOrder",
-    "textureViewRefs",
-    "pipelineRefs",
-    "drawArguments",
-    "finishState",
-    "commandProgramDigest",
-  ];
+  const queueSubmitRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === queueSubmitOperationId,
+  );
+  const queueSubmitNativeRoute =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
+      (candidate) => candidate.operationId === queueSubmitOperationId,
+    );
+  const queueSubmitCompletionCodec =
+    WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceCompletions.find(
+      (candidate) =>
+        candidate.tag === queueSubmitRoute?.serviceCompletionCodec,
+    );
   if (
     !queueWriteBufferRoute ||
     !queueWriteBufferNativeRoute ||
@@ -4919,14 +4918,18 @@ function buildCorpus() {
     queueWriteBufferNativeRoute.request.catalog.wireTag !== 23 ||
     queueWriteBufferNativeRoute.completion.catalog.wireTag !==
       queueWriteBufferCompletionCodec.wireTag ||
-    queueSubmitCodec?.executableFromCurrentAuthenticatedInputs !== false ||
-    canonicalJson(queueSubmitCodec.unavailableSemanticFields) !==
-      canonicalJson(queueSubmitUnavailableFields) ||
-    WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.some(
-      (candidate) => candidate.operationId === "GPUQueue.submit",
-    )
+    !queueSubmitRoute ||
+    !queueSubmitNativeRoute ||
+    !queueSubmitCodec?.nativeProgramPrerequisitesRepresented ||
+    !queueSubmitCodec.executableFromCurrentAuthenticatedInputs ||
+    queueSubmitCodec.unavailableSemanticFields.length !== 0 ||
+    queueSubmitCodec.wireTag !== 11 ||
+    queueSubmitNativeRoute.request.catalog.wireTag !== 11 ||
+    !queueSubmitCompletionCodec ||
+    queueSubmitNativeRoute.completion.catalog.wireTag !==
+      queueSubmitCompletionCodec.wireTag
   ) {
-    fail("GPUQueue writeBuffer/submit native injection boundary drifted");
+    fail("GPUQueue writeBuffer/submit native codec boundary drifted");
   }
   const queueReceiver = Object.freeze({
     kind: "GPUQueue",
@@ -5178,6 +5181,799 @@ function buildCorpus() {
       ),
     },
   ]);
+
+  const queueSubmitVariants = Object.freeze([
+    "GPUCanvasContext.getCurrentTexture",
+    "GPUCommandEncoder.beginComputePass",
+    "GPUCommandEncoder.beginRenderPass",
+    "GPUCommandEncoder.clearBuffer",
+    "GPUCommandEncoder.copyBufferToBuffer",
+    "GPUCommandEncoder.copyTextureToTexture",
+    "GPUComputePassEncoder.setPipeline",
+    "GPUComputePassEncoder.setBindGroup",
+    "GPUComputePassEncoder.dispatchWorkgroups",
+    "GPUComputePassEncoder.end",
+    "GPURenderPassEncoder.setPipeline",
+    "GPURenderPassEncoder.setBindGroup",
+    "GPURenderPassEncoder.setVertexBuffer",
+    "GPURenderPassEncoder.draw",
+    "GPURenderPassEncoder.end",
+    "GPUCommandEncoder.finish",
+  ]);
+  const stagedSubmitIdentities = new Map(
+    WEBGPU_PRODUCTION_PLAN.stagedWorkloadClosure.localRecordingSubset.operations
+      .map((entry) => [entry.operationId, entry]),
+  );
+  const activeSubmitIdentities = new Map(
+    WEBGPU_PRODUCTION_PLAN.routes.map((entry) => [entry.operationId, entry]),
+  );
+  const queueSubmitIdentity = (operationName) => {
+    const staged = stagedSubmitIdentities.get(operationName);
+    const active = activeSubmitIdentities.get(operationName);
+    if ((staged === undefined) === (active === undefined)) {
+      fail(`ambiguous queue-submit record identity: ${operationName}`);
+    }
+    return staged
+      ? Object.freeze({
+          recordIdentityClass: "staged-local",
+          operationId: staged.localRecordId,
+          operationIdentitySha256: staged.recordIdentitySha256,
+        })
+      : Object.freeze({
+          recordIdentityClass: "active-route",
+          operationId: active.wireId,
+          operationIdentitySha256: null,
+        });
+  };
+  const submitReferences = Object.freeze({
+    queue: queueReceiver,
+    adapter: Object.freeze({
+      kind: "GPUAdapter",
+      objectId: "208",
+      objectGeneration: "1",
+      logicalDeviceId: "0",
+      logicalDeviceGeneration: "0",
+      providerGeneration: "9",
+    }),
+    canvas: Object.freeze({
+      kind: "GPUCanvasContext",
+      objectId: "209",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    encoder: Object.freeze({
+      kind: "GPUCommandEncoder",
+      objectId: "210",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    computePass: Object.freeze({
+      kind: "GPUComputePassEncoder",
+      objectId: "211",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    renderPass: Object.freeze({
+      kind: "GPURenderPassEncoder",
+      objectId: "212",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    commandBuffer: Object.freeze({
+      kind: "GPUCommandBuffer",
+      objectId: "213",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    sourceBuffer: Object.freeze({
+      kind: "GPUBuffer",
+      objectId: "220",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    destinationBuffer: Object.freeze({
+      kind: "GPUBuffer",
+      objectId: "221",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    sourceTexture: Object.freeze({
+      kind: "GPUTexture",
+      objectId: "222",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    destinationTexture: Object.freeze({
+      kind: "GPUTexture",
+      objectId: "223",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    textureView: Object.freeze({
+      kind: "GPUTextureView",
+      objectId: "224",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    bindGroup: Object.freeze({
+      kind: "GPUBindGroup",
+      objectId: "225",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    renderPipeline: Object.freeze({
+      kind: "GPURenderPipeline",
+      objectId: "226",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+    computePipeline: Object.freeze({
+      kind: "GPUComputePipeline",
+      objectId: "227",
+      objectGeneration: "1",
+      logicalDeviceId: "55",
+      logicalDeviceGeneration: "1",
+      providerGeneration: "9",
+    }),
+  });
+  const submitRecord = ({
+    operationName,
+    ingress,
+    receiverRef,
+    commandEncoderRef = null,
+    passRef = null,
+    wrapperAllocatedTargetRef = null,
+    argumentBody,
+    logicalError = null,
+  }) => Object.freeze({
+    ...queueSubmitIdentity(operationName),
+    operationName,
+    operationInstanceId: String(100 + ingress),
+    deviceIngressOrdinal: String(ingress),
+    capturedScopeId: "0",
+    receiverRef,
+    commandEncoderRef,
+    passRef,
+    wrapperAllocatedTargetRef,
+    argumentBody,
+    logicalError,
+  });
+  const timelineOnlySubmitRecord = submitRecord({
+    operationName: "GPUCanvasContext.getCurrentTexture",
+    ingress: 10,
+    receiverRef: submitReferences.canvas,
+    wrapperAllocatedTargetRef: submitReferences.sourceTexture,
+    argumentBody: null,
+  });
+  const commandRecords = Object.freeze([
+    submitRecord({
+      operationName: "GPUCommandEncoder.beginComputePass",
+      ingress: 11,
+      receiverRef: submitReferences.encoder,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.computePass,
+      wrapperAllocatedTargetRef: submitReferences.computePass,
+      argumentBody: Object.freeze({ label: "compute", timestampWrites: null }),
+    }),
+    submitRecord({
+      operationName: "GPUComputePassEncoder.setPipeline",
+      ingress: 12,
+      receiverRef: submitReferences.computePass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.computePass,
+      argumentBody: Object.freeze({ pipeline: submitReferences.computePipeline }),
+    }),
+    submitRecord({
+      operationName: "GPUComputePassEncoder.setBindGroup",
+      ingress: 13,
+      receiverRef: submitReferences.computePass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.computePass,
+      argumentBody: Object.freeze({
+        index: 0,
+        bindGroup: submitReferences.bindGroup,
+        dynamicOffsets: Object.freeze([16]),
+        overload: "iterable",
+      }),
+    }),
+    submitRecord({
+      operationName: "GPUComputePassEncoder.dispatchWorkgroups",
+      ingress: 14,
+      receiverRef: submitReferences.computePass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.computePass,
+      argumentBody: Object.freeze({
+        workgroupCountX: 2,
+        workgroupCountY: 3,
+        workgroupCountZ: 4,
+      }),
+    }),
+    submitRecord({
+      operationName: "GPUComputePassEncoder.end",
+      ingress: 15,
+      receiverRef: submitReferences.computePass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.computePass,
+      argumentBody: Object.freeze({
+        usedBindGroups: Object.freeze([submitReferences.bindGroup]),
+      }),
+    }),
+    submitRecord({
+      operationName: "GPUCommandEncoder.clearBuffer",
+      ingress: 16,
+      receiverRef: submitReferences.encoder,
+      commandEncoderRef: submitReferences.encoder,
+      argumentBody: Object.freeze({
+        buffer: submitReferences.destinationBuffer,
+        offset: 0,
+        size: 4,
+      }),
+    }),
+    submitRecord({
+      operationName: "GPUCommandEncoder.copyBufferToBuffer",
+      ingress: 17,
+      receiverRef: submitReferences.encoder,
+      commandEncoderRef: submitReferences.encoder,
+      argumentBody: Object.freeze({
+        source: submitReferences.sourceBuffer,
+        sourceOffset: 0,
+        destination: submitReferences.destinationBuffer,
+        destinationOffset: 4,
+        size: 8,
+        overload: "full",
+      }),
+    }),
+    submitRecord({
+      operationName: "GPUCommandEncoder.copyTextureToTexture",
+      ingress: 18,
+      receiverRef: submitReferences.encoder,
+      commandEncoderRef: submitReferences.encoder,
+      argumentBody: Object.freeze({
+        source: Object.freeze({
+          aspect: "all",
+          mipLevel: 0,
+          origin: Object.freeze({ x: 1, y: 2, z: 0 }),
+          texture: submitReferences.sourceTexture,
+        }),
+        destination: Object.freeze({
+          aspect: "all",
+          mipLevel: 0,
+          origin: Object.freeze({ x: 2, y: 1, z: 0 }),
+          texture: submitReferences.destinationTexture,
+        }),
+        copySize: Object.freeze({ width: 4, height: 5, depthOrArrayLayers: 1 }),
+      }),
+    }),
+    submitRecord({
+      operationName: "GPUCommandEncoder.beginRenderPass",
+      ingress: 19,
+      receiverRef: submitReferences.encoder,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      wrapperAllocatedTargetRef: submitReferences.renderPass,
+      argumentBody: Object.freeze({
+        label: "render",
+        colorAttachments: Object.freeze([
+          null,
+          Object.freeze({
+            view: submitReferences.textureView,
+            loadOp: "clear",
+            storeOp: "store",
+            clearValue: Object.freeze({ r: 0.1, g: 0.2, b: 0.3, a: 1 }),
+            depthSlice: 2,
+          }),
+        ]),
+      }),
+    }),
+    submitRecord({
+      operationName: "GPURenderPassEncoder.setPipeline",
+      ingress: 20,
+      receiverRef: submitReferences.renderPass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      argumentBody: submitReferences.renderPipeline,
+    }),
+    submitRecord({
+      operationName: "GPURenderPassEncoder.setBindGroup",
+      ingress: 21,
+      receiverRef: submitReferences.renderPass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      argumentBody: Object.freeze({
+        index: 0,
+        bindGroup: submitReferences.bindGroup,
+        dynamicOffsets: Object.freeze([32]),
+        overload: "uint32-range",
+      }),
+    }),
+    submitRecord({
+      operationName: "GPURenderPassEncoder.setVertexBuffer",
+      ingress: 22,
+      receiverRef: submitReferences.renderPass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      argumentBody: Object.freeze({
+        slot: 0,
+        buffer: submitReferences.destinationBuffer,
+        offset: 0,
+        size: 8,
+      }),
+    }),
+    submitRecord({
+      operationName: "GPURenderPassEncoder.draw",
+      ingress: 23,
+      receiverRef: submitReferences.renderPass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      argumentBody: Object.freeze([3, 1, 0, 0]),
+    }),
+    submitRecord({
+      operationName: "GPURenderPassEncoder.end",
+      ingress: 24,
+      receiverRef: submitReferences.renderPass,
+      commandEncoderRef: submitReferences.encoder,
+      passRef: submitReferences.renderPass,
+      argumentBody: null,
+    }),
+    submitRecord({
+      operationName: "GPUCommandEncoder.finish",
+      ingress: 25,
+      receiverRef: submitReferences.encoder,
+      commandEncoderRef: submitReferences.encoder,
+      wrapperAllocatedTargetRef: submitReferences.commandBuffer,
+      argumentBody: Object.freeze({
+        descriptor: Object.freeze({ label: "program" }),
+        usedBindGroups: Object.freeze([submitReferences.bindGroup]),
+      }),
+    }),
+  ]);
+  if (
+    commandRecords.length !== 15 ||
+    new Set(commandRecords.map((record) => record.operationName)).size !== 15 ||
+    queueSubmitVariants.some((operationName) =>
+      operationName !== "GPUCanvasContext.getCurrentTexture" &&
+      !commandRecords.some((record) => record.operationName === operationName))
+  ) {
+    fail("queue-submit corpus does not cover all 15 command-record variants");
+  }
+  const queueSubmitInput = ({
+    timeline,
+    records,
+    invalid = false,
+    wrapperValidationError,
+  }) => Object.freeze({
+    operationId: queueSubmitOperationId,
+    wireId: queueSubmitRoute.wireId,
+    receiver: queueReceiver,
+    capturedScopeId: "0",
+    adapterOrdinal: "0",
+    deviceIngressOrdinal: "30",
+    queueIngressOrdinal: "31",
+    sealedLocalTimeline: Object.freeze(timeline),
+    convertedArguments: Object.freeze({
+      commandBuffers: Object.freeze(records === null
+        ? []
+        : [Object.freeze({
+            commandBuffer: submitReferences.commandBuffer,
+            invalid,
+            records: Object.freeze(records),
+          })]),
+      wrapperValidationError,
+    }),
+  });
+  const queueSubmitRequest = (id, input) => {
+    const codegenBytes = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(input);
+    const productionBytes = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(input);
+    if (toHex(codegenBytes) !== toHex(productionBytes)) {
+      fail(`${id} production and codegen request bytes differ`);
+    }
+    return Object.freeze({
+      id,
+      bytes: codegenBytes,
+      inspected: WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+        .inspectServiceRequest(codegenBytes),
+    });
+  };
+  const queueSubmitPositive = queueSubmitRequest(
+    "queue-submit-all-record-kinds-request",
+    queueSubmitInput({
+      timeline: [timelineOnlySubmitRecord, ...commandRecords],
+      records: commandRecords,
+    }),
+  );
+  const beginRenderIndex = commandRecords.findIndex(
+    (record) => record.operationName === "GPUCommandEncoder.beginRenderPass",
+  );
+  const beginRenderWithoutDepthSlice = Object.freeze({
+    ...commandRecords[beginRenderIndex],
+    argumentBody: Object.freeze({
+      ...commandRecords[beginRenderIndex].argumentBody,
+      colorAttachments: Object.freeze([
+        null,
+        Object.freeze({
+          view: submitReferences.textureView,
+          loadOp: "clear",
+          storeOp: "store",
+          clearValue: Object.freeze({ r: 0.1, g: 0.2, b: 0.3, a: 1 }),
+        }),
+      ]),
+    }),
+  });
+  const recordsWithoutDepthSlice = Object.freeze(commandRecords.map(
+    (record, index) => index === beginRenderIndex
+      ? beginRenderWithoutDepthSlice
+      : record,
+  ));
+  const queueSubmitWithoutDepthSlice = queueSubmitRequest(
+    "queue-submit-null-slot-depth-slice-absent-request",
+    queueSubmitInput({
+      timeline: [timelineOnlySubmitRecord, ...recordsWithoutDepthSlice],
+      records: recordsWithoutDepthSlice,
+    }),
+  );
+  const queueSubmitTimelineOnly = queueSubmitRequest(
+    "queue-submit-empty-program-timeline-only-request",
+    queueSubmitInput({ timeline: [timelineOnlySubmitRecord], records: null }),
+  );
+  const queueSubmitEmpty = queueSubmitRequest(
+    "queue-submit-empty-request",
+    queueSubmitInput({ timeline: [], records: null }),
+  );
+  const logicalErrorIndex = commandRecords.findIndex(
+    (record) => record.operationName === "GPUComputePassEncoder.setPipeline",
+  );
+  const logicalErrorRecords = Object.freeze(commandRecords.map((record, index) =>
+    index === logicalErrorIndex
+      ? Object.freeze({
+          ...record,
+          argumentBody: Object.freeze({ pipeline: submitReferences.adapter }),
+          logicalError: Object.freeze({
+            name: "GPUValidationError",
+            message: "Compute pipeline is invalid for this pass",
+          }),
+        })
+      : record));
+  const queueSubmitLogicalError = queueSubmitRequest(
+    "queue-submit-logical-error-program-request",
+    queueSubmitInput({
+      timeline: [timelineOnlySubmitRecord, ...logicalErrorRecords],
+      records: logicalErrorRecords,
+      invalid: true,
+      wrapperValidationError: Object.freeze({
+        name: "GPUValidationError",
+        message: "Command buffer contains invalid recorded commands",
+      }),
+    }),
+  );
+  const parseQueueSubmitLayout = (bytes) => {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let cursor = 86;
+    const recordCount = view.getUint32(cursor, true);
+    cursor += 4;
+    const records = [];
+    for (let index = 0; index < recordCount; index += 1) {
+      const length = view.getUint32(cursor, true);
+      cursor += 4;
+      records.push(Object.freeze({ start: cursor, length }));
+      cursor += length;
+    }
+    const pendingCountOffset = cursor;
+    const pendingCount = view.getUint32(cursor, true);
+    cursor += 4;
+    const pendingIndicesOffset = cursor;
+    cursor += pendingCount * 4;
+    const programCountOffset = cursor;
+    const programCount = view.getUint32(cursor, true);
+    cursor += 4;
+    const programs = [];
+    for (let index = 0; index < programCount; index += 1) {
+      const start = cursor;
+      const invalidOffset = start + 41;
+      const finishPositionOffset = start + 42;
+      const recordCountOffset = start + 46;
+      const programRecordCount = view.getUint32(recordCountOffset, true);
+      const indicesOffset = start + 50;
+      const digestOffset = indicesOffset + programRecordCount * 4;
+      programs.push(Object.freeze({
+        start,
+        invalidOffset,
+        finishPositionOffset,
+        recordCountOffset,
+        recordCount: programRecordCount,
+        indicesOffset,
+        digestOffset,
+      }));
+      cursor = digestOffset + 32;
+    }
+    return Object.freeze({
+      records: Object.freeze(records),
+      pendingCountOffset,
+      pendingCount,
+      pendingIndicesOffset,
+      programCountOffset,
+      programCount,
+      programs: Object.freeze(programs),
+      wrapperErrorOffset: cursor,
+    });
+  };
+  const queueSubmitPositiveLayout = parseQueueSubmitLayout(
+    queueSubmitPositive.bytes,
+  );
+  const queueSubmitTimelineOnlyLayout = parseQueueSubmitLayout(
+    queueSubmitTimelineOnly.bytes,
+  );
+  const logicalErrorLayout = parseQueueSubmitLayout(queueSubmitLogicalError.bytes);
+  const concatenateBytes = (...chunks) => Uint8Array.from(Buffer.concat(
+    chunks.map((chunk) => Buffer.from(chunk)),
+  ));
+  const u32Bytes = (value) => {
+    const bytes = new Uint8Array(4);
+    new DataView(bytes.buffer).setUint32(0, value, true);
+    return bytes;
+  };
+  const asciiOffset = (bytes, value) => {
+    const needle = Buffer.from(value, "utf8");
+    outer: for (let offset = 0; offset <= bytes.byteLength - needle.length; offset += 1) {
+      for (let index = 0; index < needle.length; index += 1) {
+        if (bytes[offset + index] !== needle[index]) continue outer;
+      }
+      return offset;
+    }
+    fail(`queue-submit mutation key is absent: ${value}`);
+  };
+  const queueSubmitBinaryRejections = [];
+  for (const [recordIndex, record] of queueSubmitPositive.inspected.recordTable.entries()) {
+    queueSubmitBinaryRejections.push(Object.freeze({
+      id: `queue-submit-record-kind-${recordIndex}-rejected`,
+      mutation: `unknown-record-kind-${record.operationName}`,
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (bytes) => {
+        bytes[queueSubmitPositiveLayout.records[recordIndex].start + 1] = 0xff;
+      }),
+    }));
+  }
+  const firstStagedIndex = queueSubmitPositive.inspected.recordTable.findIndex(
+    (record) => record.recordIdentityClass === "staged-local",
+  );
+  const beginComputeTableIndex = queueSubmitPositive.inspected.recordTable.findIndex(
+    (record) => record.operationName === "GPUCommandEncoder.beginComputePass",
+  );
+  const depthSliceOffset = asciiOffset(queueSubmitPositive.bytes, "depthSlice") +
+    Buffer.byteLength("depthSlice");
+  if (
+    queueSubmitPositive.bytes[depthSliceOffset] !==
+      WEBGPU_EXECUTABLE_CODEC_MANIFEST.layout.valueTags.u32
+  ) {
+    fail("queue-submit depthSlice value offset drifted");
+  }
+  queueSubmitBinaryRejections.push(
+    ...[
+      ["object-id", 13],
+      ["object-generation", 21],
+      ["logical-device-id", 29],
+      ["logical-device-generation", 37],
+      ["provider-generation", 45],
+    ].map(([name, offset]) => Object.freeze({
+      id: `queue-submit-zero-receiver-${name}-rejected`,
+      mutation: `zero-receiver-${name}`,
+      bytes: mutatedBytes(queueSubmitEmpty.bytes, (bytes) => {
+        bytes.fill(0, offset, offset + 8);
+      }),
+    })),
+    Object.freeze({
+      id: "queue-submit-unreferenced-record-table-row-rejected",
+      mutation: "record-table-row-removed-from-exact-index-union",
+      bytes: concatenateBytes(
+        queueSubmitTimelineOnly.bytes.slice(
+          0,
+          queueSubmitTimelineOnlyLayout.pendingCountOffset,
+        ),
+        u32Bytes(0),
+        queueSubmitTimelineOnly.bytes.slice(
+          queueSubmitTimelineOnlyLayout.pendingIndicesOffset + 4,
+        ),
+      ),
+    }),
+    Object.freeze({
+      id: "queue-submit-aggregate-program-record-bound-rejected",
+      mutation: "sixty-nine-fifteen-record-programs-exceed-aggregate-bound",
+      bytes: (() => {
+        const repeatedProgramCount = 69;
+        const program = queueSubmitPositiveLayout.programs[0];
+        const programBytes = queueSubmitPositive.bytes.slice(
+          program.start,
+          queueSubmitPositiveLayout.wrapperErrorOffset,
+        );
+        return concatenateBytes(
+          queueSubmitPositive.bytes.slice(
+            0,
+            queueSubmitPositiveLayout.programCountOffset,
+          ),
+          u32Bytes(repeatedProgramCount),
+          ...Array.from({ length: repeatedProgramCount }, () => programBytes),
+          queueSubmitPositive.bytes.slice(
+            queueSubmitPositiveLayout.wrapperErrorOffset,
+          ),
+        );
+      })(),
+    }),
+    Object.freeze({
+      id: "queue-submit-record-identity-class-rejected",
+      mutation: "identity-class-three",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (bytes) => {
+        bytes[queueSubmitPositiveLayout.records[0].start] = 3;
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-staged-identity-digest-rejected",
+      mutation: "staged-record-identity-digest-bit",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (bytes) => {
+        bytes[queueSubmitPositiveLayout.records[firstStagedIndex].start + 8] ^= 1;
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-record-receiver-generation-drift-rejected",
+      mutation: "encoder-receiver-generation-two",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        view.setUint32(
+          queueSubmitPositiveLayout.records[beginComputeTableIndex].start + 73,
+          2,
+          true,
+        );
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-pass-generation-drift-rejected",
+      mutation: "begin-compute-pass-ref-generation-two",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        view.setUint32(
+          queueSubmitPositiveLayout.records[beginComputeTableIndex].start + 157,
+          2,
+          true,
+        );
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-record-ingress-order-rejected",
+      mutation: "second-record-ingress-equals-first",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        view.setUint32(
+          queueSubmitPositiveLayout.records[1].start + 48,
+          10,
+          true,
+        );
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-pending-index-reuse-rejected",
+      mutation: "second-pending-index-equals-first",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        view.setUint32(
+          queueSubmitPositiveLayout.pendingIndicesOffset + 4,
+          view.getUint32(queueSubmitPositiveLayout.pendingIndicesOffset, true),
+          true,
+        );
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-program-index-reuse-rejected",
+      mutation: "second-program-index-equals-first",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        const program = queueSubmitPositiveLayout.programs[0];
+        view.setUint32(
+          program.indicesOffset + 4,
+          view.getUint32(program.indicesOffset, true),
+          true,
+        );
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-finish-position-rejected",
+      mutation: "finish-position-zero",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        view.setUint32(
+          queueSubmitPositiveLayout.programs[0].finishPositionOffset,
+          0,
+          true,
+        );
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-command-buffer-generation-drift-rejected",
+      mutation: "program-command-buffer-generation-two",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        view.setUint32(queueSubmitPositiveLayout.programs[0].start + 9, 2, true);
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-command-program-digest-rejected",
+      mutation: "command-program-digest-bit",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (bytes) => {
+        bytes[queueSubmitPositiveLayout.programs[0].digestOffset] ^= 1;
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-depth-slice-record-mutation-rejected",
+      mutation: "depthSlice-two-to-three-without-digest-rewrite",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (_bytes, view) => {
+        view.setUint32(depthSliceOffset + 1, 3, true);
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-record-logical-error-tag-rejected",
+      mutation: "record-logical-error-tag-four",
+      bytes: mutatedBytes(queueSubmitPositive.bytes, (bytes) => {
+        const record = queueSubmitPositiveLayout.records[beginComputeTableIndex];
+        bytes[record.start + 231] = 4;
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-wrapper-logical-error-tag-rejected",
+      mutation: "wrapper-logical-error-tag-four",
+      bytes: mutatedBytes(queueSubmitLogicalError.bytes, (bytes) => {
+        bytes[logicalErrorLayout.wrapperErrorOffset] = 4;
+      }),
+    }),
+    Object.freeze({
+      id: "queue-submit-request-truncated-rejected",
+      mutation: "truncate-final-byte",
+      bytes: queueSubmitPositive.bytes.slice(0, -1),
+    }),
+    Object.freeze({
+      id: "queue-submit-request-trailing-byte-rejected",
+      mutation: "append-trailing-byte",
+      bytes: withTrailingByte(queueSubmitPositive.bytes),
+    }),
+  );
+  for (const rejection of queueSubmitBinaryRejections) {
+    let rejected = false;
+    try {
+      WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(rejection.bytes);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) fail(`${rejection.id} did not fail closed`);
+  }
+  const queueSubmitRequests = Object.freeze([
+    queueSubmitPositive,
+    queueSubmitWithoutDepthSlice,
+    queueSubmitTimelineOnly,
+    queueSubmitEmpty,
+    queueSubmitLogicalError,
+  ]);
+  const queueSubmitCarrier = Object.freeze({
+    ...queueWriteBufferCarrier,
+    operation_id: queueSubmitRoute.wireId,
+    operation_instance_id: "62",
+    captured_scope_id: "0",
+    device_ingress_ordinal: "30",
+    queue_ingress_ordinal: "31",
+  });
   const canonicalUtf8Dictionary =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeCanonicalValue(
       Object.freeze({
@@ -5196,7 +5992,7 @@ function buildCorpus() {
   return {
     schema: "ibex/webgpu-production-codec-corpus/2",
     disposition:
-      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
+      "generated-language-neutral-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-submit-payload-codegen-positive-and-adversarial-interoperability-vectors-no-native-install-claim",
     supportClaim: "none",
     carrierProjectionScope:
       "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
@@ -5486,9 +6282,26 @@ function buildCorpus() {
         bodySchema:
           queueWriteBufferNativeRoute.request.payload.fields.at(-1).type,
         completionBodySchema: "empty",
-        queueSubmitDisposition:
-          "injection-incomplete-no-native-codec-program",
-        queueSubmitUnavailableSemanticFields: queueSubmitUnavailableFields,
+      },
+      {
+        operationId: queueSubmitOperationId,
+        wireId: queueSubmitRoute.wireId,
+        nativeCodecProgramSchema:
+          WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.schema,
+        requestCodec: queueSubmitCodec.tag,
+        requestCodecTag: queueSubmitCodec.wireTag,
+        completionCodec: queueSubmitCompletionCodec.tag,
+        completionCodecTag: queueSubmitCompletionCodec.wireTag,
+        productionExecutableFromCurrentAuthenticatedInputs: true,
+        semanticTerminalMapping:
+          queueSubmitNativeRoute.completion.semanticTerminalMapping,
+        bodySchema:
+          queueSubmitNativeRoute.request.payload.fields.at(-1).type,
+        commandRecordSchema: "commandRecordV1",
+        commandProgramDigestDomain: "exact/webgpu-command-program/v1\\0",
+        commandRecordVariantCount: 15,
+        timelineOnlyRecordVariantCount: 1,
+        completionBodySchema: "empty",
       },
     ],
     vectors: [
@@ -5985,6 +6798,49 @@ function buildCorpus() {
           rejection: "fail-closed-before-provider-or-wrapper-exposure",
         },
       })),
+      ...queueSubmitRequests.map((entry) => ({
+        id: entry.id,
+        operationId: queueSubmitOperationId,
+        kind: "request",
+        carrierProjection: queueSubmitCarrier,
+        trust:
+          "sealed-record-table-and-command-program-indices-plus-digest-are-comparison-input-only-never-authority",
+        semanticOwner:
+          "native-queue-submit-semantic-service-before-provider-admission",
+        bytesHex: toHex(entry.bytes),
+        expected: entry.inspected,
+      })),
+      ...queueSubmitBinaryRejections.map((rejection) => ({
+        id: rejection.id,
+        operationId: queueSubmitOperationId,
+        kind: "binary-rejection",
+        direction: "request",
+        mutation: rejection.mutation,
+        bytesHex: toHex(rejection.bytes),
+        expected: {
+          rejection: "fail-closed-before-provider-or-wrapper-exposure",
+        },
+      })),
+      ...[
+        ["captured-scope", { captured_scope_id: "2" }],
+        ["device-ingress", { device_ingress_ordinal: "31" }],
+        ["queue-ingress", { queue_ingress_ordinal: "32" }],
+        ["receiver-generation", {
+          receiver: { ...queueSubmitCarrier.receiver, object_generation: "6" },
+        }],
+        ["provider-generation", { provider_generation: "10" }],
+      ].map(([join, carrierMutation]) => ({
+        id: `queue-submit-${join}-carrier-mismatch-rejected`,
+        operationId: queueSubmitOperationId,
+        kind: "carrier-join-rejection",
+        carrierProjection: queueSubmitCarrier,
+        carrierMutation,
+        expected: {
+          rejection: "authenticated-carrier-payload-join-mismatch",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+        },
+      })),
       ...[
         ["captured-scope", { captured_scope_id: "3" }],
         ["device-ingress", { device_ingress_ordinal: "4" }],
@@ -6023,7 +6879,7 @@ function main() {
       );
     }
     console.log(
-      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, device-destroy, GPUBuffer destroy/mapAsync/unmap, and GPUQueue.writeBuffer payload-codegen vectors are fresh while submit remains injection-incomplete",
+      "webgpu-production-codec-corpus: requestAdapter, requestDevice unknown-limit/live/detached, createBindGroup 18-call/full-provenance-witness/structural/adversarial, createBindGroupLayout, createBuffer 21-call/accounting/adversarial, createPipelineLayout, createSampler four-call/accounting/adversarial, createTexture five-call/accounting/adversarial, createTextureView 25-call/8-class/device-and-canvas/origin-ordering/adversarial, createCommandEncoder, createShaderModule, device-destroy, GPUBuffer destroy/mapAsync/unmap, GPUQueue.writeBuffer, and GPUQueue.submit 15-command-record/timeline/digest/adversarial payload-codegen vectors are fresh",
     );
     return;
   }
