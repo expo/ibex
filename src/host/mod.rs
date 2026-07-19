@@ -3313,7 +3313,15 @@ pub fn object_identity_for_host_path(
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x0020_0000 | 0x0200_0000); // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
+        use windows_sys::Win32::Storage::FileSystem::{FILE_READ_ATTRIBUTES, SYNCHRONIZE};
+        // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+        // Generic read asks a directory for FILE_LIST_DIRECTORY and is denied
+        // by valid roots that expose metadata/traversal without enumeration.
+        // Identity only needs handle metadata; request that exact access while
+        // preserving the no-follow and directory-handle flags.
+        options
+            .access_mode(FILE_READ_ATTRIBUTES | SYNCHRONIZE)
+            .custom_flags(0x0020_0000 | 0x0200_0000); // OPEN_REPARSE_POINT | BACKUP_SEMANTICS
     }
     let file = options.open(path).map_err(|error| {
         capsec_semantics::Error::ArmRefused(format!(

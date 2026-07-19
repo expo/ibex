@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 physically verifies the repaired Windows deputy stack as `1,0` and all nine startup-environment recipes, then reduces the next refusal to excessive generic-read access while pinning an Exact artifact root)
 **Revised:** 2026-07-19 (ENG-24933 captures the physical Windows environment stack as `0,1,0`, identifies the Windows-only root-attributed second disk evaluation that replaced the authenticated native-bootstrap bundle, and makes Windows reuse the installed native bundle)
 **Revised:** 2026-07-19 (ENG-24933 materializes the exact process.env deputy call chain with an inaccessible no-I/O sentinel before Domain binding after physical Windows accepted every retained anchor readback but still root-attributed first use)
 **Revised:** 2026-07-19 (ENG-24933 replaces the insufficient single process.cwd shared-runtime anchor with exact bootstrap-only process.env deputy anchors after physical Windows proved multiple lazy source Domains)
@@ -1929,8 +1930,12 @@ the native copy, matching every other platform; the disproven materialization
 warmup was removed. The creation-time pending label remains in place for eval
 inheritance and defense in depth. The nine Apple
 startup-environment recipes and all 2,698 Apple callback-invariant fixtures pass
-with the shared identity binding; Windows must still repeat the focused physical
-probe and complete batches before this deputy repair can contribute evidence.
+with the shared identity binding. The next physical Windows probe recorded the
+repaired `1,0` stack and passed all nine startup-environment recipes. Callback
+smoke then advanced to target-local Exact artifact construction and refused
+while pinning a valid temporary root: generic read unnecessarily requested
+directory enumeration. Root identity opening now requests only Windows file
+attributes and synchronization; this later gate must still repeat physically.
 A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not

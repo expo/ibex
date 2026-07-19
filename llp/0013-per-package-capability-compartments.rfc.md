@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-19 (ENG-24933 physically verifies the repaired Windows deputy stack as `1,0` and all nine startup-environment recipes, then narrows the next refusal to exact artifact-root identity opening with excessive generic-read access)
 **Revised:** 2026-07-19 (ENG-24933 traces the physical Windows deputy stack to `0,1,0`, identifies the Windows-only second disk evaluation that replaced the authenticated native-bootstrap bundle as root, and makes every platform reuse a successfully installed native bundle)
 **Revised:** 2026-07-19 (ENG-24933 materializes the exact process.env deputy call chain with an inaccessible no-I/O sentinel before binding after physical Windows accepted every retained anchor readback but still replaced or bypassed those pre-execution Domains on first use)
 **Revised:** 2026-07-19 (ENG-24933 replaces the insufficient single process.cwd shared-runtime anchor with a bootstrap-only exact process.env deputy-function list after physical Windows proved source bootstrap creates multiple lazy Domains inside the bundle)
@@ -1347,8 +1348,14 @@ currently compatibility routing and defense in depth on top of it:
   as root, replacing `process.env` and its retained helpers. Windows now runs the
   same installed-bundle probe as every other platform and reuses the native
   bundle; the speculative no-I/O materialization warmup was removed. This
-  revision still requires a physical rerun before convergence can be claimed.
-  This closes channel #2
+  The next physical Windows run recorded the repaired `1,0` package call stack
+  and passed all nine startup-environment recipes. Its callback smoke proceeded
+  past deputy attribution and refused later while building the Exact artifact
+  pair: armed-root identity opening requested generic read, which includes
+  directory enumeration and returned access denied for a valid metadata-only
+  root. Windows root identity now requests only `FILE_READ_ATTRIBUTES` and
+  `SYNCHRONIZE`; that later artifact gate still requires a physical rerun. This
+  closes channel #2
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
   rewrite never touches. Tested by
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.
