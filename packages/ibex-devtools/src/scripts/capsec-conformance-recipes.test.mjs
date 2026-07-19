@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_117);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_973);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_144);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_972);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_145);
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
@@ -228,6 +228,15 @@ describe("exact-target CapSec executable recipes", () => {
           "__exactFsOpenAsync",
       ),
     ).toHaveLength(0);
+    const windowsFsClose = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactFsClose" &&
+        recipe.scenario === "non-capability",
+    );
+    expect(windowsFsClose.publicSurfaceProbe).toBeNull();
+    expect(windowsFsClose.residualReasons).toContain(
+      "native-public-prerequisite-not-typed-on-target",
+    );
     const unsupportedWindowsNetworkRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("network:")) &&

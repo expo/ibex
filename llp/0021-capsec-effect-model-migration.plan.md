@@ -1701,7 +1701,11 @@ Successful and branch-selection evidence must emit requested, discovery,
 target discovery, and commit decisions, close the returned descriptor through
 `__exactFsClose`, prove the fixture bytes unchanged, and remove the file.
 Denial stops at requested and still proves unchanged bytes before harness
-cleanup.
+cleanup. Standalone `__exactFsClose` evidence also requires a descriptor staged
+before observation. It remains residual on Windows because the installed
+`__exactFsOpen` prerequisite still uses the legacy capability oracle there;
+executing close after a denied setup would fabricate evidence for an
+unavailable retained object.
 The POSIX `__exactFsOpenAsync` surface mirrors those three exact owned fixtures
 through event-loop quiescence. Successful and branch-selection evidence binds
 the asynchronous surface plus its synchronous descriptor-cleanup terminal,

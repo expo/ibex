@@ -1616,6 +1616,9 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
           resource: projectPathExactResource("Cargo.toml"),
         },
       ],
+      unsupportedTargetReason:
+        "native-public-prerequisite-not-typed-on-target",
+      unsupportedTargetTriples: ["x86_64-pc-windows-msvc"],
     }),
   ],
   [
