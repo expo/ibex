@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (the Windows full-matrix Rust product gate preserves
+the fail-on-zero wrapper while binding Cargo to the configured MSVC linker
+before Git Bash can shadow it with Coreutils `link.exe`)
 **Revised:** 2026-07-18 (target-local protected-artifact publication fsyncs
 the parent directory on Unix and flushes the pinned linked file on Windows,
 where opening a directory through `std::fs::File` is refused)
@@ -1594,7 +1597,10 @@ execution, and report artifacts. That mode succeeds only after the report is gen
 and has no matching committed target attestation. It fails automatically once
 the target becomes conformant, forcing CI to remove the expectation and adopt
 the ordinary promotion gate rather than silently retaining a stale
-"incomplete" posture.
+"incomplete" posture. On Windows, the full Rust product gate still passes
+through the fail-on-zero wrapper; that wrapper binds Cargo to the configured
+absolute MSVC linker before Git Bash can prepend its unrelated Coreutils
+`link.exe`.
 An obligation can pass only with fixture-specific command evidence carrying
 its exact fixture ID, result marker, exit status, recomputed evidence digest,
 and exact execution binding. Missing, generic, duplicated, stale, or synthetic
