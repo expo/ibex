@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_161);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_908);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_253);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_872);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_289);
     const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.residualReasons.includes(
@@ -220,6 +220,23 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe === null &&
           recipe.terminalObservedKey.startsWith(
             "builtin:export:exact_crypto:",
+          ),
+      ),
+    ).toBe(true);
+    const unavailableWindowsBrotliRecipes = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.residualReasons.includes(
+          "builtin-export-native-prerequisite-not-installed-on-target",
+        ),
+    );
+    expect(unavailableWindowsBrotliRecipes).toHaveLength(46);
+    expect(
+      unavailableWindowsBrotliRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.terminalObservedKey.startsWith(
+            "builtin:export:node_zlib:",
           ),
       ),
     ).toBe(true);

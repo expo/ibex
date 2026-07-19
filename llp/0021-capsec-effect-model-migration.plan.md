@@ -5,6 +5,9 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (Windows builtin recipes keep callable Brotli exports
+residual because the target installs deflate/inflate but not the native Brotli
+codec globals those exports require)
 **Revised:** 2026-07-18 (Windows source-bound builtin recipes keep the default
 `src/builtins/crypto.js` implementation residual because the target installs a
 reduced bootstrap-local `node:crypto` replacement)
@@ -1689,6 +1692,16 @@ executing a same-named replacement function is not evidence that the
 source-bound default implementation ran. Those recipes become executable on
 Windows only after inventory and recipe generation bind the replacement's own
 source surface (or the target stops replacing the module).
+
+The Windows zlib bridge installs `__exactDeflateSync` and
+`__exactInflateSync`, but not the `__exactBrotli*` codec globals. Source-bound
+`Brotli*`, `brotli*`, and `createBrotli*` call recipes therefore remain
+residual on that target under
+`builtin-export-native-prerequisite-not-installed-on-target`; a callable
+JavaScript wrapper that can only throw for its absent native prerequisite is
+not normal-return execution evidence. Source-defined scalar `BROTLI_*`
+constants remain executable because reading them does not claim codec
+execution.
 
 Closed and conditional evidence remains branch-executed rather than
 classification-derived. A closed CLI facet is executable only when the harness

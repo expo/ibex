@@ -1529,6 +1529,29 @@ function targetReplacesPublicSource(surface, target) {
   );
 }
 
+function targetUnavailablePublicExportReason(surface, target) {
+  if (targetReplacesPublicSource(surface, target)) {
+    return "builtin-export-source-replaced-on-target";
+  }
+  const triple =
+    typeof target === "string"
+      ? target
+      : typeof target?.triple === "string"
+        ? target.triple
+        : null;
+  const metadata = surface?.metadata;
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — Windows keeps Brotli constants but does not install the native codec globals required by callable Brotli exports.
+  if (
+    triple === "x86_64-pc-windows-msvc" &&
+    metadata?.surfaceType === "export" &&
+    metadata.sourceKey === "node_zlib" &&
+    /^(?:Brotli|brotli|createBrotli)/u.test(metadata.exportName)
+  ) {
+    return "builtin-export-native-prerequisite-not-installed-on-target";
+  }
+  return null;
+}
+
 function platformForTarget(target) {
   const triple =
     typeof target === "string"
@@ -1629,7 +1652,7 @@ function sourceDescriptor(
     ) ||
     canonicalJson(metadata.publicModuleSpecifiers) !==
       canonicalJson(canonicalSet(metadata.publicModuleSpecifiers)) ||
-    targetReplacesPublicSource(surface, target) ||
+    targetUnavailablePublicExportReason(surface, target) !== null ||
     availability === false ||
     (!allowTargetAbsence &&
       availability &&
@@ -1789,8 +1812,12 @@ export function nonCapabilityBuiltinProbeResidualReason({
   ) {
     return "builtin-export-not-publicly-importable";
   }
-  if (targetReplacesPublicSource(surface, target)) {
-    return "builtin-export-source-replaced-on-target";
+  const targetUnavailableReason = targetUnavailablePublicExportReason(
+    surface,
+    target,
+  );
+  if (targetUnavailableReason) {
+    return targetUnavailableReason;
   }
   const availability = platformAvailability(surface?.metadata);
   const targetPlatform = platformForTarget(target);

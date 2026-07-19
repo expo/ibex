@@ -558,6 +558,19 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
+  test("does not schedule Brotli calls without the Windows native codec", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_zlib",
+        exportName: "BrotliCompress._processChunk",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:zlib", "zlib"],
+        target: "x86_64-pc-windows-msvc",
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+  });
+
   test("authors pure IP, module, clock, URL, and version helpers", () => {
     expect(
       probeFor({
