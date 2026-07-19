@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(22_915);
+    expect(recipes.summary.requiredFixtures).toBe(22_920);
     expect(recipes.summary.fullyExecutableFixtures).toBe(5_214);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_701);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_706);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -203,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(22_625);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(22_630);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_728);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_897);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_902);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -2138,7 +2138,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.classification === "effects" &&
         recipe.terminalObservedKey.startsWith("startup:env:"),
     );
-    expect(startupEnvironmentRecipes).toHaveLength(668);
+    expect(startupEnvironmentRecipes).toHaveLength(673);
     const authored = startupEnvironmentRecipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
@@ -2235,7 +2235,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(659);
+    ).toHaveLength(664);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>

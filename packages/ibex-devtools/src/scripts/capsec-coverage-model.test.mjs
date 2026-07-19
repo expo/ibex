@@ -2871,6 +2871,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     for (const name of [
       "env:<dynamic>:cpp:::environ",
       "env:<dynamic>:cpp:GetEnvironmentStringsW",
+      "env:<dynamic>:cpp:GetEnvironmentVariableA",
       "env:<dynamic>:cpp:_NSGetEnviron",
     ]) {
       const classified = classifyObservedSurface(
@@ -4039,6 +4040,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     for (const name of [
       "env:<dynamic>:cpp:::environ",
       "env:<dynamic>:cpp:GetEnvironmentStringsW",
+      "env:<dynamic>:cpp:GetEnvironmentVariableA",
       "env:<dynamic>:cpp:_NSGetEnviron",
     ]) {
       expect(edgeByObservedKey.get(`startup:${name}`), name).toMatchObject({

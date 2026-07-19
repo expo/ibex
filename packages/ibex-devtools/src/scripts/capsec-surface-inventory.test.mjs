@@ -3049,6 +3049,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
               auto apple = _NSGetEnviron();
               auto posix = ::environ;
               auto windows = GetEnvironmentStringsW();
+              auto dynamicWindows = GetEnvironmentVariableA(name, value, size);
             }
           `,
         },
@@ -3116,7 +3117,12 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       rows
         .filter((row) => row.name.startsWith("env:<dynamic>:cpp:"))
         .map((row) => row.metadata.accessors[0]),
-    ).toEqual(["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"]);
+    ).toEqual([
+      "::environ",
+      "GetEnvironmentStringsW",
+      "GetEnvironmentVariableA",
+      "_NSGetEnviron",
+    ]);
   });
 
   test("process values crossing complex bindings remain visible to the environment inventory", () => {
@@ -4392,12 +4398,20 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       environmentRows
         .filter((row) =>
-          ["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"].some(
-            (accessor) => row.metadata.accessors.includes(accessor),
-          ),
+          [
+            "::environ",
+            "GetEnvironmentStringsW",
+            "GetEnvironmentVariableA",
+            "_NSGetEnviron",
+          ].some((accessor) => row.metadata.accessors.includes(accessor)),
         )
         .map((row) => row.metadata.accessors[0]),
-    ).toEqual(["::environ", "GetEnvironmentStringsW", "_NSGetEnviron"]);
+    ).toEqual([
+      "::environ",
+      "GetEnvironmentStringsW",
+      "GetEnvironmentVariableA",
+      "_NSGetEnviron",
+    ]);
     expect(
       environmentRows.find((row) =>
         row.metadata.accessors.includes("::environ"),

@@ -251364,6 +251364,47 @@
       }
     },
     {
+      "id": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "classification": "effects",
+      "surface": {
+        "kind": "startup",
+        "name": "env:<dynamic>:cpp:GetEnvironmentVariableA"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "root"
+      ],
+      "effectOwnerSource": "root",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "environment-access"
+        ],
+        "recheckAt": [],
+        "cancelAt": [
+          "negative-generation-change"
+        ]
+      }
+    },
+    {
       "id": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "classification": "effects",
       "surface": {

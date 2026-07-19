@@ -1860,7 +1860,12 @@ socket/REPL assertions required Unix close-frame, cancelled-write, or Promise
 unwrapping behavior. The CLI publisher now mirrors the already-proven embedder
 publisher's staged-handle flush, the external Node argument uses the
 object-equivalent ordinary drive/UNC spelling, and native flag reads query the
-Win32 process environment directly. The remaining assertions preserve their
+Win32 process environment directly. Follow-up physical run `29706968082`
+correctly refused at registry drift before executing fixtures because that new
+Win32 accessor was not yet classified. It now remains a conservative dynamic
+environment-read sentinel in the generated registry in addition to the helper's
+concrete authored flag names; the platform bridge does not create an
+unclassified startup channel. The remaining assertions preserve their
 security condition while accepting the target's documented absent surface,
 fail-closed connection reset, or lack of native Promise-result unwrapping. A
 new physical run must complete all later product layers before the retained

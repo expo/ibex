@@ -6375,6 +6375,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "eager-native-seal",
     "env:<dynamic>:cpp:::environ",
     "env:<dynamic>:cpp:GetEnvironmentStringsW",
+    "env:<dynamic>:cpp:GetEnvironmentVariableA",
     "env:<dynamic>:cpp:_NSGetEnviron",
     "env:<dynamic>:cpp:getenv",
     "env:<dynamic>:javascript:process-binding-flow",

@@ -231917,6 +231917,40 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "target": {
+        "triple": "x86_64-pc-windows-msvc",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "target": {
         "triple": "aarch64-apple-darwin",

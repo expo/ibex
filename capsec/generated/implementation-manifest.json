@@ -252335,6 +252335,41 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
+      "observedKey": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA",
+      "branchId": "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t.main",
+      "enforcementBranchId": "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "startup:env:<dynamic>:cpp:GetEnvironmentVariableA"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read"
+        ],
+        "terminalObservedKey": "startup:env:<dynamic>:cpp:GetEnvironmentVariableA"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#GetEnvironmentVariableA:dynamic:read"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.allow",
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.deny",
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.malformed",
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.missing-attribution",
+        "enforcement.rc.engine.hermes.runtime.cc.getenvironmentvariablea.dynamic.read.18phz2b.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
       "observedKey": "startup:env:<dynamic>:cpp:_NSGetEnviron",
       "branchId": "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke.main",
@@ -261814,6 +261849,7 @@
         "surface.startup.env.dynamic.cpp.environ.1o5nbvk",
         "surface.startup.env.dynamic.cpp.getenv.1kddphg",
         "surface.startup.env.dynamic.cpp.getenvironmentstringsw.0nkk2v9",
+        "surface.startup.env.dynamic.cpp.getenvironmentvariablea.02j1o0t",
         "surface.startup.env.dynamic.cpp.nsgetenviron.1witmke",
         "surface.startup.env.dynamic.javascript.process.0zq1e6e",
         "surface.startup.env.dynamic.javascript.process.binding.flow.0sy2re1",
@@ -261872,7 +261908,7 @@
         "surface.startup.env.userprofile.1sxunkp",
         "surface.startup.env.wpt.server.url.1y5rfd8"
       ],
-      "rationale": "Covered by 210 observed effect edges."
+      "rationale": "Covered by 211 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -265823,44 +265859,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-vlfiM3QZsOWw8aBCQ6YhHPuPzBqw67ajnbJvBNmpP5Y"
+      "rawContentDigest": "sha256-mEiTk5veibtPhHiN1vUd3GLgCdN3FlxwTLMCnKo82IQ"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-kfBbL6HXTA45MA4kGJlABsYYqPJZMR36dfADYtPcYzw"
+      "rawContentDigest": "sha256-729Kf2hT2ufwHkwJQ9Dywz6KQ9Pu82r10KGmK9I5Oas"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-YwvEXIIw-mb6x2Thq9DK_adrjUNkZ8EePAJR8JwqLFI"
+      "rawContentDigest": "sha256-1f2rki5yfl19Pea8GJYee590Kx7koH9HLVOpHf9zce4"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-wM280Y_sBUuIKul4qPh3miYo1pU--R5Ncj6upVJYfJs"
+      "rawContentDigest": "sha256-N8WoGH7aYHLtIm8N9qvu6YvDj2jfj-0S-LldtTJCo84"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-TaxBI1xL5P51VamLqAHsTMQXVndzHxoSYrqXzQdUNz4"
+      "rawContentDigest": "sha256-tNszqXHZo_eGwudTtPd88elfrqVgEgEob9MHO77zkdE"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-kuBSCfPHEUcGmnFA4gja4dFQBFkDlJNFuUI2FtDOics"
+      "rawContentDigest": "sha256-V94wuVhht1FaiQcxtxgdxrRsKxdnl8luavdew4qqgH4"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-U-S3NQZsF3mzn6UonEUgoy-q07YPUU3jYaG6lE-bxJI"
+      "rawContentDigest": "sha256-n-Yn_M2yM7d3KGGr5-8EKUT-U17pXNrwJ0T9wy-Qp98"
     }
   ],
   "counts": {
-    "observedReferences": 12839,
-    "logicalSurfaces": 7103,
-    "enforcementBranches": 7332,
-    "coverageEdges": 7103,
-    "targetCells": 14206
+    "observedReferences": 12840,
+    "logicalSurfaces": 7104,
+    "enforcementBranches": 7333,
+    "coverageEdges": 7104,
+    "targetCells": 14208
   }
 }
