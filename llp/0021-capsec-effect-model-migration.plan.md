@@ -2040,7 +2040,20 @@ requires only the 90 target-typed OS recipes; Apple retains all 105 OS and
 filesystem recipes. A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not
-promotion authority.
+promotion authority. Physical run
+[`29707378326`](https://github.com/ccheever/ibex/actions/runs/29707378326)
+then passed the 317-test library suite and reached 166 of 169 passing binary
+tests. Its three failures exposed two further target contracts rather than
+CapSec promotion evidence. Node writes authenticated bundle-manifest paths in
+ordinary Win32 spelling while Rust canonicalization returns the equivalent
+verbatim `\\?\` spelling; bundle verification now removes only that platform
+namespace prefix before comparing the already-canonical entry and dependency
+paths. The Windows native eval ABI also drains microtasks without returning a
+Promise's settled display value, so the portable REPL test retains synchronous
+commit/failure coverage while its additional Promise-display assertion remains
+on targets whose eval result contract unwraps Promises. Windows still requires
+a complete rebuilt physical report before any target cell or advertisement can
+change.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

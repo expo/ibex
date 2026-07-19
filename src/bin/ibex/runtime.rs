@@ -3632,9 +3632,17 @@ async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
     {
         return false;
     }
-    let canonical_entry = std::fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf());
-    let manifest_entry =
-        std::fs::canonicalize(&manifest.entry).unwrap_or_else(|_| PathBuf::from(&manifest.entry));
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // Node records ordinary Win32 paths in the authenticated manifest while
+    // Rust canonicalization returns the equivalent verbatim `\\?\` spelling.
+    // Compare the same path namespace that we pass to authenticated tools;
+    // keeping the prefix here would reject every honest Windows bundle.
+    let canonical_entry = normalize_windows_tool_path(
+        std::fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf()),
+    );
+    let manifest_entry = normalize_windows_tool_path(
+        std::fs::canonicalize(&manifest.entry).unwrap_or_else(|_| PathBuf::from(&manifest.entry)),
+    );
     if canonical_entry != manifest_entry {
         return false;
     }
@@ -3680,6 +3688,7 @@ async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
         let Ok(canonical_dep) = std::fs::canonicalize(path) else {
             return false;
         };
+        let canonical_dep = normalize_windows_tool_path(canonical_dep);
         if canonical_dep.to_string_lossy() != dep.path {
             return false;
         }

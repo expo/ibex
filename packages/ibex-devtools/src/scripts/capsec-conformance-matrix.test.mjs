@@ -116,6 +116,26 @@ test("Windows binary suites preserve process flags and ordinary tool paths", () 
     "normalize_windows_tool_path(bundler_script_path()?)",
   );
   expect(cliRuntime).toMatch(
+    /let canonical_entry = normalize_windows_tool_path\([\s\S]{0,180}std::fs::canonicalize\(entry\)/,
+  );
+  expect(cliRuntime).toContain(
+    "let canonical_dep = normalize_windows_tool_path(canonical_dep);",
+  );
+  expect(cliRuntime).toMatch(
     /#\[cfg\(windows\)\][\s\S]{0,600}staged\.sync_all\(\)\?;/,
+  );
+});
+
+test("Windows REPL runtime tests do not require native Promise unwrapping", () => {
+  const repl = fs.readFileSync(
+    path.join(repoRoot, "src/bin/ibex/repl/mod.rs"),
+    "utf8",
+  );
+  const testBody = repl.slice(
+    repl.indexOf("async fn hermes_commits_last_value_only_after_display_fully_succeeds"),
+  );
+
+  expect(testBody).toMatch(
+    /#\[cfg\(not\(windows\)\)\][\s\S]{0,1800}Some\("async:44"\)/,
   );
 });
