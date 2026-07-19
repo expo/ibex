@@ -1839,6 +1839,12 @@ The physical Windows closed-surface executor must use that same target-aware
 cardinality: the reviewed catalog contains 13 armed-global absence recipes on
 Windows and 20 on Apple. Treating the Apple total as a cross-target invariant
 rejects an honest Windows catalog before any physical closure probe runs.
+Windows also installs a deliberately reduced `node:crypto` implementation from
+the bootstrap loader instead of the full `src/builtins/crypto.js` export
+object. Public probes may execute the 15 installed root exports (and their
+reviewed members), but source-union exports outside that implementation remain
+explicitly unresolved; importing the module and discovering a missing member
+does not prove that member's non-capability source branch executed.
 The same independent validator recognizes the reviewed worklet-only closure
 forms (direct JSI globals and the evaluated `kPrelude` namespace) and the
 reviewed shared-runtime root families. Their single installation branch must

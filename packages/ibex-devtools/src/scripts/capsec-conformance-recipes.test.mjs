@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_625);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_937);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_688);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_896);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_729);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -262,6 +262,32 @@ describe("exact-target CapSec executable recipes", () => {
           "armed-native-global-absence",
       ),
     ).toHaveLength(13);
+    const unavailableCryptoExports = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.residualReasons.includes(
+          "builtin-export-not-installed-on-target",
+        ),
+    );
+    expect(unavailableCryptoExports).toHaveLength(171);
+    expect(
+      unavailableCryptoExports.every(
+        (recipe) =>
+          recipe.publicSurfaceProbe === null &&
+          recipe.terminalObservedKey.startsWith(
+            "builtin:export:exact_crypto:",
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      unavailableCryptoExports.map((recipe) => recipe.terminalObservedKey),
+    ).toContain("builtin:export:exact_crypto:checkPrimeSync");
+    expect(
+      windowsRecipes.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey ===
+          "builtin:export:exact_crypto:Hash.digest",
+      )?.publicSurfaceProbe,
+    ).not.toBeNull();
   });
 
   test("keeps installed but untyped Windows public operations residual", () => {

@@ -1508,6 +1508,50 @@ const NONCAP_GENERIC_EXPORT_EXCLUSIONS = new Set([
   "node_os",
 ]);
 
+// Windows installs the deliberately smaller crypto module authored by
+// makeWindowsCryptoModule() in the bootstrap loader; it does not evaluate the
+// full src/builtins/crypto.js export object. Keep source-union exports residual
+// unless their root is present in that target implementation.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+const WINDOWS_CRYPTO_EXPORT_ROOTS = new Set([
+  "Hash",
+  "Hmac",
+  "createHash",
+  "createHmac",
+  "default",
+  "getHashes",
+  "getRandomValues",
+  "hash",
+  "randomBytes",
+  "randomFill",
+  "randomFillSync",
+  "randomUUID",
+  "subtle",
+  "timingSafeEqual",
+  "webcrypto",
+]);
+
+function targetSourceUnavailableReason(surface, target) {
+  const triple =
+    typeof target === "string"
+      ? target
+      : typeof target?.triple === "string"
+        ? target.triple
+        : null;
+  const metadata = surface?.metadata;
+  if (
+    !triple?.includes("-windows-") ||
+    metadata?.sourceKey !== "exact_crypto" ||
+    typeof metadata.exportName !== "string"
+  ) {
+    return null;
+  }
+  const rootExportName = metadata.exportName.split(".")[0];
+  return WINDOWS_CRYPTO_EXPORT_ROOTS.has(rootExportName)
+    ? null
+    : "builtin-export-not-installed-on-target";
+}
+
 function platformForTarget(target) {
   const triple =
     typeof target === "string"
@@ -1670,6 +1714,7 @@ export function authoredNonCapabilityBuiltinProbe({
   if (!surfaceObservedKey.startsWith("builtin:export:")) {
     return null;
   }
+  if (targetSourceUnavailableReason(surface, target)) return null;
   const availability = platformAvailability(surface?.metadata);
   const targetPlatform = platformForTarget(target);
   const targetAbsent =
@@ -1767,6 +1812,8 @@ export function nonCapabilityBuiltinProbeResidualReason({
   ) {
     return "builtin-export-not-publicly-importable";
   }
+  const targetUnavailable = targetSourceUnavailableReason(surface, target);
+  if (targetUnavailable) return targetUnavailable;
   const availability = platformAvailability(surface?.metadata);
   const targetPlatform = platformForTarget(target);
   if (
