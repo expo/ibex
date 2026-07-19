@@ -5,16 +5,16 @@
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "febdb69cff973c600aab52be9bc17297d61406df1b5c8f03a327f96aa766069d"
+    "manifestSha256": "9d02ce29735afe4ad3ea4b580784d26d47f4de7615691557efb3038f144b9708"
   },
   "profileId": "exact-webgpu-v1-draft",
-  "scopeId": "native-triangle-plus-typegpu-graduates-v1",
+  "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
   "digests": {
-    "operationSet": "635e0cdf264e3c59fda245d04b38d88ef3bdac81b62a405108fba25c0d2186aa",
-    "semanticProgramSet": "c8fe26b4706bd691355b82f6e85a1ac915461004b59416cf13d6573182a104d2",
-    "runtimeRouting": "e6ea90e4c14ed02757fe940fc611cc8c5cc65a6d2787a1c2a0d75d90fb54c303",
-    "webgpuCVocabulary": "012cf790a04f6b949dbab310b787954d97b8839720bc79728b3148d9e94adf71",
-    "projection": "78e4fe9341d4d62d853988b570e6c777826a8acb560a7bc6780c855489f8d7dc"
+    "operationSet": "1e76c90b4292a6c5f906f1307c685533a99b5b6c833ad2e5b813e8ec9a06ed92",
+    "semanticProgramSet": "dd3ea159309d0ab4bf123ca7b37fb1a8914cc639247b71fb060b9dc1e69b3a0a",
+    "runtimeRouting": "40600d481dd40a1d2c6423a386bf821bdbe2388a9386672194900f986bf3380d",
+    "webgpuCVocabulary": "e6a5e0e80bd14c612be49d382382a33bce99827022bb9dbaa2f04cd1a0941d58",
+    "projection": "467e98ade4bf91e5db43a29174358cfc8c20fec8ed81a29199e8cf46ba755f0b"
   },
   "operation": {
     "operationId": "GPU.requestAdapter",
@@ -1580,7 +1580,7 @@
         "providerGeneration": "0",
         "operationProviderGeneration": "9"
       },
-      "bytesHex": "4942475201000600c76df8620129000000000000000200000000000000090000000000000000",
+      "bytesHex": "4942475201000600c76df86201290000000000000002000000000000000900000000000000000300000018000000636f72652d66656174757265732d616e642d6c696d69747316000000746578747572652d636f6d7072657373696f6e2d62630f00000074696d657374616d702d7175657279",
       "expected": {
         "kind": "object",
         "object": {
@@ -1588,7 +1588,12 @@
           "objectId": "41",
           "objectGeneration": "2",
           "providerGeneration": "9",
-          "serviceDetachedExpired": false
+          "serviceDetachedExpired": false,
+          "features": [
+            "core-features-and-limits",
+            "texture-compression-bc",
+            "timestamp-query"
+          ]
         }
       }
     },
@@ -1655,7 +1660,7 @@
         "providerGeneration": "0",
         "operationProviderGeneration": "9"
       },
-      "bytesHex": "4942475201000600c76df862012a000000000000000300000000000000090000000000000001",
+      "bytesHex": "4942475201000600c76df862012a0000000000000003000000000000000900000000000000010100000018000000636f72652d66656174757265732d616e642d6c696d697473",
       "expected": {
         "kind": "object",
         "object": {
@@ -1663,7 +1668,10 @@
           "objectId": "42",
           "objectGeneration": "3",
           "providerGeneration": "9",
-          "serviceDetachedExpired": true
+          "serviceDetachedExpired": true,
+          "features": [
+            "core-features-and-limits"
+          ]
         }
       }
     },

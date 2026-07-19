@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
+import { AbortController } from '../abort';
+import { Event } from '../events/Event';
+import { EventTarget } from '../events/EventTarget';
 import type {
   NativeGpuBridgeV2,
   NativeGpuCallMetadataV2,
@@ -155,6 +158,7 @@ function createFakeCodecs(
     detachedDevices?: boolean;
     distinctLiveDevices?: boolean;
     omitAdapterDetachedState?: boolean;
+    omitAdapterFeatures?: boolean;
   }> = {},
 ): ExecutableWebGpuCodecBundle & {
   readonly encodings: ProductionGpuServiceEncodingInput[];
@@ -240,6 +244,9 @@ function createFakeCodecs(
               : {
                 serviceDetachedExpired: Boolean(options.detachedAdapters),
               }),
+            ...(options.omitAdapterFeatures
+              ? {}
+              : { features: ['timestamp-query'] }),
           },
         };
       }
@@ -824,6 +831,17 @@ describe('production-private WebGPU wrapper factory', () => {
       'GPUAdapter result lacks authenticated detached state',
     );
     missing.revoke();
+
+    const missingFeatures = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs([], { omitAdapterFeatures: true }),
+    );
+    await expect((missingFeatures.gpu as {
+      requestAdapter(): Promise<unknown>;
+    }).requestAdapter()).rejects.toThrow(
+      'GPUAdapter result lacks authenticated exposed features',
+    );
+    missingFeatures.revoke();
   });
 
   test('does not allocate or enqueue a texture view after an intermediate descriptor conversion throws', async () => {
@@ -1101,8 +1119,23 @@ describe('production-private WebGPU wrapper factory', () => {
     const pendingAdapter = gpu.requestAdapter({ powerPreference: 'high-performance' });
     expect(log).toContain('convert:GPU.requestAdapter');
     const adapter = (await pendingAdapter) as {
+      readonly features: {
+        readonly size: number;
+        has(value: string): boolean;
+      };
       requestDevice(descriptor?: unknown): Promise<unknown>;
     };
+    const adapterFeatures = adapter.features;
+    const logBeforeAdapterMetadata = log.slice();
+    const submissionsBeforeAdapterMetadata = bridge.submissions.length;
+    expect(adapterFeatures).toBe(adapter.features);
+    expect(adapterFeatures.size).toBe(1);
+    expect(adapterFeatures.has('timestamp-query')).toBe(true);
+    expect(log).toEqual(logBeforeAdapterMetadata);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeAdapterMetadata);
+    expect(() => {
+      (adapter as { features: object }).features = {};
+    }).toThrow();
     const pendingDevice = adapter.requestDevice({});
     expect(log).toContain('convert:GPUAdapter.requestDevice');
     const device = (await pendingDevice) as {
@@ -1114,6 +1147,7 @@ describe('production-private WebGPU wrapper factory', () => {
       popErrorScope(): Promise<unknown>;
       createBindGroupLayout(descriptor: unknown): object;
       createBuffer(descriptor: unknown): {
+        readonly size: number;
         readonly usage: number;
         readonly mapState: 'mapped' | 'pending' | 'unmapped';
       };
@@ -1124,6 +1158,7 @@ describe('production-private WebGPU wrapper factory', () => {
         readonly dimension: '1d' | '2d' | '3d';
         readonly format: string;
         readonly height: number;
+        readonly depthOrArrayLayers: number;
         readonly width: number;
       };
       createRenderPipeline(descriptor: unknown): object;
@@ -1172,31 +1207,40 @@ describe('production-private WebGPU wrapper factory', () => {
       submissionsBeforeMappedAlignmentFailure,
     );
     expect(codecs.encodings).toHaveLength(encodingsBeforeMappedAlignmentFailure);
-    const mappedBuffer = device.createBuffer({
+    const mappedBufferDescriptor = {
       label: 'mapped-buffer',
       mappedAtCreation: true,
       size: 128,
       usage: 9,
-    });
+    };
+    const mappedBuffer = device.createBuffer(mappedBufferDescriptor);
+    mappedBufferDescriptor.size = 256;
     const logBeforeMappedBufferMetadata = log.slice();
     const submissionsBeforeMappedBufferMetadata = bridge.submissions.length;
+    expect(mappedBuffer.size).toBe(128);
     expect(mappedBuffer.usage).toBe(9);
     expect(mappedBuffer.mapState).toBe('mapped');
     expect(log).toEqual(logBeforeMappedBufferMetadata);
     expect(bridge.submissions).toHaveLength(submissionsBeforeMappedBufferMetadata);
-    const unmappedBuffer = device.createBuffer({
+    const unmappedBufferDescriptor = {
       label: 'unmapped-buffer',
       size: 72,
       usage: 76,
-    });
+    };
+    const unmappedBuffer = device.createBuffer(unmappedBufferDescriptor);
+    unmappedBufferDescriptor.size = 144;
     const logBeforeUnmappedBufferMetadata = log.slice();
     const submissionsBeforeUnmappedBufferMetadata = bridge.submissions.length;
+    expect(unmappedBuffer.size).toBe(72);
     expect(unmappedBuffer.usage).toBe(76);
     expect(unmappedBuffer.mapState).toBe('unmapped');
     expect(log).toEqual(logBeforeUnmappedBufferMetadata);
     expect(bridge.submissions).toHaveLength(submissionsBeforeUnmappedBufferMetadata);
     expect(() => {
       (unmappedBuffer as { usage: number }).usage = 1;
+    }).toThrow();
+    expect(() => {
+      (unmappedBuffer as { size: number }).size = 1;
     }).toThrow();
     expect(log.filter((entry) => entry === 'convert:GPUDevice.createBuffer')).toHaveLength(3);
     expect(log.filter((entry) => entry === 'encode:GPUDevice.createBuffer')).toHaveLength(2);
@@ -1257,23 +1301,29 @@ describe('production-private WebGPU wrapper factory', () => {
       providerGeneration: '7',
     });
 
-    const texture = device.createTexture({
+    const textureDescriptor = {
       dimension: '2d',
       format: 'rgba8unorm',
       label: 'texture',
       size: { width: 32, height: 16, depthOrArrayLayers: 1 },
       usage: 23,
-    });
+    };
+    const texture = device.createTexture(textureDescriptor);
+    textureDescriptor.size.depthOrArrayLayers = 4;
     const logBeforeTextureMetadata = log.slice();
     const submissionsBeforeTextureMetadata = bridge.submissions.length;
     expect(texture.dimension).toBe('2d');
     expect(texture.format).toBe('rgba8unorm');
     expect(texture.height).toBe(16);
+    expect(texture.depthOrArrayLayers).toBe(1);
     expect(texture.width).toBe(32);
     expect(log).toEqual(logBeforeTextureMetadata);
     expect(bridge.submissions).toHaveLength(submissionsBeforeTextureMetadata);
     expect(() => {
       (texture as { width: number }).width = 1;
+    }).toThrow();
+    expect(() => {
+      (texture as { depthOrArrayLayers: number }).depthOrArrayLayers = 2;
     }).toThrow();
     const textureEncoding = codecs.encodings.find(
       (encoding) => encoding.operationId === 'GPUDevice.createTexture',
@@ -1367,6 +1417,122 @@ describe('production-private WebGPU wrapper factory', () => {
     expect('GPUDevice' in globalObject).toBe(false);
   });
 
+  test('inherits a route-free EventTarget surface on GPUDevice', async () => {
+    const sharedPrototypeFrozenBefore = Object.isFrozen(EventTarget.prototype);
+    const binding = createProductionWebGpuPrivateBinding(
+      createFakeBridge(),
+      createFakeCodecs(),
+    );
+    const adapter = await (binding.gpu as {
+      requestAdapter(): Promise<unknown>;
+    }).requestAdapter() as { requestDevice(): Promise<unknown> };
+    const device = await adapter.requestDevice() as EventTarget;
+    const gpuDevicePrototype = binding.interfaceObjects.GPUDevice.prototype;
+    const eventTargetPrototype = Object.getPrototypeOf(gpuDevicePrototype);
+    expect(device).toBeInstanceOf(EventTarget);
+    expect(eventTargetPrototype).toBe(EventTarget.prototype);
+    expect(Object.hasOwn(gpuDevicePrototype, 'addEventListener')).toBe(false);
+    expect(Object.hasOwn(gpuDevicePrototype, 'removeEventListener')).toBe(false);
+    expect(Object.hasOwn(gpuDevicePrototype, 'dispatchEvent')).toBe(false);
+    expect(Object.getOwnPropertyDescriptor(
+      eventTargetPrototype,
+      'addEventListener',
+    )?.value).toBeFunction();
+    expect(Object.isFrozen(EventTarget.prototype)).toBe(
+      sharedPrototypeFrozenBefore,
+    );
+    expect(WEBGPU_PRODUCTION_PLAN.routes.some(
+      (route) => route.memberName === 'addEventListener' ||
+        route.memberName === 'removeEventListener' ||
+        route.memberName === 'dispatchEvent',
+    )).toBe(false);
+
+    const calls: string[] = [];
+    const listener = function (this: unknown, event: Event): void {
+      expect(this).toBe(device);
+      expect(event).toBeInstanceOf(Event);
+      expect(event.target).toBe(device);
+      expect(event.currentTarget).toBe(device);
+      calls.push(`function:${event.type}`);
+    };
+    const onceListener = {
+      handleEvent(event: Event): void {
+        calls.push(`object:${event.type}`);
+      },
+    };
+    device.addEventListener('uncapturederror', listener);
+    device.addEventListener('uncapturederror', listener);
+    device.addEventListener('uncapturederror', onceListener, { once: true });
+    const firstEvent = new Event('uncapturederror', { cancelable: true });
+    expect(device.dispatchEvent(firstEvent)).toBe(true);
+    expect(firstEvent.target).toBe(device);
+    expect(firstEvent.currentTarget).toBeNull();
+    expect(calls).toEqual([
+      'function:uncapturederror',
+      'object:uncapturederror',
+    ]);
+    expect(device.dispatchEvent(new Event('uncapturederror'))).toBe(true);
+    expect(calls).toEqual([
+      'function:uncapturederror',
+      'object:uncapturederror',
+      'function:uncapturederror',
+    ]);
+    device.removeEventListener('uncapturederror', listener);
+    expect(device.dispatchEvent(new Event('uncapturederror'))).toBe(true);
+    expect(calls).toHaveLength(3);
+
+    let signalCalls = 0;
+    const controller = new AbortController();
+    const signalListener = (): void => {
+      signalCalls += 1;
+    };
+    device.addEventListener('uncapturederror', signalListener, {
+      signal: controller.signal,
+    });
+    controller.abort();
+    device.dispatchEvent(new Event('uncapturederror'));
+    expect(signalCalls).toBe(0);
+
+    const propagationCalls: string[] = [];
+    const stopper = (event: Event): void => {
+      propagationCalls.push('stopper');
+      event.stopImmediatePropagation();
+    };
+    const skipped = (): void => {
+      propagationCalls.push('skipped');
+    };
+    device.addEventListener('uncapturederror', stopper);
+    device.addEventListener('uncapturederror', skipped);
+    expect(device.dispatchEvent(new Event('uncapturederror'))).toBe(true);
+    expect(propagationCalls).toEqual(['stopper']);
+    device.removeEventListener('uncapturederror', stopper);
+    device.removeEventListener('uncapturederror', skipped);
+
+    let redispatchError: unknown;
+    const redispatchListener = (event: Event): void => {
+      try {
+        device.dispatchEvent(event);
+      } catch (error) {
+        redispatchError = error;
+      }
+    };
+    device.addEventListener('uncapturederror', redispatchListener, { once: true });
+    const redispatchEvent = new Event('uncapturederror');
+    expect(device.dispatchEvent(redispatchEvent)).toBe(true);
+    expect(redispatchError).toMatchObject({ name: 'InvalidStateError' });
+    expect(device.dispatchEvent(redispatchEvent)).toBe(true);
+
+    const cancelListener = (event: Event): void => {
+      event.preventDefault();
+    };
+    device.addEventListener('uncapturederror', cancelListener);
+    const cancelEvent = new Event('uncapturederror', { cancelable: true });
+    expect(device.dispatchEvent(cancelEvent)).toBe(false);
+    expect(cancelEvent.defaultPrevented).toBe(true);
+    device.removeEventListener('uncapturederror', cancelListener);
+    binding.revoke();
+  });
+
   test('keeps canvas epochs stable and settles device loss exactly once', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();
@@ -1391,6 +1557,7 @@ describe('production-private WebGPU wrapper factory', () => {
         readonly dimension: '2d';
         readonly format: string;
         readonly height: number;
+        readonly depthOrArrayLayers: number;
         readonly width: number;
         createView(): object;
         destroy(): void;
@@ -1403,6 +1570,7 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(first.dimension).toBe('2d');
     expect(first.format).toBe('bgra8unorm');
     expect(first.height).toBe(480);
+    expect(first.depthOrArrayLayers).toBe(1);
     expect(first.width).toBe(640);
     expect(first.createView()).toBeObject();
     const createViewWireId = WEBGPU_PRODUCTION_PLAN.routes.find(

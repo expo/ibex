@@ -4,15 +4,15 @@
 export const WEBGPU_PRODUCTION_PLAN = {
   "schema": "ibex/webgpu-production-wrapper-plan/1",
   "profileId": "exact-webgpu-v1-draft",
-  "scopeId": "native-triangle-plus-typegpu-graduates-v1",
+  "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
   "maxPayloadBytes": 16777216,
   "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed",
   "digests": {
-    "operationSet": "635e0cdf264e3c59fda245d04b38d88ef3bdac81b62a405108fba25c0d2186aa",
-    "semanticProgramSet": "c8fe26b4706bd691355b82f6e85a1ac915461004b59416cf13d6573182a104d2",
-    "runtimeRouting": "e6ea90e4c14ed02757fe940fc611cc8c5cc65a6d2787a1c2a0d75d90fb54c303",
-    "webgpuCVocabulary": "012cf790a04f6b949dbab310b787954d97b8839720bc79728b3148d9e94adf71",
-    "projection": "78e4fe9341d4d62d853988b570e6c777826a8acb560a7bc6780c855489f8d7dc"
+    "operationSet": "1e76c90b4292a6c5f906f1307c685533a99b5b6c833ad2e5b813e8ec9a06ed92",
+    "semanticProgramSet": "dd3ea159309d0ab4bf123ca7b37fb1a8914cc639247b71fb060b9dc1e69b3a0a",
+    "runtimeRouting": "40600d481dd40a1d2c6423a386bf821bdbe2388a9386672194900f986bf3380d",
+    "webgpuCVocabulary": "e6a5e0e80bd14c612be49d382382a33bce99827022bb9dbaa2f04cd1a0941d58",
+    "projection": "467e98ade4bf91e5db43a29174358cfc8c20fec8ed81a29199e8cf46ba755f0b"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -121,6 +121,31 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "astc-12x10-unorm-srgb",
       "astc-12x12-unorm",
       "astc-12x12-unorm-srgb"
+    ],
+    "gpuFeatureNames": [
+      "core-features-and-limits",
+      "depth-clip-control",
+      "depth32float-stencil8",
+      "texture-compression-bc",
+      "texture-compression-bc-sliced-3d",
+      "texture-compression-etc2",
+      "texture-compression-astc",
+      "texture-compression-astc-sliced-3d",
+      "timestamp-query",
+      "indirect-first-instance",
+      "shader-f16",
+      "rg11b10ufloat-renderable",
+      "bgra8unorm-storage",
+      "float32-filterable",
+      "float32-blendable",
+      "clip-distances",
+      "dual-source-blending",
+      "subgroups",
+      "texture-formats-tier1",
+      "texture-formats-tier2",
+      "primitive-index",
+      "texture-component-swizzle",
+      "subgroup-size-control"
     ],
     "gpuTextureFormatCapabilityRowsSha256": "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04",
     "gpuTextureFormatRequiredFeatures": {
@@ -264,11 +289,12 @@ export const WEBGPU_PRODUCTION_PLAN = {
     ]
   },
   "activeRouteSubset": {
-    "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-    "operationCount": 41,
+    "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
+    "operationCount": 44,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
+      "GPUAdapter.features",
       "GPUAdapter.requestDevice",
       "GPUCanvasContext.configure",
       "GPUCanvasContext.getConfiguration",
@@ -280,6 +306,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUBuffer.getMappedRange",
       "GPUBuffer.mapAsync",
       "GPUBuffer.mapState",
+      "GPUBuffer.size",
       "GPUBuffer.unmap",
       "GPUBuffer.usage",
       "GPUDevice.createBindGroupLayout",
@@ -302,6 +329,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPURenderPassEncoder.draw",
       "GPURenderPassEncoder.end",
       "GPURenderPassEncoder.setPipeline",
+      "GPUTexture.depthOrArrayLayers",
       "GPUTexture.dimension",
       "GPUTexture.format",
       "GPUTexture.height",
@@ -445,6 +473,19 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "publicSurfaceRule": "members-remain-absent-until-all-blockers-close-no-throwing-stubs",
     "embeddedCodecRule": "EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined"
   },
+  "productSemanticExtension": {
+    "status": "private-wrapper-active-no-public-install",
+    "supportClaim": "none",
+    "operationCount": 3,
+    "operationIds": [
+      "GPUAdapter.features",
+      "GPUBuffer.size",
+      "GPUTexture.depthOrArrayLayers"
+    ],
+    "publicInstallDisposition": "absent",
+    "embeddedCodecDisposition": "absent",
+    "capsecDisposition": "unsupported-no-registry-edge"
+  },
   "routes": [
     {
       "operationId": "GPU.getPreferredCanvasFormat",
@@ -499,6 +540,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "publicResultCodec": "nullable-gpu-adapter-handle-promise-v1",
       "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
       "promiseIdentity": "required-nonzero-distinct-from-operation-instance"
+    },
+    {
+      "operationId": "GPUAdapter.features",
+      "wireId": 1829554013,
+      "interfaceName": "GPUAdapter",
+      "memberName": "features",
+      "memberKind": "property",
+      "dispatchClass": "wrapper-property-read",
+      "logicalExecutionKind": "wrapper-local",
+      "resultTiming": "synchronous-stable-property",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUAdapter",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "none-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "gpu-supported-features-snapshot-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
+      "promiseIdentity": "not-carried-wrapper-only"
     },
     {
       "operationId": "GPUAdapter.requestDevice",
@@ -794,6 +862,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-buffer-map-state-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
+      "promiseIdentity": "not-carried-wrapper-only"
+    },
+    {
+      "operationId": "GPUBuffer.size",
+      "wireId": 2239053141,
+      "interfaceName": "GPUBuffer",
+      "memberName": "size",
+      "memberKind": "property",
+      "dispatchClass": "wrapper-property-read",
+      "logicalExecutionKind": "wrapper-local",
+      "resultTiming": "synchronous-return",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUBuffer",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "none-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "gpu-size64-out-v1",
       "operationInstanceIdentity": "not-carried-wrapper-only",
       "promiseIdentity": "not-carried-wrapper-only"
     },
@@ -1390,6 +1485,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "publicResultCodec": "undefined-v1",
       "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPUTexture.depthOrArrayLayers",
+      "wireId": 31670442,
+      "interfaceName": "GPUTexture",
+      "memberName": "depthOrArrayLayers",
+      "memberKind": "property",
+      "dispatchClass": "wrapper-property-read",
+      "logicalExecutionKind": "wrapper-local",
+      "resultTiming": "synchronous-return",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUTexture",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "none-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "gpu-integer-coordinate-out-v1",
+      "operationInstanceIdentity": "not-carried-wrapper-only",
+      "promiseIdentity": "not-carried-wrapper-only"
     },
     {
       "operationId": "GPUTexture.dimension",

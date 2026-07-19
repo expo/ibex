@@ -4010,9 +4010,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectGeneration: '2',
         providerGeneration: '8',
         serviceDetachedExpired: false,
+        features: ['timestamp-query'],
       },
     );
-    expect(adapterPayload.byteLength).toBe(38);
+    expect(adapterPayload.byteLength).toBeGreaterThan(42);
     expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPU.requestAdapter',
       resultEvent('GPU.requestAdapter', 3, adapterPayload),
@@ -4024,6 +4025,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectGeneration: '2',
         providerGeneration: '8',
         serviceDetachedExpired: false,
+        features: ['timestamp-query'],
       },
     });
     const detachedPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
@@ -4033,6 +4035,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectGeneration: '3',
         providerGeneration: '8',
         serviceDetachedExpired: true,
+        features: ['core-features-and-limits'],
       });
     expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPU.requestAdapter',
@@ -4045,6 +4048,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectGeneration: '3',
         providerGeneration: '8',
         serviceDetachedExpired: true,
+        features: ['core-features-and-limits'],
       },
     });
     const mismatchedProviderPayload = WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
@@ -4054,6 +4058,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectGeneration: '2',
         providerGeneration: '9',
         serviceDetachedExpired: false,
+        features: ['timestamp-query'],
       });
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPU.requestAdapter',
@@ -4097,8 +4102,32 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectGeneration: '2',
         providerGeneration: '8',
         serviceDetachedExpired: false,
+        features: ['timestamp-query'],
       },
     )).toThrow('positive identity');
+
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPU.requestAdapter',
+      {
+        kind: 'adapter',
+        objectId: '41',
+        objectGeneration: '2',
+        providerGeneration: '8',
+        serviceDetachedExpired: false,
+        features: ['not-a-webgpu-feature'],
+      },
+    )).toThrow('known, sorted, and unique');
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+      'GPU.requestAdapter',
+      {
+        kind: 'adapter',
+        objectId: '41',
+        objectGeneration: '2',
+        providerGeneration: '8',
+        serviceDetachedExpired: false,
+        features: ['timestamp-query', 'core-features-and-limits'],
+      },
+    )).toThrow('known, sorted, and unique');
 
     const invalidDetachedState = adapterPayload.slice();
     invalidDetachedState[37] = 2;
@@ -4106,6 +4135,16 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'GPU.requestAdapter',
       resultEvent('GPU.requestAdapter', 3, invalidDetachedState),
     )).toThrow('invalid authenticated detached state');
+    const excessiveFeatureCount = adapterPayload.slice();
+    new DataView(
+      excessiveFeatureCount.buffer,
+      excessiveFeatureCount.byteOffset,
+      excessiveFeatureCount.byteLength,
+    ).setUint32(38, 1_025, true);
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
+      'GPU.requestAdapter',
+      resultEvent('GPU.requestAdapter', 3, excessiveFeatureCount),
+    )).toThrow('feature sequence exceeds the reviewed bound');
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.decodeServiceResult(
       'GPU.requestAdapter',
       resultEvent('GPU.requestAdapter', 3, adapterPayload.slice(0, 37)),
@@ -4130,6 +4169,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         objectId: '41',
         objectGeneration: '2',
         providerGeneration: '8',
+        features: ['timestamp-query'],
       } as never,
     )).toThrow('lacks authenticated detached state');
   });

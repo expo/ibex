@@ -78,11 +78,19 @@ describe("test-only WebGPU wrapper generator", () => {
       exactLengthBytes: 0,
     });
     expect(
-      requestAdapter.completion.variants[1].payload.fields.at(-1),
+      requestAdapter.completion.variants[1].payload.fields.find(
+        (field) => field.name === "serviceDetachedExpired",
+      ),
     ).toEqual({
       name: "serviceDetachedExpired",
       type: "u8",
       constraint: "boolean-zero-or-one",
+    });
+    expect(
+      requestAdapter.completion.variants[1].payload.fields.at(-1),
+    ).toEqual({
+      name: "features",
+      type: "sortedUniqueFeatureSequenceV1",
     });
     const requestDevice = nativeRoute(authority, "GPUAdapter.requestDevice");
     expect(requestDevice.request.catalog.wireTag).toBe(3);

@@ -19,6 +19,7 @@ import {
 } from './production-codecs';
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
 import { WEBGPU_OBJECT_KIND_TAGS } from './production-codecs.generated';
+import { EventTarget } from '../events/EventTarget';
 
 type ProductionRoute = (typeof WEBGPU_PRODUCTION_PLAN.routes)[number];
 
@@ -117,6 +118,8 @@ interface WrapperState {
   textureExpired: boolean;
   materialized: boolean;
   currentOrigin: Readonly<Record<string, unknown>> | undefined;
+  adapterFeatures: object | undefined;
+  adapterFeatureNames: readonly string[] | undefined;
   bufferSize: number | undefined;
   bufferUsage: number | undefined;
   bufferMapState: 'mapped' | 'pending' | 'unmapped' | undefined;
@@ -125,6 +128,7 @@ interface WrapperState {
   textureFormat: string | undefined;
   textureWidth: number | undefined;
   textureHeight: number | undefined;
+  textureDepthOrArrayLayers: number | undefined;
   drawingBufferWidth: number | undefined;
   drawingBufferHeight: number | undefined;
 }
@@ -598,7 +602,7 @@ function createPrototypeTable(): Record<ProductionGpuWrapperKind, object> {
     GPUCanvasContext: Object.create(null),
     GPUCommandBuffer: Object.create(null),
     GPUCommandEncoder: Object.create(null),
-    GPUDevice: Object.create(null),
+    GPUDevice: Object.create(EventTarget.prototype),
     GPUQueue: Object.create(null),
     GPURenderPassEncoder: Object.create(null),
     GPURenderPipeline: Object.create(null),
@@ -779,6 +783,9 @@ export function createProductionWebGpuPrivateBinding(
   const capturedTestOptions = capturePrivateBindingTestOptions(testOptions);
 
   const mutablePrototypes = createPrototypeTable();
+  if (Object.getPrototypeOf(mutablePrototypes.GPUDevice) !== EventTarget.prototype) {
+    throw new Error('GPUDevice must inherit the shared EventTarget prototype');
+  }
   const featurePrototype = Object.create(null) as object;
   const featureStates = new WeakMap<object, readonly string[]>();
   installReadonlyFeatureSetPrototype(featurePrototype, featureStates);
@@ -1048,7 +1055,14 @@ export function createProductionWebGpuPrivateBinding(
     if (!isPositiveDecimal(objectGeneration)) {
       throw new TypeError(`Invalid ${kind} object generation`);
     }
-    const wrapper = Object.create(realm.prototypes[kind]) as object;
+    const wrapper = kind === 'GPUDevice'
+      ? new EventTarget((target) => {
+        requireState(target, 'GPUDevice');
+      })
+      : Object.create(realm.prototypes[kind]) as object;
+    if (kind === 'GPUDevice') {
+      Object.setPrototypeOf(wrapper, realm.prototypes.GPUDevice);
+    }
     const state: WrapperState = {
       realm,
       kind,
@@ -1084,6 +1098,8 @@ export function createProductionWebGpuPrivateBinding(
       textureExpired: false,
       materialized: false,
       currentOrigin: undefined,
+      adapterFeatures: undefined,
+      adapterFeatureNames: undefined,
       bufferSize: undefined,
       bufferUsage: undefined,
       bufferMapState: undefined,
@@ -1092,6 +1108,7 @@ export function createProductionWebGpuPrivateBinding(
       textureFormat: undefined,
       textureWidth: undefined,
       textureHeight: undefined,
+      textureDepthOrArrayLayers: undefined,
       drawingBufferWidth: undefined,
       drawingBufferHeight: undefined,
     };
@@ -1657,6 +1674,33 @@ export function createProductionWebGpuPrivateBinding(
       }
       state.expired = identity.serviceDetachedExpired;
       state.serviceDetached = identity.serviceDetachedExpired;
+      if (!Array.isArray(identity.features)) {
+        throw new TypeError(
+          'GPUAdapter result lacks authenticated exposed features',
+        );
+      }
+      const adapterFeatureNames = normalizeFeatureNames(identity.features);
+      if (
+        identity.features.some(
+          (feature, index) =>
+            typeof feature !== 'string' ||
+            !WEBGPU_PRODUCTION_PLAN.webIdlVocabulary.gpuFeatureNames.includes(
+              feature,
+            ) ||
+            adapterFeatureNames[index] !== feature,
+        ) ||
+        adapterFeatureNames.length !== identity.features.length
+      ) {
+        throw new TypeError(
+          'GPUAdapter result features must be known, sorted, and unique',
+        );
+      }
+      state.adapterFeatureNames = adapterFeatureNames;
+      state.adapterFeatures = createReadonlyFeatureSet(
+        state.adapterFeatureNames,
+        featurePrototype,
+        featureStates,
+      );
       return state.wrapper;
     }
     if (expectedKind === 'GPUDevice') {
@@ -1788,9 +1832,12 @@ export function createProductionWebGpuPrivateBinding(
         throw error;
       }
     }
-    // Kind 2 settles the native receipt. Wrapper-local error-scope routing is
-    // represented in the sealed timeline and decided by the semantic service;
-    // it is not reconstructed from an untrusted backend diagnostic here.
+    // Kind 2 settles a physical receipt; it is not an uncaptured-error
+    // notification hook. Wrapper-local error-scope routing is represented in
+    // the sealed timeline and decided by the semantic service, so dispatching
+    // GPUUncapturedErrorEvent from this ambiguous record would fabricate an
+    // uncaptured error. Native integration remains explicitly pending on a
+    // dedicated, service-routed uncaptured-error terminal event.
   });
 
   const gpuState = allocateWrapper('GPU', undefined, {
@@ -2116,6 +2163,7 @@ export function createProductionWebGpuPrivateBinding(
       texture.textureFormat = configuredFormat;
       texture.textureWidth = context.drawingBufferWidth;
       texture.textureHeight = context.drawingBufferHeight;
+      texture.textureDepthOrArrayLayers = 1;
       if (context.canvasContextLifecycle === 'lost') {
         texture.invalid = true;
         texture.status = 'invalid-device';
@@ -2357,7 +2405,11 @@ export function createProductionWebGpuPrivateBinding(
     const converted = convert('GPUDevice.createTexture', [descriptor]) as Readonly<{
       dimension: '1d' | '2d' | '3d';
       format: string;
-      size: Readonly<{ width: number; height: number }>;
+      size: Readonly<{
+        width: number;
+        height: number;
+        depthOrArrayLayers: number;
+      }>;
       viewFormats: readonly string[];
     }>;
     const requiredFeatures =
@@ -2386,6 +2438,7 @@ export function createProductionWebGpuPrivateBinding(
     texture.textureFormat = converted.format;
     texture.textureWidth = converted.size.width;
     texture.textureHeight = converted.size.height;
+    texture.textureDepthOrArrayLayers = converted.size.depthOrArrayLayers;
     submitService(
       'GPUDevice.createTexture',
       state,
@@ -2886,6 +2939,20 @@ export function createProductionWebGpuPrivateBinding(
   // These are exact wrapper-local metadata reads. They deliberately do not
   // enter the service and remain private while the CapSec publication edge is
   // absent.
+  defineGetter(mutablePrototypes.GPUAdapter, 'features', function (this: object) {
+    const adapter = requireState(this, 'GPUAdapter');
+    if (adapter.adapterFeatures === undefined) {
+      throw new TypeError('GPUAdapter features metadata is unavailable');
+    }
+    return adapter.adapterFeatures;
+  });
+  defineGetter(mutablePrototypes.GPUBuffer, 'size', function (this: object) {
+    const buffer = requireState(this, 'GPUBuffer');
+    if (buffer.bufferSize === undefined) {
+      throw new TypeError('GPUBuffer size metadata is unavailable');
+    }
+    return buffer.bufferSize;
+  });
   defineGetter(mutablePrototypes.GPUBuffer, 'usage', function (this: object) {
     const buffer = requireState(this, 'GPUBuffer');
     if (buffer.bufferUsage === undefined) {
@@ -2921,6 +2988,19 @@ export function createProductionWebGpuPrivateBinding(
     }
     return texture.textureHeight;
   });
+  defineGetter(
+    mutablePrototypes.GPUTexture,
+    'depthOrArrayLayers',
+    function (this: object) {
+      const texture = requireState(this, 'GPUTexture');
+      if (texture.textureDepthOrArrayLayers === undefined) {
+        throw new TypeError(
+          'GPUTexture depthOrArrayLayers metadata is unavailable',
+        );
+      }
+      return texture.textureDepthOrArrayLayers;
+    },
+  );
   defineGetter(mutablePrototypes.GPUTexture, 'width', function (this: object) {
     const texture = requireState(this, 'GPUTexture');
     if (texture.textureWidth === undefined) {

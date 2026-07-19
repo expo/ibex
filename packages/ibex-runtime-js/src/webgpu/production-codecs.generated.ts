@@ -34,11 +34,12 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
   "schema": "ibex/webgpu-executable-codec-manifest/2",
   "disposition": "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-payload-codegen-input-native-codec-not-installed-no-support-claim",
   "profileId": "exact-webgpu-v1-draft",
-  "scopeId": "native-triangle-plus-typegpu-graduates-v1",
-  "operationCount": 41,
+  "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
+  "operationCount": 44,
   "operationIds": [
     "GPU.getPreferredCanvasFormat",
     "GPU.requestAdapter",
+    "GPUAdapter.features",
     "GPUAdapter.requestDevice",
     "GPUCanvasContext.configure",
     "GPUCanvasContext.getConfiguration",
@@ -50,6 +51,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "GPUBuffer.getMappedRange",
     "GPUBuffer.mapAsync",
     "GPUBuffer.mapState",
+    "GPUBuffer.size",
     "GPUBuffer.unmap",
     "GPUBuffer.usage",
     "GPUDevice.createBindGroupLayout",
@@ -72,6 +74,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "GPURenderPassEncoder.draw",
     "GPURenderPassEncoder.end",
     "GPURenderPassEncoder.setPipeline",
+    "GPUTexture.depthOrArrayLayers",
     "GPUTexture.dimension",
     "GPUTexture.format",
     "GPUTexture.height",
@@ -92,11 +95,11 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     "dictionary": "u8-value-tag-plus-u32-count-plus-unique-well-formed-utf8-key-and-canonical-value-pairs-sorted-by-unsigned-utf8-bytes-shorter-prefix-first"
   },
   "digests": {
-    "operationSet": "635e0cdf264e3c59fda245d04b38d88ef3bdac81b62a405108fba25c0d2186aa",
-    "semanticProgramSet": "c8fe26b4706bd691355b82f6e85a1ac915461004b59416cf13d6573182a104d2",
-    "runtimeRouting": "e6ea90e4c14ed02757fe940fc611cc8c5cc65a6d2787a1c2a0d75d90fb54c303",
-    "webgpuCVocabulary": "012cf790a04f6b949dbab310b787954d97b8839720bc79728b3148d9e94adf71",
-    "projection": "78e4fe9341d4d62d853988b570e6c777826a8acb560a7bc6780c855489f8d7dc"
+    "operationSet": "1e76c90b4292a6c5f906f1307c685533a99b5b6c833ad2e5b813e8ec9a06ed92",
+    "semanticProgramSet": "dd3ea159309d0ab4bf123ca7b37fb1a8914cc639247b71fb060b9dc1e69b3a0a",
+    "runtimeRouting": "40600d481dd40a1d2c6423a386bf821bdbe2388a9386672194900f986bf3380d",
+    "webgpuCVocabulary": "e6a5e0e80bd14c612be49d382382a33bce99827022bb9dbaa2f04cd1a0941d58",
+    "projection": "467e98ade4bf91e5db43a29174358cfc8c20fec8ed81a29199e8cf46ba755f0b"
   },
   "layout": {
     "requestMagic": "IBGQ",
@@ -1626,6 +1629,10 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
                     "name": "serviceDetachedExpired",
                     "type": "u8",
                     "constraint": "boolean-zero-or-one"
+                  },
+                  {
+                    "name": "features",
+                    "type": "sortedUniqueFeatureSequenceV1"
                   }
                 ]
               },
@@ -6182,6 +6189,31 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
       "astc-12x12-unorm",
       "astc-12x12-unorm-srgb"
     ],
+    "gpuFeatureNames": [
+      "core-features-and-limits",
+      "depth-clip-control",
+      "depth32float-stencil8",
+      "texture-compression-bc",
+      "texture-compression-bc-sliced-3d",
+      "texture-compression-etc2",
+      "texture-compression-astc",
+      "texture-compression-astc-sliced-3d",
+      "timestamp-query",
+      "indirect-first-instance",
+      "shader-f16",
+      "rg11b10ufloat-renderable",
+      "bgra8unorm-storage",
+      "float32-filterable",
+      "float32-blendable",
+      "clip-distances",
+      "dual-source-blending",
+      "subgroups",
+      "texture-formats-tier1",
+      "texture-formats-tier2",
+      "primitive-index",
+      "texture-component-swizzle",
+      "subgroup-size-control"
+    ],
     "gpuTextureFormatCapabilityRowsSha256": "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04",
     "gpuTextureFormatRequiredFeatures": {
       "r8unorm": null,
@@ -6846,7 +6878,7 @@ export const WEBGPU_EXECUTABLE_CODEC_MANIFEST = {
     {
       "wireTag": 6,
       "tag": "nullable-gpu-adapter-service-completion-v2",
-      "wireShape": "null or fresh adapter identity plus a required authenticated serviceDetachedExpired u8; zero retains a live service attachment and credits, one denotes a post-positive-commit close settlement with no retained service object, credits, or provider handle",
+      "wireShape": "null or fresh adapter identity plus a required authenticated serviceDetachedExpired u8 and sorted unique exposed-feature sequence; zero retains a live service attachment and credits, one denotes a post-positive-commit close settlement with no retained service object, credits, or provider handle",
       "identity": "one-promise-settlement"
     },
     {

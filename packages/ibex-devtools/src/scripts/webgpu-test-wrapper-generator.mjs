@@ -1324,6 +1324,7 @@ function validateNativeCodecPrograms(payload) {
               type: "u8",
               constraint: "boolean-zero-or-one",
             },
+            { name: "features", type: "sortedUniqueFeatureSequenceV1" },
           ],
         },
         carrierJoins: [

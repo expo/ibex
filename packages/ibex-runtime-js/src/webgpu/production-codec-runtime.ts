@@ -625,6 +625,7 @@ export interface ExecutableWebGpuCodecManifest {
     bindingPackageVersion: '0.1.71';
     declarationPath: 'node_modules/@webgpu/types/dist/index.d.ts';
     declarationSha256: string;
+    gpuFeatureNames: readonly string[];
     gpuTextureFormats: readonly string[];
     gpuTextureFormatCapabilityRowsSha256: string;
     gpuTextureFormatRequiredFeatures: Readonly<Record<string, string | null>>;
@@ -1704,6 +1705,7 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
                 type: 'u8',
                 constraint: 'boolean-zero-or-one',
               },
+              { name: 'features', type: 'sortedUniqueFeatureSequenceV1' },
             ],
           },
           carrierJoins: [{
@@ -7315,6 +7317,7 @@ export interface WebGpuCodecTestAdapterResult {
   readonly objectGeneration: string;
   readonly providerGeneration: string;
   readonly serviceDetachedExpired: boolean;
+  readonly features: readonly string[];
 }
 
 export interface WebGpuCodecTestDeviceResult {
@@ -7428,6 +7431,8 @@ export function createExecutableWebGpuCodecs(
     !/^[0-9a-f]{64}$/u.test(manifest.objectKindAuthority.sha256) ||
     manifest.webIdlVocabulary.bindingPackage !== '@webgpu/types' ||
     manifest.webIdlVocabulary.bindingPackageVersion !== '0.1.71' ||
+    manifest.webIdlVocabulary.gpuFeatureNames.length !== 23 ||
+    new Set(manifest.webIdlVocabulary.gpuFeatureNames).size !== 23 ||
     manifest.webIdlVocabulary.declarationPath !==
       'node_modules/@webgpu/types/dist/index.d.ts' ||
     !/^[0-9a-f]{64}$/u.test(manifest.webIdlVocabulary.declarationSha256) ||
@@ -7956,6 +7961,23 @@ export function createExecutableWebGpuCodecs(
       if (providerGeneration !== event.operationProviderGeneration) {
         throw new TypeError('GPUAdapter result provider provenance mismatch');
       }
+      const featureCount = reader.u32();
+      if (featureCount > manifest.layout.sequenceMaxCount) {
+        throw new TypeError('GPUAdapter feature sequence exceeds the reviewed bound');
+      }
+      const features: string[] = [];
+      for (let index = 0; index < featureCount; index += 1) {
+        const feature = reader.string(manifest.maxPayloadBytes);
+        if (
+          !manifest.webIdlVocabulary.gpuFeatureNames.includes(feature) ||
+          (index > 0 && feature <= features[index - 1])
+        ) {
+          throw new TypeError(
+            'GPUAdapter features must be known, sorted, and unique',
+          );
+        }
+        features.push(feature);
+      }
       reader.done();
       return Object.freeze({
         kind: 'object',
@@ -7965,6 +7987,7 @@ export function createExecutableWebGpuCodecs(
           objectGeneration,
           providerGeneration,
           serviceDetachedExpired: serviceDetachedExpiredTag === 1,
+          features: Object.freeze(features),
         }),
       });
     }
@@ -8366,6 +8389,21 @@ export function createExecutableWebGpuCodecs(
           'GPUAdapter.providerGeneration',
         ));
         writer.u8(result.serviceDetachedExpired ? 1 : 0);
+        const features = [...result.features];
+        if (
+          features.length > manifest.layout.sequenceMaxCount ||
+          features.some(
+            (feature, index) =>
+              !manifest.webIdlVocabulary.gpuFeatureNames.includes(feature) ||
+              (index > 0 && feature <= features[index - 1]),
+          )
+        ) {
+          throw new TypeError(
+            'Adapter completion features must be known, sorted, and unique',
+          );
+        }
+        writer.u32(features.length);
+        for (const feature of features) writer.string(feature);
       } else {
         throw new TypeError('Adapter completion test value has the wrong shape');
       }

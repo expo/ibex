@@ -2,11 +2,11 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "78e4fe9341d4d62d853988b570e6c777826a8acb560a7bc6780c855489f8d7dc",
-  "operationSet": "635e0cdf264e3c59fda245d04b38d88ef3bdac81b62a405108fba25c0d2186aa",
-  "semanticProgramSet": "c8fe26b4706bd691355b82f6e85a1ac915461004b59416cf13d6573182a104d2",
-  "runtimeRouting": "e6ea90e4c14ed02757fe940fc611cc8c5cc65a6d2787a1c2a0d75d90fb54c303",
-  "webgpuCVocabulary": "012cf790a04f6b949dbab310b787954d97b8839720bc79728b3148d9e94adf71"
+  "projection": "467e98ade4bf91e5db43a29174358cfc8c20fec8ed81a29199e8cf46ba755f0b",
+  "operationSet": "1e76c90b4292a6c5f906f1307c685533a99b5b6c833ad2e5b813e8ec9a06ed92",
+  "semanticProgramSet": "dd3ea159309d0ab4bf123ca7b37fb1a8914cc639247b71fb060b9dc1e69b3a0a",
+  "runtimeRouting": "40600d481dd40a1d2c6423a386bf821bdbe2388a9386672194900f986bf3380d",
+  "webgpuCVocabulary": "e6a5e0e80bd14c612be49d382382a33bce99827022bb9dbaa2f04cd1a0941d58"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   "semanticProjection": "4d8860b84f07b50c785f8ab716a3df93ff2ba8107838a28d0f358810524294ea",
@@ -24,6 +24,12 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "GPU",
     "requestAdapter",
     "method"
+  ],
+  [
+    "GPUAdapter.features",
+    "GPUAdapter",
+    "features",
+    "property"
   ],
   [
     "GPUAdapter.requestDevice",
@@ -89,6 +95,12 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "GPUBuffer.mapState",
     "GPUBuffer",
     "mapState",
+    "property"
+  ],
+  [
+    "GPUBuffer.size",
+    "GPUBuffer",
+    "size",
     "property"
   ],
   [
@@ -222,6 +234,12 @@ export const WRAPPER_ROUTE_ASSIGNMENTS = Object.freeze([
     "GPURenderPassEncoder",
     "setPipeline",
     "method"
+  ],
+  [
+    "GPUTexture.depthOrArrayLayers",
+    "GPUTexture",
+    "depthOrArrayLayers",
+    "property"
   ],
   [
     "GPUTexture.dimension",
@@ -400,5 +418,5 @@ export const TEXTURE_FORMAT_REQUIRED_FEATURES = Object.freeze({
   "astc-12x12-unorm-srgb": "texture-compression-astc"
 });
 export const TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256 = "15c3a739357af9380618651982d07bb725db3e507e5b944a4b9c6ea34d7c7c04";
-export const WRAPPER_ROUTE_COUNT = 41;
+export const WRAPPER_ROUTE_COUNT = 44;
 export const CONDITIONAL_PROVIDER_ROUTE_COUNT = 21;

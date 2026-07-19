@@ -73,6 +73,11 @@ const WRAPPER_LOCAL_METADATA_OPERATION_IDS = Object.freeze([
   "GPUTexture.height",
   "GPUTexture.width",
 ]);
+const PRODUCT_SELECTED_METADATA_OPERATION_IDS = Object.freeze([
+  "GPUAdapter.features",
+  "GPUBuffer.size",
+  "GPUTexture.depthOrArrayLayers",
+]);
 const IMMUTABLE_TRIANGLE_ROUTE_IDS = Object.freeze([
   "GPU.getPreferredCanvasFormat",
   "GPU.requestAdapter",
@@ -194,6 +199,7 @@ function readPinnedWebIdlVocabulary() {
       .update(declarationBytes)
       .digest("hex"),
     gpuTextureFormats: Object.freeze(gpuTextureFormats),
+    gpuFeatureNames: Object.freeze(stringUnion("GPUFeatureName", 23)),
     gpuTextureFormatCapabilityRowsSha256:
       TEXTURE_FORMAT_CAPABILITY_ROWS_SHA256,
     gpuTextureFormatRequiredFeatures: Object.freeze({
@@ -220,7 +226,7 @@ function stagingProjectionSha256(staging) {
     .digest("hex");
 }
 
-function validateWorkloadStaging(staging, routeIds, activeScopeId) {
+function validateWorkloadStaging(staging, routeIds) {
   if (
     staging?.schema !== "ibex/webgpu-typegpu-workload-staging/1" ||
     staging.artifactVersion !== 1 ||
@@ -247,7 +253,8 @@ function validateWorkloadStaging(staging, routeIds, activeScopeId) {
   }
   exactSet(staging.blockers, REQUIRED_WORKLOAD_BLOCKERS, "TypeGPU staging blockers");
   if (
-    staging.activeRouteSubset.scopeId !== activeScopeId ||
+    staging.activeRouteSubset.scopeId !==
+      "native-triangle-plus-typegpu-graduates-v1" ||
     staging.activeRouteSubset.operationCount !== routeIds.length ||
     staging.activeRouteSubset.operationIds.length !== routeIds.length
   ) {
@@ -349,6 +356,48 @@ function validateWorkloadStaging(staging, routeIds, activeScopeId) {
   });
 }
 
+function validateProductSemanticExtension(routes) {
+  const routeIds = routes.map((route) => route.operationId);
+  exactSet(
+    routeIds.filter((operationId) =>
+      PRODUCT_SELECTED_METADATA_OPERATION_IDS.includes(operationId),
+    ),
+    PRODUCT_SELECTED_METADATA_OPERATION_IDS,
+    "active product-selected production routes",
+  );
+  for (const operationId of PRODUCT_SELECTED_METADATA_OPERATION_IDS) {
+    const route = routes.find(
+      (candidate) => candidate.operationId === operationId,
+    );
+    const expectedResultCodec = operationId === "GPUAdapter.features"
+      ? "gpu-supported-features-snapshot-v1"
+      : operationId === "GPUBuffer.size"
+        ? "gpu-size64-out-v1"
+        : "gpu-integer-coordinate-out-v1";
+    if (
+      route?.memberKind !== "property" ||
+      route.dispatchClass !== "wrapper-property-read" ||
+      route.logicalExecutionKind !== "wrapper-local" ||
+      route.publicArgumentCodec !== "none-v1" ||
+      route.serviceArgumentCodec !== "none-service-request-v1" ||
+      route.serviceCompletionCodec !== "none-service-completion-v1" ||
+      route.publicResultCodec !== expectedResultCodec ||
+      route.providerSubmission !== "none"
+    ) {
+      throw new Error(`${operationId} product route invented dispatch or changed its result codec`);
+    }
+  }
+  return Object.freeze({
+    status: "private-wrapper-active-no-public-install",
+    supportClaim: "none",
+    operationCount: PRODUCT_SELECTED_METADATA_OPERATION_IDS.length,
+    operationIds: [...PRODUCT_SELECTED_METADATA_OPERATION_IDS],
+    publicInstallDisposition: "absent",
+    embeddedCodecDisposition: "absent",
+    capsecDisposition: "unsupported-no-registry-edge",
+  });
+}
+
 function renderPlan(authority, workloadStaging, webIdlVocabulary) {
   const { payload, computed } = validateWebGpuWrapperAuthority(authority);
   const routes = payload.operations.map((operation) => ({
@@ -381,10 +430,17 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
   if (routes.length === 0 || new Set(routes.map((route) => route.operationId)).size !== routes.length) {
     throw new Error("production WebGPU plan must contain a nonempty unique route set");
   }
+  const routeIds = routes.map((route) => route.operationId);
+  const productSemanticExtension = validateProductSemanticExtension(
+    routes,
+  );
+  const productOperationSet = new Set(productSemanticExtension.operationIds);
+  const typeGpuRouteIds = routeIds.filter(
+    (operationId) => !productOperationSet.has(operationId),
+  );
   const stagedWorkloadClosure = validateWorkloadStaging(
     workloadStaging,
-    routes.map((route) => route.operationId),
-    payload.scopeId,
+    typeGpuRouteIds,
   );
   const plan = {
     schema: "ibex/webgpu-production-wrapper-plan/1",
@@ -398,9 +454,10 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     activeRouteSubset: {
       scopeId: payload.scopeId,
       operationCount: routes.length,
-      operationIds: routes.map((route) => route.operationId),
+      operationIds: routeIds,
     },
     stagedWorkloadClosure,
+    productSemanticExtension,
     routes,
   };
   return (

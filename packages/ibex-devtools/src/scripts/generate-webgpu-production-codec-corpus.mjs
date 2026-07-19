@@ -253,6 +253,11 @@ function buildCorpus() {
       objectGeneration: "2",
       providerGeneration: "9",
       serviceDetachedExpired: false,
+      features: [
+        "core-features-and-limits",
+        "texture-compression-bc",
+        "timestamp-query",
+      ],
     });
   const detachedExpiredObjectResult =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(operationId, {
@@ -261,6 +266,7 @@ function buildCorpus() {
       objectGeneration: "3",
       providerGeneration: "9",
       serviceDetachedExpired: true,
+      features: ["core-features-and-limits"],
     });
   const nullResult =
     WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(operationId, {
@@ -369,6 +375,11 @@ function buildCorpus() {
           objectGeneration: "2",
           providerGeneration: "9",
           serviceDetachedExpired: false,
+          features: [
+            "core-features-and-limits",
+            "texture-compression-bc",
+            "timestamp-query",
+          ],
         },
       }) ||
     canonicalJson(decodedDetachedExpiredObject) !==
@@ -380,6 +391,7 @@ function buildCorpus() {
           objectGeneration: "3",
           providerGeneration: "9",
           serviceDetachedExpired: true,
+          features: ["core-features-and-limits"],
         },
       }) ||
     canonicalJson(decodedNull) !== canonicalJson({ kind: "null" }) ||
@@ -4177,6 +4189,11 @@ function buildCorpus() {
             objectGeneration: "2",
             providerGeneration: "9",
             serviceDetachedExpired: false,
+            features: [
+              "core-features-and-limits",
+              "texture-compression-bc",
+              "timestamp-query",
+            ],
           },
         },
       },
@@ -4209,6 +4226,7 @@ function buildCorpus() {
             objectGeneration: "3",
             providerGeneration: "9",
             serviceDetachedExpired: true,
+            features: ["core-features-and-limits"],
           },
         },
       },
