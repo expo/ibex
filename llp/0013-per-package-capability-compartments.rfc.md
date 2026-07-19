@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-19 (ENG-24933 materializes the exact process.env deputy call chain with an inaccessible no-I/O sentinel before binding after physical Windows accepted every retained anchor readback but still replaced or bypassed those pre-execution Domains on first use)
 **Revised:** 2026-07-19 (ENG-24933 replaces the insufficient single process.cwd shared-runtime anchor with a bootstrap-only exact process.env deputy-function list after physical Windows proved source bootstrap creates multiple lazy Domains inside the bundle)
 **Revised:** 2026-07-19 (ENG-24933 extends exact retained-function Domain binding/readback to the shared runtime bundle and non-compartmented builtin deputies after physical Windows proved the package wrapper and callback correct but the immediately following process.env deputy call root-attributed)
 **Revised:** 2026-07-19 (ENG-24933 makes the CommonJS Domain binder fail closed and requires an exact post-bind package-principal readback after physical Windows evidence disproved the original write-only convergence claim)
@@ -1335,7 +1336,13 @@ currently compatibility routing and defense in depth on top of it:
   the already-reviewed private shared-runtime marker as a bootstrap-only anchor
   list; native startup binds and reads back every listed Domain, then restores
   the marker to its ordinary boolean before package code runs. Lazy builtin
-  functions go through the same exact binder. This revision still
+  functions go through the same exact binder. A third physical Windows run
+  accepted the non-empty exact anchor list and all readbacks but still observed
+  root on first package use, showing that retained pre-execution function state
+  is not sufficient for source-lazy Domains. `createEnvProxy` now drives the
+  exact get/resolve/native-helper chain once with an inaccessible local `Symbol`
+  sentinel that returns before any native environment call; native startup then
+  binds the materialized Domains. This revision still
   requires a physical rerun before convergence can be claimed. This closes channel #2
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
   rewrite never touches. Tested by

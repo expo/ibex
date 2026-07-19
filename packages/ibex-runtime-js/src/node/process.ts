@@ -1226,6 +1226,11 @@ export interface HrtimeFunction {
  * Create a Proxy-based env object that reads from native
  */
 export function createEnvProxy(): Record<string, string | undefined> {
+  // This inaccessible key materializes the exact Proxy read call chain without
+  // performing a native environment operation. Windows Hermes source bootstrap
+  // may replace a retained function's initial lazy Domain on first execution;
+  // native startup binds the resulting final Domains immediately afterward.
+  const runtimePrincipalWarmupKey = Symbol('ibex.runtime-principal-warmup');
   // Seeded JS defaults commonly expected by npm packages. Both the native env
   // and explicit JS writes take precedence over these, so the native layer can
   // still promote NODE_ENV to 'production' for release builds while a
@@ -1262,41 +1267,48 @@ export function createEnvProxy(): Record<string, string | undefined> {
     return nativeCache ?? {};
   }
 
-  function getNativeValue(key: string): string | undefined {
+  function getNativeValue(key: string | symbol): string | undefined {
+    if (key === runtimePrincipalWarmupKey) {
+      return undefined;
+    }
     if (typeof __exactGetEnv === 'function') {
       let value: string | undefined;
       try {
-        value = __exactGetEnv(key);
+        value = __exactGetEnv(key as string);
       } catch (_error) {
         if (nativeCache) {
-          delete nativeCache[key];
+          delete nativeCache[key as string];
         }
         return undefined;
       }
       if (value !== undefined) {
-        (nativeCache ??= {})[key] = value;
+        (nativeCache ??= {})[key as string] = value;
       } else if (nativeCache) {
-        delete nativeCache[key];
+        delete nativeCache[key as string];
       }
       return value;
     }
-    return refreshNativeCache()[key];
+    return refreshNativeCache()[key as string];
   }
 
   // Resolve a key with correct precedence: a JS delete hides everything, then an
   // explicit JS write wins over native, then native wins over a seeded default.
-  function resolveValue(key: string): string | undefined {
-    if (jsDeleted.has(key)) {
+  function resolveValue(key: string | symbol): string | undefined {
+    if (key === runtimePrincipalWarmupKey) {
+      return getNativeValue(key);
+    }
+    const stringKey = key as string;
+    if (jsDeleted.has(stringKey)) {
       return undefined;
     }
-    if (jsOverrides.has(key)) {
-      return jsEnv[key];
+    if (jsOverrides.has(stringKey)) {
+      return jsEnv[stringKey];
     }
-    const nativeValue = getNativeValue(key);
+    const nativeValue = getNativeValue(stringKey);
     if (nativeValue !== undefined) {
       return nativeValue;
     }
-    return jsEnv[key];
+    return jsEnv[stringKey];
   }
 
   function collectAll(): Record<string, string> {
@@ -1319,6 +1331,9 @@ export function createEnvProxy(): Record<string, string | undefined> {
 
   const handler: ProxyHandler<Record<string, string | undefined>> = {
     get(target, prop: string | symbol): any {
+      if (prop === runtimePrincipalWarmupKey) {
+        return resolveValue(prop);
+      }
       if (typeof prop === 'symbol') {
         return undefined;
       }
@@ -1421,6 +1436,10 @@ export function createEnvProxy(): Record<string, string | undefined> {
       };
     },
   };
+
+  // Force the exact PATH-read deputy chain through its final executable
+  // RuntimeModules before the native bootstrap binds the retained anchors.
+  handler.get!(jsEnv, runtimePrincipalWarmupKey, jsEnv);
 
   // @ref LLP 0013#mechanism-3 — Windows source bootstrap gives lazily compiled
   // functions from this bundle distinct Hermes Domains. Publish the exact

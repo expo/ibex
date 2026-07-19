@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 materializes the exact process.env deputy call chain with an inaccessible no-I/O sentinel before Domain binding after physical Windows accepted every retained anchor readback but still root-attributed first use)
 **Revised:** 2026-07-19 (ENG-24933 replaces the insufficient single process.cwd shared-runtime anchor with exact bootstrap-only process.env deputy anchors after physical Windows proved multiple lazy source Domains)
 **Revised:** 2026-07-19 (ENG-24933 post-binds and reads back the shared runtime and lazy-builtin Domain principals after focused Windows evidence proved the package wrapper/callback correct and isolated root drift to the process.env deputy boundary)
 **Revised:** 2026-07-19 (ENG-24933 retains the failed physical Windows write-only Domain bind as refusal evidence, makes binding/readback fail closed, and adds focused wrapper-versus-exported-callback evidence before another full matrix)
@@ -1912,7 +1913,14 @@ now publishes the exact `process.env` Proxy trap and its retained helper
 functions through the already-reviewed private shared-runtime marker as a
 bootstrap-only anchor list; native startup binds and reads back each Domain as
 runtime principal, then restores the marker to its ordinary boolean before
-package code can run. The creation-time pending label remains in place for eval
+package code can run. A third focused physical Windows run accepted the
+non-empty anchor list and every exact readback yet still root-attributed both
+environment probes on first use. The remaining difference is therefore after
+retention but before execution; source-lazy function materialization can replace
+or bypass the retained pre-execution Domain. `createEnvProxy` now executes the
+exact get/resolve/native-helper chain once with an inaccessible local `Symbol`
+sentinel that returns before any native environment call, and native startup
+binds the resulting materialized Domains. The creation-time pending label remains in place for eval
 inheritance and defense in depth. The nine Apple
 startup-environment recipes and all 2,698 Apple callback-invariant fixtures pass
 with the shared identity binding; Windows must still repeat the focused physical
