@@ -4,6 +4,7 @@
 // layout without introducing a second hand-authored operation registry.
 
 import type { NativeGpuEventV2 } from './native-bridge';
+import { DOMException as RuntimeDOMException } from '../events/DOMException';
 import type {
   ExecutableWebGpuCodecBundle,
   ProductionGpuTextureOriginDigestInput,
@@ -13,6 +14,11 @@ import type {
   ProductionGpuWrapperKind,
 } from './production-codecs';
 import { WEBGPU_PRODUCTION_PLAN } from './production-plan.generated';
+
+const WebGpuDOMException =
+  typeof globalThis.DOMException === 'function'
+    ? globalThis.DOMException
+    : RuntimeDOMException;
 
 interface CodecCatalogRow {
   readonly wireTag: number;
@@ -57,6 +63,7 @@ interface NativeCodecField {
     'bufferCleanupRequestBodyV1' |
     'bufferMapAsyncRequestBodyV1' |
     'bufferMapAsyncCompletionBodyV1' |
+    'queueWriteBufferRequestBodyV1' |
     'ownedBytesV1';
   readonly catalog?: 'objectKindTags';
   readonly constraintType?:
@@ -74,7 +81,7 @@ interface NativeCodecField {
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24;
     operationWireId:
       | 1660448199
       | 194635792
@@ -90,7 +97,8 @@ interface NativeCodecField {
       | 1199806466
       | 3314731466
       | 1760273919
-      | 1228615721;
+      | 1228615721
+      | 404589710;
   }>;
   readonly constant?: 1;
   readonly constraint?: 'positive' | 'boolean-zero-or-one';
@@ -158,6 +166,7 @@ interface NativeCodecCarrierConstraint {
     | 'objectKindTags.GPU'
     | 'objectKindTags.GPUAdapter'
     | 'objectKindTags.GPUDevice'
+    | 'objectKindTags.GPUQueue'
     | 'objectKindTags.GPUBuffer'
     | 'objectKindTags.GPUSampler'
     | 'objectKindTags.GPUTexture'
@@ -202,9 +211,10 @@ interface NativeCodecCatalogReference {
     | 'gpu-buffer-destroy-service-request-v1'
     | 'gpu-buffer-map-async-service-request-v1'
     | 'gpu-buffer-unmap-service-request-v1'
+    | 'gpu-queue-write-buffer-service-request-v1'
     | 'gpu-buffer-map-async-service-completion-v1'
     | 'terminal-receipt-service-completion-v1';
-  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 24;
+  readonly wireTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 12 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24;
 }
 
 interface NativeCodecCompletionVariant {
@@ -506,10 +516,17 @@ interface NativeCodecBufferLifecycleRoute {
   }>;
 }
 
+interface NativeCodecQueueWriteBufferRoute {
+  readonly operationId: 'GPUQueue.writeBuffer';
+  readonly wireId: 404589710;
+  readonly request: NativeCodecBufferLifecycleRoute['request'];
+  readonly completion: NativeCodecBufferLifecycleRoute['completion'];
+}
+
 export interface NativeCodecProgramsV2 {
   readonly schema: 'ibex/webgpu-native-codec-programs/2';
   readonly disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-only-native-codec-not-installed-no-support-claim';
   readonly dispatch: Readonly<{
     carrierPath: 'ExactGpuSemanticCallV2.operation_id';
     payloadOperationWireIdRole:
@@ -594,6 +611,7 @@ export interface NativeCodecProgramsV2 {
     bufferCleanupRequestBodyV1: Readonly<Record<string, unknown>>;
     bufferMapAsyncRequestBodyV1: Readonly<Record<string, unknown>>;
     bufferMapAsyncCompletionBodyV1: Readonly<Record<string, unknown>>;
+    queueWriteBufferRequestBodyV1: Readonly<Record<string, unknown>>;
     commandEncoderDescriptorV1: Readonly<Record<string, unknown>>;
     shaderModuleDescriptorV1: Readonly<Record<string, unknown>>;
     sortedUniqueFeatureSequenceV1: Readonly<Record<string, unknown>>;
@@ -617,6 +635,7 @@ export interface NativeCodecProgramsV2 {
     | NativeCodecCreateShaderModuleRoute
     | NativeCodecDeviceDestroyRoute
     | NativeCodecBufferLifecycleRoute
+    | NativeCodecQueueWriteBufferRoute
   )[];
 }
 
@@ -851,6 +870,13 @@ const BUFFER_UNMAP_WIRE_ID = 1228615721;
 const BUFFER_UNMAP_REQUEST_CODEC = 'gpu-buffer-unmap-service-request-v1';
 const BUFFER_CLEANUP_COMPLETION_CODEC =
   'terminal-receipt-service-completion-v1';
+const QUEUE_WRITE_BUFFER_OPERATION_ID = 'GPUQueue.writeBuffer';
+const QUEUE_WRITE_BUFFER_WIRE_ID = 404589710;
+const QUEUE_WRITE_BUFFER_REQUEST_CODEC =
+  'gpu-queue-write-buffer-service-request-v1';
+const QUEUE_WRITE_BUFFER_COMPLETION_CODEC =
+  'terminal-receipt-service-completion-v1';
+const QUEUE_WRITE_BUFFER_FIXED_PAYLOAD_BYTES = 143;
 
 const EXPECTED_WEBGPU_CARRIER_CONSTANTS = Object.freeze({
   EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2: 1,
@@ -869,6 +895,8 @@ const EXPECTED_WEBGPU_CARRIER_CONSTANTS = Object.freeze({
 } as const satisfies WebGpuCarrierConstants);
 const EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256 =
   '371b04e7963c5e5c62c110134573aa4dae3a804389ea0df021c636ea1ec27063';
+const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
+  'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
 
 const EXPECTED_COMPLETE_LIMIT_NAMES = Object.freeze([
   'maxTextureDimension1D',
@@ -921,7 +949,7 @@ const BIND_GROUP_LAYOUT_VIEW_DIMENSIONS = Object.freeze([
 const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
   schema: 'ibex/webgpu-native-codec-programs/2',
   disposition:
-    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
+    'request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-only-native-codec-not-installed-no-support-claim',
   dispatch: {
     carrierPath: 'ExactGpuSemanticCallV2.operation_id',
     payloadOperationWireIdRole:
@@ -1670,6 +1698,89 @@ const EXPECTED_NATIVE_CODEC_PROGRAM = Object.freeze({
           type: 'utf8',
           maxBytesFrom: 'codecLayout.diagnosticMaxBytes',
         },
+      ],
+    },
+    ownedBytesV1: {
+      kind: 'length-prefixed-owned-bytes',
+      lengthType: 'u64le',
+      maxBytesFrom: 'wireEnvelope.maxPayloadBytes',
+      ownership: 'affine-transfer-consumed-at-most-once',
+    },
+    bufferCleanupRequestBodyV1: {
+      kind: 'struct',
+      fields: [
+        { name: 'cleanupAction', type: 'u8' },
+        { name: 'cleanupGeneration', type: 'u64le' },
+        { name: 'cancelledMapGeneration', type: 'u64le' },
+        { name: 'activeMapGeneration', type: 'u64le' },
+        { name: 'activeMapMode', type: 'u32le' },
+        { name: 'mappedOffset', type: 'u64le' },
+        { name: 'mappedSize', type: 'u64le' },
+        { name: 'writeback', type: 'ownedBytesV1' },
+      ],
+      invariants: [
+        'cleanupAction-zero-requires-all-generation-range-mode-and-writeback-fields-empty',
+        'cleanupAction-nonzero-requires-positive-cleanupGeneration',
+        'activeMapGeneration-zero-iff-activeMapMode-offset-size-and-writeback-are-empty',
+        'activeMapMode-one-read-requires-empty-writeback',
+        'activeMapMode-two-write-requires-writeback-byte-length-equal-mappedSize',
+        'cancelledMapGeneration-and-activeMapGeneration-are-source-affine-wrapper-generations',
+        'writeback-is-affine-owned-and-consumed-at-most-once-by-cleanupGeneration',
+      ],
+    },
+    bufferMapAsyncRequestBodyV1: {
+      kind: 'struct',
+      fields: [
+        { name: 'pendingMapGeneration', type: 'u64le' },
+        { name: 'mode', type: 'u32le' },
+        { name: 'offset', type: 'u64le' },
+        { name: 'requestedSizePresent', type: 'u8' },
+        { name: 'requestedSize', type: 'u64le' },
+      ],
+      invariants: [
+        'pendingMapGeneration-positive-and-source-affine-to-receiver-wrapper',
+        'mode-exactly-GPUMapMode-READ-one-or-WRITE-two',
+        'requestedSizePresent-zero-requires-requestedSize-zero',
+        'offset-and-present-size-preserve-WebIDL-safe-u64-values-without-normalization',
+      ],
+    },
+    bufferMapAsyncCompletionBodyV1: {
+      kind: 'tagged-union',
+      tag: { name: 'variant', type: 'u8' },
+      commonFields: [
+        { name: 'pendingMapGeneration', type: 'u64le' },
+        { name: 'mode', type: 'u32le' },
+        { name: 'offset', type: 'u64le' },
+        { name: 'size', type: 'u64le' },
+      ],
+      variants: [
+        { name: 'mapped-bytes', tag: 1, payload: 'ownedBytesV1' },
+        { name: 'provider-operation-error', tag: 2, payload: 'empty' },
+        { name: 'allocation-range-error', tag: 3, payload: 'empty' },
+        { name: 'late-cancelled-cleanup', tag: 4, payload: 'empty' },
+      ],
+      invariants: [
+        'pendingMapGeneration-mode-offset-and-size-join-the-service-owned-accepted-map-result',
+        'mapped-bytes-payload-length-equals-size-and-transfers-one-owned-byte-block',
+        'failure-and-late-cancelled-variants-carry-zero-owned-bytes',
+        'late-cancelled-cleanup-never-settles-the-public-promise-again',
+      ],
+    },
+    queueWriteBufferRequestBodyV1: {
+      kind: 'struct',
+      fields: [
+        { name: 'destination', type: 'objectReferenceV1' },
+        { name: 'destinationOffset', type: 'u64le' },
+        { name: 'bytes', type: 'ownedBytesV1' },
+      ],
+      invariants: [
+        'destination-is-the-exact-post-WebIDL-GPUBuffer-full-reference',
+        'destination-logical-device-and-provider-generations-equal-the-source-queue',
+        'destinationOffset-preserves-the-WebIDL-safe-u64-without-alignment-normalization',
+        'bytes-are-the-complete-synchronously-selected-source-snapshot',
+        'bytes-length-is-a-multiple-of-four-including-zero',
+        'bytes-are-affine-owned-by-one-operation-instance-until-terminal-settlement',
+        'maximum-bytes-subtract-the-exact-fixed-envelope-and-body-overhead-from-maxPayloadBytes',
       ],
     },
   },
@@ -2981,6 +3092,7 @@ interface ValidatedNativeCodecProgram {
   readonly bufferDestroyRoute: NativeCodecBufferLifecycleRoute;
   readonly bufferMapAsyncRoute: NativeCodecBufferLifecycleRoute;
   readonly bufferUnmapRoute: NativeCodecBufferLifecycleRoute;
+  readonly queueWriteBufferRoute: NativeCodecQueueWriteBufferRoute;
   readonly noneResultKind: 0;
   readonly nullResultKind: 2;
   readonly objectResultKind: 3;
@@ -3188,16 +3300,6 @@ function validateNativeCodecProgram(
 ): ValidatedNativeCodecProgram {
   const programWithoutDeviceObjectCreationRoutes = {
     ...manifest.nativeCodecPrograms,
-    types: Object.fromEntries(
-      Object.entries(manifest.nativeCodecPrograms.types).filter(
-        ([name]) => ![
-          'ownedBytesV1',
-          'bufferCleanupRequestBodyV1',
-          'bufferMapAsyncRequestBodyV1',
-          'bufferMapAsyncCompletionBodyV1',
-        ].includes(name),
-      ),
-    ),
     routes: manifest.nativeCodecPrograms.routes.filter(
       (candidate) =>
         candidate.operationId !== CREATE_BIND_GROUP_OPERATION_ID &&
@@ -3211,7 +3313,8 @@ function validateNativeCodecProgram(
         candidate.operationId !== CREATE_SHADER_MODULE_OPERATION_ID &&
         candidate.operationId !== BUFFER_DESTROY_OPERATION_ID &&
         candidate.operationId !== BUFFER_MAP_ASYNC_OPERATION_ID &&
-        candidate.operationId !== BUFFER_UNMAP_OPERATION_ID,
+        candidate.operationId !== BUFFER_UNMAP_OPERATION_ID &&
+        candidate.operationId !== QUEUE_WRITE_BUFFER_OPERATION_ID,
     ),
   };
   if (
@@ -3243,6 +3346,23 @@ function validateNativeCodecProgram(
       EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256
   ) {
     throw new Error('Invalid authenticated GPUBuffer lifecycle codec program');
+  }
+  const queueWriteBufferProgram = {
+    types: {
+      ownedBytesV1: manifest.nativeCodecPrograms.types.ownedBytesV1,
+      queueWriteBufferRequestBodyV1:
+        manifest.nativeCodecPrograms.types.queueWriteBufferRequestBodyV1,
+    },
+    routes: manifest.nativeCodecPrograms.routes.filter(
+      (candidate) =>
+        candidate.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID,
+    ),
+  };
+  if (
+    sha256HexUtf8(canonicalManifestJson(queueWriteBufferProgram)) !==
+      EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256
+  ) {
+    throw new Error('Invalid authenticated GPUQueue.writeBuffer codec program');
   }
   const route = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecRequestAdapterRoute =>
@@ -3303,6 +3423,10 @@ function validateNativeCodecProgram(
   const bufferUnmapRoute = manifest.nativeCodecPrograms.routes.find(
     (candidate): candidate is NativeCodecBufferLifecycleRoute =>
       candidate.operationId === BUFFER_UNMAP_OPERATION_ID,
+  );
+  const queueWriteBufferRoute = manifest.nativeCodecPrograms.routes.find(
+    (candidate): candidate is NativeCodecQueueWriteBufferRoute =>
+      candidate.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID,
   );
   const planRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
     (candidate) => candidate.operationId === REQUEST_ADAPTER_OPERATION_ID,
@@ -3435,6 +3559,20 @@ function validateNativeCodecProgram(
   );
   const bufferCleanupCompletionCodec = manifest.serviceCompletions.find(
     (candidate) => candidate.tag === BUFFER_CLEANUP_COMPLETION_CODEC,
+  );
+  const queueWriteBufferPlanRoute = WEBGPU_PRODUCTION_PLAN.routes.find(
+    (candidate) => candidate.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID,
+  );
+  const queueWriteBufferRequestCodec = manifest.serviceArguments.find(
+    (candidate) => candidate.tag === QUEUE_WRITE_BUFFER_REQUEST_CODEC,
+  );
+  const queueWriteBufferCompletionCodec = manifest.serviceCompletions.find(
+    (candidate) => candidate.tag === QUEUE_WRITE_BUFFER_COMPLETION_CODEC,
+  );
+  const queueSubmitRequestCodec = manifest.serviceArguments.find(
+    (candidate) =>
+      candidate.tag ===
+        'gpu-sealed-command-program-sequence-service-request-v1',
   );
   const nullVariant = route?.completion.variants.find(
     (variant) => variant.name === 'null',
@@ -4119,10 +4257,10 @@ function validateNativeCodecProgram(
     )
     .replace(`,${contentRejectionTerminalCanonical}`, '');
   if (
-    manifest.nativeCodecPrograms.routes.length !== 15 ||
+    manifest.nativeCodecPrograms.routes.length !== 16 ||
     new Set(
       manifest.nativeCodecPrograms.routes.map((candidate) => candidate.operationId),
-    ).size !== 15 ||
+    ).size !== 16 ||
     !route ||
     !requestDeviceRoute ||
     !createBindGroupRoute ||
@@ -4138,6 +4276,7 @@ function validateNativeCodecProgram(
     !bufferDestroyRoute ||
     !bufferMapAsyncRoute ||
     !bufferUnmapRoute ||
+    !queueWriteBufferRoute ||
     canonicalManifestJson(createCommandEncoderRoute) !==
       canonicalManifestJson(expectedCreateCommandEncoderRoute) ||
     canonicalManifestJson(createShaderModuleRoute) !==
@@ -4331,12 +4470,42 @@ function validateNativeCodecProgram(
     bufferUnmapRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
     bufferUnmapRequestCodec.unavailableSemanticFields.length !== 0 ||
     bufferCleanupCompletionCodec?.wireTag !== bufferUnmapRoute.completion.catalog.wireTag ||
+    !queueWriteBufferPlanRoute ||
+    queueWriteBufferPlanRoute.wireId !== QUEUE_WRITE_BUFFER_WIRE_ID ||
+    queueWriteBufferPlanRoute.serviceArgumentCodec !==
+      QUEUE_WRITE_BUFFER_REQUEST_CODEC ||
+    queueWriteBufferPlanRoute.serviceCompletionCodec !==
+      QUEUE_WRITE_BUFFER_COMPLETION_CODEC ||
+    queueWriteBufferRequestCodec?.wireTag !==
+      queueWriteBufferRoute.request.catalog.wireTag ||
+    queueWriteBufferRequestCodec?.nativeProgramPrerequisitesRepresented !== true ||
+    queueWriteBufferRequestCodec?.executableFromCurrentAuthenticatedInputs !== true ||
+    queueWriteBufferRequestCodec.unavailableSemanticFields.length !== 0 ||
+    queueWriteBufferCompletionCodec?.wireTag !==
+      queueWriteBufferRoute.completion.catalog.wireTag ||
+    queueSubmitRequestCodec?.executableFromCurrentAuthenticatedInputs !== false ||
+    canonicalManifestJson(queueSubmitRequestCodec.unavailableSemanticFields) !==
+      canonicalManifestJson([
+        'receiverQueueRef',
+        'commandBufferRecords',
+        'deviceGeneration',
+        'queueIngressOrdinal',
+        'capturedScopeId',
+        'recordOperationProvenance',
+        'passOrder',
+        'textureViewRefs',
+        'pipelineRefs',
+        'drawArguments',
+        'finishState',
+        'commandProgramDigest',
+      ]) ||
     manifest.layout.requestMagic !== 'IBGQ' ||
     manifest.layout.resultMagic !== 'IBGR' ||
     manifest.layout.version !== 1 ||
     manifest.objectKindTags.GPU !== 1 ||
     manifest.objectKindTags.GPUAdapter !== 2 ||
     manifest.objectKindTags.GPUDevice !== 3 ||
+    manifest.objectKindTags.GPUQueue !== 4 ||
     manifest.objectKindTags.GPUBuffer !== 5 ||
     manifest.objectKindTags.GPUTexture !== 6 ||
     manifest.objectKindTags.GPUTextureView !== 7 ||
@@ -4349,6 +4518,7 @@ function validateNativeCodecProgram(
     expectedObjectKindTags.GPU !== 1 ||
     expectedObjectKindTags.GPUAdapter !== 2 ||
     expectedObjectKindTags.GPUDevice !== 3 ||
+    expectedObjectKindTags.GPUQueue !== 4 ||
     expectedObjectKindTags.GPUBuffer !== 5 ||
     expectedObjectKindTags.GPUTexture !== 6 ||
     expectedObjectKindTags.GPUTextureView !== 7 ||
@@ -4387,6 +4557,8 @@ function validateNativeCodecProgram(
     bufferMapAsyncRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_BYTES_V2 ||
     bufferUnmapRoute.completion.commonCarrierConstraints.at(-1)?.value !==
+      manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    queueWriteBufferRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
     throw new Error('Generated WebGPU native codec program cross-link drifted');
@@ -4407,6 +4579,7 @@ function validateNativeCodecProgram(
     bufferDestroyRoute,
     bufferMapAsyncRoute,
     bufferUnmapRoute,
+    queueWriteBufferRoute,
     noneResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2,
     nullResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_NULL_V2,
     objectResultKind: manifest.carrierConstants.EXACT_GPU_RESULT_OBJECT_V2,
@@ -5311,12 +5484,37 @@ function convertQueueWriteBufferArguments(
   const size = args[4] === undefined
     ? undefined
     : u64Number(args[4], 'GPUQueue.writeBuffer size');
+  const availableElements = data.byteLength / data.elementSize;
+  if (
+    !Number.isSafeInteger(availableElements) ||
+    dataOffset > availableElements ||
+    (size !== undefined && size > availableElements - dataOffset)
+  ) {
+    throw new WebGpuDOMException(
+      'GPUQueue.writeBuffer source range is out of bounds',
+      'OperationError',
+    );
+  }
+  const selectedElements = size ?? availableElements - dataOffset;
+  const selectedByteLength = selectedElements * data.elementSize;
+  const selectedByteOffset = data.byteOffset + dataOffset * data.elementSize;
+  if (
+    !Number.isSafeInteger(selectedByteLength) ||
+    !Number.isSafeInteger(selectedByteOffset) ||
+    selectedByteLength % 4 !== 0
+  ) {
+    throw new WebGpuDOMException(
+      'GPUQueue.writeBuffer selected source byte length must be a multiple of 4',
+      'OperationError',
+    );
+  }
+  const bytes = new Uint8Array(
+    new Uint8Array(data.source, selectedByteOffset, selectedByteLength),
+  );
   return frozenRecord({
     buffer,
     bufferOffset,
-    data,
-    dataOffset,
-    ...(size === undefined ? {} : { size }),
+    bytes,
   });
 }
 
@@ -6225,6 +6423,12 @@ type BufferLifecycleBody = NonNullable<
   ProductionGpuServiceEncodingInput['bufferLifecycle']
 >;
 
+type QueueWriteBufferBody = Readonly<{
+  destination: ProductionGpuServiceEncodingInput['receiver'];
+  destinationOffset: string;
+  bytes: Uint8Array;
+}>;
+
 function arrayBufferViewBytes(value: ArrayBufferView, label: string): Uint8Array {
   if (!ArrayBuffer.isView(value)) {
     throw new TypeError(`${label} must be an owned byte view`);
@@ -6492,6 +6696,166 @@ function validateBufferLifecycleRequestFields(
     throw new TypeError(`${input.operationId} cleanup arguments must be null`);
   }
   return input.bufferLifecycle;
+}
+
+function validateQueueWriteBufferRequestFields(
+  input: ProductionGpuServiceEncodingInput,
+  maximum: number,
+): QueueWriteBufferBody {
+  if (
+    input.receiver.kind !== 'GPUQueue' ||
+    input.target !== undefined ||
+    input.adapterOrdinal !== '0' ||
+    !Array.isArray(input.sealedLocalTimeline) ||
+    input.sealedLocalTimeline.length !== 0 ||
+    input.bufferLifecycle !== undefined
+  ) {
+    throw new TypeError(
+      'GPUQueue.writeBuffer request violates its carrier projection',
+    );
+  }
+  positiveIdentity(input.receiver.objectId, 'GPUQueue.objectId');
+  positiveIdentity(input.receiver.objectGeneration, 'GPUQueue.objectGeneration');
+  positiveIdentity(input.receiver.logicalDeviceId, 'GPUQueue.logicalDeviceId');
+  positiveIdentity(
+    input.receiver.logicalDeviceGeneration,
+    'GPUQueue.logicalDeviceGeneration',
+  );
+  positiveIdentity(input.receiver.providerGeneration, 'GPUQueue.providerGeneration');
+  parseU64Decimal(input.capturedScopeId);
+  positiveIdentity(input.deviceIngressOrdinal, 'GPUQueue.deviceIngressOrdinal');
+  positiveIdentity(input.queueIngressOrdinal, 'GPUQueue.queueIngressOrdinal');
+  if (
+    typeof input.convertedArguments !== 'object' ||
+    input.convertedArguments === null ||
+    Array.isArray(input.convertedArguments)
+  ) {
+    throw new TypeError('GPUQueue.writeBuffer converted arguments are missing');
+  }
+  const converted = input.convertedArguments as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    converted,
+    ['buffer', 'bufferOffset', 'bytes'],
+    'GPUQueue.writeBuffer converted arguments',
+  );
+  const destinationValue = converted.buffer;
+  if (
+    typeof destinationValue !== 'object' ||
+    destinationValue === null ||
+    Array.isArray(destinationValue)
+  ) {
+    throw new TypeError('GPUQueue.writeBuffer destination reference is missing');
+  }
+  const destination = destinationValue as Readonly<Record<string, unknown>>;
+  exactLifecycleKeys(
+    destination,
+    [
+      'kind',
+      'objectId',
+      'objectGeneration',
+      'logicalDeviceId',
+      'logicalDeviceGeneration',
+      'providerGeneration',
+    ],
+    'GPUQueue.writeBuffer destination reference',
+  );
+  if (
+    destination.kind !== 'GPUBuffer' ||
+    typeof destination.objectId !== 'string' ||
+    typeof destination.objectGeneration !== 'string' ||
+    typeof destination.logicalDeviceId !== 'string' ||
+    typeof destination.logicalDeviceGeneration !== 'string' ||
+    typeof destination.providerGeneration !== 'string'
+  ) {
+    throw new TypeError('GPUQueue.writeBuffer destination is not a full GPUBuffer reference');
+  }
+  positiveIdentity(destination.objectId, 'GPUBuffer.objectId');
+  positiveIdentity(destination.objectGeneration, 'GPUBuffer.objectGeneration');
+  positiveIdentity(destination.logicalDeviceId, 'GPUBuffer.logicalDeviceId');
+  positiveIdentity(
+    destination.logicalDeviceGeneration,
+    'GPUBuffer.logicalDeviceGeneration',
+  );
+  positiveIdentity(destination.providerGeneration, 'GPUBuffer.providerGeneration');
+  if (
+    destination.logicalDeviceId !== input.receiver.logicalDeviceId ||
+    destination.logicalDeviceGeneration !==
+      input.receiver.logicalDeviceGeneration ||
+    destination.providerGeneration !== input.receiver.providerGeneration
+  ) {
+    throw new TypeError(
+      'GPUQueue.writeBuffer destination does not join the receiver device generation',
+    );
+  }
+  const destinationOffset = u64Number(
+    converted.bufferOffset,
+    'GPUQueue.writeBuffer destination offset',
+  );
+  if (!(converted.bytes instanceof Uint8Array)) {
+    throw new TypeError('GPUQueue.writeBuffer source snapshot must be owned bytes');
+  }
+  const maximumBytes = maximum - QUEUE_WRITE_BUFFER_FIXED_PAYLOAD_BYTES;
+  if (
+    converted.bytes.byteLength > maximumBytes ||
+    converted.bytes.byteLength % 4 !== 0
+  ) {
+    throw new TypeError(
+      'GPUQueue.writeBuffer source snapshot violates its exact payload bound',
+    );
+  }
+  return Object.freeze({
+    destination: destination as QueueWriteBufferBody['destination'],
+    destinationOffset: String(destinationOffset),
+    bytes: converted.bytes,
+  });
+}
+
+function writeQueueWriteBufferBody(
+  writer: Writer,
+  body: QueueWriteBufferBody,
+  maximum: number,
+  objectKinds: Readonly<Record<ProductionGpuWrapperKind, number>>,
+): void {
+  writeReference(writer, body.destination, objectKinds);
+  writer.u64(body.destinationOffset);
+  writeOwnedBytes(
+    writer,
+    body.bytes,
+    maximum - QUEUE_WRITE_BUFFER_FIXED_PAYLOAD_BYTES,
+    'GPUQueue.writeBuffer source snapshot',
+  );
+}
+
+function readQueueWriteBufferBody(
+  reader: Reader,
+  maximum: number,
+  objectKindsByTag: ReadonlyMap<number, ProductionGpuWrapperKind>,
+): QueueWriteBufferBody {
+  const destination = readReference(reader, objectKindsByTag);
+  if (destination.kind !== 'GPUBuffer') {
+    throw new TypeError('GPUQueue.writeBuffer destination kind is not GPUBuffer');
+  }
+  positiveIdentity(destination.objectId, 'GPUBuffer.objectId');
+  positiveIdentity(destination.objectGeneration, 'GPUBuffer.objectGeneration');
+  positiveIdentity(destination.logicalDeviceId, 'GPUBuffer.logicalDeviceId');
+  positiveIdentity(
+    destination.logicalDeviceGeneration,
+    'GPUBuffer.logicalDeviceGeneration',
+  );
+  positiveIdentity(destination.providerGeneration, 'GPUBuffer.providerGeneration');
+  const destinationOffset = reader.u64();
+  u64Number(destinationOffset, 'GPUQueue.writeBuffer destination offset');
+  const bytes = readOwnedBytes(
+    reader,
+    maximum - QUEUE_WRITE_BUFFER_FIXED_PAYLOAD_BYTES,
+    'GPUQueue.writeBuffer source snapshot',
+  );
+  if (bytes.byteLength % 4 !== 0) {
+    throw new TypeError(
+      'GPUQueue.writeBuffer source snapshot byte length is not a multiple of 4',
+    );
+  }
+  return Object.freeze({ destination, destinationOffset, bytes });
 }
 
 function writeReference(
@@ -8486,6 +8850,11 @@ export interface WebGpuCodecTestBufferMapResult {
   readonly ownedBytes: ArrayBufferView;
 }
 
+export interface WebGpuCodecTestQueueWriteBufferResult {
+  readonly kind: 'queue-write-buffer';
+  readonly terminal: 'later-predicate-rejection' | 'operation-success';
+}
+
 export type WebGpuCodecTestServiceResult =
   | Readonly<{ kind: 'none' }>
   | Readonly<{ kind: 'null' }>
@@ -8493,7 +8862,8 @@ export type WebGpuCodecTestServiceResult =
   | WebGpuCodecTestDeviceResult
   | WebGpuCodecTestErrorResult
   | WebGpuCodecTestBufferCleanupResult
-  | WebGpuCodecTestBufferMapResult;
+  | WebGpuCodecTestBufferMapResult
+  | WebGpuCodecTestQueueWriteBufferResult;
 
 export function createExecutableWebGpuCodecs(
   manifest: ExecutableWebGpuCodecManifest,
@@ -8524,7 +8894,7 @@ export function createExecutableWebGpuCodecs(
   if (
     manifest.schema !== 'ibex/webgpu-executable-codec-manifest/2' ||
     manifest.disposition !==
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-native-codec-not-installed-no-support-claim' ||
     manifest.operationCount !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.byteOrder !== 'little-endian' ||
     manifest.digests.operationSet !==
@@ -8670,6 +9040,7 @@ export function createExecutableWebGpuCodecs(
   const completionCodecs = new Map(
     manifest.serviceCompletions.map((codec) => [codec.tag, codec]),
   );
+  const consumedQueueWriteBufferSnapshots = new WeakSet<Uint8Array>();
   if (
     routes.size !== WEBGPU_PRODUCTION_PLAN.routes.length ||
     manifest.operationIds.length !== WEBGPU_PRODUCTION_PLAN.routes.length ||
@@ -8802,6 +9173,7 @@ export function createExecutableWebGpuCodecs(
     const codec = serviceCodecs.get(route.serviceArgumentCodec);
     if (!codec) throw new TypeError('Unknown WebGPU service request codec');
     let bufferLifecycleBody: BufferLifecycleBody | undefined;
+    let queueWriteBufferBody: QueueWriteBufferBody | undefined;
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
       validateRequestAdapterRequestFields(
         input.receiver,
@@ -8988,6 +9360,19 @@ export function createExecutableWebGpuCodecs(
         input,
         manifest.maxPayloadBytes,
       );
+    } else if (
+      route.operationId ===
+        requestAdapterNativeProgram.queueWriteBufferRoute.operationId
+    ) {
+      queueWriteBufferBody = validateQueueWriteBufferRequestFields(
+        input,
+        manifest.maxPayloadBytes,
+      );
+      if (consumedQueueWriteBufferSnapshots.has(queueWriteBufferBody.bytes)) {
+        throw new TypeError(
+          'GPUQueue.writeBuffer source snapshot was already consumed',
+        );
+      }
     }
     const writer = new Writer(manifest.maxPayloadBytes);
     writeHeader(
@@ -9012,6 +9397,17 @@ export function createExecutableWebGpuCodecs(
         manifest.maxPayloadBytes,
       );
       return writer.finish();
+    }
+    if (queueWriteBufferBody) {
+      writeQueueWriteBufferBody(
+        writer,
+        queueWriteBufferBody,
+        manifest.maxPayloadBytes,
+        objectKinds,
+      );
+      const payload = writer.finish();
+      consumedQueueWriteBufferSnapshots.add(queueWriteBufferBody.bytes);
+      return payload;
     }
     writer.value(input.sealedLocalTimeline, manifest.layout);
     writer.value(input.convertedArguments, manifest.layout);
@@ -9069,7 +9465,9 @@ export function createExecutableWebGpuCodecs(
         requestAdapterNativeProgram.bufferDestroyRoute.operationId &&
       input.operationId !==
         requestAdapterNativeProgram.bufferMapAsyncRoute.operationId &&
-      input.operationId !== requestAdapterNativeProgram.bufferUnmapRoute.operationId
+      input.operationId !== requestAdapterNativeProgram.bufferUnmapRoute.operationId &&
+      input.operationId !==
+        requestAdapterNativeProgram.queueWriteBufferRoute.operationId
     ) {
       throw new TypeError(
         `${input.operationId} has no reviewed native codegen request program`,
@@ -9415,6 +9813,8 @@ export function createExecutableWebGpuCodecs(
       route.operationId === BUFFER_DESTROY_OPERATION_ID ||
       route.operationId === BUFFER_MAP_ASYNC_OPERATION_ID ||
       route.operationId === BUFFER_UNMAP_OPERATION_ID;
+    const queueWriteBufferRoute =
+      route.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID;
     const bufferLifecycle = bufferLifecycleRoute
       ? readBufferLifecycleBody(
           reader,
@@ -9422,8 +9822,16 @@ export function createExecutableWebGpuCodecs(
           manifest.maxPayloadBytes,
         )
       : undefined;
-    const sealedLocalTimeline = bufferLifecycleRoute
-      ? Object.freeze([])
+    const queueWriteBuffer = queueWriteBufferRoute
+      ? readQueueWriteBufferBody(
+          reader,
+          manifest.maxPayloadBytes,
+          objectKindsByTag,
+        )
+      : undefined;
+    const closedBodyTimeline: readonly unknown[] = Object.freeze([]);
+    const sealedLocalTimeline = bufferLifecycleRoute || queueWriteBufferRoute
+      ? closedBodyTimeline
       : reader.value(manifest.layout);
     const convertedArguments = bufferLifecycle?.kind === 'map-async-v1'
       ? Object.freeze({
@@ -9440,6 +9848,15 @@ export function createExecutableWebGpuCodecs(
         })
       : bufferLifecycleRoute
       ? null
+      : queueWriteBuffer
+      ? Object.freeze({
+          buffer: queueWriteBuffer.destination,
+          bufferOffset: u64Number(
+            queueWriteBuffer.destinationOffset,
+            'GPUQueue.writeBuffer destination offset',
+          ),
+          bytes: queueWriteBuffer.bytes,
+        })
       : reader.value(manifest.layout);
     reader.done();
     if (route.operationId === requestAdapterNativeProgram.route.operationId) {
@@ -9622,9 +10039,22 @@ export function createExecutableWebGpuCodecs(
         adapterOrdinal,
         deviceIngressOrdinal,
         queueIngressOrdinal,
-        sealedLocalTimeline,
+        sealedLocalTimeline: closedBodyTimeline,
         convertedArguments,
         bufferLifecycle,
+      }, manifest.maxPayloadBytes);
+    } else if (queueWriteBuffer) {
+      validateQueueWriteBufferRequestFields({
+        operationId: route.operationId,
+        wireId: route.wireId,
+        receiver,
+        target: target ?? undefined,
+        capturedScopeId,
+        adapterOrdinal,
+        deviceIngressOrdinal,
+        queueIngressOrdinal,
+        sealedLocalTimeline: closedBodyTimeline,
+        convertedArguments,
       }, manifest.maxPayloadBytes);
     }
     const inspectedBufferLifecycle = bufferLifecycle?.kind === 'cleanup-v1'
@@ -9638,6 +10068,16 @@ export function createExecutableWebGpuCodecs(
           )),
         })
       : bufferLifecycle;
+    const inspectedConvertedArguments = queueWriteBuffer
+      ? Object.freeze({
+          buffer: queueWriteBuffer.destination,
+          bufferOffset: u64Number(
+            queueWriteBuffer.destinationOffset,
+            'GPUQueue.writeBuffer destination offset',
+          ),
+          bytes: Object.freeze(Array.from(queueWriteBuffer.bytes)),
+        })
+      : convertedArguments;
     const result = frozenRecord({
       operationId: route.operationId,
       codec: codec.tag,
@@ -9648,7 +10088,7 @@ export function createExecutableWebGpuCodecs(
       deviceIngressOrdinal,
       queueIngressOrdinal,
       sealedLocalTimeline,
-      convertedArguments,
+      convertedArguments: inspectedConvertedArguments,
       ...(inspectedBufferLifecycle
         ? { bufferLifecycle: inspectedBufferLifecycle }
         : {}),
@@ -9697,6 +10137,27 @@ export function createExecutableWebGpuCodecs(
         : ['unmapped-noop', 'cleanup-rejection', 'cleanup-provider'];
       if (!allowed.includes(result.terminal)) {
         throw new TypeError(`${route.operationId} cleanup terminal is invalid`);
+      }
+      return new Uint8Array(0);
+    }
+    if (route.operationId === QUEUE_WRITE_BUFFER_OPERATION_ID) {
+      if (result.kind !== 'queue-write-buffer') {
+        throw new TypeError(
+          'GPUQueue.writeBuffer completion test value has the wrong shape',
+        );
+      }
+      exactLifecycleKeys(
+        result,
+        ['kind', 'terminal'],
+        'GPUQueue.writeBuffer completion',
+      );
+      if (
+        result.terminal !== 'later-predicate-rejection' &&
+        result.terminal !== 'operation-success'
+      ) {
+        throw new TypeError(
+          'GPUQueue.writeBuffer completion terminal is invalid',
+        );
       }
       return new Uint8Array(0);
     }

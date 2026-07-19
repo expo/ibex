@@ -330,7 +330,7 @@ function validateNativeCodecPrograms(payload) {
   assert(
     program?.schema === "ibex/webgpu-native-codec-programs/2" &&
       program.disposition ===
-        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
+        "request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-only-native-codec-not-installed-no-support-claim",
     "native codec program identity or disposition drifted",
   );
   assertCanonical(
@@ -440,6 +440,7 @@ function validateNativeCodecPrograms(payload) {
       "optionalReferenceV1",
       "ownedBytesV1",
       "pipelineLayoutDescriptorV1",
+      "queueWriteBufferRequestBodyV1",
       "requestAdapterOptionsV1",
       "requestDeviceDescriptorV1",
       "samplerDescriptorV1",
@@ -531,6 +532,27 @@ function validateNativeCodecPrograms(payload) {
       ],
     },
     "native buffer mapAsync completion body type",
+  );
+  assertCanonical(
+    types.queueWriteBufferRequestBodyV1,
+    {
+      kind: "struct",
+      fields: [
+        { name: "destination", type: "objectReferenceV1" },
+        { name: "destinationOffset", type: "u64le" },
+        { name: "bytes", type: "ownedBytesV1" },
+      ],
+      invariants: [
+        "destination-is-the-exact-post-WebIDL-GPUBuffer-full-reference",
+        "destination-logical-device-and-provider-generations-equal-the-source-queue",
+        "destinationOffset-preserves-the-WebIDL-safe-u64-without-alignment-normalization",
+        "bytes-are-the-complete-synchronously-selected-source-snapshot",
+        "bytes-length-is-a-multiple-of-four-including-zero",
+        "bytes-are-affine-owned-by-one-operation-instance-until-terminal-settlement",
+        "maximum-bytes-subtract-the-exact-fixed-envelope-and-body-overhead-from-maxPayloadBytes",
+      ],
+    },
+    "native queue writeBuffer request body type",
   );
   assertCanonical(
     types.headerV1,
@@ -3118,6 +3140,292 @@ function validateNativeCodecPrograms(payload) {
   );
   assert(deviceDestroyRoute.completion.noTrailingBytes === true,
     "native device destroy completion must reject trailing bytes");
+
+  const queueWriteBufferRoute = program.routes.find(
+    (candidate) => candidate.operationId === "GPUQueue.writeBuffer",
+  );
+  const queueWriteBufferOperation = payload.operations.find(
+    (candidate) => candidate.operationId === "GPUQueue.writeBuffer",
+  );
+  assert(
+    queueWriteBufferRoute && queueWriteBufferOperation &&
+      queueWriteBufferRoute.wireId === queueWriteBufferOperation.wireId,
+    "native queue writeBuffer operation identity drifted",
+  );
+  const queueWriteBufferRequestCatalogIndex =
+    payload.codecCatalog.serviceArguments.findIndex(
+      (codec) => codec.tag === queueWriteBufferOperation.serviceArgumentCodec,
+    );
+  const queueWriteBufferCompletionCatalogIndex =
+    payload.codecCatalog.serviceCompletions.findIndex(
+      (codec) => codec.tag === queueWriteBufferOperation.serviceCompletionCodec,
+    );
+  assertCanonical(
+    queueWriteBufferRoute.request.catalog,
+    {
+      name: "serviceArguments",
+      tag: "gpu-queue-write-buffer-service-request-v1",
+      wireTag: queueWriteBufferRequestCatalogIndex + 1,
+    },
+    "native queue writeBuffer request catalog selection",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.request.payload,
+    {
+      kind: "struct",
+      fields: [
+        {
+          name: "header",
+          type: "headerV1",
+          constants: {
+            magic: envelope.codecLayout.requestMagic,
+            version: envelope.codecLayout.version,
+            codecTag: queueWriteBufferRequestCatalogIndex + 1,
+            operationWireId: queueWriteBufferOperation.wireId,
+          },
+        },
+        { name: "receiver", type: "objectReferenceV1" },
+        { name: "target", type: "optionalReferenceV1" },
+        { name: "capturedScopeId", type: "u64le" },
+        { name: "adapterOrdinal", type: "u64le" },
+        { name: "deviceIngressOrdinal", type: "u64le" },
+        { name: "queueIngressOrdinal", type: "u64le" },
+        { name: "body", type: "queueWriteBufferRequestBodyV1" },
+      ],
+    },
+    "native queue writeBuffer request layout",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.request.carrierJoins,
+    [
+      ["header.operationWireId", "operation_id", "equal"],
+      ["receiver.kind", "receiver.kind", "equal"],
+      ["receiver.objectId", "receiver.object_id", "equal"],
+      ["receiver.objectGeneration", "receiver.object_generation", "equal"],
+      ["receiver.logicalDeviceId", "ingress_device.logical_device_id", "equal"],
+      ["receiver.logicalDeviceGeneration", "ingress_device.logical_device_generation", "equal"],
+      ["receiver.providerGeneration", "ingress_device.provider_generation", "equal"],
+      ["receiver.providerGeneration", "provider_generation", "equal"],
+      ["target", "target", "absent-iff-all-zero-reference"],
+      ["capturedScopeId", "captured_scope_id", "equal"],
+      ["adapterOrdinal", "adapter_ordinal", "equal"],
+      ["deviceIngressOrdinal", "device_ingress_ordinal", "equal"],
+      ["queueIngressOrdinal", "queue_ingress_ordinal", "equal"],
+    ].map(([payloadPath, carrierPath, operator]) => ({
+      payloadPath, carrierPath, operator,
+    })),
+    "native queue writeBuffer carrier joins",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.request.carrierConstraints,
+    [
+      { carrierPath: "operation_id", operator: "equal", value: queueWriteBufferOperation.wireId },
+      { carrierPath: "flags", operator: "equal", value: 0 },
+      { carrierPath: "topology_id", operator: "equal", valueFrom: "constants.providerTopologyId" },
+      { carrierPath: "ingress_device", operator: "positive" },
+      { carrierPath: "provider_generation", operator: "positive" },
+      { carrierPath: "operation_instance_id", operator: "positive" },
+      { carrierPath: "promise_id", operator: "equal", value: "0" },
+      { carrierPath: "receiver.kind", operator: "equal", valueFrom: "objectKindTags.GPUQueue" },
+      { carrierPath: "receiver.flags", operator: "equal", value: 0 },
+      { carrierPath: "receiver.object_id", operator: "positive" },
+      { carrierPath: "receiver.object_generation", operator: "positive" },
+      { carrierPath: "target", operator: "all-zero" },
+      { carrierPath: "adapter_ordinal", operator: "equal", value: "0" },
+      { carrierPath: "device_ingress_ordinal", operator: "positive" },
+      { carrierPath: "queue_ingress_ordinal", operator: "positive" },
+    ],
+    "native queue writeBuffer carrier constraints",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.request.valueConstraints,
+    [
+      { payloadPath: "body", operator: "conforms-to-type", type: "queueWriteBufferRequestBodyV1" },
+      {
+        payloadPath: "body.destination",
+        operator: "exact-GPUBuffer-full-reference-same-logical-device-and-provider-as-receiver",
+      },
+      {
+        payloadPath: "body.destinationOffset",
+        operator: "WebIDL-safe-u64-comparison-input-without-normalization",
+      },
+      {
+        payloadPath: "body.bytes",
+        operator: "complete-four-byte-aligned-affine-owned-source-snapshot-within-exact-payload-bound",
+      },
+    ],
+    "native queue writeBuffer value constraints",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.request.semanticServiceBoundary,
+    {
+      stateAuthority:
+        "authenticated-queue-buffer-object-account-ledger-and-provider-tables",
+      payloadRole:
+        "source-affine-destination-and-owned-byte-snapshot-comparison-input-only-never-authority",
+      requiredAfterDecode: [
+        "authenticate-source-affine-queue-receiver-and-reconstruct-device-account-and-authority",
+        "validate-current-live-queue-device-and-provider-generations",
+        "validate-operation-coverage",
+        "authenticate-current-same-device-destination-buffer-full-reference-and-creation-key",
+        "validate-destination-buffer-live-unmapped-copy-dst-offset-and-checked-range",
+        "validate-queue-fixed-live-account-and-aggregate-envelope",
+        "reserve-the-complete-owned-snapshot-in-both-ledgers-before-chunking",
+        "reserve-provider-request-terminal-completion-and-realm-physical-sequence",
+      ],
+      completionEncodingRequires: [
+        "authenticated-retained-call",
+        "service-owned-queue-write-terminal",
+      ],
+    },
+    "native queue writeBuffer semantic-service boundary",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.request.executablePrerequisites,
+    [],
+    "native queue writeBuffer executable prerequisites",
+  );
+  assert(queueWriteBufferRoute.request.noTrailingBytes === true,
+    "native queue writeBuffer request must reject trailing bytes");
+  assertCanonical(
+    queueWriteBufferRoute.completion.catalog,
+    {
+      name: "serviceCompletions",
+      tag: "terminal-receipt-service-completion-v1",
+      wireTag: queueWriteBufferCompletionCatalogIndex + 1,
+    },
+    "native queue writeBuffer completion catalog selection",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.completion.commonCarrierConstraints,
+    [
+      { carrierPath: "kind", operator: "equal", value: 1, symbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2" },
+      { carrierPath: "record.operation_result.status", operator: "equal", value: 0 },
+      { carrierPath: "record.operation_result.operation.operation_id", operator: "equal", value: queueWriteBufferOperation.wireId },
+      { carrierPath: "record.operation_result.operation.device_transition", operator: "equal", value: 0, symbol: "EXACT_GPU_DEVICE_UNCHANGED_V2" },
+      { carrierPath: "record.operation_result.operation.ingress_device", operator: "positive" },
+      { carrierPath: "record.operation_result.operation.result_device", operator: "positive" },
+      { carrierPath: "record.operation_result.operation.provider_generation", operator: "positive" },
+      { carrierPath: "record.operation_result.operation.promise_id", operator: "equal", value: "0" },
+      { carrierPath: "record.operation_result.operation.receiver.kind", operator: "equal", valueFrom: "objectKindTags.GPUQueue" },
+      { carrierPath: "record.operation_result.operation.target", operator: "all-zero" },
+      { carrierPath: "record.operation_result.operation.adapter_ordinal", operator: "equal", value: "0" },
+      { carrierPath: "record.operation_result.operation.device_ingress_ordinal", operator: "positive" },
+      { carrierPath: "record.operation_result.operation.queue_ingress_ordinal", operator: "positive" },
+      { carrierPath: "record.operation_result.result_kind", operator: "equal", value: 0, symbol: "EXACT_GPU_RESULT_NONE_V2" },
+    ],
+    "native queue writeBuffer completion carrier constraints",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.completion.payload,
+    { kind: "empty", exactLengthBytes: 0 },
+    "native queue writeBuffer completion payload",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.completion.semanticTerminalMapping,
+    {
+      authorityPath:
+        "semanticProjection.providerRoutingPrograms[operationId=GPUQueue.writeBuffer]",
+      terminals: [
+        {
+          terminalId: "webidl-rejection",
+          errorTiming: "synchronous-webidl",
+          resultDisposition: "throw",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+          event: {
+            kind: "no-service-call",
+            completionPayloadEncoderEligibility: "excluded-before-service-ingress",
+          },
+        },
+        {
+          terminalId: "source-range-rejection",
+          errorTiming: "synchronous-operation-state",
+          resultDisposition: "throw",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+          event: {
+            kind: "no-service-call",
+            completionPayloadEncoderEligibility:
+              "excluded-before-owned-snapshot-service-ingress",
+          },
+        },
+        {
+          terminalId: "later-predicate-rejection",
+          errorTiming: "device-timeline",
+          resultDisposition: "return-undefined-and-report-error",
+          providerTokenCount: 0,
+          physicalSequenceCount: 0,
+          event: {
+            kind: "operation-result",
+            kindValue: 1,
+            kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+            resultKind: 0,
+            resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+            status: 0,
+            completionVariant: "later-predicate-rejection",
+            publicExposure:
+              "none-wrapper-already-returned-device-error-delivered-separately",
+          },
+        },
+        {
+          terminalId: "operation-success",
+          errorTiming: "none",
+          resultDisposition: "return-undefined",
+          providerTokenCount: 1,
+          physicalSequenceCount: 1,
+          event: {
+            kind: "operation-result",
+            kindValue: 1,
+            kindSymbol: "EXACT_GPU_SERVICE_EVENT_OPERATION_RESULT_V2",
+            resultKind: 0,
+            resultKindSymbol: "EXACT_GPU_RESULT_NONE_V2",
+            status: 0,
+            completionVariant: "operation-success",
+            publicExposure: "none-wrapper-already-returned",
+          },
+        },
+      ],
+    },
+    "native queue writeBuffer semantic terminal mapping",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.completion.variants,
+    [
+      {
+        name: "later-predicate-rejection",
+        carrierConstraints: [
+          { carrierPath: "record.operation_result.operation.provider_admission", operator: "equal", value: 0, symbol: "EXACT_GPU_PROVIDER_NOT_ADMITTED_V2" },
+          { carrierPath: "record.operation_result.operation.physical_sequence", operator: "equal", value: "0" },
+        ],
+        serviceResultConstraints: [
+          { serviceResultPath: "queueWriteTerminal", operator: "equal", value: "later-predicate-rejection" },
+        ],
+      },
+      {
+        name: "operation-success",
+        carrierConstraints: [
+          { carrierPath: "record.operation_result.operation.provider_admission", operator: "equal", value: 1, symbol: "EXACT_GPU_PROVIDER_ADMITTED_V2" },
+          { carrierPath: "record.operation_result.operation.physical_sequence", operator: "positive" },
+        ],
+        serviceResultConstraints: [
+          { serviceResultPath: "queueWriteTerminal", operator: "equal", value: "operation-success" },
+        ],
+      },
+    ],
+    "native queue writeBuffer completion variants",
+  );
+  assertCanonical(
+    queueWriteBufferRoute.completion.serviceResultJoins,
+    [{
+      payloadPath: "empty-payload-selected-variant",
+      serviceResultPath: "queueWriteTerminal",
+      operator: "selects-exact-completion-variant",
+    }],
+    "native queue writeBuffer service-result joins",
+  );
+  assert(queueWriteBufferRoute.completion.noTrailingBytes === true,
+    "native queue writeBuffer completion must reject trailing bytes");
 }
 
 export function validateWebGpuWrapperAuthority(authority) {
@@ -3152,7 +3460,7 @@ export function validateWebGpuWrapperAuthority(authority) {
   assert(payload.claims?.nativeBindingStatus === "not-installed", "native binding claim changed");
   assert(
     payload.claims?.wireCodecStatus ===
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-only-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-only-native-codec-not-installed",
     "wire codec readiness claim drifted",
   );
   assert(

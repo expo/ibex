@@ -533,7 +533,7 @@ function renderPlan(authority, workloadStaging, webIdlVocabulary) {
     scopeId: payload.scopeId,
     maxPayloadBytes: payload.wireEnvelope.maxPayloadBytes,
     codecReadiness:
-      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-native-codec-not-installed",
+      "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-native-codec-not-installed",
     digests: computed,
     webIdlVocabulary,
     activeRouteSubset: {
@@ -716,6 +716,9 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const bufferUnmapProgram = nativeCodecPrograms.routes.find(
     (route) => route.operationId === "GPUBuffer.unmap",
   );
+  const queueWriteBufferProgram = nativeCodecPrograms.routes.find(
+    (route) => route.operationId === "GPUQueue.writeBuffer",
+  );
   const deviceDestroySemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUDevice.destroy",
@@ -731,6 +734,10 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const bufferUnmapSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
       (program) => program.operationId === "GPUBuffer.unmap",
+    );
+  const queueWriteBufferSemanticProgram =
+    semantic.semanticProjection.providerRoutingPrograms.find(
+      (program) => program.operationId === "GPUQueue.writeBuffer",
     );
   const createCommandEncoderSemanticProgram =
     semantic.semanticProjection.providerRoutingPrograms.find(
@@ -790,6 +797,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     !bufferDestroyProgram ||
     !bufferMapAsyncProgram ||
     !bufferUnmapProgram ||
+    !queueWriteBufferProgram ||
     !createBindGroupSemanticProgram ||
     !createBindGroupLayoutSemanticProgram ||
     !createBufferSemanticProgram ||
@@ -803,9 +811,11 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     !bufferDestroySemanticProgram ||
     !bufferMapAsyncSemanticProgram ||
     !bufferUnmapSemanticProgram ||
+    !queueWriteBufferSemanticProgram ||
     headerVocabulary.tags.GPU !== 1 ||
     headerVocabulary.tags.GPUAdapter !== 2 ||
     headerVocabulary.tags.GPUDevice !== 3 ||
+    headerVocabulary.tags.GPUQueue !== 4 ||
     headerVocabulary.tags.GPUBuffer !== 5 ||
     headerVocabulary.tags.GPUTexture !== 6 ||
     headerVocabulary.tags.GPUTextureView !== 7 ||
@@ -850,6 +860,8 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
       bufferMapAsyncProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
       bufferUnmapProgram.completion.commonCarrierConstraints.at(-1)?.value ||
+    headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 !==
+      queueWriteBufferProgram.completion.commonCarrierConstraints.at(-1)?.value ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_V2 !== 1 ||
     headerVocabulary.carrierConstants.EXACT_GPU_DEVICE_ASSIGNED_DETACHED_V2 !== 2 ||
     headerVocabulary.carrierConstants.EXACT_GPU_PROVIDER_NOT_ADMITTED_V2 !== 0 ||
@@ -870,7 +882,8 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     deviceDestroyProgram.request.executablePrerequisites.length !== 0 ||
     bufferDestroyProgram.request.executablePrerequisites.length !== 0 ||
     bufferMapAsyncProgram.request.executablePrerequisites.length !== 0 ||
-    bufferUnmapProgram.request.executablePrerequisites.length !== 0
+    bufferUnmapProgram.request.executablePrerequisites.length !== 0 ||
+    queueWriteBufferProgram.request.executablePrerequisites.length !== 0
   ) {
     throw new Error("native WebGPU codec program C vocabulary drifted");
   }
@@ -990,6 +1003,37 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
     ) {
       throw new Error(`${operationId} native lifecycle codec program drifted`);
     }
+  }
+  const queueWriteTerminalProjection =
+    queueWriteBufferProgram.completion.semanticTerminalMapping;
+  if (
+    queueWriteBufferProgram.request.catalog.tag !==
+      "gpu-queue-write-buffer-service-request-v1" ||
+    queueWriteBufferProgram.request.catalog.wireTag !== 23 ||
+    queueWriteBufferProgram.request.payload.fields.at(-1)?.type !==
+      "queueWriteBufferRequestBodyV1" ||
+    queueWriteBufferProgram.request.noTrailingBytes !== true ||
+    queueWriteBufferProgram.completion.noTrailingBytes !== true ||
+    queueWriteBufferProgram.completion.commonCarrierConstraints.at(-1)?.value !==
+      headerVocabulary.carrierConstants.EXACT_GPU_RESULT_NONE_V2 ||
+    canonicalJson(
+      queueWriteBufferProgram.completion.variants.map((variant) => variant.name),
+    ) !== canonicalJson(["later-predicate-rejection", "operation-success"]) ||
+    queueWriteTerminalProjection.authorityPath !==
+      "semanticProjection.providerRoutingPrograms[operationId=GPUQueue.writeBuffer]" ||
+    canonicalJson(
+      queueWriteTerminalProjection.terminals.map(
+        ({ event: _event, ...terminal }) => terminal,
+      ),
+    ) !== canonicalJson(queueWriteBufferSemanticProgram.terminals.map((terminal) => ({
+      terminalId: terminal.terminalId,
+      errorTiming: terminal.errorTiming,
+      resultDisposition: terminal.resultDisposition,
+      providerTokenCount: terminal.providerTokenCount,
+      physicalSequenceCount: terminal.physicalSequenceCount,
+    })))
+  ) {
+    throw new Error("GPUQueue.writeBuffer native codec program drifted");
   }
   const createCommandEncoderCompletionEvents = {
     "webidl-rejection": {
@@ -1211,7 +1255,7 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   const manifest = {
     schema: "ibex/webgpu-executable-codec-manifest/2",
     disposition:
-      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-native-codec-not-installed-no-support-claim",
+      "reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-native-codec-not-installed-no-support-claim",
     profileId: payload.profileId,
     scopeId: payload.scopeId,
     operationCount: payload.operations.length,
@@ -1259,6 +1303,43 @@ function buildCodecManifest(authority, semantics, webIdlVocabulary) {
   }
   if (manifest.completeLimitNames.length !== 36) {
     throw new Error("executable WebGPU codec manifest must contain 36 limits");
+  }
+  const queueWriteBufferCodec = manifest.serviceArguments.find(
+    (codec) => codec.tag === "gpu-queue-write-buffer-service-request-v1",
+  );
+  const queueSubmitCodec = manifest.serviceArguments.find(
+    (codec) =>
+      codec.tag ===
+        "gpu-sealed-command-program-sequence-service-request-v1",
+  );
+  const queueSubmitUnavailableFields = [
+    "receiverQueueRef",
+    "commandBufferRecords",
+    "deviceGeneration",
+    "queueIngressOrdinal",
+    "capturedScopeId",
+    "recordOperationProvenance",
+    "passOrder",
+    "textureViewRefs",
+    "pipelineRefs",
+    "drawArguments",
+    "finishState",
+    "commandProgramDigest",
+  ];
+  if (
+    queueWriteBufferCodec?.wireTag !== 23 ||
+    queueWriteBufferCodec.executableFromCurrentAuthenticatedInputs !== true ||
+    queueWriteBufferCodec.unavailableSemanticFields.length !== 0 ||
+    queueSubmitCodec?.executableFromCurrentAuthenticatedInputs !== false ||
+    canonicalJson(queueSubmitCodec.unavailableSemanticFields) !==
+      canonicalJson(queueSubmitUnavailableFields) ||
+    nativeCodecPrograms.routes.some(
+      (route) => route.operationId === "GPUQueue.submit",
+    )
+  ) {
+    throw new Error(
+      "GPUQueue writeBuffer/submit native injection boundary drifted",
+    );
   }
   return manifest;
 }

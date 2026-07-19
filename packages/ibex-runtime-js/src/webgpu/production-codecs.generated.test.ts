@@ -395,6 +395,12 @@ function serviceInput(
     ? null
     : operationId === 'GPUBuffer.mapAsync'
     ? Object.freeze({ mode: 1, offset: 0 })
+    : operationId === 'GPUQueue.writeBuffer'
+    ? Object.freeze({
+      buffer: reference('GPUBuffer'),
+      bufferOffset: 0,
+      bytes: new Uint8Array([1, 2, 3, 4]),
+    })
     : Object.freeze({ sample: true }),
 ): ProductionGpuServiceEncodingInput {
   const route = WEBGPU_PRODUCTION_PLAN.routes.find(
@@ -421,8 +427,9 @@ function serviceInput(
     deviceIngressOrdinal: receiverKind === 'GPU' || receiverKind === 'GPUAdapter'
       ? '0'
       : '3',
-    queueIngressOrdinal: operationId === 'GPUQueue.submit' ? '2' : '0',
-    sealedLocalTimeline: requestAdapter || requestDevice || bufferLifecycle
+    queueIngressOrdinal: receiverKind === 'GPUQueue' ? '2' : '0',
+    sealedLocalTimeline: requestAdapter || requestDevice || bufferLifecycle ||
+        operationId === 'GPUQueue.writeBuffer'
       ? Object.freeze([])
       : deviceDestroy
       ? Object.freeze([
@@ -611,7 +618,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-executable-codec-manifest/2',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.disposition).toBe(
-      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-payload-codegen-input-native-codec-not-installed-no-support-claim',
+      'reviewed-generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-payload-codegen-input-native-codec-not-installed-no-support-claim',
     );
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms).toMatchObject({
       schema: 'ibex/webgpu-native-codec-programs/2',
@@ -641,6 +648,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUBuffer.destroy', wireId: 3314731466 },
         { operationId: 'GPUBuffer.mapAsync', wireId: 1760273919 },
         { operationId: 'GPUBuffer.unmap', wireId: 1228615721 },
+        { operationId: 'GPUQueue.writeBuffer', wireId: 404589710 },
       ],
     });
     const destroyProgram = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
@@ -1327,7 +1335,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
   });
 
-  test('converts buffer lifecycle arguments without prematurely snapshotting uploads', () => {
+  test('converts buffer lifecycle arguments and snapshots queue uploads synchronously', () => {
     expect(WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
       'GPUBuffer.getMappedRange',
       [],
@@ -1366,26 +1374,36 @@ describe('generated injection-only WebGPU executable codecs', () => {
       ) as Readonly<{
         buffer: Readonly<Record<string, unknown>>;
         bufferOffset: number;
-        data: Readonly<{
-          source: ArrayBufferLike;
-          byteOffset: number;
-          byteLength: number;
-          elementSize: number;
-        }>;
-        dataOffset: number;
-        size: number;
+        bytes: Uint8Array;
       }>;
     expect(converted.buffer).toMatchObject({ kind: 'GPUBuffer' });
     expect(converted.bufferOffset).toBe(12);
-    expect(converted.data.source).toBe(sourceBuffer);
-    expect(converted.data.byteOffset).toBe(sourceByteOffset);
-    expect(converted.data.byteLength).toBe(sourceByteLength);
-    expect(converted.data.elementSize).toBe(Uint16Array.BYTES_PER_ELEMENT);
+    expect(Array.from(converted.bytes)).toEqual([20, 0, 30, 0]);
     expect(shadowedMetadataReads).toBe(0);
-    expect(converted.dataOffset).toBe(1);
-    expect(converted.size).toBe(2);
     source[1] = 99;
-    expect(new Uint16Array(converted.data.source)[1]).toBe(99);
+    expect(Array.from(converted.bytes)).toEqual([20, 0, 30, 0]);
+
+    for (const args of [
+      [gpuBuffer, 0, new Uint8Array(4), 5],
+      [gpuBuffer, 0, new Uint8Array(3)],
+    ] as const) {
+      let synchronousError: unknown;
+      try {
+        WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+          'GPUQueue.writeBuffer',
+          args,
+          wrappers,
+        );
+      } catch (error) {
+        synchronousError = error;
+      }
+      expect(synchronousError).toMatchObject({ name: 'OperationError' });
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUQueue.writeBuffer',
+      [gpuBuffer, 0n, new Uint8Array(4)],
+      wrappers,
+    )).toThrow(TypeError);
 
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
       'GPUBuffer.mapAsync',
@@ -1585,6 +1603,12 @@ describe('generated injection-only WebGPU executable codecs', () => {
             ? null
             : route.operationId === 'GPUBuffer.mapAsync'
             ? { mode: 1, offset: 0 }
+            : route.operationId === 'GPUQueue.writeBuffer'
+            ? {
+              buffer: reference('GPUBuffer'),
+              bufferOffset: 0,
+              bytes: [1, 2, 3, 4],
+            }
             : route.operationId === 'GPUDevice.createBindGroup'
             ? convertedBindGroupDescriptor()
             : route.operationId === 'GPUDevice.createBindGroupLayout'
@@ -4428,6 +4452,118 @@ describe('generated injection-only WebGPU executable codecs', () => {
       operationId: 'GPUBuffer.unmap',
       bufferLifecycle: { cleanupAction: 1, cleanupGeneration: '7' },
     });
+  });
+
+  test('encodes one affine GPUQueue.writeBuffer snapshot and keeps submit injection-incomplete', () => {
+    const source = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUQueue.writeBuffer',
+        [gpuBuffer, 12, source, 4, 4],
+        wrappers,
+      );
+    source.fill(99);
+    const input = serviceInput('GPUQueue.writeBuffer', converted);
+    const payload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(input) as Uint8Array;
+    expect(payload.byteLength).toBe(147);
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      payload,
+    )).toMatchObject({
+      operationId: 'GPUQueue.writeBuffer',
+      codec: 'gpu-queue-write-buffer-service-request-v1',
+      receiver: {
+        kind: 'GPUQueue',
+        logicalDeviceId: '17',
+        logicalDeviceGeneration: '1',
+        providerGeneration: '7',
+      },
+      capturedScopeId: '0',
+      deviceIngressOrdinal: '3',
+      queueIngressOrdinal: '2',
+      sealedLocalTimeline: [],
+      convertedArguments: {
+        buffer: {
+          kind: 'GPUBuffer',
+          logicalDeviceId: '17',
+          logicalDeviceGeneration: '1',
+          providerGeneration: '7',
+        },
+        bufferOffset: 12,
+        bytes: [5, 6, 7, 8],
+      },
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest(
+      input,
+    )).toThrow('already consumed');
+
+    for (const length of [0, 1, 12, 53, 86, 135, 143, 146]) {
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        payload.slice(0, length),
+      )).toThrow();
+    }
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      withTrailingByte(payload),
+    )).toThrow('Trailing');
+    for (const invalid of [
+      mutateU32(payload, 12, WEBGPU_OBJECT_KIND_TAGS.GPUDevice),
+      mutateU32(payload, 78, 0),
+      mutateU32(payload, 86, WEBGPU_OBJECT_KIND_TAGS.GPUDevice),
+      mutateU32(payload, 103, 18),
+      mutateU32(payload, 119, 8),
+      mutateU32(payload, 131, 0x0020_0000),
+      mutateU32(payload, 135, 3),
+    ]) {
+      expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+        invalid,
+      )).toThrow();
+    }
+
+    const zeroPayload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(serviceInput(
+        'GPUQueue.writeBuffer',
+        WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+          'GPUQueue.writeBuffer',
+          [gpuBuffer, 1, new Uint8Array(0)],
+          wrappers,
+        ),
+      ));
+    expect(zeroPayload.byteLength).toBe(143);
+    for (const terminal of [
+      'later-predicate-rejection',
+      'operation-success',
+    ] as const) {
+      expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.encodeServiceResult(
+        'GPUQueue.writeBuffer',
+        { kind: 'queue-write-buffer', terminal },
+      ).byteLength).toBe(0);
+    }
+
+    const submitCodec = WEBGPU_EXECUTABLE_CODEC_MANIFEST.serviceArguments.find(
+      (codec) =>
+        codec.tag ===
+          'gpu-sealed-command-program-sequence-service-request-v1',
+    );
+    expect(submitCodec).toMatchObject({
+      executableFromCurrentAuthenticatedInputs: false,
+      unavailableSemanticFields: [
+        'receiverQueueRef',
+        'commandBufferRecords',
+        'deviceGeneration',
+        'queueIngressOrdinal',
+        'capturedScopeId',
+        'recordOperationProvenance',
+        'passOrder',
+        'textureViewRefs',
+        'pipelineRefs',
+        'drawArguments',
+        'finishState',
+        'commandProgramDigest',
+      ],
+    });
+    expect(() => WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT
+      .encodeNativeCodegenRequest(serviceInput('GPUQueue.submit')))
+      .toThrow('no reviewed native codegen request program');
   });
 
   test('encodes all typed mapAsync completions and rejects carrier, variant, extent, truncation, and trailing-byte drift', () => {
