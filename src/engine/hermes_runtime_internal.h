@@ -233,6 +233,20 @@ struct ExactHermesRuntime {
   // and their synchronous verdicts.
   bool restricted = false;
 
+  // Profile-distinct Exact Contract runtime. This is armed, but it is neither
+  // a full Ibex runtime nor a UI worklet. It never installs the general
+  // bootstrap/module/compatibility surface and cannot use ex_hermes_eval.
+  // @ref LLP 0026#4-profile-identity-and-anti-confusion-rules
+  bool restricted_exact = false;
+  bool restricted_exact_bundle_consumed = false;
+  bool restricted_exact_poisoned = false;
+  bool restricted_exact_activation_configured = false;
+  bool restricted_exact_checkpoint_consumed = false;
+  uint64_t restricted_exact_wall_clock_ms = 0;
+  uint64_t restricted_exact_rng_state_0 = 0;
+  uint64_t restricted_exact_rng_state_1 = 0;
+  std::vector<uint8_t> restricted_exact_checkpoint;
+
   bool stream_enhance_loaded = false;
   bool web_crypto_loaded = false;
   bool web_storage_loaded = false;

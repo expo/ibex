@@ -762,6 +762,61 @@ pub unsafe extern "C" fn ex_host_authorize_exact_endowment(
     }) as i32
 }
 
+/// Copy the authenticated single-use Contract bundle bound to a claimed
+/// restricted Exact Host context. The returned allocation is owned by the
+/// caller and must be released with `ex_host_free_buffer` using the exact
+/// returned length. Format `1` is UTF-8 source and format `2` is HBC v1.
+///
+/// This is a fixed native control-plane seam, not a path or caller-byte
+/// ingress: the bytes come only from the artifact already re-opened and
+/// authenticated before Host installation.
+///
+/// # Safety
+///
+/// `out_len` and `out_format` must point to writable values for this call.
+///
+/// @ref LLP 0026#6-authenticated-contract-code-ingress
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_copy_restricted_exact_bundle(
+    context_id: u64,
+    out_len: *mut u64,
+    out_format: *mut u32,
+) -> *mut u8 {
+    if context_id == 0 || out_len.is_null() || out_format.is_null() {
+        return ptr::null_mut();
+    }
+    unsafe {
+        *out_len = 0;
+        *out_format = 0;
+    }
+    let artifact = HOST_CONTEXTS.get().and_then(|contexts| {
+        contexts.read().ok().and_then(|contexts| {
+            contexts
+                .get(&context_id)
+                .filter(|record| record.claimed)
+                .and_then(|record| record.host.restricted_exact_artifact().cloned())
+        })
+    });
+    let Some(artifact) = artifact else {
+        return ptr::null_mut();
+    };
+    let format = match artifact.bundle_format() {
+        "source-utf8" => 1,
+        "hbc-v1" => 2,
+        _ => return ptr::null_mut(),
+    };
+    let bytes = artifact.bundle().to_vec().into_boxed_slice();
+    if bytes.is_empty() {
+        return ptr::null_mut();
+    }
+    let len = bytes.len();
+    unsafe {
+        *out_len = len as u64;
+        *out_format = format;
+    }
+    Box::into_raw(bytes) as *mut u8
+}
+
 #[doc(hidden)]
 pub fn installed_typed_decision_count() -> usize {
     with_host(Host::typed_decision_count, 0)

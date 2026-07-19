@@ -372,6 +372,10 @@ extern "C" uint8_t* ex_host_fs_read_file(const char* path,
                                          uint64_t* out_len,
                                          int32_t* out_errno);
 extern "C" void ex_host_free_buffer(uint8_t* buf, uint64_t len);
+extern "C" uint8_t* ex_host_copy_restricted_exact_bundle(
+    uint64_t context_id,
+    uint64_t* out_len,
+    uint32_t* out_format);
 extern "C" char* ex_host_fs_stat(const char* path);
 extern "C" char* ex_host_fs_lstat(const char* path);
 extern "C" char* ex_host_fs_readdir(const char* path);
@@ -1879,6 +1883,145 @@ void defineExactCapability(
       exactObject,
       facebook::jsi::String::createFromAscii(rt, name),
       descriptor);
+}
+
+// Install the deliberately small realm surface used by pooled Contract
+// sessions. This path must stay separate from installGlobals(): adding a
+// compatibility global to the full Ibex runtime must never silently add it to
+// the restricted profile. @ref LLP 0026#5-closed-world-surface-projection
+void installRestrictedExactGlobals(struct ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  ensureExactEmbedderObject(handle);
+  installTimerGlobals(handle);
+
+  auto exactObject = rt.global().getPropertyAsObject(rt, "exact");
+  auto checkpoint = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "takeCheckpointBytes"),
+      0,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
+        if (!handle->restricted_exact_activation_configured) {
+          throw facebook::jsi::JSError(
+              runtime, "restricted Exact activation is not configured");
+        }
+        if (handle->restricted_exact_checkpoint_consumed) {
+          throw facebook::jsi::JSError(
+              runtime, "restricted Exact checkpoint ingress is single-use");
+        }
+        handle->restricted_exact_checkpoint_consumed = true;
+        auto bytes = std::move(handle->restricted_exact_checkpoint);
+        handle->restricted_exact_checkpoint.clear();
+        return makeUint8Array(runtime, std::move(bytes));
+      });
+  defineExactCapability(
+      rt, exactObject, "takeCheckpointBytes", std::move(checkpoint), false);
+
+  auto wallClock = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__restrictedWallClock"),
+      0,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
+        if (!handle->restricted_exact_activation_configured) {
+          throw facebook::jsi::JSError(
+              runtime, "restricted Exact clock is not configured");
+        }
+        return facebook::jsi::Value(
+            static_cast<double>(handle->restricted_exact_wall_clock_ms));
+      });
+  rt.global().setProperty(rt, "__restrictedWallClock", std::move(wallClock));
+
+  auto random = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__restrictedRandom"),
+      0,
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
+        if (!handle->restricted_exact_activation_configured) {
+          throw facebook::jsi::JSError(
+              runtime, "restricted Exact RNG is not configured");
+        }
+        // xorshift128+: deterministic, fast, and explicitly not a security RNG.
+        uint64_t s1 = handle->restricted_exact_rng_state_0;
+        const uint64_t s0 = handle->restricted_exact_rng_state_1;
+        handle->restricted_exact_rng_state_0 = s0;
+        s1 ^= s1 << 23;
+        handle->restricted_exact_rng_state_1 =
+            s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26);
+        const uint64_t bits =
+            handle->restricted_exact_rng_state_1 + s0;
+        return facebook::jsi::Value(
+            static_cast<double>(bits >> 11) * (1.0 / 9007199254740992.0));
+      });
+  rt.global().setProperty(rt, "__restrictedRandom", std::move(random));
+
+  static constexpr const char* kRestrictedLockdown = R"JS(
+    (() => {
+      'use strict';
+      const g = globalThis;
+      const wallClock = g.__restrictedWallClock;
+      const random = g.__restrictedRandom;
+      delete g.__restrictedWallClock;
+      delete g.__restrictedRandom;
+      const NativeDate = Date;
+      function RestrictedDate(...args) {
+        const value = args.length === 0
+          ? new NativeDate(wallClock())
+          : new NativeDate(...args);
+        return new.target ? value : value.toString();
+      }
+      Object.setPrototypeOf(RestrictedDate, NativeDate);
+      RestrictedDate.prototype = NativeDate.prototype;
+      Object.defineProperty(RestrictedDate, 'now', {
+        value: wallClock, writable: false, configurable: false
+      });
+      Object.defineProperty(g, 'Date', {
+        value: RestrictedDate, writable: false, configurable: false
+      });
+      Object.defineProperty(Math, 'random', {value: random, writable: false, configurable: false});
+      const performance = Object.freeze({now: () => 0, timeOrigin: 0});
+      Object.defineProperty(g, 'performance', {value: performance, writable: false, configurable: false});
+      const denied = () => { throw new TypeError('dynamic code generation is disabled'); };
+      Object.defineProperty(Function.prototype, 'constructor', {
+        value: denied, writable: false, configurable: false
+      });
+      Object.defineProperty(g, 'eval', {value: denied, writable: false, configurable: false});
+      Object.defineProperty(g, 'Function', {value: denied, writable: false, configurable: false});
+      for (const name of [
+        'require', 'process', 'Bun', 'Deno', 'Ibex', 'Exact', 'fetch',
+        'WebSocket', 'XMLHttpRequest', 'WebAssembly', 'SharedArrayBuffer',
+        'Atomics', '__hostCall', '__hostCallAsync', '__compartments',
+        '__exactCapabilityCheck', '__exactGetEnv', '__exactResolveModule',
+        '__exactRegisterPackage', '__exactSetPendingPackageId',
+        '__exactResolveManifestBuiltinInternal', '__exactSetActiveModuleId',
+        '__exactGrantCapability', '__exactCheckImport',
+        '__exactSetCompartmentFor', '__exactEnsureFs', '__exactEnsureHttp',
+        '__exactEnsureSqlite', '__exactEnsureDns',
+        '__exactEnsureChildProcess', '__exactEnsureNet', '__exactTimerRef',
+        '__exactTimerUnref'
+      ]) {
+        try { delete g[name]; } catch (_) {}
+      }
+      for (const value of [
+        Object.prototype, Array.prototype, Promise.prototype,
+        Map.prototype, Set.prototype, Date.prototype, RegExp.prototype,
+        Error.prototype, Math, JSON, Reflect
+      ]) Object.freeze(value);
+      Object.defineProperty(g, '__ibexLockedDown', {
+        value: true, writable: false, configurable: false
+      });
+    })();
+  )JS";
+  auto buffer =
+      std::make_shared<facebook::jsi::StringBuffer>(kRestrictedLockdown);
+  rt.evaluateJavaScript(buffer, "<restricted-exact-lockdown>");
 }
 
 void installGlobals(struct ExactHermesRuntime* handle) {
@@ -3509,10 +3652,19 @@ extern "C" uint32_t ex_hermes_bytecode_version() {
 }
 
 extern "C" uint64_t ex_host_claim_armed_context(const char* digest);
+extern "C" uint64_t ex_host_claim_restricted_exact_context(const char* digest);
 extern "C" uint64_t ex_host_claim_diagnostic_context();
 extern "C" void ex_host_release_context(uint64_t context_id);
 
-static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed);
+enum class RuntimeProfile {
+  Diagnostic,
+  FullArmed,
+  RestrictedExact,
+};
+
+static ExactHermesRuntime* ex_hermes_create_impl(
+    uint64_t host_context_id,
+    RuntimeProfile profile);
 
 uint64_t exactAllocateRuntimeNonce() {
   // Zero is the unscoped sentinel. Refuse before the monotonic namespace can
@@ -3580,6 +3732,42 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
   }
 }
 
+static bool verifyRestrictedExactRuntimePosture(ExactHermesRuntime* handle) {
+  if (handle == nullptr || !handle->runtime || !handle->restricted_exact) {
+    return false;
+  }
+#ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  return false;
+#else
+  if (handle->attribution_runtime == nullptr) return false;
+#endif
+  try {
+    auto& rt = *handle->runtime;
+    auto locked = rt.global().getProperty(rt, "__ibexLockedDown");
+    auto exact = rt.global().getProperty(rt, "exact");
+    auto function = rt.global().getProperty(rt, "Function");
+    static const char* kForbiddenGlobals[] = {
+        "require", "process", "Bun", "Deno", "Ibex", "Exact", "fetch",
+        "WebSocket", "XMLHttpRequest", "WebAssembly", "SharedArrayBuffer",
+        "Atomics", "__hostCall", "__hostCallAsync", "__compartments",
+        "__exactCapabilityCheck", "__exactGetEnv", "__exactResolveModule",
+        "__exactRegisterPackage", "__exactSetPendingPackageId",
+        "__exactResolveManifestBuiltinInternal", "__exactSetActiveModuleId",
+        "__exactGrantCapability", "__exactCheckImport",
+        "__exactSetCompartmentFor", "__exactEnsureFs", "__exactEnsureHttp",
+        "__exactEnsureSqlite", "__exactEnsureDns", "__exactEnsureChildProcess",
+        "__exactEnsureNet", "__exactTimerRef", "__exactTimerUnref"};
+    const bool absent = std::all_of(
+        std::begin(kForbiddenGlobals), std::end(kForbiddenGlobals),
+        [&rt](const char* name) { return !rt.global().hasProperty(rt, name); });
+    return locked.isBool() && locked.getBool() && exact.isObject() &&
+        function.isObject() &&
+        function.getObject(rt).isFunction(rt) && absent;
+  } catch (...) {
+    return false;
+  }
+}
+
 static void cleanupPartiallyConstructedRuntime(ExactHermesRuntime* handle) {
   if (handle == nullptr) return;
   // Bootstrap can register runtime-scoped native state before the handle is
@@ -3612,7 +3800,7 @@ extern "C" ExactHermesRuntime* ex_hermes_create_armed(
   if (armed_snapshot_digest == nullptr) return nullptr;
   uint64_t context = ex_host_claim_armed_context(armed_snapshot_digest);
   if (context == 0) return nullptr;
-  auto* runtime = ex_hermes_create_impl(context, true);
+  auto* runtime = ex_hermes_create_impl(context, RuntimeProfile::FullArmed);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
@@ -3627,12 +3815,29 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
 extern "C" ExactHermesRuntime* ex_hermes_create_diagnostic() {
   uint64_t context = ex_host_claim_diagnostic_context();
   if (context == 0) return nullptr;
-  auto* runtime = ex_hermes_create_impl(context, false);
+  auto* runtime = ex_hermes_create_impl(context, RuntimeProfile::Diagnostic);
   if (runtime == nullptr) ex_host_release_context(context);
   return runtime;
 }
 
-static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed) {
+extern "C" ExactHermesRuntime* ex_hermes_create_restricted_exact(
+    const char* artifact_digest) {
+  // Profile confusion is refused by the Host claim before Hermes allocation.
+  // @ref LLP 0026#4-profile-identity-and-anti-confusion-rules
+  if (artifact_digest == nullptr) return nullptr;
+  uint64_t context = ex_host_claim_restricted_exact_context(artifact_digest);
+  if (context == 0) return nullptr;
+  auto* runtime =
+      ex_hermes_create_impl(context, RuntimeProfile::RestrictedExact);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
+}
+
+static ExactHermesRuntime* ex_hermes_create_impl(
+    uint64_t host_context_id,
+    RuntimeProfile profile) {
+  const bool armed = profile != RuntimeProfile::Diagnostic;
+  const bool restrictedExact = profile == RuntimeProfile::RestrictedExact;
   TRACE_START(total);
   TRACE_START(hermes_config);
   auto gcConfig = ::hermes::vm::GCConfig::Builder()
@@ -3643,7 +3848,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
 #if defined(EXACT_HAVE_HERMES_MICROTASK_CONFIG)
   configBuilder.withMicrotaskQueue(true);
 #endif
-  auto config = configBuilder.withEnableEval(true).build();
+  auto config = configBuilder.withEnableEval(!restrictedExact).build();
   TRACE_END(hermes_config);
 
   TRACE_START(hermes_init);
@@ -3658,6 +3863,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   handle->runtime_thread = std::this_thread::get_id();
   handle->host_context_id = host_context_id;
   handle->armed = armed;
+  handle->restricted_exact = restrictedExact;
   // Both production and the explicitly named foreground diagnostic constructor
   // use structural isolation. Only production seals dynamic self-grant and
   // consumes authenticated endowments.
@@ -3668,7 +3874,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     return nullptr;
   }
   ScopedRuntimeSecurityContext securityContext(handle);
-  if (armed) {
+  if (profile == RuntimeProfile::FullArmed) {
     char* endowments = ex_host_armed_endowments();
     if (endowments == nullptr) {
       ex_host_console_log(
@@ -3679,11 +3885,13 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     handle->snapshot_endowments_json = endowments;
     ex_host_free_string(endowments);
   }
-  handle->typed_authority_generations_initialized =
-      ex_host_typed_generations(
-          &handle->typed_negative_generation,
-          &handle->typed_dynamic_generation,
-          &handle->typed_handle_generation) == 1;
+  if (!restrictedExact) {
+    handle->typed_authority_generations_initialized =
+        ex_host_typed_generations(
+            &handle->typed_negative_generation,
+            &handle->typed_dynamic_generation,
+            &handle->typed_handle_generation) == 1;
+  }
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // @ref LLP 0013#mechanism-3 — cache the vm::Runtime so host-boundary checks can
   // resolve the executing frame's package principal. getVMRuntimeUnsafe() is the
@@ -3706,6 +3914,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
 
   TRACE_START(debugger_init);
 #if defined(HERMES_ENABLE_DEBUGGER) && EXACT_HAS_HERMES_ASYNC_DEBUGGER
+  if (!restrictedExact) {
   try {
     handle->debugger =
         std::make_shared<facebook::hermes::debugger::AsyncDebuggerAPI>(*handle->runtime);
@@ -3720,6 +3929,9 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     ex_host_console_log(1, "Debugger not available in this Hermes build.");
     disableDebugger(handle);
   }
+  } else {
+    disableDebugger(handle);
+  }
 #else
   disableDebugger(handle);
 #endif
@@ -3727,8 +3939,13 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
 
   TRACE_START(install_globals);
   try {
-    requireArmedStartupStage(handle, "install-globals");
-    installGlobals(handle);
+    if (restrictedExact) {
+      installRestrictedExactGlobals(handle);
+    } else {
+      requireArmedStartupStage(handle, "install-globals");
+      installGlobals(handle);
+    }
+    if (!restrictedExact) {
     if (const char* ipcFdEnv = std::getenv("EXACT_IPC_FD")) {
       char* end = nullptr;
       errno = 0;
@@ -3736,6 +3953,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
       if (end != ipcFdEnv && *end == '\0' && errno == 0 && ipcFd >= 0 && ipcFd <= INT_MAX) {
         exactRegisterProcessIpcFd(static_cast<int>(ipcFd));
       }
+    }
     }
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(
@@ -3757,7 +3975,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream).
   // Run after all global bootstrap scripts so ReadableStream can be wrapped
   // on the final runtime surface that user code observes.
-  if (env_flag_enabled("EX_WEB_STREAMS_POLYFILL")) {
+  if (!restrictedExact && env_flag_enabled("EX_WEB_STREAMS_POLYFILL")) {
     TRACE_START(web_streams_polyfill);
     try {
       installWebStreamsPolyfill(handle);
@@ -3772,7 +3990,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
       return nullptr;
     }
     TRACE_END(web_streams_polyfill);
-  } else if (startup_trace_enabled()) {
+  } else if (!restrictedExact && startup_trace_enabled()) {
     fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");
   }
 
@@ -3781,9 +3999,11 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   // resolution uses the captured binding baseline and cannot observe
   // session-created or session-replaced realm-global properties. (ENG-24463)
   TRACE_START(compartment_registry);
-  bool compartmentRegistryInstalled = false;
+  bool compartmentRegistryInstalled = restrictedExact;
   try {
-    compartmentRegistryInstalled = installCompartmentRegistry(handle);
+    if (!restrictedExact) {
+      compartmentRegistryInstalled = installCompartmentRegistry(handle);
+    }
   } catch (const facebook::jsi::JSError& err) {
     ex_host_console_log(
         1, (std::string("Armed startup refused: ") + err.getMessage()).c_str());
@@ -3810,12 +4030,16 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   }
   TRACE_END(compartment_registry);
 
-  if (armed && !verifyArmedRuntimePosture(handle)) {
+  if (profile == RuntimeProfile::FullArmed && !verifyArmedRuntimePosture(handle)) {
     // The compartment registry is deliberately installed only after every
     // trusted bootstrap/polyfill has populated the final global baseline.
     // Verify the armed posture after that final seal, while retaining full
     // partial-runtime cleanup for every refusal.
     // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
+  if (restrictedExact && !verifyRestrictedExactRuntimePosture(handle)) {
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
@@ -3897,6 +4121,191 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   ex_host_release_context(hostContext);
 }
 
+namespace {
+
+constexpr size_t kMaxRestrictedExactCheckpointBytes = 16 * 1024 * 1024;
+constexpr size_t kMaxRestrictedExactBundleBytes = 64 * 1024 * 1024;
+
+bool writeRestrictedExactError(char** out_error, const std::string& text) {
+  if (out_error == nullptr) return true;
+  char* heap = static_cast<char*>(malloc(text.size() + 1));
+  if (heap == nullptr) return false;
+  memcpy(heap, text.data(), text.size());
+  heap[text.size()] = '\0';
+  *out_error = heap;
+  return true;
+}
+
+}  // namespace
+
+extern "C" int ex_hermes_configure_restricted_exact_activation(
+    ExactHermesRuntime* runtime,
+    const uint8_t* checkpoint_data,
+    size_t checkpoint_len,
+    uint64_t wall_clock_ms,
+    uint64_t rng_seed_0,
+    uint64_t rng_seed_1) {
+  if (runtime == nullptr || !runtime->runtime || !runtime->restricted_exact) {
+    return -1;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -2;
+  if (runtime->restricted_exact_poisoned ||
+      runtime->restricted_exact_bundle_consumed ||
+      runtime->restricted_exact_activation_configured) {
+    return -3;
+  }
+  if ((checkpoint_len > 0 && checkpoint_data == nullptr) ||
+      checkpoint_len > kMaxRestrictedExactCheckpointBytes) {
+    return -4;
+  }
+  if (rng_seed_0 == 0 && rng_seed_1 == 0) return -5;
+
+  runtime->restricted_exact_checkpoint.clear();
+  if (checkpoint_len > 0) {
+    runtime->restricted_exact_checkpoint.assign(
+        checkpoint_data, checkpoint_data + checkpoint_len);
+  }
+  runtime->restricted_exact_wall_clock_ms = wall_clock_ms;
+  runtime->restricted_exact_rng_state_0 = rng_seed_0;
+  runtime->restricted_exact_rng_state_1 = rng_seed_1;
+  runtime->restricted_exact_activation_configured = true;
+  return 0;
+}
+
+extern "C" int ex_hermes_run_restricted_exact_bundle(
+    ExactHermesRuntime* runtime,
+    char** out_error) {
+  if (out_error != nullptr) *out_error = nullptr;
+  if (runtime == nullptr || !runtime->runtime || !runtime->restricted_exact) {
+    writeRestrictedExactError(out_error, "not a restricted Exact runtime");
+    return 1;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    writeRestrictedExactError(out_error, "restricted Exact bundle must run on its owner thread");
+    return 1;
+  }
+  if (runtime->restricted_exact_poisoned ||
+      runtime->restricted_exact_bundle_consumed) {
+    writeRestrictedExactError(out_error, "restricted Exact bundle ingress is single-use");
+    return 1;
+  }
+  if (!runtime->restricted_exact_activation_configured) {
+    writeRestrictedExactError(out_error, "restricted Exact activation is not configured");
+    return 1;
+  }
+  if (runtime->exact_host_call_async_fn == nullptr ||
+      runtime->ios_dispatch_callback == nullptr) {
+    writeRestrictedExactError(
+        out_error,
+        "restricted Exact callbacks must be installed before bundle execution");
+    return 1;
+  }
+
+  // Consume before fetching or evaluating. Every failure after this point is
+  // terminal for the runtime, so caller retries cannot turn a malformed or
+  // partially executing artifact into a second ingress.
+  runtime->restricted_exact_bundle_consumed = true;
+  uint64_t bundleLen = 0;
+  uint32_t bundleFormat = 0;
+  uint8_t* bundle = ex_host_copy_restricted_exact_bundle(
+      runtime->host_context_id, &bundleLen, &bundleFormat);
+  if (bundle == nullptr || bundleLen == 0 ||
+      bundleLen > kMaxRestrictedExactBundleBytes ||
+      (bundleFormat != 1 && bundleFormat != 2)) {
+    runtime->restricted_exact_poisoned = true;
+    if (bundle != nullptr) ex_host_free_buffer(bundle, bundleLen);
+    writeRestrictedExactError(out_error, "authenticated restricted Exact bundle is unavailable");
+    return 1;
+  }
+  std::vector<uint8_t> bundleBytes(bundle, bundle + bundleLen);
+  ex_host_free_buffer(bundle, bundleLen);
+
+  ScopedRuntimeSecurityContext securityContext(runtime);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
+  try {
+    auto& rt = *runtime->runtime;
+    auto exactObject = rt.global().getPropertyAsObject(rt, "exact");
+    rt.global()
+        .getPropertyAsObject(rt, "Object")
+        .getPropertyAsFunction(rt, "freeze")
+        .call(rt, exactObject);
+    facebook::jsi::Object descriptor(rt);
+    descriptor.setProperty(rt, "value", exactObject);
+    descriptor.setProperty(rt, "writable", false);
+    descriptor.setProperty(rt, "enumerable", false);
+    descriptor.setProperty(rt, "configurable", false);
+    rt.global()
+        .getPropertyAsObject(rt, "Object")
+        .getPropertyAsFunction(rt, "defineProperty")
+        .call(
+            rt,
+            rt.global(),
+            facebook::jsi::String::createFromAscii(rt, "exact"),
+            descriptor);
+
+    std::shared_ptr<facebook::jsi::Buffer> sourceBuffer;
+    if (bundleFormat == 2) {
+      sourceBuffer = std::make_shared<AlignedBytecodeBuffer>(
+          bundleBytes.data(), bundleBytes.size());
+      auto alignedData = sourceBuffer->data();
+#if defined(EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK)
+      std::string reason;
+      if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
+              alignedData, bundleBytes.size(), &reason)) {
+        runtime->restricted_exact_poisoned = true;
+        writeRestrictedExactError(
+            out_error, "restricted Exact bytecode sanity check failed: " + reason);
+        return 2;
+      }
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
+      std::string reason;
+      auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+          facebook::hermes::makeHermesRootAPI());
+      if (root == nullptr || !root->hermesBytecodeSanityCheck(
+              alignedData, bundleBytes.size(), &reason)) {
+        runtime->restricted_exact_poisoned = true;
+        writeRestrictedExactError(
+            out_error,
+            "restricted Exact bytecode sanity check failed: " +
+                (root == nullptr ? std::string("Hermes root API unavailable") : reason));
+        return 2;
+      }
+#else
+      (void)alignedData;
+#endif
+    } else {
+      sourceBuffer = std::make_shared<MemoryBuffer>(
+          bundleBytes.data(), bundleBytes.size());
+    }
+    rt.evaluateJavaScript(sourceBuffer, "<authenticated-restricted-exact-bundle>");
+    runNextTickQueue(runtime);
+    drainMicrotasks(rt);
+    if (!runtime->restricted_exact_checkpoint_consumed) {
+      throw facebook::jsi::JSError(
+          rt, "restricted Exact bundle did not consume its activation checkpoint");
+    }
+    if (!verifyRestrictedExactRuntimePosture(runtime)) {
+      throw facebook::jsi::JSError(
+          rt, "restricted Exact bundle changed the locked runtime posture");
+    }
+    runtime->restricted_exact_poisoned = false;
+    return 0;
+  } catch (const facebook::jsi::JSError& error) {
+    runtime->restricted_exact_poisoned = true;
+    writeRestrictedExactError(out_error, error.getMessage());
+  } catch (const std::exception& error) {
+    runtime->restricted_exact_poisoned = true;
+    writeRestrictedExactError(out_error, error.what());
+  } catch (...) {
+    runtime->restricted_exact_poisoned = true;
+    writeRestrictedExactError(out_error, "unknown restricted Exact bundle failure");
+  }
+  return 1;
+}
+
 extern "C" int ex_hermes_eval(
     ExactHermesRuntime* runtime,
     const uint8_t* data,
@@ -3925,6 +4334,10 @@ extern "C" int ex_hermes_eval(
 
   if (!runtime || !data || len == 0) {
     writeOutError("Hermes eval received invalid input");
+    return 1;
+  }
+  if (runtime->restricted_exact) {
+    writeOutError("general eval is unavailable in the restricted Exact profile");
     return 1;
   }
 
@@ -4603,8 +5016,17 @@ extern "C" int ex_hermes_set_exact_host_call_async(
   if (!runtime || !runtime->runtime || !callback) return -1;
   if (runtime->runtime_thread != std::this_thread::get_id()) return -7;
   if (runtime->restricted) return -2;
+  if (runtime->restricted_exact &&
+      (runtime->restricted_exact_bundle_consumed ||
+       runtime->restricted_exact_poisoned)) {
+    return -9;
+  }
   auto rawContext = static_cast<uint32_t>(context_kind);
   if (!exactHostContextIsValid(rawContext)) return -3;
+  if (runtime->restricted_exact &&
+      rawContext != EXACT_EMBEDDER_CONTEXT_APP) {
+    return -3;
+  }
   if (!allowed_operation_ids || allowed_operation_count == 0 ||
       allowed_operation_count > kMaxExactHostOperationCount) {
     return -4;
@@ -4925,6 +5347,12 @@ static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   if (!runtime) {
     return 0;
+  }
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -1;
+  if (runtime->restricted_exact &&
+      (!runtime->restricted_exact_bundle_consumed ||
+       runtime->restricted_exact_poisoned)) {
+    return -1;
   }
 
   ScopedRuntimeSecurityContext securityContext(runtime);

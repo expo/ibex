@@ -114365,6 +114365,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
+      "observedKey": "host-abi:ex_hermes_configure_restricted_exact_activation",
+      "branchId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_configure_restricted_exact_activation"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_configure_restricted_exact_activation"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_configure_restricted_exact_activation"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_configure_restricted_exact_activation"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_configure_restricted_exact_activation"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk.default.non-capability",
+        "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.create.04wgtwz",
       "observedKey": "host-abi:ex_hermes_create",
       "branchId": "surface.host.abi.ex.hermes.create.04wgtwz.default",
@@ -114458,6 +114492,38 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.create.diagnostic.1t314ff.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt",
+      "observedKey": "host-abi:ex_hermes_create_restricted_exact",
+      "branchId": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_create_restricted_exact"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_create_restricted_exact"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_create_restricted_exact"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_create_restricted_exact"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_create_restricted_exact"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt.default.non-capability"
       ]
     },
     {
@@ -115811,6 +115877,38 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+      "observedKey": "host-abi:ex_hermes_run_restricted_exact_bundle",
+      "branchId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_run_restricted_exact_bundle"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_run_restricted_exact_bundle"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh.default.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
       "observedKey": "host-abi:ex_hermes_runtime_nonce",
       "branchId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l.default",
@@ -116947,6 +117045,40 @@
         "enforcement.src.host.abi.rs.ex.host.console.log.0yaysas.malformed",
         "enforcement.src.host.abi.rs.ex.host.console.log.0yaysas.missing-attribution",
         "enforcement.src.host.abi.rs.ex.host.console.log.0yaysas.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+      "observedKey": "host-abi:ex_host_copy_restricted_exact_bundle",
+      "branchId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_copy_restricted_exact_bundle"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_copy_restricted_exact_bundle"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_copy_restricted_exact_bundle"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_copy_restricted_exact_bundle"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_copy_restricted_exact_bundle"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3.default.non-capability",
+        "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3.default.post-lockdown-invariant"
       ]
     },
     {
@@ -160127,6 +160259,39 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.exactresolvemodule.0t2oyt7",
+      "observedKey": "native-op:__exactResolveModule",
+      "branchId": "surface.native.op.exactresolvemodule.0t2oyt7.main",
+      "enforcementBranchId": "surface.native.op.exactresolvemodule.0t2oyt7.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactResolveModule"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactResolveModule"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactResolveModule"
+        ],
+        "terminalObservedKey": "native-op:__exactResolveModule"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactResolveModule"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.exactresolvemodule.0t2oyt7.main.cannot-widen-authority",
+        "surface.native.op.exactresolvemodule.0t2oyt7.main.non-capability",
+        "surface.native.op.exactresolvemodule.0t2oyt7.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.exactrevokehandle.1hlpy1t",
       "observedKey": "native-op:__exactRevokeHandle",
       "branchId": "surface.native.op.exactrevokehandle.1hlpy1t.default",
@@ -163962,10 +164127,12 @@
           "native-op:__exactTimerRef"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactTimerRef",
           "src/engine/hermes_runtime_timers.cc#__exactTimerRef",
           "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerRef"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactTimerRef",
           "src/engine/hermes_runtime_timers.cc#__exactTimerRef",
           "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerRef"
         ],
@@ -163977,6 +164144,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactTimerRef",
         "src/engine/hermes_runtime_timers.cc#__exactTimerRef",
         "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerRef"
       ],
@@ -163996,10 +164164,12 @@
           "native-op:__exactTimerUnref"
         ],
         "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactTimerUnref",
           "src/engine/hermes_runtime_timers.cc#__exactTimerUnref",
           "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerUnref"
         ],
         "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__exactTimerUnref",
           "src/engine/hermes_runtime_timers.cc#__exactTimerUnref",
           "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerUnref"
         ],
@@ -164011,6 +164181,7 @@
         "kind": "fallback"
       },
       "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactTimerUnref",
         "src/engine/hermes_runtime_timers.cc#__exactTimerUnref",
         "src/engine/hermes_runtime_timers.cc#jsi-global:__exactTimerUnref"
       ],
@@ -181964,10 +182135,12 @@
           "native-op:global:Date"
         ],
         "proofSourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#Date"
+          "src/engine/bootstrap/compat-polyfills.js#Date",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Date"
         ],
         "sourceRefs": [
-          "src/engine/bootstrap/compat-polyfills.js#Date"
+          "src/engine/bootstrap/compat-polyfills.js#Date",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Date"
         ],
         "terminalObservedKey": "native-op:global:Date"
       },
@@ -181977,7 +182150,8 @@
         "kind": "fallback"
       },
       "sourceRefs": [
-        "src/engine/bootstrap/compat-polyfills.js#Date"
+        "src/engine/bootstrap/compat-polyfills.js#Date",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Date"
       ],
       "implementationOwner": "WP1",
       "fixtureObligations": [
@@ -184625,6 +184799,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:eval",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
@@ -184651,6 +184826,7 @@
           "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
           "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
           "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:eval",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
@@ -184685,6 +184861,7 @@
         "src/engine/hermes_bootstrap.cc#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
         "src/engine/hermes_bootstrap.cc#runLegacyCompatPolyfills",
         "src/engine/hermes_bootstrap.cc#runLegacyProcessCompatFix",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:eval",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
       ],
@@ -191191,6 +191368,39 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+      "observedKey": "native-op:global:exact.takeCheckpointBytes",
+      "branchId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow.default",
+      "enforcementBranchId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:exact.takeCheckpointBytes"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.takeCheckpointBytes"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.takeCheckpointBytes"
+        ],
+        "terminalObservedKey": "native-op:global:exact.takeCheckpointBytes"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#jsi-global:exact.takeCheckpointBytes"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.global.exact.takecheckpointbytes.1hbxdow.default.cannot-widen-authority",
+        "surface.native.op.global.exact.takecheckpointbytes.1hbxdow.default.non-capability",
+        "surface.native.op.global.exact.takecheckpointbytes.1hbxdow.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.global.exact.transpiler.0lkhd8g",
       "observedKey": "native-op:global:Exact.Transpiler",
       "branchId": "surface.native.op.global.exact.transpiler.0lkhd8g.default",
@@ -195857,6 +196067,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#evaluator-identity:sha256-2e8a75104e19596851293f56c5d18e65e095c3c80f182637415252b736d225b6",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Function",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
@@ -195877,6 +196088,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
           "scripts/hermes-version.sh#evaluator-identity:sha256-2e8a75104e19596851293f56c5d18e65e095c3c80f182637415252b736d225b6",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Function",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
@@ -195905,6 +196117,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
         "scripts/hermes-version.sh#evaluator-identity:sha256-2e8a75104e19596851293f56c5d18e65e095c3c80f182637415252b736d225b6",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:Function",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
       ],
@@ -214214,11 +214427,13 @@
         ],
         "proofSourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:performance",
-          "src/engine/bootstrap/bootstrap-globals.js#performance"
+          "src/engine/bootstrap/bootstrap-globals.js#performance",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:performance"
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:performance",
-          "src/engine/bootstrap/bootstrap-globals.js#performance"
+          "src/engine/bootstrap/bootstrap-globals.js#performance",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:performance"
         ],
         "terminalObservedKey": "native-op:global:performance"
       },
@@ -214229,7 +214444,8 @@
       },
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:performance",
-        "src/engine/bootstrap/bootstrap-globals.js#performance"
+        "src/engine/bootstrap/bootstrap-globals.js#performance",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:performance"
       ],
       "implementationOwner": "WP1",
       "fixtureObligations": [
@@ -246543,34 +246759,37 @@
     {
       "edgeId": "surface.native.op.ibexlockeddown.1l9g3ta",
       "observedKey": "native-op:__ibexLockedDown",
-      "branchId": "surface.native.op.ibexlockeddown.1l9g3ta.main",
-      "enforcementBranchId": "surface.native.op.ibexlockeddown.1l9g3ta.main",
+      "branchId": "surface.native.op.ibexlockeddown.1l9g3ta.default",
+      "enforcementBranchId": "surface.native.op.ibexlockeddown.1l9g3ta.default",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
           "native-op:__ibexLockedDown"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#__ibexLockedDown"
+          "src/engine/hermes_runtime.cc#__ibexLockedDown",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__ibexLockedDown"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime.cc#__ibexLockedDown"
+          "src/engine/hermes_runtime.cc#__ibexLockedDown",
+          "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__ibexLockedDown"
         ],
         "terminalObservedKey": "native-op:__ibexLockedDown"
       },
       "branchKind": "single",
-      "targetVariant": "all",
+      "targetVariant": "default",
       "targetApplicability": {
-        "kind": "all"
+        "kind": "fallback"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime.cc#__ibexLockedDown"
+        "src/engine/hermes_runtime.cc#__ibexLockedDown",
+        "src/engine/hermes_runtime.cc#embedded:kRestrictedLockdown:__ibexLockedDown"
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.ibexlockeddown.1l9g3ta.main.cannot-widen-authority",
-        "surface.native.op.ibexlockeddown.1l9g3ta.main.non-capability",
-        "surface.native.op.ibexlockeddown.1l9g3ta.main.post-lockdown-invariant"
+        "surface.native.op.ibexlockeddown.1l9g3ta.default.cannot-widen-authority",
+        "surface.native.op.ibexlockeddown.1l9g3ta.default.non-capability",
+        "surface.native.op.ibexlockeddown.1l9g3ta.default.post-lockdown-invariant"
       ]
     },
     {
@@ -250468,6 +250687,74 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.native.op.originalpromise.reject.1nmizxj.all.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.restrictedrandom.1mvjo88",
+      "observedKey": "native-op:__restrictedRandom",
+      "branchId": "surface.native.op.restrictedrandom.1mvjo88.default",
+      "enforcementBranchId": "surface.native.op.restrictedrandom.1mvjo88.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__restrictedRandom"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__restrictedRandom",
+          "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__restrictedRandom",
+          "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
+        ],
+        "terminalObservedKey": "native-op:__restrictedRandom"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__restrictedRandom",
+        "src/engine/hermes_runtime.cc#jsi-global:__restrictedRandom"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.restrictedrandom.1mvjo88.default.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.restrictedwallclock.0ik8lyf",
+      "observedKey": "native-op:__restrictedWallClock",
+      "branchId": "surface.native.op.restrictedwallclock.0ik8lyf.default",
+      "enforcementBranchId": "surface.native.op.restrictedwallclock.0ik8lyf.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__restrictedWallClock"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#__restrictedWallClock",
+          "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#__restrictedWallClock",
+          "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
+        ],
+        "terminalObservedKey": "native-op:__restrictedWallClock"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__restrictedWallClock",
+        "src/engine/hermes_runtime.cc#jsi-global:__restrictedWallClock"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.restrictedwallclock.0ik8lyf.default.non-capability"
       ]
     },
     {
@@ -256648,6 +256935,37 @@
       ]
     },
     {
+      "edgeId": "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx",
+      "observedKey": "startup:evaluation:ex_hermes_run_restricted_exact_bundle:authenticated-restricted-exact-bundle",
+      "branchId": "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx.main",
+      "enforcementBranchId": "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:evaluation:ex_hermes_run_restricted_exact_bundle:authenticated-restricted-exact-bundle"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle:evaluateJavaScript:<authenticated-restricted-exact-bundle>"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle:evaluateJavaScript:<authenticated-restricted-exact-bundle>"
+        ],
+        "terminalObservedKey": "startup:evaluation:ex_hermes_run_restricted_exact_bundle:authenticated-restricted-exact-bundle"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_run_restricted_exact_bundle:evaluateJavaScript:<authenticated-restricted-exact-bundle>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.evaluation.has.include.18ool1z.process.exit.marker.1awxz3m",
       "observedKey": "startup:evaluation:__has_include:18ool1z:process-exit-marker",
       "branchId": "surface.startup.evaluation.has.include.18ool1z.process.exit.marker.1awxz3m.main",
@@ -256800,6 +257118,37 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.startup.evaluation.installfetchglobals.windows.fetch.shim.08uyl7d.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78",
+      "observedKey": "startup:evaluation:installRestrictedExactGlobals:restricted-exact-lockdown",
+      "branchId": "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78.main",
+      "enforcementBranchId": "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:evaluation:installRestrictedExactGlobals:restricted-exact-lockdown"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#installRestrictedExactGlobals:evaluateJavaScript:<restricted-exact-lockdown>"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#installRestrictedExactGlobals:evaluateJavaScript:<restricted-exact-lockdown>"
+        ],
+        "terminalObservedKey": "startup:evaluation:installRestrictedExactGlobals:restricted-exact-lockdown"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installRestrictedExactGlobals:evaluateJavaScript:<restricted-exact-lockdown>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78.main.non-capability"
       ]
     },
     {
@@ -257289,6 +257638,39 @@
         "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8.main.cannot-widen-authority",
         "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8.main.non-capability",
         "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8",
+      "observedKey": "startup:install-route:ex_hermes_create_impl:installRestrictedExactGlobals",
+      "branchId": "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8.main",
+      "enforcementBranchId": "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:install-route:ex_hermes_create_impl:installRestrictedExactGlobals"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_create_impl:installRestrictedExactGlobals"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_create_impl:installRestrictedExactGlobals"
+        ],
+        "terminalObservedKey": "startup:install-route:ex_hermes_create_impl:installRestrictedExactGlobals"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_create_impl:installRestrictedExactGlobals"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8.main.cannot-widen-authority",
+        "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8.main.non-capability",
+        "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8.main.post-lockdown-invariant"
       ]
     },
     {
@@ -257787,6 +258169,39 @@
         "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c.main.cannot-widen-authority",
         "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c.main.non-capability",
         "surface.startup.install.route.installnethostfunctions.installunsupportedmodule.0sbzn4c.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg",
+      "observedKey": "startup:install-route:installRestrictedExactGlobals:installTimerGlobals",
+      "branchId": "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg.main",
+      "enforcementBranchId": "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:install-route:installRestrictedExactGlobals:installTimerGlobals"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#installRestrictedExactGlobals:installTimerGlobals"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#installRestrictedExactGlobals:installTimerGlobals"
+        ],
+        "terminalObservedKey": "startup:install-route:installRestrictedExactGlobals:installTimerGlobals"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installRestrictedExactGlobals:installTimerGlobals"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg.main.cannot-widen-authority",
+        "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg.main.non-capability",
+        "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg.main.post-lockdown-invariant"
       ]
     },
     {
@@ -258998,6 +259413,39 @@
       ]
     },
     {
+      "edgeId": "surface.startup.installer.installrestrictedexactglobals.17llg9x",
+      "observedKey": "startup:installer:installRestrictedExactGlobals",
+      "branchId": "surface.startup.installer.installrestrictedexactglobals.17llg9x.main",
+      "enforcementBranchId": "surface.startup.installer.installrestrictedexactglobals.17llg9x.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:installer:installRestrictedExactGlobals"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#installRestrictedExactGlobals"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#installRestrictedExactGlobals"
+        ],
+        "terminalObservedKey": "startup:installer:installRestrictedExactGlobals"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installRestrictedExactGlobals"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.installer.installrestrictedexactglobals.17llg9x.main.cannot-widen-authority",
+        "surface.startup.installer.installrestrictedexactglobals.17llg9x.main.non-capability",
+        "surface.startup.installer.installrestrictedexactglobals.17llg9x.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.startup.installer.installsharedruntimebundle.0laasxs",
       "observedKey": "startup:installer:installSharedRuntimeBundle",
       "branchId": "surface.startup.installer.installsharedruntimebundle.0laasxs.main",
@@ -259548,6 +259996,39 @@
         "surface.startup.scheduler.principal.capture.1cjoyft.main.non-capability",
         "surface.startup.scheduler.principal.capture.1cjoyft.main.principal-restore",
         "surface.startup.scheduler.principal.capture.1cjoyft.main.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d",
+      "observedKey": "startup:script:authenticated-restricted-exact-bundle",
+      "branchId": "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d.main",
+      "enforcementBranchId": "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:script:authenticated-restricted-exact-bundle"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#script:<authenticated-restricted-exact-bundle>"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#script:<authenticated-restricted-exact-bundle>"
+        ],
+        "terminalObservedKey": "startup:script:authenticated-restricted-exact-bundle"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<authenticated-restricted-exact-bundle>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d.main.cannot-widen-authority",
+        "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d.main.non-capability",
+        "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d.main.post-lockdown-invariant"
       ]
     },
     {
@@ -260189,6 +260670,39 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.startup.script.promise.unwrap.1xirsok.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.script.restricted.exact.lockdown.1wpbysw",
+      "observedKey": "startup:script:restricted-exact-lockdown",
+      "branchId": "surface.startup.script.restricted.exact.lockdown.1wpbysw.main",
+      "enforcementBranchId": "surface.startup.script.restricted.exact.lockdown.1wpbysw.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:script:restricted-exact-lockdown"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#script:<restricted-exact-lockdown>"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#script:<restricted-exact-lockdown>"
+        ],
+        "terminalObservedKey": "startup:script:restricted-exact-lockdown"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#script:<restricted-exact-lockdown>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.script.restricted.exact.lockdown.1wpbysw.main.cannot-widen-authority",
+        "surface.startup.script.restricted.exact.lockdown.1wpbysw.main.non-capability",
+        "surface.startup.script.restricted.exact.lockdown.1wpbysw.main.post-lockdown-invariant"
       ]
     },
     {
@@ -264693,44 +265207,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-yba_HEL9wDV51GgrReqYgi2Wi0smGZvokupygjxE1mU"
+      "rawContentDigest": "sha256-6orGB48R-bBwQV9J0AkMIjL4Vw6pPKdex7Y6BVwRcF0"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-UYQO54c4Wbq7bwK7g_wcvLVvBKE-s80Y6cNQkbRmV50"
+      "rawContentDigest": "sha256-Xf5JyOtFbzLh-lUnOHI4SIaPn2WRwnFfI6jjrDg7d2k"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-sL7j5tV33-EMA2Ab8cpld-KTWtt6qXmGzeCXOBYs4dE"
+      "rawContentDigest": "sha256-2TRx0ZAtkb6nhXx5kHeki4x5lyQC2HiJ3FM2Eu-fNns"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-YQ0QKo8Hnb-krR958smsGt3-aEsy3SVE7KHjC_a5w5Y"
+      "rawContentDigest": "sha256-p5vwwIiJQYtqXtQuPb7rltyAT292Rp7T70Q1kv_7TvE"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-QU1cfdY2Js0qkwA3mXxkVydX__PMyzDByS6pPphNj3w"
+      "rawContentDigest": "sha256-7A0hTvq6gQTzK9g9mEUaOBCDQqmKNBStZFXUn75SG9o"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-swHtwT1Hzoij9JWRdr34SvtbHWGK9K1YmaWPpuOX9ss"
+      "rawContentDigest": "sha256-A3UPg2F49x0-s0G6KNc1PeJ8UTV9UUXSTFaAwhM71es"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-1Fgh9NBRgR9kcVnmCQ3HI2aXFKeBoaqY4RfV7OJTSHI"
+      "rawContentDigest": "sha256-aCtLRPEKROYoz0yYl0mYXA-WVHLi7zM0q3PudK9C2Zc"
     }
   ],
   "counts": {
-    "observedReferences": 12770,
-    "logicalSurfaces": 7111,
-    "enforcementBranches": 7310,
-    "coverageEdges": 7111,
-    "targetCells": 7111
+    "observedReferences": 12794,
+    "logicalSurfaces": 7126,
+    "enforcementBranches": 7325,
+    "coverageEdges": 7126,
+    "targetCells": 7126
   }
 }

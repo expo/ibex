@@ -1284,6 +1284,76 @@ mod tests {
     use capsec_semantics::model::{LogicalPath, LogicalRoot};
     use sha2::Sha256;
 
+    #[repr(C)]
+    struct HermesRuntimeOpaque {
+        _private: [u8; 0],
+    }
+
+    unsafe extern "C" {
+        fn ex_hermes_create_restricted_exact(
+            artifact_digest: *const std::ffi::c_char,
+        ) -> *mut HermesRuntimeOpaque;
+        fn ex_hermes_configure_restricted_exact_activation(
+            runtime: *mut HermesRuntimeOpaque,
+            checkpoint_data: *const u8,
+            checkpoint_len: usize,
+            wall_clock_ms: u64,
+            rng_seed_0: u64,
+            rng_seed_1: u64,
+        ) -> i32;
+        fn ex_hermes_run_restricted_exact_bundle(
+            runtime: *mut HermesRuntimeOpaque,
+            out_error: *mut *mut std::ffi::c_char,
+        ) -> i32;
+        fn ex_hermes_set_dispatch_callback(
+            runtime: *mut HermesRuntimeOpaque,
+            callback: extern "C" fn(*const u8, usize, *mut std::ffi::c_void),
+            context: *mut std::ffi::c_void,
+        );
+        fn ex_hermes_set_exact_host_call_async(
+            runtime: *mut HermesRuntimeOpaque,
+            context_kind: i32,
+            allowed_operation_ids: *const u32,
+            allowed_operation_count: usize,
+            operation_manifest_digest: *const std::ffi::c_char,
+            callback: extern "C" fn(
+                *mut HermesRuntimeOpaque,
+                u64,
+                u32,
+                *const u8,
+                usize,
+                *mut std::ffi::c_void,
+            ),
+            context: *mut std::ffi::c_void,
+        ) -> i32;
+        fn ex_hermes_eval(
+            runtime: *mut HermesRuntimeOpaque,
+            data: *const u8,
+            len: usize,
+            source_url: *const std::ffi::c_char,
+            is_bytecode: i32,
+            out_value: *mut *mut std::ffi::c_char,
+        ) -> i32;
+        fn ex_hermes_free_string(value: *mut std::ffi::c_char);
+        fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
+    }
+
+    extern "C" fn capture_dispatch(data: *const u8, len: usize, context: *mut std::ffi::c_void) {
+        let output = unsafe { &mut *(context.cast::<Vec<u8>>()) };
+        output.extend_from_slice(unsafe { std::slice::from_raw_parts(data, len) });
+    }
+
+    extern "C" fn reject_unexpected_host_call(
+        _: *mut HermesRuntimeOpaque,
+        _: u64,
+        _: u32,
+        _: *const u8,
+        _: usize,
+        _: *mut std::ffi::c_void,
+    ) {
+        panic!("restricted fixture made an unexpected host call");
+    }
+
     struct RealEmbedderFixture {
         _temp: tempfile::TempDir,
         project_root: std::path::PathBuf,
@@ -1836,6 +1906,187 @@ mod tests {
         .unwrap_err()
         .to_string()
         .contains("stale or tampered"));
+    }
+
+    #[test]
+    fn restricted_exact_runtime_has_authenticated_single_use_ingress() {
+        let _guard = crate::host::abi::host_test_lock();
+        let bundle = br#"
+          (() => {
+            const checkpoint = exact.takeCheckpointBytes();
+            if (checkpoint.length !== 3 || checkpoint[0] !== 7 ||
+                Date.now() !== 1234 || new Date().getTime() !== 1234 ||
+                typeof Math.random() !== 'number') {
+              throw new Error('activation mismatch');
+            }
+            for (const name of ['require', 'process', 'Bun', 'fetch', 'WebSocket']) {
+              if (typeof globalThis[name] !== 'undefined') {
+                throw new Error(`forbidden global ${name}`);
+              }
+            }
+            if (typeof exact.invokeHostAsync !== 'function' ||
+                typeof exact.dispatch !== 'function') {
+              throw new Error('restricted callbacks missing');
+            }
+            exact.dispatch(new Uint8Array([9, 4, 1]));
+          })();
+        "#;
+        let result = build_restricted_exact_embedder_artifact(
+            &exact_manifest(),
+            bundle,
+            &restricted_bundle_binding("source-utf8", None),
+        );
+        if crate::engine::loaded_engine_structural_features()
+            != [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown",
+            ]
+        {
+            assert!(result.is_err());
+            return;
+        }
+        let artifact = result.unwrap();
+        let artifact_bytes = serde_json::to_vec(&artifact).unwrap();
+        let authenticated =
+            authenticate_restricted_exact_embedder_artifact(&artifact_bytes).unwrap();
+        let manifest_digest = std::ffi::CString::new(
+            authenticated
+                .operation_binding()
+                .operation_manifest_digest
+                .as_str(),
+        )
+        .unwrap();
+        let installed_digest = unsafe {
+            crate::host::abi::install_restricted_exact_host_for_conformance(&artifact_bytes)
+        }
+        .unwrap();
+        let artifact_digest = std::ffi::CString::new(installed_digest).unwrap();
+
+        unsafe {
+            let wrong_digest =
+                std::ffi::CString::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+                    .unwrap();
+            assert!(ex_hermes_create_restricted_exact(wrong_digest.as_ptr()).is_null());
+            let runtime = ex_hermes_create_restricted_exact(artifact_digest.as_ptr());
+            assert!(!runtime.is_null());
+
+            let checkpoint = [7_u8, 8, 9];
+            assert_eq!(
+                ex_hermes_configure_restricted_exact_activation(
+                    runtime,
+                    checkpoint.as_ptr(),
+                    checkpoint.len(),
+                    1234,
+                    0x1234,
+                    0x5678,
+                ),
+                0
+            );
+            assert_eq!(
+                ex_hermes_configure_restricted_exact_activation(
+                    runtime,
+                    checkpoint.as_ptr(),
+                    checkpoint.len(),
+                    1234,
+                    0x1234,
+                    0x5678,
+                ),
+                -3
+            );
+            let mut premature_error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut premature_error),
+                1
+            );
+            assert!(!premature_error.is_null());
+            assert!(std::ffi::CStr::from_ptr(premature_error)
+                .to_string_lossy()
+                .contains("callbacks must be installed"));
+            ex_hermes_free_string(premature_error);
+            let operations = [1000_u32];
+            assert_eq!(
+                ex_hermes_set_exact_host_call_async(
+                    runtime,
+                    2,
+                    operations.as_ptr(),
+                    operations.len(),
+                    manifest_digest.as_ptr(),
+                    reject_unexpected_host_call,
+                    std::ptr::null_mut(),
+                ),
+                -3
+            );
+            assert_eq!(
+                ex_hermes_set_exact_host_call_async(
+                    runtime,
+                    1,
+                    operations.as_ptr(),
+                    operations.len(),
+                    manifest_digest.as_ptr(),
+                    reject_unexpected_host_call,
+                    std::ptr::null_mut(),
+                ),
+                0
+            );
+            let mut dispatched = Vec::<u8>::new();
+            ex_hermes_set_dispatch_callback(
+                runtime,
+                capture_dispatch,
+                (&mut dispatched as *mut Vec<u8>).cast(),
+            );
+            let mut replacement_dispatch = Vec::<u8>::new();
+            ex_hermes_set_dispatch_callback(
+                runtime,
+                capture_dispatch,
+                (&mut replacement_dispatch as *mut Vec<u8>).cast(),
+            );
+
+            let mut error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut error),
+                0,
+                "{}",
+                if error.is_null() {
+                    String::new()
+                } else {
+                    std::ffi::CStr::from_ptr(error)
+                        .to_string_lossy()
+                        .into_owned()
+                }
+            );
+            if !error.is_null() {
+                ex_hermes_free_string(error);
+            }
+            assert_eq!(dispatched, [9, 4, 1]);
+            assert!(replacement_dispatch.is_empty());
+
+            let mut replay_error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_run_restricted_exact_bundle(runtime, &mut replay_error),
+                1
+            );
+            assert!(!replay_error.is_null());
+            ex_hermes_free_string(replay_error);
+
+            let source = b"1 + 1";
+            let source_url = std::ffi::CString::new("forbidden.js").unwrap();
+            let mut eval_error = std::ptr::null_mut();
+            assert_eq!(
+                ex_hermes_eval(
+                    runtime,
+                    source.as_ptr(),
+                    source.len(),
+                    source_url.as_ptr(),
+                    0,
+                    &mut eval_error,
+                ),
+                1
+            );
+            assert!(!eval_error.is_null());
+            ex_hermes_free_string(eval_error);
+            ex_hermes_destroy(runtime);
+        }
     }
 
     #[test]

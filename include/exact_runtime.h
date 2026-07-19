@@ -55,6 +55,13 @@ ExactHermesRuntime* ex_hermes_create_diagnostic(void);
 /// armed-snapshot identity. Returns NULL on absence or mismatch.
 ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
 
+/// Create the profile-distinct `exact-session/v1` runtime only when the Host
+/// has authenticated the restricted artifact with this digest. The runtime has
+/// no general eval/module/bootstrap surface and accepts exactly one bundle via
+/// ex_hermes_run_restricted_exact_bundle.
+ExactHermesRuntime* ex_hermes_create_restricted_exact(
+    const char* artifact_digest);
+
 /// Copy the filesystem path of the loaded artifact that contains Hermes'
 /// runtime factory. Returns the byte length, or -1 on failure.
 int32_t ex_hermes_engine_binary_path(char* out, size_t out_len);
@@ -80,6 +87,26 @@ uint64_t ex_hermes_current_runtime_nonce(void);
 uint64_t ex_hermes_current_principal_id(void);
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);
+
+/// Supply the already authenticated activation inputs before restricted code
+/// runs. This is owner-thread-only and single-use. The checkpoint may be empty
+/// (genesis) but the deterministic RNG seeds may not both be zero.
+int ex_hermes_configure_restricted_exact_activation(
+    ExactHermesRuntime* runtime,
+    const uint8_t* checkpoint_data,
+    size_t checkpoint_len,
+    uint64_t wall_clock_ms,
+    uint64_t rng_seed_0,
+    uint64_t rng_seed_1);
+
+/// Consume and execute the one authenticated bundle bound to the Host artifact.
+/// The exact host-operation and output callbacks must already be installed.
+/// Returns 0 on success, 1 on refusal/evaluation failure, or 2 when HBC was
+/// rejected before execution. `out_error`, when non-NULL, is freed with
+/// ex_hermes_free_string. A failed ingress poisons the runtime.
+int ex_hermes_run_restricted_exact_bundle(
+    ExactHermesRuntime* runtime,
+    char** out_error);
 
 // =============================================================================
 // Evaluation

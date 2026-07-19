@@ -61,6 +61,13 @@ extern "C" void ex_hermes_set_dispatch_callback(
     void* context) {
   if (!runtime) return;
   if (runtime->restricted) return;  // no exact.dispatch on worklet runtimes (LLP 0297 §4.3)
+  if (runtime->runtime_thread != std::this_thread::get_id()) return;
+  if (runtime->restricted_exact &&
+      (runtime->restricted_exact_bundle_consumed ||
+       runtime->restricted_exact_poisoned ||
+       runtime->ios_dispatch_callback != nullptr)) {
+    return;
+  }
   runtime->ios_dispatch_callback = callback;
   runtime->ios_dispatch_context = context;
 
@@ -81,7 +88,10 @@ extern "C" void ex_hermes_set_dispatch_callback(
                 const facebook::jsi::Value&,
                 const facebook::jsi::Value* args,
                 size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !args[0].isObject() || !runtime->ios_dispatch_callback) {
+        if (count == 0 || !args[0].isObject() || !runtime->ios_dispatch_callback ||
+            (runtime->restricted_exact &&
+             (!runtime->restricted_exact_bundle_consumed ||
+              runtime->restricted_exact_poisoned))) {
           return facebook::jsi::Value::undefined();
         }
 
@@ -109,7 +119,23 @@ extern "C" void ex_hermes_set_dispatch_callback(
         return facebook::jsi::Value::undefined();
       });
 
-  exactObj.setProperty(rt, "dispatch", std::move(dispatchFn));
+  if (runtime->restricted_exact) {
+    auto descriptor = facebook::jsi::Object(rt);
+    descriptor.setProperty(rt, "value", std::move(dispatchFn));
+    descriptor.setProperty(rt, "writable", false);
+    descriptor.setProperty(rt, "enumerable", false);
+    descriptor.setProperty(rt, "configurable", false);
+    rt.global()
+        .getPropertyAsObject(rt, "Object")
+        .getPropertyAsFunction(rt, "defineProperty")
+        .call(
+            rt,
+            exactObj,
+            facebook::jsi::String::createFromAscii(rt, "dispatch"),
+            descriptor);
+  } else {
+    exactObj.setProperty(rt, "dispatch", std::move(dispatchFn));
+  }
   rt.global().setProperty(rt, "exact", std::move(exactObj));
 }
 
@@ -122,7 +148,7 @@ extern "C" void ex_hermes_set_dispatch_with_debug_context_callback(
         void* context),
     void* context) {
   if (!runtime) return;
-  if (runtime->restricted) return;  // LLP 0297 §4.3
+  if (runtime->restricted || runtime->restricted_exact) return;  // LLP 0297 §4.3 / LLP 0026 §5
   runtime->ios_dispatch_with_debug_context_callback = callback;
   runtime->ios_dispatch_context = context;
 
@@ -179,7 +205,7 @@ extern "C" void ex_hermes_set_module_dispatch_callback(
     void (*callback)(const uint8_t* data, size_t length, void* context),
     void* context) {
   if (!runtime) return;
-  if (runtime->restricted) return;  // LLP 0297 §4.3
+  if (runtime->restricted || runtime->restricted_exact) return;  // LLP 0297 §4.3 / LLP 0026 §5
   runtime->ios_module_dispatch_callback = callback;
   runtime->ios_module_dispatch_context = context;
 
@@ -237,7 +263,7 @@ extern "C" void ex_hermes_set_module_sync_callback(
                     void* context),
     void* context) {
   if (!runtime) return;
-  if (runtime->restricted) return;  // LLP 0297 §4.3
+  if (runtime->restricted || runtime->restricted_exact) return;  // LLP 0297 §4.3 / LLP 0026 §5
   runtime->ios_module_sync_callback = callback;
   runtime->ios_module_sync_context = context;
 
@@ -323,7 +349,7 @@ extern "C" void ex_hermes_set_kernel_handle(
   // Restricted worklet runtimes get no direct kernel access (LLP 0297
   // §4.3); geometry reads go through the measure() host callback against
   // the presenter snapshot instead.
-  if (runtime->restricted) return;
+  if (runtime->restricted || runtime->restricted_exact) return;
   runtime->kernel_handle = kernel_handle;
 
   auto& rt = *runtime->runtime;
@@ -726,6 +752,12 @@ extern "C" int ex_hermes_dispatch_event(
     uint32_t handler_id,
     const char* payload_json) {
   if (!runtime || !runtime->runtime) return -1;
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -1;
+  if (runtime->restricted_exact &&
+      (!runtime->restricted_exact_bundle_consumed ||
+       runtime->restricted_exact_poisoned)) {
+    return -1;
+  }
 
   auto& rt = *runtime->runtime;
 

@@ -4,8 +4,8 @@
   "fullProfile": "ibex/capsec/1",
   "status": "draft-unadvertised",
   "sourceEdgeSet": {
-    "count": 7111,
-    "digest": "sha256-H4exL6u17es6Lm6jKKh0mAYRY_STh0MqHSs4PRBKFV8"
+    "count": 7126,
+    "digest": "sha256-fAAWENFOuH8q7AwKTIO3bFW1mql5FH445Faam7aPXNk"
   },
   "candidateTargets": [
     {
@@ -39,58 +39,130 @@
       "reason": "runtime-generation-scoped completion delivery is part of the endowed Contract path"
     },
     {
-      "edgeId": "surface.native.op.exact.1rhm1r5",
+      "edgeId": "surface.native.op.global.clearinterval.11pm3v5",
       "surfaceKind": "native-op",
-      "surfaceName": "__exact",
-      "reason": "bootstrap-owned stable Exact object identity precedes immutable method publication"
+      "surfaceName": "global:clearInterval",
+      "reason": "Contract tasks may cancel an activation-owned interval"
+    },
+    {
+      "edgeId": "surface.native.op.global.cleartimeout.0xeg86z",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:clearTimeout",
+      "reason": "Contract tasks may cancel an activation-owned timeout"
+    },
+    {
+      "edgeId": "surface.native.op.global.date.1c0a19v",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Date",
+      "reason": "the restricted constructor replaces Date with the injected deterministic wall clock"
+    },
+    {
+      "edgeId": "surface.native.op.global.eval.018ogi5",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:eval",
+      "reason": "eval remains observable only as an immutable throwing sentinel"
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.09mgu86",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:exact",
+      "reason": "one stable frozen Exact capability object owns every admitted application edge"
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.dispatch.10m37ay",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:exact.dispatch",
+      "reason": "the dedicated binary protocol sink is the only renderer output channel"
     },
     {
       "edgeId": "surface.native.op.global.exact.invokehostasync.0b92itq",
       "surfaceKind": "native-op",
       "surfaceName": "global:exact.invokeHostAsync",
-      "reason": "the dedicated binary Exact endowment is the only JavaScript-to-native channel"
+      "reason": "the manifest-bound binary Exact endowment is the only JavaScript-to-native operation channel"
     },
     {
-      "edgeId": "surface.startup.capability.hardening.seal.1bkrr89",
-      "surfaceKind": "startup",
-      "surfaceName": "capability-hardening-seal",
-      "reason": "restricted bootstrap must close capability hatches before Contract code"
+      "edgeId": "surface.native.op.global.exact.takecheckpointbytes.1hbxdow",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:exact.takeCheckpointBytes",
+      "reason": "the authenticated activation checkpoint is exposed exactly once as copied bytes"
     },
     {
-      "edgeId": "surface.startup.compartment.registry.install.08lgw3i",
-      "surfaceKind": "startup",
-      "surfaceName": "compartment-registry-install",
-      "reason": "root/runtime attribution remains structural in the restricted profile"
+      "edgeId": "surface.native.op.global.function.132ixh3",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:Function",
+      "reason": "Function remains observable only as an immutable throwing sentinel"
     },
     {
-      "edgeId": "surface.startup.eager.native.seal.1497c3q",
-      "surfaceKind": "startup",
-      "surfaceName": "eager-native-seal",
-      "reason": "the restricted profile seals all admitted native installation before code ingress"
+      "edgeId": "surface.native.op.global.performance.19v50zv",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:performance",
+      "reason": "the restricted profile exposes a frozen deterministic performance object"
     },
     {
-      "edgeId": "surface.startup.freeze.seal.0oexesv",
-      "surfaceKind": "startup",
-      "surfaceName": "freeze-seal",
-      "reason": "post-bootstrap native replacement remains forbidden"
+      "edgeId": "surface.native.op.global.performance.now.1fmhnpl",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:performance.now",
+      "reason": "the initial restricted profile exposes deterministic zero elapsed time"
     },
     {
-      "edgeId": "surface.startup.install.route.ex.hermes.create.impl.installcompartmentregistry.0jtli1z",
-      "surfaceKind": "startup",
-      "surfaceName": "install-route:ex_hermes_create_impl:installCompartmentRegistry",
-      "reason": "restricted runtime creation retains the compartment installation route"
+      "edgeId": "surface.native.op.global.performance.timeorigin.0k5ydy0",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:performance.timeOrigin",
+      "reason": "the initial restricted profile exposes a deterministic zero time origin"
     },
     {
-      "edgeId": "surface.startup.install.route.installglobals.installtimerglobals.0mv2yas",
-      "surfaceKind": "startup",
-      "surfaceName": "install-route:installGlobals:installTimerGlobals",
-      "reason": "the hibernation-safe Contract task profile requires bounded timer primitives"
+      "edgeId": "surface.native.op.global.queuemicrotask.1gw3ql3",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:queueMicrotask",
+      "reason": "bounded owner-runtime microtasks are part of Contract task execution"
     },
     {
-      "edgeId": "surface.startup.installer.installcompartmentregistry.1yo7iho",
+      "edgeId": "surface.native.op.global.setinterval.0mmfr68",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:setInterval",
+      "reason": "Contract tasks may schedule activation-owned interval work"
+    },
+    {
+      "edgeId": "surface.native.op.global.settimeout.1ffaru8",
+      "surfaceKind": "native-op",
+      "surfaceName": "global:setTimeout",
+      "reason": "Contract tasks may schedule activation-owned timeout work"
+    },
+    {
+      "edgeId": "surface.native.op.ibexlockeddown.1l9g3ta",
+      "surfaceKind": "native-op",
+      "surfaceName": "__ibexLockedDown",
+      "reason": "the immutable lockdown marker is observable but carries no ambient authority"
+    },
+    {
+      "edgeId": "surface.startup.evaluation.ex.hermes.run.restricted.exact.bundle.authenticated.restricte.1e57hbx",
       "surfaceKind": "startup",
-      "surfaceName": "installer:installCompartmentRegistry",
-      "reason": "the restricted runtime installs the source-attribution compartment registry"
+      "surfaceName": "evaluation:ex_hermes_run_restricted_exact_bundle:authenticated-restricted-exact-bundle",
+      "reason": "the fixed evaluator consumes only the artifact-bound single-use bundle"
+    },
+    {
+      "edgeId": "surface.startup.evaluation.installrestrictedexactglobals.restricted.exact.lockdown.0xlst78",
+      "surfaceKind": "startup",
+      "surfaceName": "evaluation:installRestrictedExactGlobals:restricted-exact-lockdown",
+      "reason": "the profile-specific bootstrap evaluates only its reviewed lockdown source"
+    },
+    {
+      "edgeId": "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8",
+      "surfaceKind": "startup",
+      "surfaceName": "install-route:ex_hermes_create_impl:installRestrictedExactGlobals",
+      "reason": "the profile-distinct constructor selects the restricted installer instead of installGlobals"
+    },
+    {
+      "edgeId": "surface.startup.install.route.installrestrictedexactglobals.installtimerglobals.1kww2tg",
+      "surfaceKind": "startup",
+      "surfaceName": "install-route:installRestrictedExactGlobals:installTimerGlobals",
+      "reason": "the restricted installer admits only the bounded timer primitive family"
+    },
+    {
+      "edgeId": "surface.startup.installer.installrestrictedexactglobals.17llg9x",
+      "surfaceKind": "startup",
+      "surfaceName": "installer:installRestrictedExactGlobals",
+      "reason": "one dedicated installer owns the complete restricted global surface"
     },
     {
       "edgeId": "surface.startup.installer.installtimerglobals.1qth84q",
@@ -99,60 +171,54 @@
       "reason": "bounded timer globals are explicit reachable primitives rather than ambient compatibility"
     },
     {
-      "edgeId": "surface.startup.lockdown.install.16xl161",
-      "surfaceKind": "startup",
-      "surfaceName": "lockdown-install",
-      "reason": "native lockdown is a required structural target feature"
-    },
-    {
       "edgeId": "surface.startup.runtime.create.09gd22j",
       "surfaceKind": "startup",
       "surfaceName": "runtime-create",
       "reason": "the profile constructs one fresh armed Hermes runtime per activation"
     },
     {
-      "edgeId": "surface.startup.script.capability.hardening.1rurhty",
+      "edgeId": "surface.startup.script.authenticated.restricted.exact.bundle.1v2bh2d",
       "surfaceKind": "startup",
-      "surfaceName": "script:capability-hardening",
-      "reason": "the restricted bootstrap retains the reviewed capability hardening script"
+      "surfaceName": "script:authenticated-restricted-exact-bundle",
+      "reason": "the only application script is the bundle authenticated into the claimed Host context"
     },
     {
-      "edgeId": "surface.startup.script.compartment.registry.02997a7",
+      "edgeId": "surface.startup.script.restricted.exact.lockdown.1wpbysw",
       "surfaceKind": "startup",
-      "surfaceName": "script:compartment-registry",
-      "reason": "the restricted bootstrap retains only the compartment registry script"
-    },
-    {
-      "edgeId": "surface.startup.script.eager.install.seal.1xgqqwv",
-      "surfaceKind": "startup",
-      "surfaceName": "script:eager-install-seal",
-      "reason": "the restricted bootstrap seals eager installers before authenticated ingress"
-    },
-    {
-      "edgeId": "surface.startup.script.exact.global.11wdhva",
-      "surfaceKind": "startup",
-      "surfaceName": "script:exact-global",
-      "reason": "the stable lowercase Exact endowment object is installed by reviewed bootstrap code"
-    },
-    {
-      "edgeId": "surface.startup.script.freeze.seal.06nnraq",
-      "surfaceKind": "startup",
-      "surfaceName": "script:freeze-seal",
-      "reason": "the restricted bootstrap closes its final native freeze hatch"
-    },
-    {
-      "edgeId": "surface.startup.script.lockdown.1lhmuc0",
-      "surfaceKind": "startup",
-      "surfaceName": "script:lockdown",
-      "reason": "the restricted bootstrap runs the reviewed lockdown script"
+      "surfaceName": "script:restricted-exact-lockdown",
+      "reason": "the dedicated lockdown script removes ambient compatibility and dynamic-code hatches"
     }
   ],
   "trustedControlPlane": [
+    {
+      "edgeId": "surface.host.abi.ex.hermes.configure.restricted.exact.activation.12kr2mk",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_configure_restricted_exact_activation",
+      "reason": "the owner-thread supervisor installs one copied checkpoint and deterministic clock/RNG seed set before code runs"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.create.restricted.exact.0ef6yrt",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_create_restricted_exact",
+      "reason": "the profile-distinct constructor claims the authenticated artifact before allocating Hermes"
+    },
     {
       "edgeId": "surface.host.abi.ex.hermes.destroy.0m27uxn",
       "surfaceKind": "host-abi",
       "surfaceName": "ex_hermes_destroy",
       "reason": "trusted embedder destroys and fences the runtime generation"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_dispatch_event",
+      "reason": "the owner-thread supervisor injects only authenticated semantic events after successful bundle activation"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.free.string.123yf3v",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_free_string",
+      "reason": "trusted callers release bounded diagnostics returned by bundle ingress"
     },
     {
       "edgeId": "surface.host.abi.ex.hermes.has.pending.tasks.18qm35c",
@@ -173,6 +239,12 @@
       "reason": "trusted supervisor wakes the owner runtime for authenticated completion"
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.now.ms.027oxfa",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_now_ms",
+      "reason": "trusted supervisor reads the timer clock used by the native timer queue"
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.poll.02ylspu",
       "surfaceKind": "host-abi",
       "surfaceName": "ex_hermes_poll",
@@ -183,6 +255,12 @@
       "surfaceKind": "host-abi",
       "surfaceName": "ex_hermes_resolve_exact_host_call",
       "reason": "trusted broker resolves one runtime-generation-scoped binary call"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.run.restricted.exact.bundle.1y309kh",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_run_restricted_exact_bundle",
+      "reason": "the owner-thread supervisor consumes exactly one Host-owned authenticated bundle after installing every callback"
     },
     {
       "edgeId": "surface.host.abi.ex.hermes.set.dispatch.callback.0vppy3m",
@@ -197,6 +275,12 @@
       "reason": "trusted embedder installs the complete authenticated Exact operation set"
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.set.keep.alive.on.async.error.0pw9oqp",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_hermes_set_keep_alive_on_async_error",
+      "reason": "trusted supervisor selects the embedded-session async error policy before polling"
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.authorize.exact.endowment.035a1se",
       "surfaceKind": "host-abi",
       "surfaceName": "ex_host_authorize_exact_endowment",
@@ -207,6 +291,24 @@
       "surfaceKind": "host-abi",
       "surfaceName": "ex_host_claim_restricted_exact_context",
       "reason": "profile-distinct constructor claims only the exact thread-bound restricted Host context and artifact digest"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.copy.restricted.exact.bundle.09bbsk3",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_host_copy_restricted_exact_bundle",
+      "reason": "native ingress copies only bytes already authenticated and bound to the claimed restricted context"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.free.buffer.0c4fojc",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_host_free_buffer",
+      "reason": "the engine releases the copied Host bundle immediately after taking native ownership"
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.release.context.0ozp44g",
+      "surfaceKind": "host-abi",
+      "surfaceName": "ex_host_release_context",
+      "reason": "constructor refusal and runtime teardown release the exact claimed Host context"
     }
   ],
   "structuralAbsencePolicy": {

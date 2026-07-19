@@ -5,7 +5,12 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r4 — authenticates candidate artifacts from strict
+**Revised:** 2026-07-19 (r5 — implements the profile-distinct restricted
+Hermes constructor, deterministic checkpoint/clock/RNG activation, minimal
+installer and lockdown, owner-thread callback readiness, Host-owned single-use
+source/HBC ingress, poisoning/replay refusal, raw-eval refusal, and the actual
+27-reachable/20-control-plane/7,079-absent projection while advertisements and
+promotion remain empty; r4 — authenticates candidate artifacts from strict
 bytes, reopens and revalidates protected bundle/manifest objects, separates
 full/diagnostic/restricted Host-context claims, and adds a conformance-only
 candidate installation path while production still refuses the empty target
@@ -304,20 +309,20 @@ empty.
 
 Implementation status (2026-07-19): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
-authored definition pins the exact 7,111-edge full-registry set and binds each
-of 20 candidate reachable and ten trusted-control-plane rows to its
-source-derived kind and name; the remaining 7,081 rows are candidate
+authored definition pins the exact 7,126-edge full-registry set and binds each
+of 27 candidate reachable and 20 trusted-control-plane rows to its
+source-derived kind and name; the remaining 7,079 rows are candidate
 structural absences whose source-install and live-reachability evidence is
 explicitly pending. The projection also binds the raw definition, coverage,
 implementation-manifest, and three profile-schema byte digests. Six mutation
 tests reject edge-set addition/removal/duplication, implementation-manifest
 divergence, disposition overlap, bound-identity drift, ordering drift,
 raw-byte/object mismatch, advertisement attempts, projection omission, and
-digest tampering. The four
-existing generic artifact/install/create edges are deliberately *not* trusted
-restricted control-plane rows: profile-distinct replacements must first enter
-the full registry and then be explicitly admitted. Advertisements remain
-empty and `promotionReady` remains false. A strict activation-artifact schema
+digest tampering. The profile-distinct constructor, activation configuration,
+authenticated bundle-copy/run ingress, and their dedicated restricted
+installer/evaluation routes now enter the full registry and are explicitly
+admitted by the projection. Advertisements remain empty and `promotionReady`
+remains false. A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
 vocabulary/registry/source-edge identities; mapped Hermes binary, object, and
@@ -336,6 +341,19 @@ handoff now has three mutually exclusive claim kinds, so a restricted context
 cannot be consumed by the full armed or diagnostic constructors. Production
 installation explicitly refuses the still-empty advertisement authority;
 candidate installation exists only in tests/the conformance-observer build.
+The constructor allocates Hermes only after the restricted digest claim,
+disables general eval and the debugger, skips `installGlobals`, Web Streams,
+and the package-compartment bootstrap, and installs only the stable `exact`
+object, bounded timers/microtasks, deterministic time/RNG/checkpoint ingress,
+and the reviewed restricted lockdown. Bundle execution requires immutable app
+operation and renderer callbacks first, consumes bytes only from the claimed
+Host artifact, freezes the final `exact` object, requires checkpoint
+consumption, rejects replay/general eval, and poisons the runtime on any failed
+post-consumption attempt. A target-local native test proves successful source
+ingress, deterministic activation, output dispatch, replay refusal, and raw
+eval refusal. Source-install/live-reachability evidence, hostile lifecycle
+fixtures, semantic event ingress, Linux evidence, and target advertisement are
+still pending.
 
 ### Phase 1 — Apple vertical slice
 
