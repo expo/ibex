@@ -1313,15 +1313,19 @@ export function createEnvProxy(): Record<string, string | undefined> {
     return all;
   }
 
-  return new Proxy(jsEnv, {
-    get(target, prop: string | symbol): string | undefined {
+  function toJSON(): Record<string, string> {
+    return collectAll();
+  }
+
+  const handler: ProxyHandler<Record<string, string | undefined>> = {
+    get(target, prop: string | symbol): any {
       if (typeof prop === 'symbol') {
         return undefined;
       }
 
       // Special handling for toJSON
       if (prop === 'toJSON') {
-        return () => collectAll();
+        return toJSON;
       }
 
       return resolveValue(prop);
@@ -1416,7 +1420,30 @@ export function createEnvProxy(): Record<string, string | undefined> {
         configurable: true,
       };
     },
-  });
+  };
+
+  // @ref LLP 0013#mechanism-3 — Windows source bootstrap gives lazily compiled
+  // functions from this bundle distinct Hermes Domains. Publish the exact
+  // process.env deputy call chain to the trusted bootstrap sink so native
+  // startup can bind and read back each Domain as the runtime principal. The
+  // existing private shared-runtime marker is restored to its ordinary boolean
+  // value before package code can run.
+  const principalAnchors = (globalThis as any).__exactHasSharedRuntimeBundle;
+  if (Array.isArray(principalAnchors)) {
+    principalAnchors.push(
+      refreshNativeCache,
+      getNativeValue,
+      resolveValue,
+      collectAll,
+      toJSON,
+      handler.get,
+      handler.has,
+      handler.ownKeys,
+      handler.getOwnPropertyDescriptor,
+    );
+  }
+
+  return new Proxy(jsEnv, handler);
 }
 
 /**

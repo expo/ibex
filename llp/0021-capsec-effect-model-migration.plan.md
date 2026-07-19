@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 replaces the insufficient single process.cwd shared-runtime anchor with exact bootstrap-only process.env deputy anchors after physical Windows proved multiple lazy source Domains)
 **Revised:** 2026-07-19 (ENG-24933 post-binds and reads back the shared runtime and lazy-builtin Domain principals after focused Windows evidence proved the package wrapper/callback correct and isolated root drift to the process.env deputy boundary)
 **Revised:** 2026-07-19 (ENG-24933 retains the failed physical Windows write-only Domain bind as refusal evidence, makes binding/readback fail closed, and adds focused wrapper-versus-exported-callback evidence before another full matrix)
 **Revised:** 2026-07-18 (ENG-24933 makes the trusted CommonJS Domain binder stamp package attribution together with its compartment after physical Windows source-bootstrap evidence exposed a root-principal fallback)
@@ -1903,7 +1904,15 @@ now permits principal-only binding for non-compartmented units: shared-runtime
 bootstrap binds and reads back its Domain through the retained `process.cwd`
 function, while the module loader binds and reads back lazy builtin functions as
 runtime principal `0xFFFFFFFF`. Package modules still supply their authenticated
-compartment. The creation-time pending label remains in place for eval
+compartment. A second focused physical Windows run accepted the shared bundle's
+retained `process.cwd` bind/readback but still root-attributed both environment
+probes. That refusal proves Windows source bootstrap creates multiple lazy
+Domains inside the evaluated bundle rather than one shared Domain. The runtime
+now publishes the exact `process.env` Proxy trap and its retained helper
+functions through the already-reviewed private shared-runtime marker as a
+bootstrap-only anchor list; native startup binds and reads back each Domain as
+runtime principal, then restores the marker to its ordinary boolean before
+package code can run. The creation-time pending label remains in place for eval
 inheritance and defense in depth. The nine Apple
 startup-environment recipes and all 2,698 Apple callback-invariant fixtures pass
 with the shared identity binding; Windows must still repeat the focused physical

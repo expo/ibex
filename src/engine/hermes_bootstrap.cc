@@ -114,6 +114,13 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
   if (g_vm_runtime != nullptr) {
     ex_hermes_vm_set_pending_package_id(g_vm_runtime, kRuntimePrincipalId);
   }
+  // Source bootstrap may compile trusted deputy functions into distinct lazy
+  // Domains. Give the bundle a bootstrap-only sink in which it can retain the
+  // exact functions that cross capability boundaries; those Domains are bound
+  // and read back below. Reuse the already-reviewed private shared-runtime
+  // marker, restoring its ordinary boolean value before bootstrap continues.
+  rt.global().setProperty(
+      rt, "__exactHasSharedRuntimeBundle", facebook::jsi::Array(rt, 0));
 #endif
   bool evaluated = false;
   if (!sourceSharedRuntimeBundle &&
@@ -149,21 +156,26 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // @ref LLP 0013#mechanism-3 — the shared bundle's process.env Proxy and
-  // builtin wrappers are trusted deputies, so their Domain must be transparent
-  // to frame attribution. Bind and read back the retained Process::cwd method's
-  // RuntimeModule after evaluation; every function compiled in the bundle
-  // shares that Domain. This closes the Windows source-profile gap where the
-  // creation-time pending label reported success but deputy host calls still
-  // observed root. The binder remains private bootstrap authority and is sealed
-  // before user code can run.
+  // builtin wrappers are trusted deputies, so their Domains must be transparent
+  // to frame attribution. Windows source bootstrap creates distinct lazy
+  // Domains inside one evaluated bundle; bind and read back both the retained
+  // Process::cwd method and every exact capability-boundary anchor published by
+  // the bundle. The binder remains private bootstrap authority, and the reused
+  // shared-runtime marker is restored to a boolean before user code can run.
   try {
     auto binderValue = rt.global().getProperty(rt, "__exactSetCompartmentFor");
     auto processValue = rt.global().getProperty(rt, "process");
+    auto anchorsValue =
+        rt.global().getProperty(rt, "__exactHasSharedRuntimeBundle");
     if (!binderValue.isObject() ||
         !binderValue.asObject(rt).isFunction(rt) ||
-        !processValue.isObject()) {
+        !processValue.isObject() ||
+        !anchorsValue.isObject() ||
+        !anchorsValue.asObject(rt).isArray(rt)) {
       reportStartupFailure(
-          handle, "Shared runtime bundle", "Domain binder or process anchor is unavailable");
+          handle,
+          "Shared runtime bundle",
+          "Domain binder, process anchor, or deputy anchor list is unavailable");
       return false;
     }
     auto anchorValue = processValue.asObject(rt).getProperty(rt, "cwd");
@@ -183,6 +195,32 @@ static bool installSharedRuntimeBundle(ExactHermesRuntime* handle) {
           handle, "Shared runtime bundle", "runtime-principal Domain readback mismatch");
       return false;
     }
+    auto anchors = anchorsValue.asObject(rt).asArray(rt);
+    if (anchors.size(rt) == 0) {
+      reportStartupFailure(
+          handle, "Shared runtime bundle", "runtime deputy anchor list is empty");
+      return false;
+    }
+    for (size_t i = 0; i < anchors.size(rt); ++i) {
+      auto anchor = anchors.getValueAtIndex(rt, i);
+      if (!anchor.isObject() || !anchor.asObject(rt).isFunction(rt)) {
+        reportStartupFailure(
+            handle, "Shared runtime bundle", "runtime deputy anchor is not a function");
+        return false;
+      }
+      auto anchorBound = binderValue.asObject(rt).asFunction(rt).call(
+          rt,
+          anchor.asObject(rt).asFunction(rt),
+          facebook::jsi::Value::null(),
+          facebook::jsi::Value(static_cast<double>(kRuntimePrincipalId)));
+      if (!anchorBound.isNumber() ||
+          anchorBound.asNumber() != static_cast<double>(kRuntimePrincipalId)) {
+        reportStartupFailure(
+            handle, "Shared runtime bundle", "runtime deputy Domain readback mismatch");
+        return false;
+      }
+    }
+    rt.global().setProperty(rt, "__exactHasSharedRuntimeBundle", true);
   } catch (const facebook::jsi::JSError& err) {
     reportStartupFailure(handle, "Shared runtime bundle Domain binding", err.getMessage());
     return false;

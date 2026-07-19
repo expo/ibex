@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-19 (ENG-24933 replaces the insufficient single process.cwd shared-runtime anchor with a bootstrap-only exact process.env deputy-function list after physical Windows proved source bootstrap creates multiple lazy Domains inside the bundle)
 **Revised:** 2026-07-19 (ENG-24933 extends exact retained-function Domain binding/readback to the shared runtime bundle and non-compartmented builtin deputies after physical Windows proved the package wrapper and callback correct but the immediately following process.env deputy call root-attributed)
 **Revised:** 2026-07-19 (ENG-24933 makes the CommonJS Domain binder fail closed and requires an exact post-bind package-principal readback after physical Windows evidence disproved the original write-only convergence claim)
 **Revised:** 2026-07-18 (ENG-24933 added the first direct CommonJS Domain principal bind; subsequent physical Windows evidence showed that write-only binding was insufficient)
@@ -1327,10 +1328,15 @@ currently compatibility routing and defense in depth on top of it:
   returned ID to match. Focused physical Windows source-profile evidence proved
   the CommonJS wrapper and its exported callback both carried the package
   principal, but the immediately following `process.env` deputy call observed
-  root. The shared runtime bundle is therefore post-bound through a retained
-  `process.cwd` function and lazy builtin functions go through the same exact
-  binder; this revision still requires a physical rerun before convergence can
-  be claimed. This closes channel #2
+  root. A second physical Windows run accepted a retained `process.cwd` Domain
+  bind/readback but still root-attributed the environment decision, proving that
+  source bootstrap creates multiple lazy Domains inside the bundle. The bundle
+  therefore publishes the exact `process.env` Proxy trap and helper functions to
+  the already-reviewed private shared-runtime marker as a bootstrap-only anchor
+  list; native startup binds and reads back every listed Domain, then restores
+  the marker to its ordinary boolean before package code runs. Lazy builtin
+  functions go through the same exact binder. This revision still
+  requires a physical rerun before convergence can be claimed. This closes channel #2
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
   rewrite never touches. Tested by
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.
