@@ -238,7 +238,9 @@ function createFakeCodecs(
         operationId === 'GPUDevice.createTexture' ||
         operationId === 'GPUDevice.createBindGroup' ||
         operationId === 'GPUDevice.createBindGroupLayout' ||
+        operationId === 'GPUDevice.createComputePipeline' ||
         operationId === 'GPUDevice.createRenderPipeline' ||
+        operationId === 'GPUQueue.writeBuffer' ||
         operationId === 'GPUTexture.createView' ||
         operationId === 'GPUTexture.destroy' ||
         operationId === 'GPUCanvasContext.configure' ||
@@ -283,7 +285,11 @@ function createFakeCodecs(
     encodeServiceRequest(input) {
       log.push(`encode:${input.operationId}`);
       encodings.push(input);
-      if (input.operationId === 'GPUTexture.createView') {
+      if (
+        input.operationId === 'GPUDevice.createComputePipeline' ||
+        input.operationId === 'GPUQueue.writeBuffer' ||
+        input.operationId === 'GPUTexture.createView'
+      ) {
         return WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
           .encodeServiceRequest(input);
       }
@@ -508,12 +514,22 @@ interface TestCommandEncoder {
 }
 
 interface TestRecordingDevice extends TestGpuDevice {
-  readonly queue: { submit(commandBuffers: Iterable<unknown>): void };
+  readonly queue: {
+    submit(commandBuffers: Iterable<unknown>): void;
+    writeBuffer(
+      buffer: unknown,
+      bufferOffset: number,
+      data: ArrayBufferView,
+      dataOffset?: number,
+      size?: number,
+    ): void;
+  };
   createBindGroupLayout(descriptor: unknown): object;
   createBindGroup(descriptor: unknown): object;
   createBuffer(descriptor: unknown): TestBuffer;
   createCommandEncoder(descriptor?: unknown): TestCommandEncoder;
   createPipelineLayout(descriptor: unknown): object;
+  createComputePipeline(descriptor: unknown): object;
   createRenderPipeline(descriptor: unknown): object;
   createShaderModule(descriptor: unknown): object;
   createTexture(descriptor: unknown): object;
@@ -1268,15 +1284,13 @@ describe('production-private WebGPU wrapper factory', () => {
       createFakeCodecs(),
     );
     expect(WEBGPU_PRODUCTION_PLAN.routes.length).toBeGreaterThanOrEqual(41);
-    expect(Object.keys(binding.interfaceObjects)).toHaveLength(25);
+    expect(Object.keys(binding.interfaceObjects)).toHaveLength(26);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
     const uninstalledPrivateRoutes = new Set([
       'GPUBuffer.destroy',
       'GPUBuffer.getMappedRange',
       'GPUBuffer.mapAsync',
       'GPUBuffer.unmap',
-      'GPUDevice.createComputePipeline',
-      'GPUQueue.writeBuffer',
     ]);
     for (const selected of WEBGPU_PRODUCTION_PLAN.routes) {
       const interfaceObject = binding.interfaceObjects[selected.interfaceName] as {
@@ -1338,7 +1352,16 @@ describe('production-private WebGPU wrapper factory', () => {
     const pendingDevice = adapter.requestDevice({});
     expect(log).toContain('convert:GPUAdapter.requestDevice');
     const device = (await pendingDevice) as {
-      readonly queue: { submit(buffers: Iterable<unknown>): void };
+      readonly queue: {
+        submit(buffers: Iterable<unknown>): void;
+        writeBuffer(
+          buffer: unknown,
+          bufferOffset: number,
+          data: ArrayBufferView,
+          dataOffset?: number,
+          size?: number,
+        ): void;
+      };
       readonly features: { has(value: string): boolean };
       readonly limits: Readonly<Record<string, number>>;
       readonly lost: Promise<unknown>;
@@ -1360,6 +1383,7 @@ describe('production-private WebGPU wrapper factory', () => {
         readonly depthOrArrayLayers: number;
         readonly width: number;
       };
+      createComputePipeline(descriptor: unknown): object;
       createRenderPipeline(descriptor: unknown): object;
       createCommandEncoder(descriptor?: unknown): {
         beginRenderPass(descriptor: unknown): {
@@ -1374,6 +1398,7 @@ describe('production-private WebGPU wrapper factory', () => {
     expect(device.limits.maxBindGroups).toBe(4);
     expect(device.queue).toBe(device.queue);
     expect(device.lost).toBe(device.lost);
+    expect(globalObject.GPUComputePassEncoder).toBeFunction();
     device.pushErrorScope('validation');
     const poppedScope = device.popErrorScope();
     expect(poppedScope).toBeInstanceOf(Promise);
@@ -1475,6 +1500,27 @@ describe('production-private WebGPU wrapper factory', () => {
       providerGeneration: '7',
     });
 
+    const shaderForCompute = device.createShaderModule({
+      code: '@compute @workgroup_size(1) fn main() {}',
+    });
+    const computePipeline = device.createComputePipeline({
+      label: 'compute-pipeline',
+      layout: pipelineLayout,
+      compute: { module: shaderForCompute },
+    });
+    expect(Object.getPrototypeOf(computePipeline)).toBe(
+      (globalObject.GPUComputePipeline as { prototype: object }).prototype,
+    );
+    const computeEncoding = codecs.encodings.find(
+      (encoding) => encoding.operationId === 'GPUDevice.createComputePipeline',
+    )!;
+    expect(computeEncoding.target).toMatchObject({
+      kind: 'GPUComputePipeline',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+
     const sampler = device.createSampler({
       label: 'sampler',
       magFilter: 'linear',
@@ -1552,6 +1598,26 @@ describe('production-private WebGPU wrapper factory', () => {
     pass.draw(3);
     pass.end();
     const commandBuffer = encoder.finish();
+    const uploadSource = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
+    device.queue.writeBuffer(unmappedBuffer, 4, uploadSource, 1, 4);
+    uploadSource.fill(0);
+    const writeBufferEncoding = codecs.encodings.find(
+      (encoding) => encoding.operationId === 'GPUQueue.writeBuffer',
+    )!;
+    expect(writeBufferEncoding.receiver).toMatchObject({
+      kind: 'GPUQueue',
+      objectId: '202',
+      logicalDeviceId: '301',
+      logicalDeviceGeneration: '1',
+      providerGeneration: '7',
+    });
+    expect(writeBufferEncoding.convertedArguments).toMatchObject({
+      bufferOffset: 4,
+      bytes: new Uint8Array([2, 3, 4, 5]),
+    });
+    expect(writeBufferEncoding.deviceIngressOrdinal).not.toBe('0');
+    expect(writeBufferEncoding.queueIngressOrdinal).not.toBe('0');
+    expect(writeBufferEncoding.sealedLocalTimeline).toEqual([]);
     const submissionsBeforeQueue = bridge.submissions.length;
     device.queue.submit([commandBuffer]);
     expect(bridge.submissions).toHaveLength(submissionsBeforeQueue + 1);
@@ -1629,6 +1695,25 @@ describe('production-private WebGPU wrapper factory', () => {
     );
     const firstDevice = await requestTestRecordingDevice(binding);
     const secondDevice = await requestTestRecordingDevice(binding);
+    const firstBuffer = firstDevice.createBuffer({ size: 16, usage: 8 });
+    const secondBuffer = secondDevice.createBuffer({ size: 16, usage: 8 });
+    const submissionsBeforeForeignWrite = bridge.submissions.length;
+    expect(() => firstDevice.queue.writeBuffer(
+      secondBuffer,
+      0,
+      new Uint8Array([1, 2, 3, 4]),
+    )).toThrow(TypeError);
+    expect(bridge.submissions).toHaveLength(submissionsBeforeForeignWrite);
+    firstDevice.queue.writeBuffer(
+      firstBuffer,
+      0,
+      new Uint8Array([5, 6, 7, 8]),
+    );
+    const firstValidWrite = codecs.encodings.findLast(
+      (encoding) => encoding.operationId === 'GPUQueue.writeBuffer',
+    );
+    expect(firstValidWrite?.queueIngressOrdinal).toBe('1');
+    expect(bridge.submissions).toHaveLength(submissionsBeforeForeignWrite + 1);
     const firstShader = firstDevice.createShaderModule({
       code: '@vertex fn main() {}',
     });

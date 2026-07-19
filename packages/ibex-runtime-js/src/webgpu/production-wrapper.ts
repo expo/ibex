@@ -683,9 +683,9 @@ function createPrototypeTable(): Record<
     GPUCommandBuffer: Object.create(null),
     GPUCommandEncoder: Object.create(null),
     // These identities are part of the authenticated private object-kind
-    // vocabulary even while their creator routes remain unavailable. Keeping
-    // private prototypes here makes the table exhaustive without publishing
-    // either constructor or a public prototype member.
+    // vocabulary. Keeping their prototypes in the closed table makes wrapper
+    // allocation exhaustive without granting an app-visible constructor;
+    // publication still requires the separately authenticated install gate.
     GPUComputePipeline: Object.create(null),
     GPUComputePassEncoder: Object.create(null),
     GPUDevice: Object.create(EventTarget.prototype),
@@ -2018,7 +2018,10 @@ export function createProductionWebGpuPrivateBinding(
         'device ingress ordinal',
       )
       : undefined;
-    const queuePlan = operationId === 'GPUQueue.submit' && device
+    const queuePlan = (
+      operationId === 'GPUQueue.submit' ||
+      operationId === 'GPUQueue.writeBuffer'
+    ) && device
       ? consumeNextCounterOrClose(
         device.nextQueueIngress,
         device.queueIngressExhausted,
@@ -2081,8 +2084,13 @@ export function createProductionWebGpuPrivateBinding(
     if ((receiver.device ?? target?.device) !== device) {
       throw new Error(`${operationId} counter plan changed logical device`);
     }
+    // writeBuffer owns an immediate affine byte snapshot and queue ordinal,
+    // but it must neither consume nor duplicate command records that are
+    // still waiting for their eventual queue.submit carrier.
     const sealedLocalTimeline = Object.freeze(
-      device?.pendingLocalTimeline.slice() ?? [],
+      operationId === 'GPUQueue.writeBuffer'
+        ? []
+        : device?.pendingLocalTimeline.slice() ?? [],
     );
     const receiverReference = singleton
       ? Object.freeze({
@@ -3248,6 +3256,29 @@ export function createProductionWebGpuPrivateBinding(
     return pipeline.wrapper;
   });
 
+  defineMethod(mutablePrototypes.GPUDevice, 'createComputePipeline', function (
+    this: object,
+    descriptor: unknown,
+  ) {
+    const state = requireState(this, 'GPUDevice');
+    const converted = convert('GPUDevice.createComputePipeline', [descriptor]);
+    const servicePlan = prepareServiceCounters(
+      'GPUDevice.createComputePipeline',
+      state,
+      state.device,
+    );
+    const pipeline = allocateWrapper('GPUComputePipeline', state.device);
+    submitService(
+      'GPUDevice.createComputePipeline',
+      state,
+      pipeline,
+      converted,
+      false,
+      servicePlan,
+    );
+    return pipeline.wrapper;
+  });
+
   defineMethod(mutablePrototypes.GPUDevice, 'destroy', function (this: object) {
     const state = requireState(this, 'GPUDevice');
     const device = state.device;
@@ -4355,6 +4386,31 @@ export function createProductionWebGpuPrivateBinding(
     }
   });
 
+  defineMethod(mutablePrototypes.GPUQueue, 'writeBuffer', function (
+    this: object,
+    buffer: unknown,
+    bufferOffset: unknown,
+    data: unknown,
+    dataOffset?: unknown,
+    size?: unknown,
+  ) {
+    const queue = requireState(this, 'GPUQueue');
+    const converted = convert('GPUQueue.writeBuffer', [
+      buffer,
+      bufferOffset,
+      data,
+      dataOffset,
+      size,
+    ]);
+    submitService(
+      'GPUQueue.writeBuffer',
+      queue,
+      undefined,
+      converted,
+      false,
+    );
+  });
+
   defineMethod(mutablePrototypes.GPUTexture, 'createView', function (
     this: object,
     descriptor?: unknown,
@@ -4541,6 +4597,10 @@ export function createProductionWebGpuPrivateBinding(
     GPUCommandEncoder: makeIllegalConstructor(
       'GPUCommandEncoder',
       mutablePrototypes.GPUCommandEncoder,
+    ),
+    GPUComputePipeline: makeIllegalConstructor(
+      'GPUComputePipeline',
+      mutablePrototypes.GPUComputePipeline,
     ),
     GPUComputePassEncoder: makeIllegalConstructor(
       'GPUComputePassEncoder',
@@ -4821,6 +4881,8 @@ const PUBLIC_INTERFACE_NAMES = Object.freeze([
   'GPUCanvasContext',
   'GPUCommandBuffer',
   'GPUCommandEncoder',
+  'GPUComputePipeline',
+  'GPUComputePassEncoder',
   'GPUDevice',
   'GPUDeviceLostInfo',
   'GPUError',

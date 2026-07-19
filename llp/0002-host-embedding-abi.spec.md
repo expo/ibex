@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-19 (materializes authenticated `GPUDevice.createComputePipeline` and `GPUQueue.writeBuffer` methods inside the construction-private wrapper, adds the `GPUComputePipeline` and existing `GPUComputePassEncoder` interface objects to that gated installation inventory, and consumes distinct positive queue ingress for `writeBuffer` without consuming pending command records; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-18 (adds the authenticated production-private `GPUDevice.createBuffer` Web IDL conversion, bounded structural transport, six-field wrapper target, wrapper-local immutable `usage`/`mapState` metadata, ordered semantic boundary, dual-ledger accounting evidence, and 21-call positive/adversarial corpus without installing native execution or a CapSec edge); 2026-07-18 (adds the authenticated production-private `GPUDevice.createPipelineLayout` Web IDL, full-reference transport, semantic-boundary program, wrapper target, and positive/adversarial corpus without installing native execution); 2026-07-18 (separates the complete post-WebIDL bind-group-layout structural transport type from the post-decode TypeGPU workload predicate); 2026-07-18 (consumes Exact-generated wrapper pins as the sole normalized digest/route authority and classifies the immutable 25-operation triangle separately from explicit TypeGPU graduates)
 **Revised:** 2026-07-19 (promotes the staged construction-private `GPUDevice.createComputePipeline` conversion to an authenticated private route with generated request/result codecs and a positive/adversarial language-neutral corpus over the exact seven-call TypeGPU 0.11.9 cohort, preserving full reference lineage, the constants `{}` default, and optional entry-point presence without adding a prototype member, public issuer, installed native semantic service/provider factory, embedded codec, positive CapSec support edge, global installation, or support claim; the staged semantic program remains the provenance authority)
 **Revised:** 2026-07-19 (promotes construction-private `GPUCanvasContext.configure`, `GPUCanvasContext.unconfigure`, and coupled `GPUTexture.destroy` service payloads to authenticated native-codec programs with closed wrapper-owned generation, surface-account, materialization, and canvas-current-origin projections; `getCurrentTexture` remains wrapper-local, the CapSec operation classification remains unchanged, and no public issuer, root global, installed native semantic service/provider factory, embedded codec, platform support edge, or support claim is added)
@@ -894,9 +895,12 @@ public installation, or WebGPU support claim.
 The compute-pipeline checkpoint promotes the previously staged conversion into
 one authenticated construction-private active route and generated request/result
 codec while preserving the staged semantic program and seven-row cohort as its
-explicit provenance authority. `GPUDevice.createComputePipeline` remains absent
-from `GPUDevice.prototype`, the public installation inventory, and every support
-claim. Conversion observes inherited `label`, then
+explicit provenance authority. The private wrapper now materializes
+`GPUDevice.createComputePipeline`, its `GPUComputePipeline` target wrapper, and
+the matching interface object only after receiving the authenticated V2 bridge
+and an explicitly injected digest-matched codec bundle. The production embedded
+codec slot remains empty, so ordinary construction still exposes no prototype,
+interface global, or support claim. Conversion observes inherited `label`, then
 required `layout`, then required `compute`; the programmable stage observes
 optional `constants`, optional `entryPoint`, then required `module`, with each
 conversion immediately following its Get. A constants record gets its own keys
@@ -931,8 +935,9 @@ The corpus carries all seven positive cohort requests, explicit auto-layout and
 present constants/entry-point presence, structural pre-byte rejections, semantic
 cross-device rejection inputs, and the empty success result. This route still
 has no installed native decoder or semantic-service/provider factory, public
-issuer, prototype installation, embedded executable codec, positive CapSec support edge,
-global installation, or WebGPU support claim.
+issuer, embedded executable codec, positive CapSec support edge, ordinary global
+installation, or WebGPU support claim. Its private prototype/interface
+materialization is testable construction evidence, not publication authority.
 
 The closure comes from replaying both pinned TypeGPU 0.11.9 workloads: 16 creation
 calls and 43 entries, with at most five entries per call. The replay pins the
@@ -971,6 +976,12 @@ and queue ingress ordinals plus the captured scope. Exactly one encoding may
 consume the snapshot. Its empty completion payload has two typed service-owned
 variants: NOT_ADMITTED with physical sequence zero for later-predicate
 rejection, and ADMITTED with a positive physical sequence for success.
+The construction-private wrapper now materializes this method, consumes one
+device-ingress and one queue-ingress ordinal, and passes only the affine copied
+snapshot to the authenticated encoder without consuming pending local command
+records owned by a later `GPUQueue.submit`. It remains unreachable through ordinary
+runtime construction because the embedded codec slot and public capability edge
+are still absent.
 `GPUQueue.submit` has its own dormant payload-codegen program rather than a
 handle-only substitution. It consumes the wrapper-owned sealed local timeline
 and per-command-buffer sealed programs, validates all 15 command-record
