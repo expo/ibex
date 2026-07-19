@@ -5,7 +5,30 @@ var _uvErrnoMapFallback = {
   ENOTDIR: 20
 };
 
-var _processCwd = "/";
+// The authenticated builtin wrapper supplies these loader-private function
+// objects after their global spellings are sealed. They are the only cwd
+// authority used by this facade.
+// @ref LLP 0023#54-facades-cannot-subvert-it
+var _exactPrivateBuiltinBridges =
+  typeof __exactPrivateBuiltinBridges === 'object' && __exactPrivateBuiltinBridges
+    ? __exactPrivateBuiltinBridges
+    : null;
+var _exactGetVirtualCwd =
+  _exactPrivateBuiltinBridges &&
+  typeof _exactPrivateBuiltinBridges.getVirtualCwd === 'function'
+    ? _exactPrivateBuiltinBridges.getVirtualCwd
+    : typeof globalThis.__exactGetCwd === 'function'
+    ? globalThis.__exactGetCwd
+    : null;
+var _exactSetVirtualCwd =
+  _exactPrivateBuiltinBridges &&
+  typeof _exactPrivateBuiltinBridges.setVirtualCwd === 'function'
+    ? _exactPrivateBuiltinBridges.setVirtualCwd
+    : typeof globalThis.__exactSetCwd === 'function'
+    ? globalThis.__exactSetCwd
+    : null;
+
+var _processCwd = "/project";
 
 function _stringifyPathPart(path) {
   if (typeof path === 'string') return path;
@@ -47,36 +70,32 @@ function _resolveCwd(path) {
   if (typeof path === 'string' && path.charAt(0) === '/') {
     joined = path;
   } else {
-    var cwd = typeof process === 'object' && process && typeof process.cwd === 'function' ? process.cwd() : "/";
-    joined = (cwd.charAt(cwd.length - 1) !== '/') ? cwd + "/" + path : cwd + path;
+    var current = cwd();
+    joined = (current.charAt(current.length - 1) !== '/') ? current + "/" + path : current + path;
   }
   return _collapsePosixPath(joined);
 }
 
 function _readNativeCwd() {
-  if (typeof __exactGetCwd !== 'function') {
+  if (typeof _exactGetVirtualCwd !== 'function') {
     return null;
   }
-  try {
-    var value = __exactGetCwd();
-    if (typeof value === 'string' && value.length > 0) {
-      return _normalizeCwdPath(value);
-    }
-  } catch (_) {}
+  // The native read is the typed path:cwd-observe gate. A denial must reach
+  // the caller; falling back to the cached path would turn a denied
+  // observation into a successful disclosure.
+  // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+  var value = _exactGetVirtualCwd();
+  if (typeof value === 'string' && value.length > 0) {
+    return _normalizeCwdPath(value);
+  }
   return null;
 }
 
 function cwd() {
-  if (_processCwd && _processCwd !== "/") {
-    return _processCwd;
-  }
   var nativeCwd = _readNativeCwd();
   if (nativeCwd) {
     _processCwd = nativeCwd;
     return _processCwd;
-  }
-  if (!_processCwd || _processCwd === "/") {
-    _processCwd = "/";
   }
   return _processCwd;
 }
@@ -88,7 +107,7 @@ function _coerceChdirError(err, path) {
     var code;
     if (lower.indexOf('no such file') !== -1 || lower.indexOf('does not exist') !== -1) {
       code = 'ENOENT';
-    } else if (lower.indexOf('permission denied') !== -1) {
+    } else if (lower.indexOf('permission denied') !== -1 || lower.indexOf('eacces:') === 0) {
       code = 'EACCES';
     } else if (lower.indexOf('not a directory') !== -1) {
       code = 'ENOTDIR';
@@ -96,15 +115,16 @@ function _coerceChdirError(err, path) {
     if (code) {
       var mapped = new Error(message + " '" + path + "'");
       mapped.code = code;
-      var fallbackErrno = _uvErrnoMap && _uvErrnoMap[code];
-      if (fallbackErrno === undefined) {
-        fallbackErrno = _uvErrnoMapFallback[code];
-      }
+      var fallbackErrno = _uvErrnoMapFallback[code];
       if (fallbackErrno !== undefined) {
         mapped.errno = -fallbackErrno;
       }
       mapped.syscall = 'chdir';
-      mapped.path = cwd();
+      // Error decoration must not perform an independent cwd observation.
+      // The caller already supplied this target, so it is safe diagnostic
+      // material even when path:cwd-observe is denied.
+      // @ref LLP 0023#54-facades-cannot-subvert-it
+      mapped.path = path;
       mapped.dest = path;
       return mapped;
     }
@@ -112,7 +132,7 @@ function _coerceChdirError(err, path) {
   var fallback = new Error('process.chdir failed');
   fallback.code = 'EINVAL';
   fallback.syscall = 'chdir';
-  fallback.path = cwd();
+  fallback.path = path;
   fallback.dest = path;
   return fallback;
 }
@@ -124,7 +144,7 @@ function chdir(path) {
     throw err;
   }
   var resolvedPath = _resolveCwd(path);
-  if (typeof __exactSetCwd !== 'function') {
+  if (typeof _exactSetVirtualCwd !== 'function') {
     if (typeof __exactAccess === 'function') {
       try {
         __exactAccess(resolvedPath, 0);
@@ -136,7 +156,10 @@ function chdir(path) {
     return;
   }
   try {
-    __exactSetCwd(resolvedPath);
+    _exactSetVirtualCwd(resolvedPath);
+    // A successful mutate decision does not imply cwd-observe authority.
+    // Cache the already-known target instead of performing a second gate.
+    // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
     _processCwd = resolvedPath;
   } catch (e) {
     throw _coerceChdirError(e, resolvedPath);
@@ -197,7 +220,15 @@ function _installReadableStdinFallback(proc) {
       return stream;
     };
   }
-  if (typeof stream.resume === 'function' || typeof __exactStdinRead !== 'function') {
+  // Builtins may be loaded after armed bootstrap has deleted the raw bridge,
+  // so this late module must never recapture its global spelling. Enhance only
+  // an existing process-facade read method, which already holds the trusted
+  // lexical capture when one is available.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  var privateStdinRead = typeof stream.read === 'function'
+    ? stream.read.bind(stream)
+    : null;
+  if (typeof stream.resume === 'function' || !privateStdinRead) {
     return;
   }
 
@@ -281,7 +312,7 @@ function _installReadableStdinFallback(proc) {
     if (!stream._ended && !stream._pollTimer) {
       (function pollStdin() {
         if (stream._paused || stream._ended || stream.destroyed) return;
-        var data = __exactStdinRead(262144);
+        var data = privateStdinRead(262144);
         if (data === null) {
           stream._pollTimer = setTimeout(pollStdin, 1);
           return;
@@ -318,7 +349,7 @@ function _installReadableStdinFallback(proc) {
   };
 
   stream.read = function(size) {
-    var data = __exactStdinRead(size || 262144);
+    var data = privateStdinRead(size || 262144);
     if (data === '') return null;
     if (data === null) return null;
     return stdinChunk(data, false);
@@ -441,7 +472,14 @@ function execve(execPath, args, envObj) {
 // with cwd/env/argv as fallback overrides
 if (typeof globalThis !== 'undefined' && globalThis.process) {
   var proc = globalThis.process;
-  {
+  // Armed lockdown pins a deny-only `process.umask` before package code can
+  // import this compatibility module. Do not recreate its deleted backing
+  // cell or attempt to overwrite the sealed function.
+  // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+  var umaskDescriptor = Object.getOwnPropertyDescriptor(proc, 'umask');
+  if (!(umaskDescriptor &&
+        umaskDescriptor.writable === false &&
+        umaskDescriptor.configurable === false)) {
     // Replace umask with a closure-based implementation that doesn't rely on `this`.
     // The runtime.js Process class method uses `this._umask` which breaks when called
     // detached (var fn = process.umask; fn()). We use process._umask directly.
@@ -559,7 +597,10 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
   // and supports delete
   if (typeof Proxy === 'function') {
     var _rawEnv = proc.env;
-    if (!_rawEnv || (typeof _rawEnv === 'object' && Object.keys(_rawEnv).length === 0)) {
+    if (!_rawEnv ||
+        (typeof _rawEnv === 'object' &&
+         !_rawEnv.__exactEnvProxy &&
+         Object.keys(_rawEnv).length === 0)) {
       _rawEnv = env;
     }
     if (!_rawEnv.__exactEnvProxy) {
@@ -680,6 +721,19 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
       return !!(proc._uncaughtCaptureCb);
     };
   }
+  // The native process facade may expose the function through its prototype.
+  // Materialize the source-inventoried own export without weakening the
+  // locked primordial prototype chain.
+  // @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
+  if (typeof proc.hasUncaughtExceptionCaptureCallback === 'function' &&
+      !Object.prototype.hasOwnProperty.call(proc, 'hasUncaughtExceptionCaptureCallback')) {
+    Object.defineProperty(proc, 'hasUncaughtExceptionCaptureCallback', {
+      value: proc.hasUncaughtExceptionCaptureCallback,
+      writable: true,
+      configurable: true,
+      enumerable: true
+    });
+  }
   if (typeof proc.setUncaughtExceptionCaptureCallback !== 'function') {
     proc.setUncaughtExceptionCaptureCallback = function(fn) {
       if (fn !== null && typeof fn !== 'function') {
@@ -786,11 +840,16 @@ if (typeof globalThis !== 'undefined' && globalThis.process) {
     }
   } catch (_) {}
 
-  // Ensure addListener/removeListener aliases exist (EventEmitter compatibility)
-  if (typeof proc.on === 'function' && typeof proc.addListener !== 'function') {
+  // Materialize the source-inventoried aliases as own exports even when the
+  // native facade happens to inherit compatible implementations.
+  // @ref LLP 0004#the-builtin-module-surface — the manifest's public export
+  // identities are present on the loaded builtin value.
+  if (typeof proc.on === 'function' &&
+      !Object.prototype.hasOwnProperty.call(proc, 'addListener')) {
     proc.addListener = proc.on;
   }
-  if (typeof proc.removeListener === 'function' && typeof proc.off !== 'function') {
+  if (typeof proc.removeListener === 'function' &&
+      !Object.prototype.hasOwnProperty.call(proc, 'off')) {
     proc.off = proc.removeListener;
   }
 

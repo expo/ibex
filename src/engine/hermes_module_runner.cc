@@ -13,6 +13,37 @@
 
 namespace {
 
+struct ActiveCommonJsEvaluation {
+  ExactHermesRuntime* runtime;
+  uint64_t record_id;
+};
+
+thread_local std::vector<ActiveCommonJsEvaluation>
+    activeCommonJsEvaluations;
+
+class ScopedActiveCommonJsEvaluation {
+ public:
+  ScopedActiveCommonJsEvaluation(
+      ExactHermesRuntime* runtime, uint64_t recordId) {
+    activeCommonJsEvaluations.push_back({runtime, recordId});
+  }
+
+  ScopedActiveCommonJsEvaluation(const ScopedActiveCommonJsEvaluation&) = delete;
+  ScopedActiveCommonJsEvaluation& operator=(
+      const ScopedActiveCommonJsEvaluation&) = delete;
+
+  ~ScopedActiveCommonJsEvaluation() {
+    activeCommonJsEvaluations.pop_back();
+  }
+};
+
+bool isActiveCommonJsEvaluationOwner(
+    ExactHermesRuntime* runtime, uint64_t recordId) {
+  return !activeCommonJsEvaluations.empty() &&
+      activeCommonJsEvaluations.back().runtime == runtime &&
+      activeCommonJsEvaluations.back().record_id == recordId;
+}
+
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
 thread_local std::set<std::string> moduleRunnerAbiObservations;
 
@@ -86,11 +117,25 @@ facebook::jsi::Object compartmentFor(
   if (!registryValue.isObject()) {
     throw facebook::jsi::JSError(rt, "module compartment registry is unavailable");
   }
-  auto compartment = registryValue.asObject(rt).getProperty(rt, identity.c_str());
+  // The authenticated identity crosses FFI as pointer+length. Preserve that
+  // boundary here too: a C-string lookup would collapse an embedded NUL onto
+  // a different compartment even if an upstream identity type regressed.
+  // @ref LLP 0013#mechanism-2-per-package-compartment-globals — package compartments are keyed by the complete authenticated locator
+  const auto property = facebook::jsi::PropNameID::forUtf8(rt, identity);
+  auto compartment = registryValue.asObject(rt).getProperty(rt, property);
   if (!compartment.isObject()) {
     throw facebook::jsi::JSError(rt, "authenticated module compartment is unavailable");
   }
   return compartment.asObject(rt);
+}
+
+facebook::jsi::PropNameID moduleExportPropertyName(
+    facebook::jsi::Runtime& rt, const std::string& name) {
+  // ModuleExportName is a length-bearing JavaScript string and may contain an
+  // embedded NUL. Never route it through the const-char JSI convenience
+  // overload, which would silently address a different property.
+  // @ref LLP 0027#esmcommonjs-interop-matrix
+  return facebook::jsi::PropNameID::forUtf8(rt, name);
 }
 
 uint64_t nextHandleId(ExactHermesRuntime* runtime) {
@@ -198,7 +243,10 @@ facebook::jsi::Value requireEsmRecord(
   facebook::jsi::Object result(rt);
   for (const auto& [name, cell] : record.export_cells) {
     (void)cell;
-    result.setProperty(rt, name.c_str(), readBinding(rt, runtime, recordId, record, name));
+    result.setProperty(
+        rt,
+        moduleExportPropertyName(rt, name),
+        readBinding(rt, runtime, recordId, record, name));
   }
   result.setProperty(rt, "__esModule", true);
   return result;
@@ -223,7 +271,8 @@ void finalizeCommonJsAdapter(
     if (name == "default" || name == "module.exports") {
       snapshot = facebook::jsi::Value(rt, *commonjs.exports_value);
     } else if (commonjs.exports_value->isObject()) {
-      snapshot = commonjs.exports_value->asObject(rt).getProperty(rt, name.c_str());
+      snapshot = commonjs.exports_value->asObject(rt).getProperty(
+          rt, moduleExportPropertyName(rt, name));
     }
     cell.initialized = true;
     cell.value = std::make_shared<facebook::jsi::Value>(rt, snapshot);
@@ -303,6 +352,7 @@ facebook::jsi::Value evaluateCommonJsRecord(
   const uint64_t graphGeneration = record.graph_generation;
   const auto target = exactRuntimeCallbackTarget(runtime);
   record.state = NativeCommonJsRecordState::Evaluating;
+  ScopedActiveCommonJsEvaluation activeEvaluation(runtime, recordId);
   try {
     auto requireFunction = facebook::jsi::Function::createFromHostFunction(
         rt,
@@ -321,6 +371,18 @@ facebook::jsi::Value evaluateCommonJsRecord(
           if (current == target.runtime->commonjs_records.end() ||
               current->second.graph_generation != graphGeneration) {
             throw facebook::jsi::JSError(rt, "stale CommonJS require owner");
+          }
+          // Manifest-builtin fan-out is a private exception only while the
+          // exact generated body is synchronously initializing. A builtin may
+          // not export/capture this closure and later launder root loader
+          // authority for a package caller.
+          // @ref LLP 0021#module-initialization-and-trusted-source-acquisition
+          if (current->second.source_goal == 3 &&
+              (current->second.state != NativeCommonJsRecordState::Evaluating ||
+               !isActiveCommonJsEvaluationOwner(target.runtime, recordId))) {
+            throw facebook::jsi::JSError(
+                rt,
+                "manifest builtin require is unavailable outside synchronous initialization");
           }
           if (count != 1 || !args[0].isString()) {
             throw facebook::jsi::JSError(
@@ -368,6 +430,13 @@ facebook::jsi::Value evaluateCommonJsRecord(
               current->second.graph_generation != graphGeneration) {
             return rejectedPromise(rt, "stale CommonJS dynamic import owner");
           }
+          if (current->second.source_goal == 3 &&
+              (current->second.state != NativeCommonJsRecordState::Evaluating ||
+               !isActiveCommonJsEvaluationOwner(target.runtime, recordId))) {
+            return rejectedPromise(
+                rt,
+                "manifest builtin dynamic import is unavailable outside synchronous initialization");
+          }
           const std::string specifier = args[0].asString(rt).utf8(rt);
           auto binding = current->second.dynamic_import_bindings.find(specifier);
           if (binding == current->second.dynamic_import_bindings.end()) {
@@ -383,7 +452,7 @@ facebook::jsi::Value evaluateCommonJsRecord(
                 binding->second);
             return facebook::jsi::Value(rt, promise);
           } catch (const facebook::jsi::JSError& error) {
-            return rejectedPromise(rt, error.getMessage());
+            return rejectedPromise(rt, "CommonJS dynamic import failed");
           } catch (const std::exception& error) {
             return rejectedPromise(rt, error.what());
           } catch (...) {
@@ -419,7 +488,8 @@ facebook::jsi::Value evaluateCommonJsRecord(
     return facebook::jsi::Value(rt, *record.exports_value);
   } catch (const facebook::jsi::JSError& error) {
     const uint64_t contextId = record.context_handle_id;
-    rememberCommonJsAdapterError(runtime, record, error.getMessage());
+    rememberCommonJsAdapterError(
+        runtime, record, "CommonJS record evaluation threw");
     runtime->commonjs_records.erase(recordId);
     releaseContextReference(runtime, contextId);
     throw;
@@ -505,15 +575,21 @@ facebook::jsi::Value readBinding(
 }
 
 void rememberRecordError(
-    NativeModuleRecordEntry& record, const std::string& message) {
+    NativeModuleRecordEntry& record,
+    const std::string& message,
+    uint64_t errorToken = 0) {
   record.state = NativeModuleRecordState::Errored;
   if (record.error_message.empty()) {
     record.error_message = message;
+    record.error_token = errorToken;
   }
 }
 
 int32_t reportRecordError(
-    NativeModuleRecordEntry& record, char** outError) {
+    NativeModuleRecordEntry& record,
+    char** outError,
+    uint64_t* outErrorToken) {
+  if (outErrorToken) *outErrorToken = record.error_token;
   writeError(
       outError,
       record.error_message.empty() ? "module record is errored"
@@ -571,7 +647,7 @@ bool beginRecordExecute(
           facebook::jsi::PropNameID::forAscii(rt, "moduleEvaluationRejected"),
           1,
           [target, graphGeneration, recordId](
-              facebook::jsi::Runtime& rt,
+              facebook::jsi::Runtime&,
               const facebook::jsi::Value&,
               const facebook::jsi::Value* args,
               size_t count) -> facebook::jsi::Value {
@@ -580,15 +656,12 @@ bool beginRecordExecute(
             if (current != nullptr &&
                 current->state == NativeModuleRecordState::Evaluating) {
               std::string message = "module evaluation promise rejected";
+              uint64_t errorToken = 0;
               if (count != 0) {
-                try {
-                  message = args[0].toString(rt).utf8(rt);
-                } catch (...) {
-                  // This handler must fulfill even when stringification fails;
-                  // otherwise it creates a second unhandled rejection.
-                }
+                errorToken = exactRetainStructuredModuleGraphError(
+                    target.runtime, args[0]);
               }
-              rememberRecordError(*current, message);
+              rememberRecordError(*current, message, errorToken);
               current->evaluation_promise.reset();
             }
             return facebook::jsi::Value::undefined();
@@ -833,7 +906,11 @@ facebook::jsi::Object dynamicEvaluationPromise(
               asynchronous =
                   beginRecordExecute(rt, target.runtime, recordId, *record);
             } catch (const facebook::jsi::JSError& error) {
-              rememberRecordError(*record, error.getMessage());
+              rememberRecordError(
+                  *record,
+                  "dynamic module evaluation threw",
+                  exactRetainStructuredModuleGraphError(
+                      target.runtime, error));
               throw;
             } catch (const std::exception& error) {
               rememberRecordError(*record, error.what());
@@ -890,6 +967,8 @@ facebook::jsi::Object dynamicEvaluationPromise(
 
 }  // namespace
 
+// @abi-output ex_hermes_module_compile_factory out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_compile_factory out_error_token role=output kind=scalar ownership=caller-storage
 #ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
 extern "C" void ibex_test_begin_module_runner_abi_observation() {
   moduleRunnerAbiObservations.clear();
@@ -914,7 +993,6 @@ extern "C" char* ibex_test_take_module_runner_abi_observation() {
   return result;
 }
 #endif
-
 extern "C" int32_t ex_hermes_module_compile_factory(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -932,9 +1010,11 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     const uint8_t* source_label,
     size_t source_label_len,
     ExactModuleRunnerHandle* out_factory,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
   observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
   if (out_factory) *out_factory = ExactModuleRunnerHandle{{0, 0, 0}};
 
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
@@ -1057,12 +1137,15 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     out_factory->opaque[2] = id;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
+    if (out_error_token) {
+      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
+    }
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    writeError(out_error, error.getMessage());
+    writeError(out_error, "module factory compilation threw");
   } catch (const std::exception& error) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
@@ -1085,6 +1168,8 @@ extern "C" int32_t ex_hermes_module_compile_factory(
 // principal, and engine admission. Native code evaluates the authenticated
 // per-principal table and selects exactly one original-module factory.
 // @ref LLP 0026#9-production-artifacts-and-bytecode
+// @abi-output ex_hermes_module_load_carrier_factory out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_load_carrier_factory out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_module_load_carrier_factory(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
@@ -1107,7 +1192,9 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     const uint8_t* source_label,
     size_t source_label_len,
     ExactModuleRunnerHandle* out_factory,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
+  if (out_error_token) *out_error_token = 0;
   observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
   if (out_factory) *out_factory = ExactModuleRunnerHandle{{0, 0, 0}};
@@ -1270,12 +1357,15 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     out_factory->opaque[2] = id;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
+    if (out_error_token) {
+      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
+    }
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    writeError(out_error, error.getMessage());
+    writeError(out_error, "prepared module factory load threw");
   } catch (const std::exception& error) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
@@ -1336,6 +1426,7 @@ extern "C" int32_t ex_hermes_commonjs_create_record(
     module.setProperty(rt, "exports", initialExports);
     NativeCommonJsRecordEntry entry;
     entry.graph_generation = factory.opaque[1];
+    entry.source_goal = factoryIt->second.source_goal;
     entry.source_id.assign(
         reinterpret_cast<const char*>(source_id), source_id_len);
     entry.context_handle_id = context.opaque[2];
@@ -1397,7 +1488,8 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require(
   if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state != NativeCommonJsRecordState::New || specifier == nullptr ||
       specifier_len == 0 ||
-      entry->graph_generation != target->graph_generation) {
+      entry->graph_generation != target->graph_generation ||
+      (entry->source_goal == 3 && target->source_goal != 3)) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   const std::string name(
@@ -1426,7 +1518,8 @@ extern "C" int32_t ex_hermes_commonjs_record_link_require_esm(
   if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state != NativeCommonJsRecordState::New || specifier == nullptr ||
       specifier_len == 0 ||
-      entry->graph_generation != target->graph_generation) {
+      entry->graph_generation != target->graph_generation ||
+      entry->source_goal == 3) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   const std::string name(
@@ -1455,7 +1548,8 @@ extern "C" int32_t ex_hermes_commonjs_record_link_dynamic_import(
   if (entry == nullptr || target == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state != NativeCommonJsRecordState::New || specifier == nullptr ||
       specifier_len == 0 ||
-      entry->graph_generation != target->graph_generation) {
+      entry->graph_generation != target->graph_generation ||
+      entry->source_goal == 3) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   const std::string spelling(
@@ -1468,15 +1562,19 @@ extern "C" int32_t ex_hermes_commonjs_record_link_dynamic_import(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+// @abi-output ex_hermes_commonjs_record_evaluate out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_commonjs_record_evaluate out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_commonjs_record_evaluate(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     int32_t* out_evicted,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
   observeModuleRunnerAbi(__func__);
   if (out_evicted) *out_evicted = 0;
   if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (!exactRuntimeEnterUserExecution(runtime)) {
@@ -1492,8 +1590,11 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
     evaluateCommonJsRecord(*runtime->runtime, runtime, record.opaque[2]);
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
+    if (out_error_token) {
+      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
+    }
     *out_evicted = 1;
-    writeError(out_error, error.getMessage());
+    writeError(out_error, "CommonJS record evaluation threw");
   } catch (const std::exception& error) {
     *out_evicted = 1;
     writeError(out_error, error.what());
@@ -1504,15 +1605,19 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
+// @abi-output ex_hermes_commonjs_record_create_esm_adapter out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_commonjs_record_create_esm_adapter out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     ExactModuleRunnerHandle* out_adapter,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
   observeModuleRunnerAbi(__func__);
   if (out_adapter) *out_adapter = ExactModuleRunnerHandle{{0, 0, 0}};
   if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* commonjs = commonJsRecordFor(runtime, record);
@@ -1555,7 +1660,10 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
     out_adapter->opaque[2] = id;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    writeError(out_error, error.getMessage());
+    if (out_error_token) {
+      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
+    }
+    writeError(out_error, "CommonJS adapter creation threw");
   } catch (const std::exception& error) {
     writeError(out_error, error.what());
   } catch (...) {
@@ -1928,16 +2036,22 @@ extern "C" int32_t ex_hermes_module_record_link_dynamic_import(
   return EXACT_RUNTIME_DRIVE_OK;
 }
 
+// @abi-output ex_hermes_module_record_instantiate out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_record_instantiate out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_module_record_instantiate(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     const uint8_t* meta_url,
     size_t meta_url_len,
+    const uint8_t* virtual_path,
+    size_t virtual_path_len,
     int32_t is_main,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
   observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (!exactRuntimeEnterUserExecution(runtime)) {
@@ -1949,10 +2063,21 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state == NativeModuleRecordState::Errored) {
-    return reportRecordError(*entry, out_error);
+    return reportRecordError(*entry, out_error, out_error_token);
   }
   if (entry->state != NativeModuleRecordState::New || meta_url == nullptr ||
-      meta_url_len == 0 || (is_main != 0 && is_main != 1)) {
+      meta_url_len == 0 ||
+      (virtual_path_len != 0 && virtual_path == nullptr) ||
+      (is_main != 0 && is_main != 1)) {
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
+  const std::string virtualPath(
+      virtual_path_len == 0 ? "" : reinterpret_cast<const char*>(virtual_path),
+      virtual_path_len);
+  if (!virtualPath.empty() &&
+      (virtualPath.rfind("/project/", 0) != 0 ||
+       virtualPath.find('\0') != std::string::npos ||
+       virtualPath.back() == '/')) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
 
@@ -2115,7 +2240,7 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
                 binding->second);
             return facebook::jsi::Value(rt, promise);
           } catch (const facebook::jsi::JSError& error) {
-            return rejectedPromise(rt, error.getMessage());
+            return rejectedPromise(rt, "dynamic import failed");
           } catch (const std::exception& error) {
             return rejectedPromise(rt, error.what());
           } catch (...) {
@@ -2131,6 +2256,35 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
             rt,
             std::string(reinterpret_cast<const char*>(meta_url), meta_url_len)));
     meta.setProperty(rt, "main", is_main == 1);
+    if (!virtualPath.empty()) {
+      const size_t separator = virtualPath.rfind('/');
+      const std::string dirname =
+          separator == 0 ? std::string("/") : virtualPath.substr(0, separator);
+      const std::string basename = virtualPath.substr(separator + 1);
+      auto pathValue = facebook::jsi::String::createFromUtf8(rt, virtualPath);
+      meta.setProperty(rt, "path", pathValue);
+      meta.setProperty(rt, "filename", pathValue);
+      auto dirnameValue = facebook::jsi::String::createFromUtf8(rt, dirname);
+      meta.setProperty(rt, "dirname", dirnameValue);
+      meta.setProperty(rt, "dir", dirnameValue);
+      meta.setProperty(
+          rt,
+          "file",
+          facebook::jsi::String::createFromUtf8(rt, basename));
+    }
+    auto metaResolve = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "importMetaResolveRefusal"),
+        1,
+        [](facebook::jsi::Runtime& rt,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value*,
+           size_t) -> facebook::jsi::Value {
+          throw facebook::jsi::JSError(
+              rt,
+              "ERR_IMPORT_META_RESOLVE_UNAVAILABLE: native resolution-only gate is unavailable");
+        });
+    meta.setProperty(rt, "resolve", std::move(metaResolve));
     context.setProperty(rt, "meta", std::move(meta));
 
     auto instanceValue = entry->factory->call(rt, exportFunction, context);
@@ -2153,22 +2307,29 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
     entry->state = NativeModuleRecordState::Instantiated;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    rememberRecordError(*entry, error.getMessage());
+    rememberRecordError(
+        *entry,
+        "module instantiation threw",
+        exactRetainStructuredModuleGraphError(runtime, error));
   } catch (const std::exception& error) {
     rememberRecordError(*entry, error.what());
   } catch (...) {
     rememberRecordError(*entry, "unknown module instantiation failure");
   }
-  return reportRecordError(*entry, out_error);
+  return reportRecordError(*entry, out_error, out_error_token);
 }
 
+// @abi-output ex_hermes_module_record_run_declare out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_record_run_declare out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_module_record_run_declare(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
   observeModuleRunnerAbi(__func__);
   if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (!exactRuntimeEnterUserExecution(runtime)) {
@@ -2180,7 +2341,7 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state == NativeModuleRecordState::Errored) {
-    return reportRecordError(*entry, out_error);
+    return reportRecordError(*entry, out_error, out_error_token);
   }
   if (entry->state != NativeModuleRecordState::Instantiated ||
       !entry->declare_function) {
@@ -2191,24 +2352,31 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
     entry->state = NativeModuleRecordState::Declared;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    rememberRecordError(*entry, error.getMessage());
+    rememberRecordError(
+        *entry,
+        "module declaration threw",
+        exactRetainStructuredModuleGraphError(runtime, error));
   } catch (const std::exception& error) {
     rememberRecordError(*entry, error.what());
   } catch (...) {
     rememberRecordError(*entry, "unknown module declaration failure");
   }
-  return reportRecordError(*entry, out_error);
+  return reportRecordError(*entry, out_error, out_error_token);
 }
 
+// @abi-output ex_hermes_module_record_run_execute out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_record_run_execute out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_module_record_run_execute(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     int32_t* out_async,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
   observeModuleRunnerAbi(__func__);
   if (out_async) *out_async = 0;
   if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (!exactRuntimeEnterUserExecution(runtime)) {
@@ -2220,7 +2388,7 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state == NativeModuleRecordState::Errored) {
-    return reportRecordError(*entry, out_error);
+    return reportRecordError(*entry, out_error, out_error_token);
   }
   if (entry->state != NativeModuleRecordState::Declared ||
       !entry->execute_function || out_async == nullptr) {
@@ -2233,24 +2401,31 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
         : 0;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    rememberRecordError(*entry, error.getMessage());
+    rememberRecordError(
+        *entry,
+        "module execution threw",
+        exactRetainStructuredModuleGraphError(runtime, error));
   } catch (const std::exception& error) {
     rememberRecordError(*entry, error.what());
   } catch (...) {
     rememberRecordError(*entry, "unknown module evaluation failure");
   }
-  return reportRecordError(*entry, out_error);
+  return reportRecordError(*entry, out_error, out_error_token);
 }
 
+// @abi-output ex_hermes_module_record_poll_evaluation out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_record_poll_evaluation out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_module_record_poll_evaluation(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     int32_t* out_state,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
   observeModuleRunnerAbi(__func__);
   if (out_state) *out_state = -1;
   if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   auto* entry = recordFor(runtime, record);
@@ -2265,21 +2440,26 @@ extern "C" int32_t ex_hermes_module_record_poll_evaluation(
       return EXACT_RUNTIME_DRIVE_OK;
     case NativeModuleRecordState::Errored:
       *out_state = 2;
-      return reportRecordError(*entry, out_error);
+      return reportRecordError(*entry, out_error, out_error_token);
     default:
       return EXACT_RUNTIME_DRIVE_INVALID;
   }
 }
 
+// @abi-output ex_hermes_module_record_namespace_json out_json role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_record_namespace_json out_error role=output kind=pointer ownership=caller-frees:ex_hermes_free_string
+// @abi-output ex_hermes_module_record_namespace_json out_error_token role=output kind=scalar ownership=caller-storage
 extern "C" int32_t ex_hermes_module_record_namespace_json(
     ExactHermesRuntime* runtime,
     uint64_t runtime_nonce,
     ExactModuleRunnerHandle record,
     char** out_json,
-    char** out_error) {
+    char** out_error,
+    uint64_t* out_error_token) {
   observeModuleRunnerAbi(__func__);
   if (out_json) *out_json = nullptr;
   if (out_error) *out_error = nullptr;
+  if (out_error_token) *out_error_token = 0;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
@@ -2294,7 +2474,7 @@ extern "C" int32_t ex_hermes_module_record_namespace_json(
   auto* entry = recordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (entry->state == NativeModuleRecordState::Errored) {
-    return reportRecordError(*entry, out_error);
+    return reportRecordError(*entry, out_error, out_error_token);
   }
   if (!entry->namespace_object || out_json == nullptr) {
     return EXACT_RUNTIME_DRIVE_INVALID;
@@ -2316,7 +2496,10 @@ extern "C" int32_t ex_hermes_module_record_namespace_json(
     (*out_json)[text.size()] = '\0';
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    writeError(out_error, error.getMessage());
+    if (out_error_token) {
+      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
+    }
+    writeError(out_error, "module namespace serialization threw");
   } catch (const std::exception& error) {
     writeError(out_error, error.what());
   } catch (...) {

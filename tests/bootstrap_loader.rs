@@ -8,10 +8,10 @@
 //!     real source line: the eval-shim preamble is injected as a single line
 //!     and the for-of rewrite replaces lines one-for-one (finding #11 — the
 //!     old 38-line preamble shifted every reported line by ~39).
-//!   * The bundled-entry `__filename`/`__dirname` remap must key on the
-//!     bundle-output path shape, not a macOS-only '/Caches/' substring
-//!     (finding #4), and must be consumed by the entry so a later parentless
-//!     require of a user file named `*.bundle.js` is not remapped.
+//!   * The unarmed diagnostic loader must keep its retained native resolver
+//!     paths opaque, including for host files named `*.bundle.js`, while a
+//!     relative require of such a file still resolves through the retained
+//!     private referrer (the secure successor to finding #4's host-path remap).
 //!   * import.meta.url must be a well-formed file:// URL (finding #12; the
 //!     Windows drive-letter half is review-only on this platform, but the
 //!     POSIX shape is pinned here).
@@ -41,6 +41,81 @@ fn write_text(path: &Path, contents: &str) {
         std::fs::create_dir_all(parent).expect("create parent dir");
     }
     std::fs::write(path, contents).expect("write test file");
+}
+
+fn result_value(stdout: &str) -> &str {
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("RESULT|"))
+        .unwrap_or("")
+}
+
+fn is_opaque_resolver_path(value: &str) -> bool {
+    let Some(handle) = value.strip_prefix("/project/.ibex-resolver/r") else {
+        return false;
+    };
+    handle.len() == 16
+        && handle
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn is_opaque_resolver_file_url(value: &str) -> bool {
+    value
+        .strip_prefix("file://")
+        .is_some_and(is_opaque_resolver_path)
+}
+
+fn assert_fixture_path_is_private(
+    stdout: &str,
+    stderr: &str,
+    dir: &Path,
+    source_basenames: &[&str],
+) {
+    let output = format!("{stdout}\n{stderr}");
+    let host_dir = dir.to_string_lossy();
+    assert!(
+        !output.contains(host_dir.as_ref()),
+        "diagnostic output disclosed fixture host path {host_dir}:\n{output}"
+    );
+    for basename in source_basenames {
+        assert!(
+            !output.contains(basename),
+            "diagnostic output disclosed source basename {basename}:\n{output}"
+        );
+    }
+}
+
+fn assert_opaque_line_result(
+    stdout: &str,
+    stderr: &str,
+    dir: &Path,
+    source_basename: &str,
+    expected_line: &str,
+) {
+    let result = result_value(stdout);
+    let mut fields = result.split('|');
+    let (Some(label), Some(line), Some(privacy)) = (fields.next(), fields.next(), fields.next())
+    else {
+        panic!("missing opaque stack result in stdout:\n{stdout}\nstderr:\n{stderr}");
+    };
+    assert!(
+        fields.next().is_none(),
+        "stack result had unexpected fields: {result}"
+    );
+    assert!(
+        is_opaque_resolver_path(label),
+        "stack frame did not use an opaque resolver label: {label}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        line, expected_line,
+        "loader transform shifted the source line\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        privacy, "private",
+        "JavaScript-visible stack disclosed {source_basename}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_fixture_path_is_private(stdout, stderr, dir, &[source_basename]);
 }
 
 /// Run `ibex capsec audit <entry>` in `dir` with EXACT_COMPAT_TEST=1 so the
@@ -125,18 +200,14 @@ fn loader_module_stack_line_numbers_match_source() {
     write_text(
         &dir.join("entry.js"),
         "try { require('./thrower.js'); } catch (e) {\n\
-         var m = /thrower\\.js:(\\d+)/.exec(e.stack || '');\n\
-         console.log('RESULT|line=' + (m ? m[1] : 'none'));\n\
+         var stack = e.stack || '';\n\
+         var m = /(\\/project\\/\\.ibex-resolver\\/r[0-9a-f]{16}):(\\d+):\\d+/.exec(stack);\n\
+         console.log('RESULT|' + (m ? m[1] + '|' + m[2] : 'none|none') + '|' + (stack.indexOf('thrower.js') === -1 ? 'private' : 'leaked'));\n\
          }\n",
     );
     let (stdout, stderr, ok) = run_compat(&dir, "entry.js");
     assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
-    assert!(
-        stdout.contains("RESULT|line=5"),
-        "stack line for a throw on source line 5 is shifted\nstdout:\n{}\nstderr:\n{}",
-        stdout,
-        stderr
-    );
+    assert_opaque_line_result(&stdout, &stderr, &dir, "thrower.js", "5");
 }
 
 /// Finding #11 (for-of tier): the for-of scoping rewrite must stay
@@ -163,27 +234,21 @@ fn for_of_rewrite_preserves_line_numbers() {
     write_text(
         &dir.join("entry.js"),
         "try { require('./looper.js'); } catch (e) {\n\
-         var m = /looper\\.js:(\\d+)/.exec(e.stack || '');\n\
-         console.log('RESULT|line=' + (m ? m[1] : 'none'));\n\
+         var stack = e.stack || '';\n\
+         var m = /(\\/project\\/\\.ibex-resolver\\/r[0-9a-f]{16}):(\\d+):\\d+/.exec(stack);\n\
+         console.log('RESULT|' + (m ? m[1] + '|' + m[2] : 'none|none') + '|' + (stack.indexOf('looper.js') === -1 ? 'private' : 'leaked'));\n\
          }\n",
     );
     let (stdout, stderr, ok) = run_compat(&dir, "entry.js");
     assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
-    assert!(
-        stdout.contains("RESULT|line=5"),
-        "for-of rewrite shifted line numbers\nstdout:\n{}\nstderr:\n{}",
-        stdout,
-        stderr
-    );
+    assert_opaque_line_result(&stdout, &stderr, &dir, "looper.js", "5");
 }
 
-/// Finding #4: the bundled-entry remap keys on the bundle-output shape
-/// (`<key>.bundle.js` / `<key>/bundle.js`), so it fires for cache dirs that
-/// do not contain '/Caches/' (Linux `~/.cache/ibex`, Windows LOCALAPPDATA).
-/// Simulated from an audit entry: set __exactEntryFile, then load a
-/// bundle-shaped file from a non-Caches dir as the first parentless module.
+/// The unarmed diagnostic resolver retains native paths behind opaque handles.
+/// Even a parentless host file with a legacy bundle-output-shaped name must not
+/// let `__exactEntryFile` remap its public `__filename` back to a host path.
 #[test]
-fn bundled_entry_remap_fires_outside_macos_caches_dir() {
+fn parentless_bundle_shaped_load_keeps_opaque_filename() {
     let dir = unique_dir("entry-remap");
     write_text(
         &dir.join("fakecache/abc123.bundle.js"),
@@ -211,20 +276,27 @@ fn bundled_entry_remap_fires_outside_macos_caches_dir() {
         .output()
         .expect("run ibex");
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stdout.contains(&format!("RESULT|{}", entry_file.to_string_lossy())),
-        "entry __filename not remapped to the source path for a \
-         non-'/Caches/' bundle location\nstdout:\n{}\nstderr:\n{}",
+        output.status.success(),
+        "run failed\nstdout:\n{}\nstderr:\n{}",
         stdout,
-        String::from_utf8_lossy(&output.stderr)
+        stderr
     );
+    let filename = result_value(&stdout);
+    assert!(
+        is_opaque_resolver_path(filename),
+        "bundle-shaped parentless load disclosed a non-opaque filename: {filename}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_fixture_path_is_private(&stdout, &stderr, &dir, &["abc123.bundle.js", "realapp.js"]);
 }
 
-/// Finding #4 (guard): the remap is consumed by the ENTRY. A later parentless
-/// require of a user file that happens to be named `*.bundle.js` keeps its
-/// own __filename.
+/// A display-only opaque `__dirname` is not a resolver credential. The module's
+/// local relative require retains the private referrer separately, so an
+/// ordinary user file named `*.bundle.js` must still resolve without exposing
+/// either native path or authored basename.
 #[test]
-fn user_bundle_named_file_is_not_remapped() {
+fn relative_user_bundle_named_file_resolves_through_private_referrer() {
     let dir = unique_dir("no-steal");
     write_text(
         &dir.join("dist/foo.bundle.js"),
@@ -232,17 +304,22 @@ fn user_bundle_named_file_is_not_remapped() {
     );
     write_text(
         &dir.join("entry.js"),
-        "var r = globalThis.require(__dirname + '/dist/foo.bundle.js');\n\
-         console.log('RESULT|' + r.file);\n",
+        "var r = require('./dist/foo.bundle.js');\n\
+         console.log('RESULT|' + __filename + '|' + r.file);\n",
     );
     let (stdout, stderr, ok) = run_compat(&dir, "entry.js");
     assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
+    let result = result_value(&stdout);
+    let Some((entry_filename, dependency_filename)) = result.split_once('|') else {
+        panic!("missing private-referrer result in stdout:\n{stdout}\nstderr:\n{stderr}");
+    };
     assert!(
-        stdout.contains("dist/foo.bundle.js"),
-        "a user *.bundle.js require stole the entry remap\nstdout:\n{}\nstderr:\n{}",
-        stdout,
-        stderr
+        is_opaque_resolver_path(entry_filename)
+            && is_opaque_resolver_path(dependency_filename)
+            && entry_filename != dependency_filename,
+        "relative bundle-named load did not preserve distinct opaque identities: {result}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
+    assert_fixture_path_is_private(&stdout, &stderr, &dir, &["entry.js", "foo.bundle.js"]);
 }
 
 /// Finding #12 (POSIX shape pin): import.meta.url through the loader's
@@ -261,17 +338,14 @@ fn import_meta_url_is_wellformed_file_url() {
     );
     let (stdout, stderr, ok) = run_compat(&dir, "entry.js");
     assert!(ok, "run failed\nstdout:\n{}\nstderr:\n{}", stdout, stderr);
-    let line = stdout
-        .lines()
-        .find(|l| l.starts_with("RESULT|"))
-        .unwrap_or("");
-    let url = line.trim_start_matches("RESULT|");
+    let url = result_value(&stdout);
     assert!(
-        url.starts_with("file:///") && url.ends_with("/meta.mjs") && !url.contains('\\'),
+        is_opaque_resolver_file_url(url) && !url.contains('\\'),
         "import.meta.url is not a well-formed file URL: {}\nstderr:\n{}",
         url,
         stderr
     );
+    assert_fixture_path_is_private(&stdout, &stderr, &dir, &["meta.mjs"]);
 }
 
 /// A semicolonless multiline export ends by ASI before the next top-level

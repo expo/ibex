@@ -1,4 +1,5 @@
 import { CapabilityDeniedError, DOMException } from '../events/DOMException.js';
+import { getHostNavigatorInput } from '../core/host-inputs.js';
 
 const FOREGROUND_PERMISSION = 'device:location:whenInUse';
 
@@ -98,7 +99,6 @@ interface LocationBackend {
 }
 
 declare global {
-  var __exactHostNavigator: HostNavigatorLike | undefined;
   var __exactAndroidLocation:
     | {
         getPermissionStatus?: () => LegacyPermissionStatus;
@@ -634,7 +634,7 @@ function getHostNavigator(): HostNavigatorLike | undefined {
     navigator?: HostNavigatorLike & { __exactNavigator?: boolean };
   };
 
-  const exactHostNavigator = globalThis.__exactHostNavigator as
+  const exactHostNavigator = getHostNavigatorInput() as
     | (HostNavigatorLike & { __exactNavigator?: boolean })
     | undefined;
   if (exactHostNavigator && exactHostNavigator.__exactNavigator !== true) {

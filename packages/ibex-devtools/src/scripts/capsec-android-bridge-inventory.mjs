@@ -260,11 +260,123 @@ function methodAt(
     return null;
   if (prefix.some((token) => token === "class" || token === "interface"))
     return null;
-  const nameToken = [...tokens.slice(startIndex, parenIndex)]
-    .reverse()
-    .find((token) => token.type === "identifier");
-  if (!nameToken) throw new Error(`${sourcePath}: Java method has no name`);
-  return { name: nameToken.value, parenIndex };
+  let nameIndex = parenIndex - 1;
+  while (nameIndex >= startIndex && tokens[nameIndex].type !== "identifier") {
+    nameIndex -= 1;
+  }
+  if (nameIndex < startIndex) {
+    throw new Error(`${sourcePath}: Java method has no name`);
+  }
+  const closeParen = matchingToken(tokens, parenIndex, "(", ")", sourcePath);
+  return {
+    closeParen,
+    name: tokens[nameIndex].value,
+    parenIndex,
+    signature: javaMethodSignature(
+      tokens,
+      startIndex,
+      nameIndex,
+      parenIndex,
+      closeParen,
+      sourcePath,
+    ),
+  };
+}
+
+const JAVA_METHOD_MODIFIERS = new Set([
+  "abstract",
+  "final",
+  "native",
+  "private",
+  "protected",
+  "public",
+  "static",
+  "strictfp",
+  "synchronized",
+]);
+
+const JAVA_SCALAR_TYPES = new Set([
+  "boolean",
+  "byte",
+  "char",
+  "double",
+  "float",
+  "int",
+  "long",
+  "short",
+]);
+
+function javaTypeContract(typeTokens, sourcePath, { allowVoid = false } = {}) {
+  const tokens = typeTokens.filter(
+    (token) => !JAVA_METHOD_MODIFIERS.has(token.value),
+  );
+  const values = tokens.map((token) => token.value);
+  if (allowVoid && values.length === 1 && values[0] === "void") {
+    return { kind: "void", type: "void" };
+  }
+  if (values.length === 0 || values.includes("void")) {
+    throw new Error(`${sourcePath}: malformed Java method type`);
+  }
+  const arrayLike = values.some((value) => value === "[" || value === ".");
+  const kind =
+    !arrayLike && values.length === 1 && JAVA_SCALAR_TYPES.has(values[0])
+      ? "scalar"
+      : "aggregate";
+  return { kind, type: values.join(" ") };
+}
+
+function splitJavaParameterTokens(tokens) {
+  const rows = [];
+  let start = 0;
+  let angleDepth = 0;
+  let squareDepth = 0;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const value = tokens[index].value;
+    if (value === "<") angleDepth += 1;
+    else if (value === ">" && angleDepth > 0) angleDepth -= 1;
+    else if (value === "[") squareDepth += 1;
+    else if (value === "]" && squareDepth > 0) squareDepth -= 1;
+    else if (value === "," && angleDepth === 0 && squareDepth === 0) {
+      rows.push(tokens.slice(start, index));
+      start = index + 1;
+    }
+  }
+  if (start < tokens.length) rows.push(tokens.slice(start));
+  return rows;
+}
+
+function javaMethodSignature(
+  tokens,
+  startIndex,
+  nameIndex,
+  parenIndex,
+  closeParen,
+  sourcePath,
+) {
+  const returnType = javaTypeContract(
+    tokens.slice(startIndex, nameIndex),
+    sourcePath,
+    { allowVoid: true },
+  );
+  const parameters = splitJavaParameterTokens(
+    tokens.slice(parenIndex + 1, closeParen),
+  ).map((parameterTokens) => {
+    let parameterNameIndex = parameterTokens.length - 1;
+    while (
+      parameterNameIndex >= 0 &&
+      parameterTokens[parameterNameIndex].type !== "identifier"
+    ) {
+      parameterNameIndex -= 1;
+    }
+    if (parameterNameIndex <= 0) {
+      throw new Error(`${sourcePath}: malformed Java method parameter`);
+    }
+    return javaTypeContract(
+      parameterTokens.slice(0, parameterNameIndex),
+      sourcePath,
+    );
+  });
+  return { parameters, returnType };
 }
 
 function collectOuterMethods(
@@ -288,7 +400,7 @@ function collectOuterMethods(
       requiredModifiers,
       sourcePath,
     );
-    if (method) methods.push(method.name);
+    if (method) methods.push(method);
   }
   return methods;
 }
@@ -328,23 +440,16 @@ function interfaceMethods(tokens, depths, type, sourcePath) {
       continue;
     const method = methodAt(tokens, depths, index, memberDepth, [], sourcePath);
     if (!method) continue;
-    const closeParen = matchingToken(
-      tokens,
-      method.parenIndex,
-      "(",
-      ")",
-      sourcePath,
-    );
-    let terminator = closeParen + 1;
+    let terminator = method.closeParen + 1;
     while (terminator < type.bodyClose && depths[terminator] === memberDepth) {
       if (tokens[terminator].value === ";") {
-        methods.push(method.name);
+        methods.push(method);
         break;
       }
       if (tokens[terminator].value === "{") break;
       terminator += 1;
     }
-    index = closeParen;
+    index = method.closeParen;
   }
   return methods;
 }
@@ -531,7 +636,7 @@ export function scanAndroidJavaBridgeSurfaces(
   const body = namedType(tokens, depths, "class", className, 0, sourcePath);
   const rows = [];
 
-  for (const methodName of collectOuterMethods(
+  for (const method of collectOuterMethods(
     tokens,
     depths,
     body,
@@ -539,39 +644,36 @@ export function scanAndroidJavaBridgeSurfaces(
     ["public", "static"],
     sourcePath,
   )) {
-    const name = `java:${qualifiedClass}.${methodName}`;
+    const name = `java:${qualifiedClass}.${method.name}`;
     rows.push(
       makeSurface(name, sourcePath, name, {
         bridgeRole: "public-static",
         className: qualifiedClass,
+        javaSignature: method.signature,
         language: "java",
-        memberName: methodName,
+        memberName: method.name,
         targetVariant: "android",
       }),
     );
   }
 
   for (const type of directInterfaces(tokens, depths, body, sourcePath)) {
-    for (const methodName of interfaceMethods(
-      tokens,
-      depths,
-      type,
-      sourcePath,
-    )) {
-      const name = `java:${qualifiedClass}.${type.name}.${methodName}`;
+    for (const method of interfaceMethods(tokens, depths, type, sourcePath)) {
+      const name = `java:${qualifiedClass}.${type.name}.${method.name}`;
       rows.push(
         makeSurface(name, sourcePath, name, {
           bridgeRole: "provider-interface",
           className: `${qualifiedClass}.${type.name}`,
+          javaSignature: method.signature,
           language: "java",
-          memberName: methodName,
+          memberName: method.name,
           targetVariant: "android",
         }),
       );
     }
   }
 
-  for (const methodName of collectOuterMethods(
+  for (const method of collectOuterMethods(
     tokens,
     depths,
     body,
@@ -579,13 +681,14 @@ export function scanAndroidJavaBridgeSurfaces(
     ["private", "static", "native"],
     sourcePath,
   )) {
-    const name = `jni:${qualifiedClass}.${methodName}`;
+    const name = `jni:${qualifiedClass}.${method.name}`;
     rows.push(
       makeSurface(name, sourcePath, name, {
         bridgeRole: "java-to-native-callback",
         className: qualifiedClass,
+        javaSignature: method.signature,
         language: "java",
-        memberName: methodName,
+        memberName: method.name,
         targetVariant: "android",
       }),
     );

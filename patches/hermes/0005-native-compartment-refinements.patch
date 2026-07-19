@@ -26,7 +26,7 @@
 #     capture must happen at the eval call site; eval/Function are contained by
 #     withholding + lockdown taming in the meantime.)
 diff --git a/include/hermes/VM/CapabilityAttribution.h b/include/hermes/VM/CapabilityAttribution.h
-index 2b1a48add..e571e8184 100644
+index 2b1a48add48d6a1bd3f5b900ebcc5056202267e1..e571e8184c99d0d3f34c396e4e5d839936a2114a 100644
 --- a/include/hermes/VM/CapabilityAttribution.h
 +++ b/include/hermes/VM/CapabilityAttribution.h
 @@ -25,12 +25,18 @@ namespace hermes {
@@ -49,7 +49,7 @@ index 2b1a48add..e571e8184 100644
  } // namespace hermes
  
 diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
-index f506f6cb9..aeb865ed6 100644
+index f506f6cb93b4c5e720712065c879cde6596faeb6..4742eaffcbf7dcdf05d569741fd34b5cd7240b93 100644
 --- a/include/hermes/VM/Runtime.h
 +++ b/include/hermes/VM/Runtime.h
 @@ -1031,6 +1031,18 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
@@ -72,7 +72,7 @@ index f506f6cb9..aeb865ed6 100644
      return vmExperimentFlags_;
    }
 diff --git a/lib/VM/CapabilityAttribution.cpp b/lib/VM/CapabilityAttribution.cpp
-index 0cd93dc8f..458b0ca04 100644
+index 5e8ecbac03df48c2e34251e85aecf4b2b3f19088..fcce7b37a518b0ae4b4952bfddcca711bf2f8d38 100644
 --- a/lib/VM/CapabilityAttribution.cpp
 +++ b/lib/VM/CapabilityAttribution.cpp
 @@ -57,6 +57,26 @@ uint32_t getCurrentPackageId(Runtime &runtime) {
@@ -103,7 +103,7 @@ index 0cd93dc8f..458b0ca04 100644
  // innermost-first, for stack-intersection ("deputy") enforcement. Skips native
  // and runtime-internal frames and collapses consecutive duplicates so the host
 diff --git a/lib/VM/Interpreter.cpp b/lib/VM/Interpreter.cpp
-index 7f8769c6c..b5511f787 100644
+index 3b33460b22813959c77ca512f0829da2b8bc7c9f..62e540509a648f2be7a877ca7532795f459d5211 100644
 --- a/lib/VM/Interpreter.cpp
 +++ b/lib/VM/Interpreter.cpp
 @@ -111,10 +111,21 @@ namespace vm {
@@ -131,19 +131,20 @@ index 7f8769c6c..b5511f787 100644
    return runtime.getGlobal().getHermesValue();
  }
 diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
-index 665ecc0a6..b78ddb6ca 100644
+index 89ad087c4394ac341c0699ae6485b204e5982c41..fb137bc411954bbfc161b852fe561153cb0f3e47 100644
 --- a/lib/VM/JSLib/GlobalObject.cpp
 +++ b/lib/VM/JSLib/GlobalObject.cpp
-@@ -48,12 +48,29 @@ CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime) {
+@@ -48,13 +48,30 @@ CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime) {
      if (rm) {
        if (Domain *domain = rm->getDomainUnsafe(runtime)) {
          domain->setCompartmentGlobal(runtime, obj);
 +        // Arm the interpreter's compartment fast-path guard.
 +        runtime.markCompartmentActive();
+         return HermesValue::encodeBoolValue(true);
        }
      }
    }
-   return HermesValue::encodeUndefinedValue();
+   return HermesValue::encodeBoolValue(false);
  }
  
 +/// @ref LLP 0013#mechanism-1 — (Phase 3) — native shallow freeze primitive.
@@ -178,7 +179,7 @@ index 665ecc0a6..b78ddb6ca 100644
    // Define the 'eval' function.
    defineGlobalFunc(Predefined::getSymbolID(Predefined::eval), eval, 1);
 diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
-index e54485f2e..0828b7267 100644
+index e54485f2e3a1bb674b0cc0ed82f72c04024d306f..0828b7267ac950f052b4c3cf3df36c19ae95ee0b 100644
 --- a/lib/VM/Runtime.cpp
 +++ b/lib/VM/Runtime.cpp
 @@ -1177,6 +1177,14 @@ CallResult<HermesValue> Runtime::runBytecode(

@@ -2,11 +2,14 @@
   "policySchema": "ibex/capsec-policy/1",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-65wku9oQwB_208URhoQabfyb4yF_RE7Hs5xs55X31ZY",
-  "registryDigest": "sha256-wKIkkVsrzQ1UADkEwu__NXdgl5V3ICUbakVuXegA0lc",
-  "policyDigest": "sha256-99HorqOqAkJKfTV20JSjg1TXkoqdKqU6iNTNCiMaVis",
+  "vocabDigest": "sha256-4AXYSBt6dvdLGoapYQXk9TUWUg0BTIBXGQICovWXfm0",
+  "registryDigest": "sha256-LyxfUqgfQxZkXRhz12Iw29ftXeROWtT7Il9FCnY4o-k",
+  "policyDigest": "sha256-jNW8xxKnsXXF5HmIQQOacx2eGAJV9Nha9NecUTbehZk",
   "purpose": "production",
   "mode": "enforce",
+  "rootImports": [
+    "logger@1.0.0"
+  ],
   "principals": [
     {
       "principal": {
@@ -29,6 +32,21 @@
             {
               "kind": "import-site",
               "source": "examples/capsec-demo/02-least-privilege/app.mjs:3"
+            }
+          ]
+        },
+        {
+          "authority": {
+            "cap": "path:cwd-observe",
+            "resource": {
+              "kind": "session-state",
+              "name": "cwd"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "macro-expansion",
+              "source": "profile:path.cwd.v1:universal-observe"
             }
           ]
         }

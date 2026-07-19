@@ -329,14 +329,14 @@ var _promisifyCustomSymbol = (
 if (_promisifyCustomSymbol) {
   Object.defineProperty(setTimeout$1, _promisifyCustomSymbol, {
     get: function() {
-      return require('timers/promises').setTimeout;
+      return _promisesModule.setTimeout;
     },
     configurable: true,
     enumerable: false,
   });
   Object.defineProperty(setImmediate$1, _promisifyCustomSymbol, {
     get: function() {
-      return require('timers/promises').setImmediate;
+      return _promisesModule.setImmediate;
     },
     configurable: true,
     enumerable: false,
@@ -425,9 +425,12 @@ module.exports = {
   },
   // promises sub-module - use getter to ensure identity with require('timers/promises')
   get promises() {
-    if (!_promisesModule) {
-      _promisesModule = require('timers/promises');
-    }
     return _promisesModule;
   }
 };
+
+// Resolve the manifest-authored sibling while this builtin body owns the
+// loader's private internal-resolution window. The exported accessors retain
+// only the module value; they never leak a late trusted-require closure.
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+_promisesModule = require('timers/promises');

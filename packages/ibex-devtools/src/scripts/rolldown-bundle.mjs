@@ -54,6 +54,12 @@ for (let i = 0; i < args.length; i++) {
     // Runtime generated-code cache: bind graph inputs and outputs by digest.
     // Build-time vendoring does not need or commit this sidecar.
     opts.cacheManifest = true;
+  } else if (arg === '--source-provenance-authority') {
+    // Native-only, digest-checked binding input. The file may contain backing
+    // paths; the emitted provenance projection never does.
+    opts.sourceProvenanceAuthority = args[++i];
+  } else if (arg === '--source-provenance-authority-sha256') {
+    opts.sourceProvenanceAuthoritySha256 = args[++i];
   }
 }
 
@@ -66,8 +72,151 @@ const entry = path.resolve(process.cwd(), opts.entry);
 const out = path.resolve(process.cwd(), opts.out);
 const utf8Compare = (left, right) =>
   Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
+const canonicalJson = (value) => {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) =>
+    `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+};
 const digestFile = async (file) =>
   createHash('sha256').update(await fs.readFile(file)).digest('hex');
+const digestJson = (value) =>
+  createHash('sha256').update(canonicalJson(value)).digest('hex');
+const isSha256Hex = (value) =>
+  typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+const isDigestIdentity = (value) =>
+  typeof value === 'string' && /^sha256-[A-Za-z0-9_-]{43}$/.test(value);
+const isPrincipal = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (value.kind === 'root') {
+    return typeof value.identity === 'string' && value.identity.length > 0;
+  }
+  return value.kind === 'package' &&
+    typeof value.name === 'string' && value.name.length > 0 &&
+    typeof value.locator === 'string' && value.locator.length > 0 &&
+    isDigestIdentity(value.integrity);
+};
+const pathIsWithin = (root, candidate) => {
+  const relative = path.relative(root, candidate);
+  return relative === '' ||
+    (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
+};
+const sourceLabelForVirtualPath = (virtualPath) => {
+  let label = 'file://';
+  for (const byte of Buffer.from(virtualPath, 'utf8')) {
+    if (byte === 0x2f ||
+        (byte >= 0x30 && byte <= 0x39) ||
+        (byte >= 0x41 && byte <= 0x5a) ||
+        (byte >= 0x61 && byte <= 0x7a) ||
+        byte === 0x2d || byte === 0x2e || byte === 0x5f || byte === 0x7e) {
+      label += String.fromCharCode(byte);
+    } else {
+      label += `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+    }
+  }
+  return label;
+};
+const sourceIdFor = (definingPrincipal, logicalRoot, lexicalComponents) => {
+  const identity = {
+    definingPrincipal,
+    kind: 'file',
+    lexicalComponents,
+    logicalRoot,
+    sourceIdSchema: 'ibex.source-id.v1',
+  };
+  return `ibex-source-id-v1:${Buffer.from(canonicalJson(identity), 'utf8')
+    .toString('base64url')}`;
+};
+
+// @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+// The bundler is not allowed to infer a defining principal from node_modules
+// text. Native supplies the exact armed root/package bindings and an expected
+// digest. Backing spellings are consumed only while constructing the portable
+// projection; no backing path is copied into `sourceProvenance`.
+const loadSourceProvenanceAuthority = async () => {
+  const authorityPath = opts.sourceProvenanceAuthority;
+  const expectedDigest = opts.sourceProvenanceAuthoritySha256;
+  if (!authorityPath && !expectedDigest) return null;
+  if (!authorityPath || !isSha256Hex(expectedDigest)) {
+    throw new Error('source provenance authority requires a path and lowercase SHA-256 digest');
+  }
+  if (!opts.cacheManifest) {
+    throw new Error('source provenance authority requires --cache-manifest');
+  }
+  const bytes = await fs.readFile(authorityPath);
+  const observedDigest = createHash('sha256').update(bytes).digest('hex');
+  if (observedDigest !== expectedDigest) {
+    throw new Error('source provenance authority digest mismatch');
+  }
+  let authority;
+  try {
+    authority = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    throw new Error('source provenance authority is not valid UTF-8 JSON');
+  }
+  const allowedKeys = [
+    'schema', 'armedSnapshotDigest', 'packageGraphDigest', 'rootIdentity', 'bindings',
+  ];
+  if (!authority || typeof authority !== 'object' || Array.isArray(authority) ||
+      Object.keys(authority).some((key) => !allowedKeys.includes(key)) ||
+      authority.schema !== 'ibex/source-provenance-authority/1' ||
+      !isDigestIdentity(authority.armedSnapshotDigest) ||
+      !isDigestIdentity(authority.packageGraphDigest) ||
+      !isPrincipal(authority.rootIdentity) || authority.rootIdentity.kind !== 'root' ||
+      !Array.isArray(authority.bindings) || authority.bindings.length === 0) {
+    throw new Error('source provenance authority has an invalid closed shape');
+  }
+
+  const bindings = [];
+  for (const raw of authority.bindings) {
+    const bindingKeys = ['logicalRoot', 'owner', 'backingRoot'];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
+        Object.keys(raw).some((key) => !bindingKeys.includes(key)) ||
+        (raw.logicalRoot !== 'project' && raw.logicalRoot !== 'package') ||
+        typeof raw.backingRoot !== 'string' || !path.isAbsolute(raw.backingRoot)) {
+      throw new Error('source provenance authority contains an invalid binding');
+    }
+    const owner = raw.logicalRoot === 'project' ? authority.rootIdentity : raw.owner;
+    if (!isPrincipal(owner) ||
+        (raw.logicalRoot === 'project' && (raw.owner !== undefined || owner.kind !== 'root')) ||
+        (raw.logicalRoot === 'package' && owner.kind !== 'package')) {
+      throw new Error('source provenance binding owner does not match its logical root');
+    }
+    const backingRoot = await fs.realpath(raw.backingRoot);
+    bindings.push({ logicalRoot: raw.logicalRoot, owner, backingRoot });
+  }
+  const projectBindings = bindings.filter((binding) => binding.logicalRoot === 'project');
+  if (projectBindings.length !== 1) {
+    throw new Error('source provenance authority requires exactly one project binding');
+  }
+  const projectRoot = projectBindings[0].backingRoot;
+  const seenRoots = new Set();
+  for (const binding of bindings) {
+    if (!pathIsWithin(projectRoot, binding.backingRoot)) {
+      throw new Error('source provenance package binding escapes the project binding');
+    }
+    if (seenRoots.has(binding.backingRoot)) {
+      throw new Error('source provenance bindings have an ambiguous canonical root');
+    }
+    seenRoots.add(binding.backingRoot);
+    const relative = path.relative(projectRoot, binding.backingRoot);
+    const components = relative === '' ? [] : relative.split(path.sep);
+    binding.virtualPrefix = components.length === 0
+      ? '/project'
+      : `/project/${components.join('/')}`;
+  }
+  bindings.sort((left, right) =>
+    right.backingRoot.length - left.backingRoot.length ||
+    utf8Compare(left.backingRoot, right.backingRoot));
+  return {
+    authorityDigest: observedDigest,
+    armedSnapshotDigest: authority.armedSnapshotDigest,
+    packageGraphDigest: authority.packageGraphDigest,
+    projectRoot,
+    bindings,
+  };
+};
+const sourceProvenanceAuthority = await loadSourceProvenanceAuthority();
 const missingDigest = createHash('sha256').update('missing').digest('hex');
 const metadataNames = [
   'package.json', 'bun.lock', 'bun.lockb', 'package-lock.json',
@@ -368,11 +517,15 @@ if (typeof bundle.close === 'function') {
 // modules (\0-prefixed) and externals are skipped.
 if (opts.cacheManifest) {
   const moduleIds = new Set([await fs.realpath(entry)]);
+  const moduleOutputs = new Map();
   for (const item of writeResult?.output ?? []) {
     if (item?.type === 'chunk' && item.modules) {
       for (const id of Object.keys(item.modules)) {
         if (!id.startsWith('\0') && path.isAbsolute(id)) {
-          moduleIds.add(await fs.realpath(id));
+          const modulePath = await fs.realpath(id);
+          moduleIds.add(modulePath);
+          if (!moduleOutputs.has(modulePath)) moduleOutputs.set(modulePath, new Set());
+          moduleOutputs.get(modulePath).add(item.fileName);
         }
       }
     }
@@ -414,21 +567,143 @@ if (opts.cacheManifest) {
     outputs.push({ path: outputName, sha256: await digestFile(outputPath) });
   }
   outputs.sort((a, b) => utf8Compare(a.path, b.path));
-  const graphDigest = createHash('sha256')
-    .update(JSON.stringify(deps))
-    .digest('hex');
+  let sourceProvenance = null;
+  if (sourceProvenanceAuthority) {
+    const depIndexByPath = new Map(deps.map((dep, index) => [dep.path, index]));
+    const modules = [];
+    for (const modulePath of [...moduleIds].sort(utf8Compare)) {
+      if (!pathIsWithin(sourceProvenanceAuthority.projectRoot, modulePath)) {
+        throw new Error(`source provenance module escapes the project binding: ${modulePath}`);
+      }
+      const binding = sourceProvenanceAuthority.bindings.find((candidate) =>
+        pathIsWithin(candidate.backingRoot, modulePath));
+      if (!binding) {
+        throw new Error(`source provenance module has no authenticated binding: ${modulePath}`);
+      }
+      const bindingRelative = path.relative(binding.backingRoot, modulePath);
+      const lexicalComponents = bindingRelative === '' ? [] : bindingRelative.split(path.sep);
+      if (lexicalComponents.length === 0 ||
+          lexicalComponents.some((component) => !component || component === '.' || component === '..')) {
+        throw new Error(`source provenance module has an invalid binding-relative path: ${modulePath}`);
+      }
+      const projectRelative = path.relative(sourceProvenanceAuthority.projectRoot, modulePath);
+      const projectComponents = projectRelative.split(path.sep);
+      const virtualPath = `/project/${projectComponents.join('/')}`;
+      const chunks = [...(moduleOutputs.get(modulePath) ?? [])].sort(utf8Compare);
+      if (chunks.length === 0) {
+        throw new Error(`source provenance module has no emitted chunk: ${modulePath}`);
+      }
+      const depIndex = depIndexByPath.get(modulePath);
+      if (depIndex === undefined) {
+        throw new Error(`source provenance module has no authenticated dependency row: ${modulePath}`);
+      }
+      modules.push({
+        sourceId: sourceIdFor(binding.owner, binding.logicalRoot, lexicalComponents),
+        sourceLabel: sourceLabelForVirtualPath(virtualPath),
+        virtualPath,
+        bindingVirtualPrefix: binding.virtualPrefix,
+        sourceIdentity: {
+          definingPrincipal: binding.owner,
+          logicalRoot: binding.logicalRoot,
+          lexicalComponents,
+        },
+        sourceSha256: deps[depIndex].sha256,
+        depIndex,
+        chunks,
+      });
+    }
+    modules.sort((left, right) => utf8Compare(left.sourceId, right.sourceId));
+    for (let index = 1; index < modules.length; index++) {
+      if (modules[index - 1].sourceId === modules[index].sourceId) {
+        throw new Error('two original modules produced the same authenticated SourceId');
+      }
+    }
+    const projection = {
+      schema: 'ibex/source-provenance/1',
+      armedSnapshotDigest: sourceProvenanceAuthority.armedSnapshotDigest,
+      packageGraphDigest: sourceProvenanceAuthority.packageGraphDigest,
+      authorityDigest: sourceProvenanceAuthority.authorityDigest,
+      modules,
+    };
+    sourceProvenance = { ...projection, digest: digestJson(projection) };
+
+    // Rolldown's map normally names backing files. Rewrite every real original
+    // to the same virtual SourceLabel used by raw execution before hashing the
+    // generated outputs. A map source that looks like a real file but cannot be
+    // joined to the authenticated graph is refused rather than leaked.
+    const sourceLabelByBackingPath = new Map(sourceProvenance.modules.map((module) => [
+      deps[module.depIndex].path,
+      module.sourceLabel,
+    ]));
+    for (const outputName of outputNames) {
+      if (!outputName.endsWith('.map')) continue;
+      const mapPath = path.join(outDir, outputName);
+      const sourceMap = JSON.parse(await fs.readFile(mapPath, 'utf8'));
+      if (!Array.isArray(sourceMap.sources)) {
+        throw new Error(`generated source map has no sources array: ${outputName}`);
+      }
+      const mapDirectory = path.dirname(mapPath);
+      const sourceRoot = typeof sourceMap.sourceRoot === 'string' ? sourceMap.sourceRoot : '';
+      sourceMap.sources = await Promise.all(sourceMap.sources.map(async (rawSource) => {
+        if (typeof rawSource !== 'string' || rawSource.includes('\0')) {
+          throw new Error(`generated source map has an invalid source: ${outputName}`);
+        }
+        if (/^(?:ibex|node|rolldown):/.test(rawSource)) return rawSource;
+        const candidates = [];
+        if (rawSource.startsWith('file://')) {
+          try {
+            candidates.push(decodeURIComponent(new URL(rawSource).pathname));
+          } catch {
+            throw new Error(`generated source map has an invalid file URL: ${outputName}`);
+          }
+        } else if (path.isAbsolute(rawSource)) {
+          candidates.push(rawSource);
+        } else {
+          candidates.push(path.resolve(mapDirectory, sourceRoot, rawSource));
+          candidates.push(path.resolve(process.cwd(), sourceRoot, rawSource));
+        }
+        for (const candidate of candidates) {
+          let canonicalCandidate;
+          try {
+            canonicalCandidate = await fs.realpath(candidate);
+          } catch {
+            continue;
+          }
+          const label = sourceLabelByBackingPath.get(canonicalCandidate);
+          if (label) return label;
+        }
+        throw new Error(`source map source is outside the authenticated module graph: ${rawSource}`);
+      }));
+      delete sourceMap.sourceRoot;
+      await fs.writeFile(mapPath, JSON.stringify(sourceMap));
+    }
+    // Source-map rewriting changes an output; refresh every output digest so
+    // the v4 graph key below commits the exact published bytes.
+    for (const output of outputs) {
+      output.sha256 = await digestFile(path.join(outDir, output.path));
+    }
+  }
+  // v4 binds the portable, per-original provenance projection and every
+  // generated output digest into the graph key. The cache-private dependency
+  // rows still carry backing paths for
+  // freshness checks; the runtime-visible `sourceProvenance` projection does
+  // not. @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
+  const graphDigest = sourceProvenance
+    ? digestJson({ deps, outputs, sourceProvenanceDigest: sourceProvenance.digest })
+    : createHash('sha256').update(JSON.stringify(deps)).digest('hex');
   const manifestPath = `${out}.deps.json`;
   const manifestTmp = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(
     manifestTmp,
     JSON.stringify({
-      version: 3,
+      version: sourceProvenance ? 4 : 3,
       entry: await fs.realpath(entry),
       resolutionDigest,
       graphDigest,
       deps,
       resolutionInputs,
       outputs,
+      ...(sourceProvenance ? { sourceProvenance } : {}),
     })
   );
   await fs.rename(manifestTmp, manifestPath);
@@ -455,6 +730,31 @@ if (opts.lowerClasses) {
     }
   }
 
+  const containLoweredIifeHelpers = ({ types }) => ({
+    name: 'ibex-contain-lowered-iife-helpers',
+    visitor: {
+      Program: {
+        exit(programPath) {
+          // Babel's class transform emits helper declarations at Program
+          // scope, outside Rolldown's own IIFE. Hermes evaluates this bundle
+          // as a script, so those helpers would otherwise become realm-global
+          // properties. Put the final transformed Program in one more closure;
+          // the runtime's intentional exports already use globalThis.
+          // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+          const body = types.blockStatement(programPath.node.body);
+          body.directives = programPath.node.directives;
+          programPath.node.directives = [];
+          const closure = types.functionExpression(null, [], body);
+          const call = types.callExpression(
+            types.memberExpression(closure, types.identifier('call')),
+            [types.identifier('globalThis')],
+          );
+          programPath.node.body = [types.expressionStatement(call)];
+        },
+      },
+    },
+  });
+
   const result = await babel.transformAsync(code, {
     babelrc: false,
     configFile: false,
@@ -463,6 +763,7 @@ if (opts.lowerClasses) {
     sourceMaps: opts.sourcemap ? true : false,
     plugins: [
       ['@babel/plugin-transform-classes', { loose: true }],
+      ...(opts.format === 'iife' ? [containLoweredIifeHelpers] : []),
     ],
   });
 

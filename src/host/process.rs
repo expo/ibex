@@ -28,15 +28,10 @@ pub fn chdir(path: &std::path::Path) -> Result<()> {
 
 /// Get an environment variable
 pub fn env_get(key: &str) -> Option<String> {
-    if let Some(value) = env_overlay()
+    env_overlay()
         .read()
         .ok()
-        .and_then(|overlay| overlay.get(key).cloned())
-    {
-        return value;
-    }
-
-    std::env::var(key).ok()
+        .and_then(|overlay| overlay.get(key).cloned().flatten())
 }
 
 /// Set an environment variable
@@ -55,7 +50,7 @@ pub fn env_remove(key: &str) {
 
 /// Get all environment variables
 pub fn env_all() -> HashMap<String, String> {
-    let mut all = std::env::vars().collect::<HashMap<_, _>>();
+    let mut all = HashMap::new();
     if let Ok(overlay) = env_overlay().read() {
         for (key, value) in overlay.iter() {
             match value {
@@ -133,9 +128,10 @@ pub fn system_info() -> SystemInfo {
     SystemInfo {
         platform: platform().to_string(),
         arch: arch().to_string(),
-        hostname: std::env::var("HOSTNAME")
-            .or_else(|_| std::env::var("HOST"))
-            .unwrap_or_else(|_| "localhost".to_string()),
+        // Repository runtime callers use the typed native system-info route;
+        // this legacy helper must not recover ambient host configuration.
+        // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        hostname: "localhost".to_string(),
         cpus: std::thread::available_parallelism()
             .map(|p| p.get())
             .unwrap_or(1),

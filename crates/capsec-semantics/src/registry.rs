@@ -64,9 +64,19 @@ pub struct CapabilityDefinition {
     pub channels: AuthorityChannels,
     pub static_only: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub principal_constraint: Option<PrincipalConstraint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selector_constraints: Option<SelectorConstraints>,
     pub risk: Risk,
     pub description: String,
+}
+
+/// A positive policy row can never weaken these action-level attribution
+/// predicates. They are evaluated before every positive authority source.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PrincipalConstraint {
+    RootOnly,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -88,6 +98,7 @@ pub enum Stability {
 #[serde(rename_all = "kebab-case")]
 pub enum Globality {
     Resource,
+    SessionScoped,
     SharedProcessRead,
     SharedProcessMutation,
     Terminal,
@@ -111,6 +122,8 @@ pub enum ResourceKind {
     Microphone,
     PathExact,
     PathTree,
+    SessionState,
+    SessionLifecycle,
     Stdio,
     StorageNamespace,
     SystemInfo,
@@ -134,6 +147,8 @@ impl ResourceKind {
             Self::Microphone => "microphone",
             Self::PathExact => "path-exact",
             Self::PathTree => "path-tree",
+            Self::SessionState => "session-state",
+            Self::SessionLifecycle => "session-lifecycle",
             Self::Stdio => "stdio",
             Self::StorageNamespace => "storage-namespace",
             Self::SystemInfo => "system-info",
@@ -993,6 +1008,7 @@ mod tests {
                 synthesis: false,
             },
             static_only: false,
+            principal_constraint: None,
             selector_constraints: None,
             risk: Risk {
                 base_tier: 1,

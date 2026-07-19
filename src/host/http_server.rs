@@ -187,6 +187,13 @@ fn max_request_body_bytes() -> usize {
     })
 }
 
+/// Capture the process-lifetime request-body ceiling before an armed Host is
+/// published; request handling reads only the initialized `OnceLock`.
+/// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+pub(crate) fn capture_immutable_environment_configuration() {
+    let _ = max_request_body_bytes();
+}
+
 struct ServerState {
     /// Unforgeable owner namespace of the Hermes runtime that created this
     /// server. Numeric server/request ids are never ambient process authority.

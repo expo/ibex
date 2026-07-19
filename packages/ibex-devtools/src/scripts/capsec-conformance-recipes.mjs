@@ -15,7 +15,11 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
-import { fixtureExecutionPlans } from "./capsec-conformance.mjs";
+import { internalObserverActionStagesForEdge } from "./capsec-builtin-effects-output-templates.mjs";
+import {
+  fixtureCatalogForTarget,
+  fixtureExecutionPlans,
+} from "./capsec-conformance.mjs";
 import {
   authoredNonCapabilityBuiltinProbe,
   nonCapabilityBuiltinProbeResidualReason,
@@ -26,6 +30,11 @@ import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
 import { authoredStartupPublicProbe } from "./capsec-startup-probe-templates.mjs";
 import { authoredStartupEnvironmentProbe } from "./capsec-startup-environment-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
+import { buildRootGlobalDispositionManifest } from "./capsec-root-global-dispositions.mjs";
+import {
+  applicableImplementationBranchIds,
+  targetApplicabilityForVariant,
+} from "./capsec-target-branches.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
@@ -62,6 +71,15 @@ const ADAPTER_SCENARIOS = new Set([
   "malformed",
   "missing-attribution",
   "wrong-principal",
+]);
+
+const RATIONALE_ONLY_CALLBACK_SCENARIOS = new Set([
+  "attribution-missing-deny",
+  "generation-recheck",
+  "principal-restore",
+  "snapshot-mismatch-deny",
+  "cannot-widen-authority",
+  "post-lockdown-invariant",
 ]);
 
 const ROOT_PRINCIPAL = Object.freeze({
@@ -284,16 +302,50 @@ const DISCOVERY_OR_LATER = new Set([
   "cleanup",
 ]);
 
+// Direct-adapter recipes are fixed contract vectors rather than filesystem
+// observations. Materialize requested-only path exemplars on the adapter's
+// synthetic bound volume, with stable per-path identities, when a declared
+// edge exercises a later stage.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+function conformancePathObject(requested, role) {
+  return {
+    platform: "unix",
+    volume: "dev-1",
+    file: `recipe-${role}-${taggedDigest(requested).slice(7, 23)}`,
+  };
+}
+
 function occurrenceResourceAtStage(input, stage) {
   const resource = clone(input);
   const commitOrLater = COMMIT_OR_LATER.has(stage);
   const discoveryOrLater = DISCOVERY_OR_LATER.has(stage);
   if (resource.kind === "path-occurrence") {
     if (!discoveryOrLater) {
+      resource.objectState = "unknown";
       delete resource.parentObject;
       delete resource.finalObject;
+      delete resource.finalObjectGeneration;
+    } else {
+      if (resource.objectState === "unknown") resource.objectState = "existing";
+      resource.parentObject ??= conformancePathObject(
+        resource.requested,
+        "parent",
+      );
+      if (resource.objectState === "existing") {
+        resource.finalObject ??= conformancePathObject(
+          resource.requested,
+          "final",
+        );
+      } else {
+        delete resource.finalObject;
+        delete resource.finalObjectGeneration;
+      }
     }
-    if (!commitOrLater) delete resource.retainedHandle;
+    if (commitOrLater) {
+      resource.retainedHandle ??= `recipe-handle-${taggedDigest(resource.requested).slice(7, 23)}`;
+    } else {
+      delete resource.retainedHandle;
+    }
   } else if (resource.kind === "network-occurrence") {
     const publicAddress = "93.184.216.34";
     if (stage === "requested") {
@@ -372,6 +424,37 @@ function effectsForPlan(plan, coverageByEdge) {
   return [...unique.values()].sort((left, right) =>
     compareText(left.cap, right.cap),
   );
+}
+
+// Source-bound native filesystem terminals can perform retained-object checks
+// at stages deliberately narrower than the public registry lifecycle. Keep an
+// authored recipe from naming a stage that is present in neither contract.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+export function nativeExpectedStageContractViolation({
+  actionIds,
+  expectedStages,
+  semanticEffects,
+  coverageEdges,
+}) {
+  const selectedActions = new Set(actionIds);
+  const allowedStages = new Set();
+  const addActionStages = (rows) => {
+    for (const row of rows) {
+      if (!selectedActions.has(row.actionId ?? row.cap)) continue;
+      for (const stage of row.stages ?? []) allowedStages.add(stage);
+    }
+  };
+  addActionStages(semanticEffects);
+  for (const edge of coverageEdges) {
+    addActionStages(edge.effects ?? []);
+    addActionStages(internalObserverActionStagesForEdge(edge));
+  }
+  const unbound = canonicalSet(
+    expectedStages.filter((stage) => !allowedStages.has(stage)),
+  );
+  return unbound.length === 0
+    ? null
+    : `expected native stages are outside the registry and source-bound internal contracts: ${unbound.join(",")}`;
 }
 
 function adapterProbeForPlan(
@@ -703,6 +786,29 @@ const nativeSystemInfoTemplate = (name) =>
     requiredSourceArity: 0,
     setup: [],
   });
+// @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant — cwd is
+// session state with its own typed action, not generic host system information.
+const nativeCwdObserveTemplate = () =>
+  Object.freeze({
+    actionIds: ["path:cwd-observe"],
+    arguments: [],
+    expectedDecisionCounts: { allow: 2, deny: 1 },
+    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedDenyMessageFragment: "filesystem policy denied",
+    expectedStages: {
+      allow: ["requested", "commit"],
+      deny: ["requested"],
+    },
+    requiredFloor: [
+      {
+        cap: "path:cwd-observe",
+        resource: { kind: "session-state", name: "cwd" },
+      },
+    ],
+    requiredSourceArity: 0,
+    publicAccessObservedKey: "native-op:global:process.cwd",
+    setup: [],
+  });
 const nativeCachedSystemInfoTemplate = (name, numericName) =>
   Object.freeze({
     actionIds: ["sys:read"],
@@ -767,7 +873,7 @@ const nativeEnvironmentReadTemplate = (name) =>
         cap: "env:read",
         resource: {
           kind: "environment-name",
-          target: "broker-base",
+          target: "principal-overlay",
           name,
         },
       },
@@ -820,23 +926,50 @@ const projectPathExactResource = (...components) => ({
     components: components.map((value) => ({ encoding: "utf8", value })),
   },
 });
-const projectPathTreeResource = (...components) => ({
-  kind: "path-tree",
-  path: {
-    root: "project",
-    components: components.map((value) => ({ encoding: "utf8", value })),
-  },
-});
-const nativeProjectMetadataTemplate = () =>
+// A direct native path beneath `/project/target` first authorizes the complete
+// requested spelling, discovers the authenticated project root, then requests
+// and repeat-authorizes each retained component. A missing leaf adds a second
+// requested decision for the dangling spelling plus absent-create discovery.
+// Keep these sequences shared so a recipe cannot silently regress to the
+// pre-component-walk evidence shape.
+// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+const NATIVE_EXISTING_PROJECT_CHILD_STAGES = Object.freeze([
+  "requested",
+  "discovery",
+  "requested",
+  "repeat",
+  "requested",
+  "repeat",
+]);
+const NATIVE_MISSING_PROJECT_CHILD_STAGES = Object.freeze([
+  "requested",
+  "discovery",
+  "requested",
+  "repeat",
+  "requested",
+  "requested",
+  "discovery",
+]);
+const existingProjectChildStages = (...tail) => [
+  ...NATIVE_EXISTING_PROJECT_CHILD_STAGES,
+  ...tail,
+];
+const missingProjectChildStages = (...tail) => [
+  ...NATIVE_MISSING_PROJECT_CHILD_STAGES,
+  ...tail,
+];
+const nativeProjectMetadataTemplate = (
+  allowStages = ["requested", "discovery", "requested", "repeat"],
+) =>
   Object.freeze({
     actionIds: ["fs:list"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
     expectedDecisionCounts: {
-      allow: 3,
+      allow: allowStages.length,
       deny: 1,
-      malformed: 3,
-      "missing-attribution": 3,
-      "wrong-principal": 3,
+      malformed: allowStages.length,
+      "missing-attribution": allowStages.length,
+      "wrong-principal": allowStages.length,
     },
     expectedResults: {
       allow: "return",
@@ -845,12 +978,13 @@ const nativeProjectMetadataTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "repeat"],
+      allow: allowStages,
       deny: ["requested"],
-      malformed: ["requested", "discovery", "repeat"],
-      "missing-attribution": ["requested", "discovery", "repeat"],
-      "wrong-principal": ["requested", "discovery", "repeat"],
+      malformed: allowStages,
+      "missing-attribution": allowStages,
+      "wrong-principal": allowStages,
     },
     requiredFloor: [
       {
@@ -866,11 +1000,11 @@ const nativeProjectStatfsTemplate = () =>
     actionIds: ["fs:list"],
     arguments: [literalArgument("Cargo.toml")],
     expectedDecisionCounts: {
-      allow: 3,
+      allow: 6,
       deny: 1,
-      malformed: 3,
-      "missing-attribution": 3,
-      "wrong-principal": 3,
+      malformed: 6,
+      "missing-attribution": 6,
+      "wrong-principal": 6,
     },
     expectedResults: {
       allow: "return",
@@ -879,12 +1013,41 @@ const nativeProjectStatfsTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "repeat"],
+      allow: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
       deny: ["requested"],
-      malformed: ["requested", "discovery", "repeat"],
-      "missing-attribution": ["requested", "discovery", "repeat"],
-      "wrong-principal": ["requested", "discovery", "repeat"],
+      malformed: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "repeat",
+        "repeat",
+      ],
     },
     requiredFloor: [
       {
@@ -904,11 +1067,11 @@ const nativeProjectTruncateTemplate = () =>
     ],
     expectedCleanup: "removed-owned-file",
     expectedDecisionCounts: {
-      allow: 5,
+      allow: 8,
       deny: 1,
-      malformed: 5,
-      "missing-attribution": 5,
-      "wrong-principal": 5,
+      malformed: 8,
+      "missing-attribution": 8,
+      "wrong-principal": 8,
     },
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:write"],
@@ -920,24 +1083,13 @@ const nativeProjectTruncateTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      allow: existingProjectChildStages("commit", "repeat"),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
-      "missing-attribution": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
-      "wrong-principal": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
+      malformed: existingProjectChildStages("commit", "repeat"),
+      "missing-attribution": existingProjectChildStages("commit", "repeat"),
+      "wrong-principal": existingProjectChildStages("commit", "repeat"),
     },
     requiredFloor: ["fs:list", "fs:write"].map((cap) => ({
       cap,
@@ -952,11 +1104,11 @@ const nativeProjectReadFileTemplate = () =>
     actionIds: ["fs:list", "fs:read"],
     arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
     expectedDecisionCounts: {
-      allow: 4,
+      allow: 6,
       deny: 1,
-      malformed: 4,
-      "missing-attribution": 4,
-      "wrong-principal": 4,
+      malformed: 6,
+      "missing-attribution": 6,
+      "wrong-principal": 6,
     },
     expectedResults: {
       allow: "return",
@@ -968,12 +1120,41 @@ const nativeProjectReadFileTemplate = () =>
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:read"],
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "commit", "repeat"],
+      allow: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
       deny: ["requested"],
-      malformed: ["requested", "discovery", "commit", "repeat"],
-      "missing-attribution": ["requested", "discovery", "commit", "repeat"],
-      "wrong-principal": ["requested", "discovery", "commit", "repeat"],
+      malformed: [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
+      "missing-attribution": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
+      "wrong-principal": [
+        "requested",
+        "discovery",
+        "requested",
+        "repeat",
+        "commit",
+        "repeat",
+      ],
     },
     requiredFloor: [
       {
@@ -994,14 +1175,15 @@ const nativeProjectMkdirTemplate = () =>
     arguments: [
       literalArgument("target/ibex-capsec-mkdir"),
       literalArgument(false),
+      literalArgument(-1),
     ],
     expectedCleanup: "removed-created-directory",
     expectedDecisionCounts: {
-      allow: 4,
+      allow: 7,
       deny: 1,
-      malformed: 4,
-      "missing-attribution": 4,
-      "wrong-principal": 4,
+      malformed: 7,
+      "missing-attribution": 7,
+      "wrong-principal": 7,
     },
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:write"],
@@ -1013,12 +1195,13 @@ const nativeProjectMkdirTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit"],
+      allow: missingProjectChildStages(),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit"],
-      "missing-attribution": ["requested", "discovery", "discovery", "commit"],
-      "wrong-principal": ["requested", "discovery", "discovery", "commit"],
+      malformed: missingProjectChildStages(),
+      "missing-attribution": missingProjectChildStages(),
+      "wrong-principal": missingProjectChildStages(),
     },
     requiredFloor: [
       {
@@ -1030,7 +1213,7 @@ const nativeProjectMkdirTemplate = () =>
         resource: projectPathExactResource("target", "ibex-capsec-mkdir"),
       },
     ],
-    requiredSourceArity: 2,
+    requiredSourceArity: 3,
     setup: [],
   });
 const nativeProjectWriteFileTemplate = () =>
@@ -1045,11 +1228,11 @@ const nativeProjectWriteFileTemplate = () =>
     ],
     expectedCleanup: "removed-owned-file",
     expectedDecisionCounts: {
-      allow: 5,
+      allow: 9,
       deny: 1,
-      malformed: 5,
-      "missing-attribution": 5,
-      "wrong-principal": 5,
+      malformed: 9,
+      "missing-attribution": 9,
+      "wrong-principal": 9,
     },
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:write"],
@@ -1061,24 +1244,13 @@ const nativeProjectWriteFileTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      allow: missingProjectChildStages("commit", "repeat"),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
-      "missing-attribution": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
-      "wrong-principal": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
+      malformed: missingProjectChildStages("commit", "repeat"),
+      "missing-attribution": missingProjectChildStages("commit", "repeat"),
+      "wrong-principal": missingProjectChildStages("commit", "repeat"),
     },
     requiredFloor: [
       {
@@ -1105,11 +1277,11 @@ const nativeProjectAppendFileTemplate = () =>
     ],
     expectedCleanup: "removed-owned-file",
     expectedDecisionCounts: {
-      allow: 5,
+      allow: 8,
       deny: 1,
-      malformed: 5,
-      "missing-attribution": 5,
-      "wrong-principal": 5,
+      malformed: 8,
+      "missing-attribution": 8,
+      "wrong-principal": 8,
     },
     expectedObservedActionIds: {
       malformed: ["fs:list", "fs:write"],
@@ -1121,24 +1293,13 @@ const nativeProjectAppendFileTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit", "repeat"],
+      allow: existingProjectChildStages("commit", "repeat"),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit", "repeat"],
-      "missing-attribution": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
-      "wrong-principal": [
-        "requested",
-        "discovery",
-        "discovery",
-        "commit",
-        "repeat",
-      ],
+      malformed: existingProjectChildStages("commit", "repeat"),
+      "missing-attribution": existingProjectChildStages("commit", "repeat"),
+      "wrong-principal": existingProjectChildStages("commit", "repeat"),
     },
     requiredFloor: [
       {
@@ -1158,8 +1319,14 @@ const nativeProjectFsOpenTemplate = ({
   async = false,
   flags,
   fixture,
-}) =>
-  Object.freeze({
+}) => {
+  // The synchronous facade performs its typed access-class request before the
+  // shared retained-component walk. The async facade enters that walk directly
+  // while it still owns the runtime thread.
+  const openStages = !async
+    ? ["requested", ...existingProjectChildStages("commit")]
+    : existingProjectChildStages("commit");
+  return Object.freeze({
     actionIds,
     arguments: [
       literalArgument(`target/${fixture}`),
@@ -1169,12 +1336,12 @@ const nativeProjectFsOpenTemplate = ({
     ],
     expectedCleanup: "closed-fs-file-descriptor-removed-owned-file",
     expectedDecisionCounts: {
-      allow: 4,
-      "branch-selection": 4,
+      allow: openStages.length,
+      "branch-selection": openStages.length,
       deny: 1,
-      malformed: 4,
-      "missing-attribution": 4,
-      "wrong-principal": 4,
+      malformed: openStages.length,
+      "missing-attribution": openStages.length,
+      "wrong-principal": openStages.length,
     },
     expectedObservedActionIds: {
       malformed: actionIds,
@@ -1187,13 +1354,14 @@ const nativeProjectFsOpenTemplate = ({
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "discovery", "commit"],
-      "branch-selection": ["requested", "discovery", "discovery", "commit"],
+      allow: openStages,
+      "branch-selection": openStages,
       deny: ["requested"],
-      malformed: ["requested", "discovery", "discovery", "commit"],
-      "missing-attribution": ["requested", "discovery", "discovery", "commit"],
-      "wrong-principal": ["requested", "discovery", "discovery", "commit"],
+      malformed: openStages,
+      "missing-attribution": openStages,
+      "wrong-principal": openStages,
     },
     requiredFloor: actionIds.map((cap) => ({
       cap,
@@ -1212,6 +1380,7 @@ const nativeProjectFsOpenTemplate = ({
         }
       : {}),
   });
+};
 const nativeRetainedFsFstatTemplate = () =>
   Object.freeze({
     actionIds: ["fs:list"],
@@ -1377,11 +1546,11 @@ const nativeProjectReaddirTemplate = () =>
     ],
     expectedCleanup: "removed-owned-directory",
     expectedDecisionCounts: {
-      allow: 4,
+      allow: 9,
       deny: 1,
-      malformed: 4,
-      "missing-attribution": 4,
-      "wrong-principal": 4,
+      malformed: 9,
+      "missing-attribution": 9,
+      "wrong-principal": 9,
     },
     expectedResults: {
       allow: "return",
@@ -1390,12 +1559,21 @@ const nativeProjectReaddirTemplate = () =>
       "missing-attribution": "return",
       "wrong-principal": "return",
     },
+    expectedDenyMessageFragment: "filesystem policy denied",
     expectedStages: {
-      allow: ["requested", "discovery", "repeat", "repeat"],
+      allow: existingProjectChildStages("repeat", "repeat", "repeat"),
       deny: ["requested"],
-      malformed: ["requested", "discovery", "repeat", "repeat"],
-      "missing-attribution": ["requested", "discovery", "repeat", "repeat"],
-      "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
+      malformed: existingProjectChildStages("repeat", "repeat", "repeat"),
+      "missing-attribution": existingProjectChildStages(
+        "repeat",
+        "repeat",
+        "repeat",
+      ),
+      "wrong-principal": existingProjectChildStages(
+        "repeat",
+        "repeat",
+        "repeat",
+      ),
     },
     requiredFloor: [
       {
@@ -1938,7 +2116,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   ["__exactGetCpuCount", nativeSystemInfoTemplate("cpus")],
-  ["__exactGetCwd", nativeSystemInfoTemplate("cwd")],
+  ["__exactGetCwd", nativeCwdObserveTemplate()],
   ["__exactGetEnv", nativeEnvironmentReadTemplate("PATH")],
   ["__exactGetFreeMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetHostname", nativeSystemInfoTemplate("hostname")],
@@ -1953,8 +2131,27 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactGetUserInfo", nativeSystemInfoTemplate("user")],
   ["__exactLstat", nativeProjectMetadataTemplate()],
   ["__exactReadFile", nativeProjectReadFileTemplate()],
-  ["__exactRealpath", nativeProjectMetadataTemplate()],
-  ["__exactStat", nativeProjectMetadataTemplate()],
+  [
+    "__exactRealpath",
+    nativeProjectMetadataTemplate([
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "repeat",
+      "repeat",
+    ]),
+  ],
+  [
+    "__exactStat",
+    nativeProjectMetadataTemplate([
+      "requested",
+      "discovery",
+      "requested",
+      "repeat",
+      "repeat",
+    ]),
+  ],
   [
     "__exactHashRaw",
     nativeNoEffectTemplate(2, [
@@ -2252,6 +2449,36 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
 ]);
 
+const NATIVE_EFFECT_NON_DENY_SCENARIOS = Object.freeze([
+  "allow",
+  "branch-selection",
+  "malformed",
+  "missing-attribution",
+  "wrong-principal",
+]);
+
+function nativeEffectDecisionCounts(nonDenyCount) {
+  return Object.freeze({
+    ...Object.fromEntries(
+      NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [
+        scenario,
+        nonDenyCount,
+      ]),
+    ),
+    deny: 1,
+  });
+}
+
+function nativeEffectStages(nonDenyStages) {
+  const trace = Object.freeze([...nonDenyStages]);
+  return Object.freeze({
+    ...Object.fromEntries(
+      NATIVE_EFFECT_NON_DENY_SCENARIOS.map((scenario) => [scenario, trace]),
+    ),
+    deny: Object.freeze(["requested"]),
+  });
+}
+
 const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
   [
     "__exactFsFdAsync",
@@ -2348,14 +2575,8 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
           },
           additionalAllowedCoverageObservedKeys: ["native-op:__exactMkdir"],
           expectedCleanup: "removed-created-directory",
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
+          expectedDecisionCounts: nativeEffectDecisionCounts(7),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedObservedActionIds: {
             malformed: ["fs:list", "fs:write"],
           },
@@ -2367,29 +2588,15 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "discovery", "commit"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "discovery", "commit"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "requested",
+            "discovery",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -2403,86 +2610,6 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
               resource: projectPathExactResource(
                 "target",
                 "ibex-capsec-fspathasync-mkdir",
-              ),
-            },
-          ],
-          requiredSourceArity: 6,
-          setup: [],
-        }),
-      ],
-      [
-        "mkdtemp",
-        Object.freeze({
-          actionIds: ["fs:list", "fs:write"],
-          arguments: [
-            literalArgument("mkdtemp"),
-            literalArgument("target/ibex-capsec-fspathasync-mkdtemp/"),
-            literalArgument(null),
-            literalArgument(0),
-            literalArgument(0),
-            literalArgument(0),
-          ],
-          completion: {
-            kind: "event-loop-quiescence",
-            timeoutMilliseconds: 1_000,
-          },
-          additionalAllowedCoverageObservedKeys: ["native-op:__exactMkdir"],
-          expectedCleanup: "removed-created-directory",
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
-          expectedObservedActionIds: {
-            malformed: ["fs:list", "fs:write"],
-          },
-          expectedResults: {
-            allow: "return",
-            "branch-selection": "return",
-            deny: "permission-denied",
-            malformed: "return",
-            "missing-attribution": "return",
-            "wrong-principal": "return",
-          },
-          expectedStages: {
-            allow: ["requested", "discovery", "discovery", "commit"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "discovery", "commit"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-            ],
-          },
-          requiredFloor: [
-            {
-              cap: "fs:list",
-              resource: projectPathTreeResource(
-                "target",
-                "ibex-capsec-fspathasync-mkdtemp",
-              ),
-            },
-            {
-              cap: "fs:write",
-              resource: projectPathTreeResource(
-                "target",
-                "ibex-capsec-fspathasync-mkdtemp",
               ),
             },
           ],
@@ -2507,14 +2634,8 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             timeoutMilliseconds: 1_000,
           },
           additionalAllowedCoverageObservedKeys: ["native-op:__exactReaddir"],
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
+          expectedDecisionCounts: nativeEffectDecisionCounts(7),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedResults: {
             allow: "return",
             "branch-selection": "return",
@@ -2523,19 +2644,15 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "repeat", "repeat"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "repeat",
+            "repeat",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -2563,14 +2680,8 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             timeoutMilliseconds: 1_000,
           },
           additionalAllowedCoverageObservedKeys: ["native-op:__exactRealpath"],
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
+          expectedDecisionCounts: nativeEffectDecisionCounts(6),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedResults: {
             allow: "return",
             "branch-selection": "return",
@@ -2579,19 +2690,14 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "repeat", "repeat"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "repeat",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -2618,14 +2724,9 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
-          expectedDecisionCounts: {
-            allow: 4,
-            "branch-selection": 4,
-            deny: 1,
-            malformed: 4,
-            "missing-attribution": 4,
-            "wrong-principal": 4,
-          },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactStatfs"],
+          expectedDecisionCounts: nativeEffectDecisionCounts(6),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedResults: {
             allow: "return",
             "branch-selection": "return",
@@ -2634,19 +2735,14 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "repeat", "repeat"],
-            "branch-selection": ["requested", "discovery", "repeat", "repeat"],
-            deny: ["requested"],
-            malformed: ["requested", "discovery", "repeat", "repeat"],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "repeat",
-              "repeat",
-            ],
-            "wrong-principal": ["requested", "discovery", "repeat", "repeat"],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "repeat",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -2673,15 +2769,10 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             kind: "event-loop-quiescence",
             timeoutMilliseconds: 1_000,
           },
+          additionalAllowedCoverageObservedKeys: ["native-op:__exactTruncate"],
           expectedCleanup: "removed-owned-file",
-          expectedDecisionCounts: {
-            allow: 5,
-            "branch-selection": 5,
-            deny: 1,
-            malformed: 5,
-            "missing-attribution": 5,
-            "wrong-principal": 5,
-          },
+          expectedDecisionCounts: nativeEffectDecisionCounts(8),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedObservedActionIds: {
             malformed: ["fs:list", "fs:write"],
           },
@@ -2693,38 +2784,16 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            deny: ["requested"],
-            malformed: [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "repeat",
+            "commit",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -2762,14 +2831,8 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             timeoutMilliseconds: 1_000,
           },
           expectedCleanup: "removed-owned-file",
-          expectedDecisionCounts: {
-            allow: 5,
-            "branch-selection": 5,
-            deny: 1,
-            malformed: 5,
-            "missing-attribution": 5,
-            "wrong-principal": 5,
-          },
+          expectedDecisionCounts: nativeEffectDecisionCounts(8),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedObservedActionIds: {
             malformed: ["fs:list", "fs:write"],
           },
@@ -2781,38 +2844,16 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            deny: ["requested"],
-            malformed: [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "repeat",
+            "commit",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -2850,14 +2891,8 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             timeoutMilliseconds: 1_000,
           },
           expectedCleanup: "removed-owned-file",
-          expectedDecisionCounts: {
-            allow: 5,
-            "branch-selection": 5,
-            deny: 1,
-            malformed: 5,
-            "missing-attribution": 5,
-            "wrong-principal": 5,
-          },
+          expectedDecisionCounts: nativeEffectDecisionCounts(8),
+          expectedDenyMessageFragment: "filesystem policy denied",
           expectedObservedActionIds: {
             malformed: ["fs:list", "fs:write"],
           },
@@ -2869,38 +2904,16 @@ const NATIVE_PUBLIC_LOGICAL_BRANCH_PROBE_TEMPLATES = new Map([
             "missing-attribution": "return",
             "wrong-principal": "return",
           },
-          expectedStages: {
-            allow: ["requested", "discovery", "discovery", "commit", "repeat"],
-            "branch-selection": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            deny: ["requested"],
-            malformed: [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "missing-attribution": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-            "wrong-principal": [
-              "requested",
-              "discovery",
-              "discovery",
-              "commit",
-              "repeat",
-            ],
-          },
+          expectedStages: nativeEffectStages([
+            "requested",
+            "discovery",
+            "requested",
+            "repeat",
+            "requested",
+            "repeat",
+            "commit",
+            "repeat",
+          ]),
           requiredFloor: [
             {
               cap: "fs:list",
@@ -3136,6 +3149,8 @@ function nativePublicProbeForPlan({
   scenario,
   route,
   liveByObservedKey,
+  rootDispositionsByObservedKey,
+  coverageByEdge,
   coverageByObservedKey,
   adapterProbe,
   target,
@@ -3293,6 +3308,7 @@ function nativePublicProbeForPlan({
   const sourceDescriptor = clone(invocation);
   const expectedStages = template.expectedStages[scenario];
   const additionalAllowedCoverageEdgeIds = [];
+  const additionalAllowedCoverageEdges = [];
   for (const observedKey of template.additionalAllowedCoverageObservedKeys ??
     []) {
     const additionalEdge = coverageByObservedKey.get(observedKey);
@@ -3303,6 +3319,19 @@ function nativePublicProbeForPlan({
       };
     }
     additionalAllowedCoverageEdgeIds.push(additionalEdge.id);
+    additionalAllowedCoverageEdges.push(additionalEdge);
+  }
+  const stageContractViolation = nativeExpectedStageContractViolation({
+    actionIds: plan.actionIds,
+    expectedStages,
+    semanticEffects: effectsForPlan(plan, coverageByEdge),
+    coverageEdges: [
+      ...plan.edgeIds.map((edgeId) => coverageByEdge.get(edgeId)),
+      ...additionalAllowedCoverageEdges,
+    ],
+  });
+  if (stageContractViolation) {
+    throw new Error(`${plan.fixtureId}: ${stageContractViolation}`);
   }
   const expectedActionIds = template.expectedObservedActionIds?.[scenario]
     ? clone(template.expectedObservedActionIds[scenario])
@@ -3313,6 +3342,63 @@ function nativePublicProbeForPlan({
             .flatMap((adapterCase) => adapterCase.actionIds),
         )
       : clone(plan.actionIds);
+  let publicAccess = null;
+  if (template.publicAccessObservedKey) {
+    const conformantDisposition = (observedKey) => {
+      const rows = rootDispositionsByObservedKey.get(observedKey) ?? [];
+      const selectedIds = new Set(
+        applicableImplementationBranchIds(
+          rows.map((row) => ({
+            branchId: row.installId,
+            targetVariant: row.branch.targetVariant,
+            targetApplicability: targetApplicabilityForVariant(
+              row.branch.targetVariant,
+            ),
+          })),
+          target,
+        ),
+      );
+      const candidates = rows
+        .filter((row) => selectedIds.has(row.installId))
+        .filter((row) => row.branch.activation === "always");
+      return candidates.length === 1 ? candidates[0] : null;
+    };
+    const privateTerminal = conformantDisposition(surfaceObservedKey);
+    const publicFacade = conformantDisposition(
+      template.publicAccessObservedKey,
+    );
+    if (
+      privateTerminal?.disposition !== "private" ||
+      privateTerminal.liveExpectation !== "absent" ||
+      typeof privateTerminal.privateConsumer !== "string" ||
+      publicFacade?.liveExpectation !== "reachable" ||
+      publicFacade.disposition === "private" ||
+      publicFacade.property?.root?.kind !== "string" ||
+      !publicFacade.property.path?.every((key) => key.kind === "string")
+    ) {
+      return {
+        probe: null,
+        unavailableReason: "native-public-private-facade-disposition-drift",
+      };
+    }
+    publicAccess = {
+      kind: "captured-private-global-function",
+      observedKey: publicFacade.observedKey,
+      installId: publicFacade.installId,
+      path: [
+        publicFacade.property.root.value,
+        ...publicFacade.property.path.map((key) => key.value),
+      ],
+      sourceRefs: clone(publicFacade.branch.sourceRefs),
+      privateTerminal: {
+        observedKey: privateTerminal.observedKey,
+        installId: privateTerminal.installId,
+        privateConsumer: privateTerminal.privateConsumer,
+        liveExpectation: privateTerminal.liveExpectation,
+      },
+      expectedDenyMessageFragment: "filesystem policy denied",
+    };
+  }
   return {
     unavailableReason: null,
     probe: {
@@ -3333,10 +3419,23 @@ function nativePublicProbeForPlan({
       ],
       invocation: {
         invocationSchema: "ibex/capsec-native-global-invocation/1",
-        kind: "native-global-function",
+        kind: publicAccess
+          ? "private-native-facade-function"
+          : "native-global-function",
         globalName: invocation.globalName,
         sourceDescriptor,
         sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        ...(publicAccess
+          ? {
+              publicAccess,
+              publicAccessDigest: taggedDigest(publicAccess),
+            }
+          : {}),
+        ...(template.expectedDenyMessageFragment && !publicAccess
+          ? {
+              expectedDenyMessageFragment: template.expectedDenyMessageFragment,
+            }
+          : {}),
         arguments: template.arguments.map((argument) =>
           bindNativeArgumentSources(argument, liveByObservedKey),
         ),
@@ -3487,14 +3586,18 @@ const MODULE_RUNNER_LOADER_OPERATIONS = new Map([
   ["module-runner-prepared-carrier-access", "prepared-carrier-read"],
 ]);
 
+// Authored dynamic-import and CommonJS require edges deliberately select the
+// compatibility loader before target discovery, so their four native link
+// ABIs cannot receive production-path execution credit here.
+// @ref LLP 0026#6-top-level-await-and-dynamic-import — deferred edges stay outside the native runner until call-time identity is enforceable.
+// Production also owns generation 1 through runtime teardown rather than
+// calling the public unpin ABI, so that ABI remains residual independently.
+// @ref LLP 0027#esmcommonjs-interop-matrix — the single-generation runtime pin is released only by owner-thread teardown.
 const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
   "ex_hermes_commonjs_create_record",
   "ex_hermes_commonjs_record_create_esm_adapter",
   "ex_hermes_commonjs_record_declare_export",
   "ex_hermes_commonjs_record_evaluate",
-  "ex_hermes_commonjs_record_link_dynamic_import",
-  "ex_hermes_commonjs_record_link_require",
-  "ex_hermes_commonjs_record_link_require_esm",
   "ex_hermes_graph_context_create",
   "ex_hermes_graph_context_retain",
   "ex_hermes_module_compile_factory",
@@ -3504,14 +3607,12 @@ const MODULE_RUNNER_SOURCE_GRAPH_HOST_ABIS = new Set([
   "ex_hermes_module_record_declare_export",
   "ex_hermes_module_record_instantiate",
   "ex_hermes_module_record_link_dependency",
-  "ex_hermes_module_record_link_dynamic_import",
   "ex_hermes_module_record_link_export",
   "ex_hermes_module_record_link_import",
   "ex_hermes_module_record_poll_evaluation",
   "ex_hermes_module_record_run_declare",
   "ex_hermes_module_record_run_execute",
   "ex_hermes_module_release_handle",
-  "ex_hermes_module_unpin_generation",
 ]);
 
 function moduleRunnerLoaderProbeForPlan({
@@ -3815,6 +3916,21 @@ export function buildConformanceRecipeCatalog({
   const liveByObservedKey = new Map(
     liveSurfaces.map((surface) => [surface.observedKey, surface]),
   );
+  const rootGlobalDispositions = buildRootGlobalDispositionManifest({
+    globals:
+      inventory.globals ??
+      liveSurfaces.filter(
+        (surface) => surface.metadata?.surfaceType === "global-api",
+      ),
+    coverage,
+  });
+  const rootDispositionsByObservedKey = new Map();
+  for (const row of rootGlobalDispositions.rows) {
+    const dispositions =
+      rootDispositionsByObservedKey.get(row.observedKey) ?? [];
+    dispositions.push(row);
+    rootDispositionsByObservedKey.set(row.observedKey, dispositions);
+  }
   const occurrences = occurrenceExamples.occurrences ?? [];
   const selectors = selectorExamples.selectors ?? [];
   const definitionByAction = definitionMap(capabilityDefinitions);
@@ -3890,6 +4006,8 @@ export function buildConformanceRecipeCatalog({
       scenario,
       route,
       liveByObservedKey,
+      rootDispositionsByObservedKey,
+      coverageByEdge,
       coverageByObservedKey,
       adapterProbe,
       target,
@@ -3913,20 +4031,29 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
     });
+    const rationaleOnlyCallbackScenario =
+      RATIONALE_ONLY_CALLBACK_SCENARIOS.has(scenario);
+    // These fixtures require the bound carrier's exact callback/control
+    // mechanism. A generic native read/call probe must not fill the gap after
+    // the exact callback author declines the row.
+    // @ref LLP 0016#weak-points-and-biggest-risks — attribution is secured
+    // per channel, not by a structural chokepoint shared by every carrier.
     const authoredPublicSurfaceProbes = callbackInvariantProbe
       ? [callbackInvariantProbe]
-      : [
-          nativePublicSurface.probe ? null : targetAbsenceProbe,
-          closedPublicSurfaceProbe,
-          startupPublicSurfaceProbe,
-          startupEnvironmentPublicSurfaceProbe,
-          effectBuiltinPublicSurfaceProbe,
-          nonCapabilityBuiltinPublicSurfaceProbe,
-          conditionalHostAbiProbe,
-          moduleRunnerLoaderProbe,
-          moduleRunnerHostAbiProbe,
-          nativePublicSurface.probe,
-        ].filter((probe) => probe !== null);
+      : rationaleOnlyCallbackScenario
+        ? []
+        : [
+            nativePublicSurface.probe ? null : targetAbsenceProbe,
+            closedPublicSurfaceProbe,
+            startupPublicSurfaceProbe,
+            startupEnvironmentPublicSurfaceProbe,
+            effectBuiltinPublicSurfaceProbe,
+            nonCapabilityBuiltinPublicSurfaceProbe,
+            conditionalHostAbiProbe,
+            moduleRunnerLoaderProbe,
+            moduleRunnerHostAbiProbe,
+            nativePublicSurface.probe,
+          ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {
       throw new Error(
         `${plan.fixtureId}: multiple public probe authors claimed one fixture`,
@@ -4056,6 +4183,50 @@ export function validateRecipeCatalog(
     canonicalJson(summarize(recipeCatalog.recipes))
   ) {
     throw new Error("recipe catalog summary disagrees with its recipe rows");
+  }
+  return recipeCatalog;
+}
+
+/**
+ * Validate an externally supplied recipe catalog against an independently
+ * rebuilt plan from the current repository inputs. Incomplete catalogs remain
+ * valid here; this proves provenance and exact content, not promotability.
+ */
+export function validateCurrentSourceRecipeCatalog(
+  recipeCatalog,
+  {
+    coverage,
+    implementation,
+    inventory,
+    occurrenceExamples,
+    selectorExamples,
+    capabilityDefinitions,
+    target,
+  },
+) {
+  const catalog = fixtureCatalogForTarget({
+    coverage,
+    implementation,
+    target,
+  });
+  const expectedFixtureIds = fixtureExecutionPlans(catalog).map(
+    (plan) => plan.fixtureId,
+  );
+  validateRecipeCatalog(recipeCatalog, { expectedFixtureIds, target });
+  const derivedRecipeCatalog = buildConformanceRecipeCatalog({
+    catalog,
+    coverage,
+    implementation,
+    inventory,
+    occurrenceExamples,
+    selectorExamples,
+    capabilityDefinitions,
+    target,
+  });
+  if (canonicalJson(recipeCatalog) !== canonicalJson(derivedRecipeCatalog)) {
+    throw new Error(
+      "executable recipe catalog differs from the current source-derived public recipe plan",
+    );
   }
   return recipeCatalog;
 }

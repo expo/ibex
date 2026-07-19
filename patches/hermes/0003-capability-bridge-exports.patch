@@ -18,7 +18,7 @@
 #
 # The exported C wrappers that drive these live in patch 0002's translation unit.
 diff --git a/include/hermes/VM/Runtime.h b/include/hermes/VM/Runtime.h
-index f88870ed5..f506f6cb9 100644
+index f88870ed536e91188c8691cd61031f7809597d0d..f506f6cb93b4c5e720712065c879cde6596faeb6 100644
 --- a/include/hermes/VM/Runtime.h
 +++ b/include/hermes/VM/Runtime.h
 @@ -997,6 +997,40 @@ class Runtime : public RuntimeBase, public HandleRootOwner {
@@ -63,7 +63,7 @@ index f88870ed5..f506f6cb9 100644
      return vmExperimentFlags_;
    }
 diff --git a/lib/VM/Runtime.cpp b/lib/VM/Runtime.cpp
-index b210bc22d..e54485f2e 100644
+index b210bc22d4f50462e78b17e5a7846e3b48bdb8af..e54485f2e3a1bb674b0cc0ed82f72c04024d306f 100644
 --- a/lib/VM/Runtime.cpp
 +++ b/lib/VM/Runtime.cpp
 @@ -1174,6 +1174,11 @@ CallResult<HermesValue> Runtime::runBytecode(

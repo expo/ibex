@@ -2074,6 +2074,7 @@ try {
 		return this;
 	};
 }
+var _ChildProcessStream = require("stream");
 function ChildProcess(handle, pid, stdioModes) {
 	_EventEmitter.call(this);
 	if (_EventEmitter.prototype) {
@@ -2118,7 +2119,7 @@ function ChildProcess(handle, pid, stdioModes) {
 		null
 	];
 	if (!modes) return;
-	var Stream = require("stream");
+	var Stream = _ChildProcessStream;
 	var self = this;
 	if (modes.stdout === "pipe") {
 		this.stdout = new Stream.Readable();
@@ -2495,7 +2496,7 @@ ChildProcess.prototype.spawn = function(options) {
 		fd: 3,
 		connected: true
 	} : null;
-	var Stream = require("stream");
+	var Stream = _ChildProcessStream;
 	var self2 = this;
 	if (stdioCfg.stdout === "pipe") {
 		this.stdout = new Stream.Readable();
@@ -3310,6 +3311,8 @@ cp.spawn = function spawn(command, args, options) {
 	}
 	return child;
 };
+var _forkFs = require("fs");
+var _forkPath = require("path");
 cp.fork = function fork(modulePath, args, options) {
 	if (typeof modulePath !== "string") _throwInvalidArgType("modulePath", "of type string", modulePath);
 	_validateNullBytes(modulePath, "modulePath");
@@ -3323,25 +3326,21 @@ cp.fork = function fork(modulePath, args, options) {
 	_validateArgsNullBytes(args);
 	_validateOptionsNullBytes(options);
 	var _resolvedModule = modulePath;
+	if (!_forkPath.isAbsolute(_resolvedModule)) _resolvedModule = options.cwd ? _forkPath.resolve(options.cwd, _resolvedModule) : _forkPath.resolve(_resolvedModule);
 	try {
-		var _fs = require("fs");
-		var _pathMod = require("path");
-		if (!_pathMod.isAbsolute(_resolvedModule)) _resolvedModule = _pathMod.resolve(options.cwd || typeof process !== "undefined" && process.cwd() || ".", _resolvedModule);
-		if (!_fs.existsSync(_resolvedModule)) {
+		if (!_forkFs.existsSync(_resolvedModule)) {
 			var _exts = [
 				".js",
 				".mjs",
 				".json",
 				".node"
 			];
-			for (var _ei = 0; _ei < _exts.length; _ei++) if (_fs.existsSync(_resolvedModule + _exts[_ei])) {
+			for (var _ei = 0; _ei < _exts.length; _ei++) if (_forkFs.existsSync(_resolvedModule + _exts[_ei])) {
 				_resolvedModule = _resolvedModule + _exts[_ei];
 				break;
 			}
 		}
-	} catch (e) {
-		_resolvedModule = modulePath;
-	}
+	} catch (e) {}
 	var execPath = _fallbackSpawnCommand(options.execPath || typeof process !== "undefined" && process.execPath || "node");
 	var execArgv = options.execArgv || typeof process !== "undefined" && process.execArgv || [];
 	var exactExecArgv = _shouldPropagateExactExecutable(execPath) ? _splitExactExecArgv(execArgv) : {

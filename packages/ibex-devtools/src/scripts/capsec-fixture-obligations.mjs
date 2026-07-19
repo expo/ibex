@@ -54,7 +54,19 @@ export function fixtureObligationsForBranch(edge, branchId) {
     }
     return canonicalStringSet(obligations);
   }
-  if (edge.classification === "closed") return [`${branchId}.closed`];
+  if (edge.classification === "closed") {
+    return canonicalStringSet([
+      `${branchId}.closed`,
+      ...(edge.logicalBranches ?? []).flatMap((logicalBranch) => {
+        const prefix = `${branchId}.logical.${logicalBranch.id}`;
+        return [
+          `${prefix}.branch-selection`,
+          `${prefix}.malformed-branch-facts`,
+          `${prefix}.no-effect`,
+        ];
+      }),
+    ]);
+  }
   if (edge.rationaleId === "callback-attribution-carrier") {
     return canonicalStringSet([
       `${branchId}.attribution-missing-deny`,

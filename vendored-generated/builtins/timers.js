@@ -228,14 +228,14 @@ var _promisifyCustomSymbol = typeof Symbol === "function" && typeof Symbol.for =
 if (_promisifyCustomSymbol) {
 	Object.defineProperty(setTimeout$1, _promisifyCustomSymbol, {
 		get: function() {
-			return require("timers/promises").setTimeout;
+			return _promisesModule.setTimeout;
 		},
 		configurable: true,
 		enumerable: false
 	});
 	Object.defineProperty(setImmediate$1, _promisifyCustomSymbol, {
 		get: function() {
-			return require("timers/promises").setImmediate;
+			return _promisesModule.setImmediate;
 		},
 		configurable: true,
 		enumerable: false
@@ -300,8 +300,8 @@ module.exports = {
 		}
 	},
 	get promises() {
-		if (!_promisesModule) _promisesModule = require("timers/promises");
 		return _promisesModule;
 	}
 };
+_promisesModule = require("timers/promises");
 //#endregion

@@ -159,3 +159,92 @@ describe('cluster.fork silent default (ENG-22965 #5)', () => {
     }
   });
 });
+
+describe('child_process.fork resolution authorization', () => {
+  test('a writable process.cwd facade cannot redirect fork resolution', () => {
+    const cp = require('../../../src/builtins/child-process.js');
+    const pathMod: any = require('path');
+    const realProcess = g.process;
+    const realSpawn = cp.spawn;
+    const expectedModule = pathMod.resolve('./sealed-entry.js');
+    const stub: any = Object.create(realProcess);
+    let cwdCalls = 0;
+    Object.defineProperty(stub, 'cwd', {
+      value: () => {
+        cwdCalls++;
+        return '/attacker-controlled-facade';
+      },
+      configurable: true,
+    });
+    let capturedArgs: string[] | null = null;
+    cp.spawn = (_command: string, args: string[]) => {
+      capturedArgs = args;
+      return { channel: null };
+    };
+    g.process = stub;
+    try {
+      cp.fork('./sealed-entry.js', [], {
+        execPath: '/bin/node',
+        execArgv: [],
+      });
+      expect(cwdCalls).toBe(0);
+      expect(capturedArgs).toEqual([expectedModule]);
+    } finally {
+      g.process = realProcess;
+      cp.spawn = realSpawn;
+    }
+  });
+
+  test('an arbitrary path.resolve failure is propagated without reaching spawn', () => {
+    const cp = require('../../../src/builtins/child-process.js');
+    const pathMod: any = require('path');
+    const realResolve = pathMod.resolve;
+    const realSpawn = cp.spawn;
+    const failure = new Error('path resolver failed before extension probing');
+    let spawnCalled = false;
+    pathMod.resolve = () => { throw failure; };
+    cp.spawn = () => {
+      spawnCalled = true;
+      throw new Error('spawn must not run');
+    };
+    try {
+      let caught: unknown;
+      try {
+        cp.fork('./unresolved-entry.js');
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(failure);
+      expect(spawnCalled).toBe(false);
+    } finally {
+      pathMod.resolve = realResolve;
+      cp.spawn = realSpawn;
+    }
+  });
+
+  test('extension-probe failure keeps the resolved path and remains a compatibility fallback', () => {
+    const cp = require('../../../src/builtins/child-process.js');
+    const fsMod: any = require('fs');
+    const pathMod: any = require('path');
+    const realExistsSync = fsMod.existsSync;
+    const realSpawn = cp.spawn;
+    const expectedModule = pathMod.resolve('./probe-target');
+    const probeFailure = new Error('filesystem does not support extension probing');
+    let capturedArgs: string[] | null = null;
+    fsMod.existsSync = () => { throw probeFailure; };
+    cp.spawn = (_command: string, args: string[]) => {
+      capturedArgs = args;
+      return { channel: null };
+    };
+    try {
+      expect(() => cp.fork('./probe-target', [], {
+        execPath: '/bin/node',
+        execArgv: [],
+      })).not.toThrow();
+      expect(capturedArgs).toEqual([expectedModule]);
+    } finally {
+      fsMod.existsSync = realExistsSync;
+      cp.spawn = realSpawn;
+    }
+  });
+});

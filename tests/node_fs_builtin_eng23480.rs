@@ -303,14 +303,28 @@ var path = require('path');
 var d = fs.mkdtempSync(path.join(os.tmpdir(), 'eng23480-ue-'));
 var f = path.join(d, 'x.txt');
 fs.writeFileSync(f, 'x');
-fs.watch(f, { persistent: false }, function() {});
+var watcher = fs.watch(f, { persistent: false }, function() {});
+var watchdog = require('timers').setTimeout(function() {
+  console.log('watcher-held-loop|true');
+  watcher.close();
+}, 3000);
+watchdog.unref();
 console.log('created-watcher|true');
 "#;
-    // Cold bundling can consume most of 15 seconds on debug CI runners. Give
-    // startup independent headroom; a referenced watcher still runs forever
-    // and is deterministically killed at this deadline.
-    let run = run_app("unref-exit", app, Duration::from_secs(30));
+    // Authenticated audit startup can exceed 15 seconds in an unoptimized
+    // build. The in-app watchdog preserves the tighter semantic check: if the
+    // watcher is accidentally referenced, it keeps the loop alive long enough
+    // for the unref'd watchdog to emit the failure sentinel and close it.
+    let run = run_app("unref-exit", app, Duration::from_secs(60));
     assert_lines(&run, &["created-watcher|true"]);
+    assert!(
+        !run.stdout
+            .lines()
+            .any(|line| line == "watcher-held-loop|true"),
+        "persistent:false watcher held the event loop\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
 }
 
 #[cfg(unix)]

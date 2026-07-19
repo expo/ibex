@@ -1,4 +1,25 @@
 (function() {
+var _exactPrivateBuiltinBridges =
+  typeof __exactPrivateBuiltinBridges === "object" && __exactPrivateBuiltinBridges
+    ? __exactPrivateBuiltinBridges
+    : null;
+var _exactSharedRuntimeOwnsGlobals =
+  _exactPrivateBuiltinBridges &&
+  _exactPrivateBuiltinBridges.sharedRuntimeBundle === true;
+// Relative file URLs consume the authenticated session cwd. Capture the
+// loader-private observer once, before its root-global spelling is sealed, so
+// a later `process.cwd` monkeypatch cannot redirect URL resolution.
+// @ref LLP 0023#54-facades-cannot-subvert-it
+var _exactGetVirtualCwd =
+  _exactPrivateBuiltinBridges &&
+  typeof _exactPrivateBuiltinBridges.getVirtualCwd === "function"
+    ? _exactPrivateBuiltinBridges.getVirtualCwd
+    : typeof globalThis.__exactGetCwd === "function"
+    ? globalThis.__exactGetCwd
+    : typeof globalThis.process === "object" && globalThis.process !== null &&
+      typeof globalThis.process.cwd === "function"
+    ? globalThis.process.cwd.bind(globalThis.process)
+    : null;
 var URLExport = typeof globalThis !== "undefined" && typeof globalThis.URL === "function"
   ? globalThis.URL
   : null;
@@ -6,6 +27,25 @@ var URLSearchParamsExport =
   typeof globalThis !== "undefined" && typeof globalThis.URLSearchParams === "function"
     ? globalThis.URLSearchParams
     : null;
+
+function _resolvePathToFileURLInput(path, isWin) {
+  var absolute = path.charAt(0) === "/" ||
+    (isWin && (path.charAt(0) === "\\" || /^[A-Za-z]:[\\/]/.test(path)));
+  if (absolute) return path;
+
+  var cwd = "/";
+  if (typeof _exactGetVirtualCwd === "function") {
+    // This is the typed path:cwd-observe gate. A denial must propagate rather
+    // than falling back to a facade or a cached spelling.
+    // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+    var observedCwd = _exactGetVirtualCwd();
+    if (typeof observedCwd === "string" && observedCwd.length > 0) {
+      cwd = observedCwd;
+    }
+  }
+  if (cwd.charAt(cwd.length - 1) !== "/") cwd += "/";
+  return cwd + path;
+}
 
 function _canUseHostUrlConstructors(URLCtor, URLSearchParamsCtor) {
   if (typeof URLCtor !== "function" || typeof URLSearchParamsCtor !== "function") {
@@ -234,7 +274,7 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
     return decodeURIComponent(value);
   }
 
-  function pathToFileURL(path) {
+  function pathToFileURL(path, options) {
     if (path == null) {
       throw new TypeError("Path is required");
     }
@@ -244,7 +284,10 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
     // corrupted filenames (a%2Fb -> a/b), threw URIError on a bare "%", and left
     // "?"/"#" to be reparsed as query/fragment. Encode instead, via the shared
     // file-path encoder. (ENG-22969)
-    var pathValue = String(path).replace(/\\/g, "/");
+    var isWin = options && typeof options === "object" && options.windows !== undefined
+      ? !!options.windows
+      : (typeof process !== "undefined" && process.platform === "win32");
+    var pathValue = _resolvePathToFileURLInput(String(path), isWin).replace(/\\/g, "/");
 
     if (pathValue.charAt(0) === "/") {
       return new URLExport("file://" + _encodeFileURLPath(pathValue));
@@ -2844,7 +2887,7 @@ Object.defineProperty(URLSearchParams.prototype, "length", {
 
 var URLExport = URL;
 var URLSearchParamsExport = URLSearchParams;
-if (typeof globalThis !== "undefined") {
+if (typeof globalThis !== "undefined" && !_exactSharedRuntimeOwnsGlobals) {
   globalThis.__exactUrlCtor = URLExport;
   globalThis.__exactUrlSearchParamsCtor = URLSearchParamsExport;
   try {
@@ -4190,6 +4233,7 @@ module.exports = {
     } else {
       isWin = (typeof process !== 'undefined' && process.platform === 'win32');
     }
+    path = _resolvePathToFileURLInput(path, isWin);
     if (isWin) {
       if (path.indexOf('\\\\?\\') === 0) {
         var rest = path.slice(4);
@@ -4207,18 +4251,17 @@ module.exports = {
         }
         return new URLExport('file://' + _encodeFileURLPath(uncPath));
       }
-      return new URLExport('file:///' + _encodeFileURLPath(path.replace(/\\/g, '/')));
+      var windowsPath = path.replace(/\\/g, '/');
+      return new URLExport(
+        (windowsPath.charAt(0) === '/' ? 'file://' : 'file:///') +
+        _encodeFileURLPath(windowsPath)
+      );
     }
     var encoded = _encodeFileURLPath(path);
     if (path.charAt(0) === '/') {
       return new URLExport('file://' + encoded);
     }
-    var cwd = '/';
-    if (typeof process !== 'undefined' && typeof process.cwd === 'function') {
-      cwd = process.cwd();
-    }
-    if (cwd.charAt(cwd.length - 1) !== '/') cwd += '/';
-    return new URLExport('file://' + _encodeFileURLPath(cwd) + encoded);
+    return new URLExport('file:///' + encoded);
   },
   canParse: URL.canParse,
   urlToHttpOptions: urlToHttpOptions,

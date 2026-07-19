@@ -8,6 +8,10 @@
 
 import { getRuntimeVersion, runtimeInfo } from '../bootstrap';
 import {
+  isBootstrapCompatibilityControlFixed,
+  readBootstrapCompatibilityControl,
+} from '../core/host-inputs';
+import {
   BUN_COMPAT_VERSION,
   RELEASE_NAME,
   RUNTIME_VERSIONS,
@@ -17,6 +21,7 @@ import {
 declare global {
   var __exactGetEnv: ((name: string) => string | undefined) | undefined;
   var __exactGetAllEnv: (() => Record<string, string>) | undefined;
+  var __exactSetEnv: ((name: string, value: string | undefined) => void) | undefined;
   var __exactGetCwd: (() => string) | undefined;
   var __exactSetCwd: ((path: string) => void) | undefined;
   var __exactArgv: string[] | undefined;
@@ -53,6 +58,42 @@ const _nativeProcessKill:
   | undefined =
   typeof (globalThis as any).process?.kill === 'function'
     ? (globalThis as any).process.kill.bind((globalThis as any).process)
+    : undefined;
+// Keep the native stream objects as lexical typed-query ports before the
+// shared bundle replaces `globalThis.process`. Their accessors are backed by
+// supervisor-authenticated live terminal state in an isolated session worker.
+// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+const _nativeProcessStdin = (globalThis as any).process?.stdin;
+const _nativeProcessStdout = (globalThis as any).process?.stdout;
+const _nativeProcessStderr = (globalThis as any).process?.stderr;
+// Capture raw lifecycle/stdin bridges while the trusted runtime bundle is
+// bootstrapping. Armed startup removes their global spellings afterwards;
+// process APIs retain only these lexical references, so user code cannot swap
+// the implementation by recreating either global property.
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+const _nativeStdinRead:
+  | ((maxBytes: number) => Uint8Array | string | null)
+  | undefined =
+  typeof (globalThis as any).__exactStdinRead === 'function'
+    ? (globalThis as any).__exactStdinRead.bind(globalThis)
+    : undefined;
+const _nativeLifecycleExit:
+  | ((code?: number) => void)
+  | undefined =
+  typeof (globalThis as any).__exactExit === 'function'
+    ? (globalThis as any).__exactExit.bind(globalThis)
+    : undefined;
+// Cwd bridges are also sealed after the trusted bundle loads. Retain their
+// function identities in this facade so every later read/mutation still
+// reaches the typed native gate instead of falling back to cached JS state.
+// @ref LLP 0023#54-facades-cannot-subvert-it
+const _nativeGetCwd: (() => string) | undefined =
+  typeof (globalThis as any).__exactGetCwd === 'function'
+    ? (globalThis as any).__exactGetCwd.bind(globalThis)
+    : undefined;
+const _nativeSetCwd: ((path: string) => void) | undefined =
+  typeof (globalThis as any).__exactSetCwd === 'function'
+    ? (globalThis as any).__exactSetCwd.bind(globalThis)
     : undefined;
 const _nativeArch: string | undefined =
   typeof (globalThis as any).process?.arch === 'string'
@@ -500,15 +541,16 @@ function _resolveCwd(path: string): string {
 }
 
 function _readNativeCwd(): string | null {
-  if (typeof __exactGetCwd !== 'function') {
+  if (!_nativeGetCwd) {
     return null;
   }
-  try {
-    const value = __exactGetCwd();
-    if (typeof value === 'string' && value.length > 0) {
-      return _normalizeCwdPath(value);
-    }
-  } catch (_err) {}
+  // The native read is the typed path:cwd-observe gate. Never turn a denial
+  // into a successful disclosure of the last cached value.
+  // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+  const value = _nativeGetCwd();
+  if (typeof value === 'string' && value.length > 0) {
+    return _normalizeCwdPath(value);
+  }
   return null;
 }
 
@@ -519,22 +561,24 @@ function _coerceChdirError(err: unknown, origArg: string): Error & { code?: stri
     ENOENT: 2,
     ENOTDIR: 20,
   };
-  // Use native cwd if available, fall back to _processCwd
-  const currentCwd = (typeof __exactGetCwd === 'function' ? __exactGetCwd() : null) || _processCwd;
+  // Error mapping must not perform a second, independently gated cwd read.
+  // `origArg` is caller-supplied and therefore safe diagnostic material even
+  // when path:cwd-observe is denied.
+  // @ref LLP 0023#54-facades-cannot-subvert-it
   if (err && typeof err === 'object' && typeof (err as any).message === 'string') {
     const message = (err as any).message as string;
     const lower = message.toLowerCase();
     let code: string | undefined;
     if (lower.includes('no such file') || lower.includes('does not exist')) {
       code = 'ENOENT';
-    } else if (lower.includes('permission denied')) {
+    } else if (lower.includes('permission denied') || lower.startsWith('eacces:')) {
       code = 'EACCES';
     } else if (lower.includes('not a directory')) {
       code = 'ENOTDIR';
     }
     if (code) {
       const codeStr: Record<string, string> = { ENOENT: 'no such file or directory', EACCES: 'permission denied', ENOTDIR: 'not a directory' };
-      const errMsg = `${code}: ${codeStr[code] || message}, chdir '${currentCwd}' -> '${origArg}'`;
+      const errMsg = `${code}: ${codeStr[code] || message}, chdir '${origArg}'`;
       const mapped = new Error(errMsg) as Error & { code?: string; errno?: number; syscall?: string; path?: string; dest?: string };
       mapped.code = code;
       const errno = fallbackErrorMap[code];
@@ -542,7 +586,7 @@ function _coerceChdirError(err: unknown, origArg: string): Error & { code?: stri
         mapped.errno = -errno;
       }
       mapped.syscall = 'chdir';
-      mapped.path = currentCwd;
+      mapped.path = origArg;
       mapped.dest = origArg;
       return mapped;
     }
@@ -550,7 +594,7 @@ function _coerceChdirError(err: unknown, origArg: string): Error & { code?: stri
   const fallback = new Error('process.chdir failed') as Error & { code?: string; errno?: number; syscall?: string; path?: string; dest?: string };
   fallback.code = 'EINVAL';
   fallback.syscall = 'chdir';
-  fallback.path = currentCwd;
+  fallback.path = origArg;
   fallback.dest = origArg;
   return fallback;
 }
@@ -845,15 +889,16 @@ function createProcessVersions(): ProcessVersions {
   return versions;
 }
 
-/// True when the named opt-in compat mode is active (set by the ibex CLI's
-/// `--compat` flag via globalThis.__exactCompatModes, or the
-/// EXACT_COMPAT_BUN env contract used by child spawns).
+/// True when the named opt-in compat mode is active. Armed runtimes consume
+/// only the captured, digest-bound projection; the environment fallback is
+/// retained solely for unarmed diagnostic/fixture runtimes.
+/// @ref LLP 0025#2-startup-configuration-is-captured-before-arming
 function isCompatModeEnabled(mode: string): boolean {
   try {
     const g = globalThis as any;
-    const modes = g.__exactCompatModes;
-    if (Array.isArray(modes) && modes.indexOf(mode) !== -1) return true;
     if (mode === 'bun') {
+      if (readBootstrapCompatibilityControl('EXACT_COMPAT_BUN') === '1') return true;
+      if (isBootstrapCompatibilityControlFixed('EXACT_COMPAT_BUN')) return false;
       const env = g.__exactHostEnv ?? g.process?.env;
       if (env && env.EXACT_COMPAT_BUN === '1') return true;
     }
@@ -866,6 +911,8 @@ function isCompatModeEnabled(mode: string): boolean {
 function isCompatFixtureMode(): boolean {
   try {
     const g = globalThis as any;
+    if (readBootstrapCompatibilityControl('EXACT_COMPAT_TEST') === '1') return true;
+    if (isBootstrapCompatibilityControlFixed('EXACT_COMPAT_TEST')) return false;
     const env = g.__exactHostEnv ?? g.process?.env;
     return !!(env && env.EXACT_COMPAT_TEST);
   } catch (_) {
@@ -914,7 +961,12 @@ function _decodeStreamChunkForConsole(data: string | Uint8Array): string {
  * Create a process stream (stdout/stderr/stdin) with basic EventEmitter support.
  * This ensures pipe() and other stream operations work even before stream-enhance runs.
  */
-function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string | Uint8Array) => boolean): any {
+function _makeProcessStream(
+  fd: number,
+  isTTY: boolean,
+  writeFn?: (data: string | Uint8Array) => boolean,
+  nativeQueryStream?: any,
+): any {
   const listeners: Record<string, Array<{fn: Function, once: boolean}>> = {};
   // Buffer / Uint8Array chunks are passed through as raw bytes: the native
   // write (__exactFsWrite) accepts a Uint8Array verbatim, while decoding to a
@@ -929,7 +981,6 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
   }
   const stream: any = {
     fd,
-    isTTY,
     readable: fd === 0,
     readableEnded: false,
     readableFlowing: null,
@@ -986,6 +1037,29 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       return stream;
     },
   };
+  Object.defineProperties(stream, {
+    isTTY: {
+      enumerable: true,
+      configurable: false,
+      get() {
+        return nativeQueryStream ? !!nativeQueryStream.isTTY : isTTY;
+      },
+    },
+    columns: {
+      enumerable: true,
+      configurable: false,
+      get() {
+        return nativeQueryStream ? nativeQueryStream.columns : undefined;
+      },
+    },
+    rows: {
+      enumerable: true,
+      configurable: false,
+      get() {
+        return nativeQueryStream ? nativeQueryStream.rows : undefined;
+      },
+    },
+  });
   if (fd === 0) {
     const stdinBytes = (data: any): any => {
       if (typeof data === 'string') {
@@ -1015,7 +1089,9 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
           if (!stream._decoder) {
             stream._decoder = new TextDecoder(stream._encoding === 'utf8' ? 'utf-8' : stream._encoding);
           }
-          return stream._decoder.decode(bytes || new Uint8Array(0), { stream: !flush });
+          return stream._decoder.decode(bytes || new Uint8Array(0), {
+            stream: !flush,
+          });
         } catch {
           stream._decoder = null;
         }
@@ -1048,13 +1124,12 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       stream.readable = true;
       stream._paused = false;
       stream.readableFlowing = true;
-      if (!stream._ended && !stream._pollTimer && typeof (globalThis as any).__exactStdinRead === 'function') {
+      if (!stream._ended && !stream._pollTimer && _nativeStdinRead) {
         (function pollStdin() {
           if (stream._paused || stream._ended || stream.destroyed) {
             return;
           }
-          const stdinRead = (globalThis as any).__exactStdinRead;
-          const data = stdinRead(4096);
+          const data = _nativeStdinRead(4096);
           if (data === null) {
             stream._pollTimer = setTimeout(pollStdin, 25);
             return;
@@ -1087,11 +1162,10 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       return stream;
     };
     stream.read = function(size?: number) {
-      const stdinRead = (globalThis as any).__exactStdinRead;
-      if (typeof stdinRead !== 'function') {
+      if (!_nativeStdinRead) {
         return null;
       }
-      const data = stdinRead(size || 4096);
+      const data = _nativeStdinRead(size || 4096);
       if (data === '') {
         return null;
       }
@@ -1226,13 +1300,15 @@ export interface HrtimeFunction {
  * Create a Proxy-based env object that reads from native
  */
 export function createEnvProxy(): Record<string, string | undefined> {
-  // Seeded JS defaults commonly expected by npm packages. Both the native env
-  // and explicit JS writes take precedence over these, so the native layer can
-  // still promote NODE_ENV to 'production' for release builds while a
-  // `process.env.NODE_ENV = ...` assignment from user code also sticks.
-  const jsEnv: Record<string, string | undefined> = {
-    NODE_ENV: 'development',
-  };
+  // The armed bridge is captured before root-global sealing and stores state
+  // in the current native principal's overlay. Its presence also means there
+  // is deliberately no shared JavaScript default environment.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  const setPrincipalOverlay = typeof __exactSetEnv === 'function' ? __exactSetEnv : null;
+  // Unarmed compatibility hosts retain the historical JS default. Armed
+  // runtimes start from an explicitly empty digest-bound base and expose only
+  // values written to the current native principal's overlay.
+  const jsEnv: Record<string, string | undefined> = setPrincipalOverlay ? {} : { NODE_ENV: 'development' };
   // Keys explicitly written on the JS side. Tracking these separately from the
   // seeded defaults lets a write win over a native value (native never wins
   // back over an explicit `process.env.X = ...`).
@@ -1283,8 +1359,9 @@ export function createEnvProxy(): Record<string, string | undefined> {
     return refreshNativeCache()[key];
   }
 
-  // Resolve a key with correct precedence: a JS delete hides everything, then an
-  // explicit JS write wins over native, then native wins over a seeded default.
+  // On unarmed compatibility hosts, a JS delete hides everything, an explicit
+  // JS write wins over native, and native wins over the seeded default. Armed
+  // calls have no JS state and resolve entirely through the native overlay.
   function resolveValue(key: string): string | undefined {
     if (jsDeleted.has(key)) {
       return undefined;
@@ -1319,6 +1396,13 @@ export function createEnvProxy(): Record<string, string | undefined> {
         return undefined;
       }
 
+      // Trusted builtin compatibility code uses this non-enumerable virtual
+      // marker to preserve the canonical proxy instead of wrapping/replacing
+      // it with a module-local environment object.
+      if (prop === '__exactEnvProxy') {
+        return true as any;
+      }
+
       // Special handling for toJSON
       if (prop === 'toJSON') {
         return () => collectAll();
@@ -1339,6 +1423,11 @@ export function createEnvProxy(): Record<string, string | undefined> {
         return true;
       }
       const normalized = String(value);
+      if (setPrincipalOverlay) {
+        setPrincipalOverlay(key, normalized);
+        if (nativeCache) nativeCache[key] = normalized;
+        return true;
+      }
       target[key] = normalized;
       // Mark as an explicit JS write so it wins over native, and clear any prior
       // tombstone so re-setting a deleted key brings it back.
@@ -1360,6 +1449,11 @@ export function createEnvProxy(): Record<string, string | undefined> {
         return true;
       }
       const key = prop as string;
+      if (setPrincipalOverlay && key.length !== 0) {
+        setPrincipalOverlay(key, undefined);
+        if (nativeCache) delete nativeCache[key];
+        return true;
+      }
       delete target[key];
       // Drop the override flag and record a tombstone so the native value stays
       // hidden until the key is written again.
@@ -1416,6 +1510,17 @@ export function createEnvProxy(): Record<string, string | undefined> {
         configurable: true,
       };
     },
+
+    // The shared facade must remain structurally usable by every principal.
+    // Refuse global target hardening/prototype mutation that one package could
+    // otherwise use to deny service or alter another package's view.
+    preventExtensions(): boolean {
+      return false;
+    },
+
+    setPrototypeOf(): boolean {
+      return false;
+    },
   });
 }
 
@@ -1426,8 +1531,8 @@ class Process {
   private _maxListeners = 10;
   /**
    * Environment variables.
-   * Reads from native layer with fallback to JS-set values.
-   * NODE_ENV defaults to 'development' (native layer sets 'production' for release builds).
+   * Armed access is caller-sensitive and mediated by the native principal
+   * overlay; unarmed compatibility hosts retain the historical JS fallback.
    */
   readonly env: Record<string, string | undefined> = createEnvProxy();
 
@@ -1748,8 +1853,6 @@ class Process {
   /**
    * Whether the process is currently exiting.
    */
-  _exactExiting = false;
-
   /**
    * Get the user ID of the process.
    */
@@ -1872,12 +1975,9 @@ class Process {
 
   /**
    * Returns the current working directory.
-   * In mobile context, this is the app's documents directory.
-   */
+  * In mobile context, this is the app's documents directory.
+  */
   cwd(): string {
-    if (_processCwd && _processCwd !== '/') {
-      return _processCwd;
-    }
     const nativeCwd = _readNativeCwd();
     if (nativeCwd) {
       _processCwd = nativeCwd;
@@ -1900,7 +2000,7 @@ class Process {
     }
 
     const resolvedPath = _resolveCwd(_directory);
-    if (typeof __exactSetCwd !== 'function') {
+    if (!_nativeSetCwd) {
       if (typeof (globalThis as any).__exactAccess === 'function') {
         try {
           (globalThis as any).__exactAccess(resolvedPath, 0);
@@ -1913,7 +2013,7 @@ class Process {
     }
 
     try {
-      __exactSetCwd(resolvedPath);
+      _nativeSetCwd(resolvedPath);
       _processCwd = resolvedPath;
     } catch (e) {
       throw _coerceChdirError(e, _directory);
@@ -1922,43 +2022,18 @@ class Process {
 
   /**
    * Exit the process.
-   * Sets exitCode first, fires exit handlers, then terminates if native exit is available.
+   * Armed runtimes publish one cooperative lifecycle request and park. The
+   * native request gate resolves an omitted code from the supervisor mirror;
+   * this method must not acquire the separate exitCode getter/setter
+   * dispositions or run user listeners before that request is authorized.
    */
   exit(code?: number): void {
-    const requestedExitCode = code ?? this.exitCode ?? 0;
-    this.exitCode = requestedExitCode;
-
-    if (this._exactExiting) {
+    if (_nativeLifecycleExit) {
+      if (code === undefined) _nativeLifecycleExit();
+      else _nativeLifecycleExit(code);
       return;
     }
-
-    this._exactExiting = true;
-    try {
-      const listeners = [...(this._events.get('exit') || [])];
-      for (const entry of listeners) {
-        try {
-          entry.fn(requestedExitCode);
-        } catch (_e) {
-          /* ignore */
-        }
-      }
-    } catch (_e) {
-      /* ignore */
-    } finally {
-      if (typeof this._events.clear === 'function') {
-        this._events.clear();
-      }
-    }
-    // Try native exit if available, but never throw from runtime-side.
-    const finalExitCode = this.exitCode ?? 0;
-    const g = globalThis as any;
-    if (typeof g.__exactExit === 'function') {
-      try {
-        g.__exactExit(finalExitCode);
-      } catch (_e) {
-        /* ignore */
-      }
-    }
+    throw new Error('process.exit() is unavailable in this runtime');
   }
 
   /**
@@ -2039,8 +2114,23 @@ class Process {
   /**
    * Memory usage (approximate, not accurate on mobile).
    */
-  memoryUsage(): { rss: number; heapTotal: number; heapUsed: number; external: number; arrayBuffers: number } {
+  memoryUsage(): {
+    rss: number;
+    heapTotal: number;
+    heapUsed: number;
+    external: number;
+    arrayBuffers: number;
+  } {
     const exactGlobal = globalThis as any;
+    // The heap-inspection bridge is deliberately absent after armed startup,
+    // but RSS remains a public system-info effect. Authorize that read
+    // independently so closing runtime introspection cannot turn memoryUsage()
+    // into an ungated performance-memory fallback.
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+    const nativeRss =
+      typeof exactGlobal.__exactGetProcessRSS === 'function'
+        ? exactGlobal.__exactGetProcessRSS()
+        : null;
     const nativeHeapInfo =
       typeof exactGlobal.__exactGetHeapInfo === 'function'
         ? exactGlobal.__exactGetHeapInfo(false)
@@ -2070,10 +2160,6 @@ class Process {
           : typeof nativeHeapInfo.arrayBufferBytes === 'number'
             ? nativeHeapInfo.arrayBufferBytes
             : 0;
-      const nativeRss =
-        typeof exactGlobal.__exactGetProcessRSS === 'function'
-          ? exactGlobal.__exactGetProcessRSS()
-          : null;
       const rss =
         typeof nativeRss === 'number' && nativeRss > 0
           ? nativeRss
@@ -2092,9 +2178,12 @@ class Process {
     const heapTotal = typeof perfMemory?.totalJSHeapSize === 'number' ? perfMemory.totalJSHeapSize : 0;
     const heapUsed = typeof perfMemory?.usedJSHeapSize === 'number' ? perfMemory.usedJSHeapSize : 0;
     const arrayBuffers = typeof perfMemory?.arrayBuffers === 'number' ? perfMemory.arrayBuffers : 0;
-    const rss = typeof perfMemory?.jsHeapSizeLimit === 'number'
-      ? Math.max(perfMemory.jsHeapSizeLimit, heapTotal, heapUsed)
-      : Math.max(heapTotal, heapUsed, 1024 * 1024);
+    const rss =
+      typeof nativeRss === 'number' && nativeRss > 0
+        ? nativeRss
+        : typeof perfMemory?.jsHeapSizeLimit === 'number'
+          ? Math.max(perfMemory.jsHeapSizeLimit, heapTotal, heapUsed)
+          : Math.max(heapTotal, heapUsed, 1024 * 1024);
 
     return {
       rss,
@@ -2108,7 +2197,10 @@ class Process {
   /**
    * CPU usage (not available on mobile, returns zeros).
    */
-  cpuUsage(prevValue?: { user: number; system: number }): { user: number; system: number } {
+  cpuUsage(prevValue?: { user: number; system: number }): {
+    user: number;
+    system: number;
+  } {
     if (prevValue !== undefined) {
       if (typeof prevValue !== 'object' || prevValue === null || Array.isArray(prevValue)) {
         const e: any = new TypeError(`The "prevValue" argument must be of type object. Received type ${typeof prevValue} (${String(prevValue)})`);
@@ -2302,7 +2394,7 @@ class Process {
 
   get stdin() {
     if (!this._stdin) {
-      this._stdin = _makeProcessStream(0, false);
+      this._stdin = _makeProcessStream(0, false, undefined, _nativeProcessStdin);
     }
     return this._stdin;
   }
@@ -2324,7 +2416,7 @@ class Process {
         // Fallback to console.log only if native write is unavailable
         console.log(_decodeStreamChunkForConsole(data));
         return true;
-      });
+      }, _nativeProcessStdout);
     }
     return this._stdout;
   }
@@ -2346,7 +2438,7 @@ class Process {
         // Fallback to console.error only if native write is unavailable
         console.error(_decodeStreamChunkForConsole(data));
         return true;
-      });
+      }, _nativeProcessStderr);
     }
     return this._stderr;
   }
@@ -2399,8 +2491,40 @@ class Process {
 
   // Real event emitter storage
   private _events: Map<string, Array<{ fn: (...args: any[]) => void; once: boolean }>> = new Map();
+  private _lifecycleListenerNoEffectDiagnosed = false;
+
+  private _isLifecycleListenerEvent(event: string): boolean {
+    return event === 'exit' || event === 'beforeExit';
+  }
+
+  private _diagnoseLifecycleListenerNoEffect(): void {
+    if (this._lifecycleListenerNoEffectDiagnosed) return;
+    this._lifecycleListenerNoEffectDiagnosed = true;
+    const message = 'process exit and beforeExit listeners are unsupported in Ibex and have no effect';
+    const warning: any = new Error(message);
+    warning.name = 'IbexLifecycleWarning';
+    warning.code = 'IBEX_LIFECYCLE_LISTENER_NO_EFFECT';
+    // Deliver through the normal warning event when somebody is listening;
+    // otherwise keep the diagnosis observable on stderr. There is one path,
+    // and therefore one diagnosis, rather than an event plus duplicate output.
+    this.nextTick(() => {
+      if (this.emit('warning', warning)) return;
+      const consoleWarn = (globalThis as any).console?.warn;
+      if (typeof consoleWarn === 'function') {
+        consoleWarn.call((globalThis as any).console, `[${warning.code}] ${message}`);
+      }
+    });
+  }
 
   on(event: string, listener: (...args: any[]) => void): this {
+    // Registration deliberately succeeds for compatibility but the listener
+    // is never stored or fired. All aliases share the same once-per-session
+    // diagnostic.
+    // @ref LLP 0025#8-exit-and-lifecycle
+    if (this._isLifecycleListenerEvent(event)) {
+      this._diagnoseLifecycleListenerNoEffect();
+      return this;
+    }
     const listeners = this._events.get(event) || [];
     listeners.push({ fn: listener, once: false });
     this._events.set(event, listeners);
@@ -2423,6 +2547,10 @@ class Process {
   }
 
   once(event: string, listener: (...args: any[]) => void): this {
+    if (this._isLifecycleListenerEvent(event)) {
+      this._diagnoseLifecycleListenerNoEffect();
+      return this;
+    }
     const listeners = this._events.get(event) || [];
     listeners.push({ fn: listener, once: true });
     this._events.set(event, listeners);
@@ -2437,6 +2565,10 @@ class Process {
   }
 
   prependListener(event: string, listener: (...args: any[]) => void): this {
+    if (this._isLifecycleListenerEvent(event)) {
+      this._diagnoseLifecycleListenerNoEffect();
+      return this;
+    }
     const listeners = this._events.get(event) || [];
     listeners.unshift({ fn: listener, once: false });
     this._events.set(event, listeners);
@@ -2445,6 +2577,10 @@ class Process {
   }
 
   prependOnceListener(event: string, listener: (...args: any[]) => void): this {
+    if (this._isLifecycleListenerEvent(event)) {
+      this._diagnoseLifecycleListenerNoEffect();
+      return this;
+    }
     const listeners = this._events.get(event) || [];
     listeners.unshift({ fn: listener, once: true });
     this._events.set(event, listeners);
@@ -2453,6 +2589,7 @@ class Process {
   }
 
   emit(event: string, ...args: any[]): boolean {
+    if (this._isLifecycleListenerEvent(event)) return false;
     const listeners = this._events.get(event);
     if (!listeners || listeners.length === 0) return false;
     // Prune once-listeners BEFORE invoking (Node semantics). Rewriting the
@@ -2473,6 +2610,7 @@ class Process {
   }
 
   removeListener(event: string, listener: (...args: any[]) => void): this {
+    if (this._isLifecycleListenerEvent(event)) return this;
     const listeners = this._events.get(event);
     if (listeners) {
       this._events.set(event, listeners.filter(e => e.fn !== listener));
@@ -2482,6 +2620,7 @@ class Process {
   }
 
   removeAllListeners(event?: string): this {
+    if (event !== undefined && this._isLifecycleListenerEvent(event)) return this;
     if (event) {
       this._events.delete(event);
     } else {
@@ -2493,6 +2632,7 @@ class Process {
   }
 
   listeners(event: string): Array<(...args: any[]) => void> {
+    if (this._isLifecycleListenerEvent(event)) return [];
     return (this._events.get(event) || []).map(e => e.fn);
   }
 
@@ -2501,11 +2641,14 @@ class Process {
   }
 
   listenerCount(event: string): number {
+    if (this._isLifecycleListenerEvent(event)) return 0;
     return (this._events.get(event) || []).length;
   }
 
   eventNames(): string[] {
-    return Array.from(this._events.keys()).filter((event) => this.listenerCount(event) > 0);
+    return Array.from(this._events.keys()).filter(
+      (event) => !this._isLifecycleListenerEvent(event) && this.listenerCount(event) > 0,
+    );
   }
 
   setMaxListeners(count: number): this {
@@ -2562,11 +2705,17 @@ _installTimeZoneAwareDateToString();
 export const process = new Process();
 const exitCodeDescriptor = Object.getOwnPropertyDescriptor(Process.prototype, 'exitCode');
 if (exitCodeDescriptor?.get && exitCodeDescriptor?.set) {
+  // Native Ibex owns the final lifecycle surface. Armed startup replaces this
+  // bootstrap accessor with the typed, supervisor-mirroring accessor and seals
+  // it; unarmed startup reseals this exact descriptor after the bundle returns.
+  // Non-native hosts retain the Node-compatible non-configurable shape here.
+  // @ref LLP 0025#8-exit-and-lifecycle
+  const nativeLifecycleFinalizerPending = _nativeLifecycleExit !== undefined;
   Object.defineProperty(process, 'exitCode', {
     get: exitCodeDescriptor.get.bind(process),
     set: exitCodeDescriptor.set.bind(process),
     enumerable: true,
-    configurable: false,
+    configurable: nativeLifecycleFinalizerPending,
   });
 }
 
@@ -2623,7 +2772,9 @@ function makeUnknownCredentialError(kind: 'user' | 'group', value: string): Erro
 }
 
 function makeCredentialPermissionError(): Error & { code: string } {
-  const err = new Error('EPERM, Operation not permitted') as Error & { code: string };
+  const err = new Error('EPERM, Operation not permitted') as Error & {
+    code: string;
+  };
   err.code = 'EPERM';
   return err;
 }
@@ -2682,7 +2833,9 @@ function normalizeSignal(signal?: string | number): number {
     }
     const numeric = signalMap[signal];
     if (numeric === undefined) {
-      const err = new TypeError(`Unknown signal: ${signal}`) as TypeError & { code: string };
+      const err = new TypeError(`Unknown signal: ${signal}`) as TypeError & {
+        code: string;
+      };
       err.code = 'ERR_UNKNOWN_SIGNAL';
       throw err;
     }

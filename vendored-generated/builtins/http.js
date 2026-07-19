@@ -1,21 +1,17 @@
 //#region src/builtins/http.js
-var _swallowDebugLog = null;
-function _swallowDebug(msg, err) {
-	if (_swallowDebugLog === null) try {
-		_swallowDebugLog = require("util").debuglog("http");
-	} catch (_swallowInitErr) {
-		_swallowDebugLog = function() {};
-	}
-	_swallowDebugLog(msg, err);
-}
+var _httpNetModule = null;
+var _httpStreamModule = null;
+try {
+	_httpNetModule = require("net");
+} catch (_netModuleErr) {}
+try {
+	_httpStreamModule = require("node:stream");
+} catch (_streamModuleErr) {}
 var EventEmitter = require("events").EventEmitter;
 var Readable = null;
 function getReadableCtor() {
 	if (Readable) return Readable;
-	try {
-		var streamModule = require("node:stream");
-		if (streamModule && typeof streamModule.Readable === "function") Readable = streamModule.Readable;
-	} catch (_streamErr) {}
+	if (_httpStreamModule && typeof _httpStreamModule.Readable === "function") Readable = _httpStreamModule.Readable;
 	return Readable;
 }
 function upgradeTcpIncomingMessagePrototype() {
@@ -484,10 +480,7 @@ function _createHeaderBag() {
 	return Object.create(null);
 }
 function getDefaultOutgoingHighWaterMark() {
-	try {
-		var streamModule = require("node:stream");
-		if (streamModule && typeof streamModule.getDefaultHighWaterMark === "function") return streamModule.getDefaultHighWaterMark(false);
-	} catch (_streamErr) {}
+	if (_httpStreamModule && typeof _httpStreamModule.getDefaultHighWaterMark === "function") return _httpStreamModule.getDefaultHighWaterMark(false);
 	return DEFAULT_OUTGOING_HIGH_WATER_MARK;
 }
 function _createInvalidHeadersCollectionError(headers) {
@@ -1832,9 +1825,7 @@ function IncomingMessage(socketOrResponse) {
 	var ReadableCtor = getReadableCtor();
 	if (ReadableCtor) try {
 		ReadableCtor.call(this);
-	} catch (_readableInitErr) {
-		_swallowDebug("Readable base-class init failed", _readableInitErr);
-	}
+	} catch (_readableInitErr) {}
 	if (socketOrResponse && typeof socketOrResponse === "object" && typeof socketOrResponse.status === "number" && socketOrResponse.headers && typeof socketOrResponse.headers.forEach === "function") {
 		this.statusCode = socketOrResponse.status;
 		this.statusMessage = socketOrResponse.statusText;
@@ -2647,9 +2638,7 @@ ClientRequest.prototype.destroy = function(err) {
 	if (err) this.errored = err;
 	if (typeof this._abortResponse === "function") try {
 		this._abortResponse(err);
-	} catch (_abortResponseErr) {
-		_swallowDebug("abortResponse callback threw", _abortResponseErr);
-	}
+	} catch (_abortResponseErr) {}
 	if (this._abortController) try {
 		this._abortController.abort();
 	} catch (e) {}
@@ -2797,10 +2786,8 @@ ClientRequest.prototype._resolveConnectionOptions = function() {
 };
 ClientRequest.prototype._ensureSocketAssigned = function() {
 	if (this.socket || this._agentDispatched || !_requestUsesSocketTransport(this) || this.destroyed || this._destroyRequested) return;
-	var net;
-	try {
-		net = require("net");
-	} catch (e) {
+	var net = _httpNetModule;
+	if (!net) {
 		this.emit("error", /* @__PURE__ */ new Error("Neither fetch nor net module available"));
 		if (!this._closed) {
 			this._closed = true;
@@ -4104,13 +4091,8 @@ Agent.prototype.addRequest = function(req, options, port, localAddress) {
 	this.requests[name].push(req);
 };
 Agent.prototype.createConnection = function(options, callback) {
-	var net;
-	try {
-		net = require("net");
-	} catch (e) {
-		return null;
-	}
-	return net.createConnection(options, callback);
+	if (!_httpNetModule) return null;
+	return _httpNetModule.createConnection(options, callback);
 };
 function installAgentListeners(agent, socket, options) {
 	function setFreeSocketTimeoutListener(enabled) {
@@ -5580,9 +5562,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
 					} else socket.write(head, function(writeErr) {
 						_finalizeServerResponseKeepAlive(thisResponse, socket, writeErr);
 					});
-				} catch (e) {
-					_swallowDebug("server response write failed", e);
-				}
+				} catch (e) {}
 			} else {
 				this.detachSocket(socket);
 				socket.parser = null;
@@ -5650,9 +5630,7 @@ ServerResponse.prototype._sendSocketResponse = function() {
 					else scheduleNextTick(function() {
 						_finalizeServerResponseKeepAlive(streamingResponse, socket);
 					});
-				} catch (e) {
-					_swallowDebug("streaming response write failed", e);
-				}
+				} catch (e) {}
 			} else {
 				this.detachSocket(socket);
 				socket.parser = null;
@@ -6251,10 +6229,7 @@ function Server(options, requestListener) {
 			if (selfTimer[kConnectionsCheckingInterval] && typeof selfTimer[kConnectionsCheckingInterval].unref === "function") selfTimer[kConnectionsCheckingInterval].unref();
 		}
 	});
-	var net;
-	try {
-		net = require("net");
-	} catch (e) {}
+	var net = _httpNetModule;
 	if (net && typeof net.createServer === "function") {
 		var self = this;
 		this._netServer = net.createServer(function(socket) {
@@ -7065,11 +7040,13 @@ Server.prototype.close = function(callback) {
 			self.closeIdleConnections();
 		}, 100);
 		if (_closeGuardTimer && typeof _closeGuardTimer.unref === "function") _closeGuardTimer.unref();
-		this._netServer.close(function() {
+		var finishNetClose = function() {
 			clearTimeout(_closeGuardTimer);
 			self.closeIdleConnections();
 			self.emit("close");
-		});
+		};
+		this._netServer.once("close", finishNetClose);
+		this._netServer.close();
 	} else if (nativeClosed) {
 		this._useNative = false;
 		setTimeout(function() {

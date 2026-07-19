@@ -9,6 +9,10 @@
 import type { BodyInit, BufferSource } from './types.js';
 import { BodyConsumedError } from './errors.js';
 import { isReadableStream, ReadableStream as RuntimeReadableStream } from '../streams/index.js';
+import {
+  isBootstrapCompatibilityControlFixed,
+  readBootstrapCompatibilityControl,
+} from '../core/host-inputs.js';
 
 /**
  * Text encoder/decoder - lazy initialization with fallbacks for Hermes.
@@ -26,6 +30,11 @@ function isBunCompatFetchTest(): boolean {
 }
 
 function readRuntimeEnv(key: string): string | undefined {
+  const bootstrapValue = readBootstrapCompatibilityControl(key);
+  if (
+    bootstrapValue !== undefined ||
+    isBootstrapCompatibilityControlFixed(key)
+  ) return bootstrapValue;
   const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
     .__exactHostEnv;
   if (hostEnv && typeof hostEnv[key] === 'string') {

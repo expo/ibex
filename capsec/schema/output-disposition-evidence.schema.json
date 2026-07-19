@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/output-disposition-evidence.schema.json",
+  "title": "Ibex loaded-engine output-disposition evidence",
+  "type": "object",
+  "required": [
+    "outputDispositionEvidenceSchema",
+    "profile",
+    "status",
+    "requiredExecutor",
+    "observations"
+  ],
+  "properties": {
+    "outputDispositionEvidenceSchema": {
+      "const": "ibex/capsec-output-disposition-evidence/3"
+    },
+    "profile": { "const": "ibex/capsec/1" },
+    "status": { "enum": ["unpromotable", "verified"] },
+    "requiredExecutor": {
+      "const": "ibex-public-surface-harness/output-shape-sweep-v3"
+    },
+    "reason": { "$ref": "#/$defs/nonEmptyString" },
+    "sourceRevision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+    "target": { "$ref": "#/$defs/target" },
+    "engine": { "$ref": "#/$defs/engine" },
+    "sweepPlan": {
+      "type": "object"
+    },
+    "sweepArtifact": {
+      "type": "object"
+    },
+    "observations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/observation" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "unpromotable" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["reason"],
+        "properties": {
+          "reason": { "$ref": "#/$defs/nonEmptyString" },
+          "sourceRevision": false,
+          "sourceTreeDigest": false,
+          "target": false,
+          "engine": false,
+          "sweepPlan": false,
+          "sweepArtifact": false,
+          "observations": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "verified" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": [
+          "sourceRevision",
+          "sourceTreeDigest",
+          "target",
+          "engine",
+          "sweepPlan",
+          "sweepArtifact"
+        ],
+        "properties": {
+          "reason": false,
+          "sourceRevision": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+          "target": { "$ref": "#/$defs/target" },
+          "engine": { "$ref": "#/$defs/engine" },
+          "sweepPlan": { "type": "object" },
+          "sweepArtifact": { "type": "object" },
+          "observations": { "type": "array", "minItems": 1 }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "stableIdSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9.-]*$"
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": { "$ref": "#/$defs/stableIdSet" }
+      },
+      "additionalProperties": false
+    },
+    "engine": {
+      "type": "object",
+      "required": [
+        "engineArtifactPath",
+        "kind",
+        "binaryDigest",
+        "object",
+        "targetArchitecture",
+        "structuralFeatures"
+      ],
+      "properties": {
+        "engineArtifactPath": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": { "const": "hermes" },
+        "binaryDigest": { "$ref": "#/$defs/digest" },
+        "object": {
+          "type": "object",
+          "required": ["platform", "volume", "file"],
+          "properties": {
+            "platform": { "enum": ["android", "apple", "unix", "windows"] },
+            "volume": { "$ref": "#/$defs/nonEmptyString" },
+            "file": { "$ref": "#/$defs/nonEmptyString" }
+          },
+          "additionalProperties": false
+        },
+        "targetArchitecture": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "structuralFeatures": { "$ref": "#/$defs/stableIdSet" }
+      },
+      "additionalProperties": false
+    },
+    "key": {
+      "type": "object",
+      "required": [
+        "surfaceId",
+        "output",
+        "alias",
+        "mode",
+        "sourceKind",
+        "returnVariant",
+        "contextId"
+      ],
+      "properties": {
+        "surfaceId": {
+          "type": "string",
+          "pattern": "^surface\\.[a-z0-9.]+$"
+        },
+        "output": { "$ref": "#/$defs/nonEmptyString" },
+        "alias": { "$ref": "#/$defs/nonEmptyString" },
+        "mode": { "$ref": "#/$defs/nonEmptyString" },
+        "sourceKind": { "$ref": "#/$defs/nonEmptyString" },
+        "returnVariant": { "$ref": "#/$defs/nonEmptyString" },
+        "contextId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9.-]+$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "normalizedObservation": {
+      "type": "object",
+      "required": ["outcome", "normalizedValue"],
+      "properties": {
+        "outcome": {
+          "enum": ["absent", "return", "throw", "typed-return"]
+        },
+        "normalizedValue": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
+    "observation": {
+      "type": "object",
+      "required": ["key", "disposition", "proofKind", "observation"],
+      "properties": {
+        "key": { "$ref": "#/$defs/key" },
+        "disposition": {
+          "enum": [
+            "virtual-absolute",
+            "virtual-relative",
+            "virtual-basename",
+            "synthetic-source-id",
+            "absent",
+            "closed",
+            "refused",
+            "typed-logical",
+            "reserved-constant",
+            "private-native-path",
+            "non-path"
+          ]
+        },
+        "proofKind": {
+          "enum": [
+            "compiled-runtime-return-record",
+            "loaded-engine-descriptor",
+            "loaded-engine-return-record"
+          ]
+        },
+        "observation": { "$ref": "#/$defs/normalizedObservation" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

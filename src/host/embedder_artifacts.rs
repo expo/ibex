@@ -17,7 +17,8 @@ use capsec_semantics::arming::{
 use capsec_semantics::digest::{
     compute_checked_contract_digest, compute_domain_digest, DigestKind,
 };
-use capsec_semantics::model::{Digest, LogicalPath, LogicalRoot};
+use capsec_semantics::model::{Digest, LogicalPath, LogicalRoot, ObjectIdentity, ObjectPlatform};
+use capsec_semantics::path_alias::{BoundVolumePathCanonicalizer, PathAliasCanonicalizerIdentity};
 use sha2::{Digest as _, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read as _, Seek as _, Write as _};
@@ -232,6 +233,82 @@ fn absolute_artifact_path(path: &Path) -> Result<LogicalPath> {
         components: super::host_path_components(path)?,
         host_bound: Some(true),
     })
+}
+
+/// Select the same per-volume alias identity as the ordinary armed launcher.
+/// The public Exact builder is target-local, so it must probe the authenticated
+/// bound paths rather than inheriting canonicalizer rows from the template.
+/// @ref LLP 0023#3-path-grammar-normalization-aliasing-and-containment
+fn bound_volume_path_canonicalizers<'a>(
+    bindings: impl IntoIterator<Item = (&'a Path, &'a ObjectIdentity)>,
+) -> Result<Vec<BoundVolumePathCanonicalizer>> {
+    let mut rows = BTreeMap::new();
+    for (path, object) in bindings {
+        let observed = super::object_identity_for_host_path(path)?;
+        anyhow::ensure!(
+            &observed == object,
+            "bound-volume adapter object mismatch for {}",
+            path.display()
+        );
+        let identity = match object.platform {
+            ObjectPlatform::Apple => apple_volume_path_canonicalizer(path)?,
+            ObjectPlatform::Unix | ObjectPlatform::Windows | ObjectPlatform::Android => {
+                PathAliasCanonicalizerIdentity::ByteIdentityV1
+            }
+        };
+        let row = BoundVolumePathCanonicalizer {
+            platform: object.platform,
+            volume: object.volume.clone(),
+            identity,
+        };
+        let key = (row.platform, row.volume.clone());
+        if rows
+            .insert(key, row.clone())
+            .is_some_and(|prior| prior != row)
+        {
+            anyhow::bail!("one bound volume reported inconsistent path canonicalizers");
+        }
+    }
+    let mut rows = rows.into_values().collect::<Vec<_>>();
+    rows.sort_by_cached_key(|row| {
+        capsec_semantics::canonical::to_jcs_bytes(
+            &serde_json::to_value(row).expect("canonicalizer row serializes"),
+        )
+        .expect("canonicalizer row is valid JCS")
+    });
+    Ok(rows)
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn apple_volume_path_canonicalizer(path: &Path) -> Result<PathAliasCanonicalizerIdentity> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .context("bound Apple volume path contains NUL")?;
+    let mut filesystem: libc::statfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statfs(path.as_ptr(), &mut filesystem) } != 0 {
+        return Err(std::io::Error::last_os_error())
+            .context("cannot inspect bound Apple volume filesystem");
+    }
+    let filesystem_name = unsafe { std::ffi::CStr::from_ptr(filesystem.f_fstypename.as_ptr()) }
+        .to_str()
+        .context("bound Apple volume filesystem name is not UTF-8")?;
+    anyhow::ensure!(
+        filesystem_name == "apfs",
+        "armed Apple path canonicalization supports APFS only; bound volume uses {filesystem_name}"
+    );
+    let case_sensitive = unsafe { libc::pathconf(path.as_ptr(), libc::_PC_CASE_SENSITIVE) };
+    match case_sensitive {
+        0 => Ok(PathAliasCanonicalizerIdentity::AppleApfsUnicode9SafeCasefoldNfdV1),
+        1 => Ok(PathAliasCanonicalizerIdentity::AppleApfsUnicode9NfdV1),
+        _ => Err(std::io::Error::last_os_error())
+            .context("cannot determine whether the bound APFS volume is case-sensitive"),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+fn apple_volume_path_canonicalizer(_path: &Path) -> Result<PathAliasCanonicalizerIdentity> {
+    anyhow::bail!("an Apple object identity cannot be bound on this target")
 }
 
 fn materialize_protected_artifact(
@@ -470,6 +547,10 @@ pub fn prepare_embedder_artifacts(
     super::validate_snapshot_root_bindings(&template)?;
 
     let mut document = template.document().clone();
+    // @ref LLP 0022#11-delegated-obligations — the public embedder output keeps
+    // OBL-ENV-BASE explicit. ArmedSnapshot::load already refused any supplied
+    // non-empty base; values are admitted only through principal overlays.
+    document["environmentBase"] = serde_json::json!([]);
     let digest = freshen_document(&mut document, fresh_production_nonce()?)?;
     expected.armed_snapshot_digest = digest.clone();
 
@@ -586,6 +667,7 @@ fn build_exact_embedder_artifacts_with_gpu(
         "policyDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "purpose": "production",
         "mode": "enforce",
+        "rootImports": [],
         "principals": [],
     });
     let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
@@ -657,18 +739,34 @@ fn build_exact_embedder_artifacts_with_gpu(
     let cache_root = crate::runtime_cache_dir()?;
     std::fs::create_dir_all(&cache_root)?;
     let cache_root = std::fs::canonicalize(cache_root)?;
+    let project_host_path = absolute_artifact_path(&project_root)?;
+    let cache_host_path = absolute_artifact_path(&cache_root)?;
+    let project_object = super::object_identity_for_host_path(&project_root)?;
+    let cache_object = super::object_identity_for_host_path(&cache_root)?;
     document["rootBindings"] = serde_json::json!([
         {
             "logicalRoot": "project",
-            "hostPath": absolute_artifact_path(&project_root)?,
-            "object": super::object_identity_for_host_path(&project_root)?,
+            "hostPath": project_host_path,
+            "object": project_object,
         },
         {
             "logicalRoot": "home",
-            "hostPath": absolute_artifact_path(&cache_root)?,
-            "object": super::object_identity_for_host_path(&cache_root)?,
+            "hostPath": cache_host_path,
+            "object": cache_object,
         },
     ]);
+    document["projectRootDiscovery"] =
+        serde_json::to_value(capsec_semantics::arming::ArmedProjectRootDiscovery {
+            origin: project_host_path.clone(),
+            selected_root: project_host_path.clone(),
+            marker_kind: capsec_semantics::arming::ArmedProjectRootMarkerKind::ExplicitProject,
+            marker_path: Some(project_host_path),
+            marker_set_version: capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION.into(),
+        })?;
+    document["pathCanonicalizers"] = serde_json::to_value(bound_volume_path_canonicalizers([
+        (project_root.as_path(), &project_object),
+        (cache_root.as_path(), &cache_object),
+    ])?)?;
     document["exactEmbedder"] = serde_json::to_value(&binding)?;
     if let Some(gpu_binding) = gpu_binding.as_ref() {
         document["exactGpuProvider"] = serde_json::to_value(gpu_binding)?;
@@ -746,6 +844,9 @@ fn build_exact_embedder_artifacts_with_gpu(
         engine_binary_digest: Digest::new(&engine.binary_digest).map_err(anyhow::Error::msg)?,
         features: engine.structural_features,
         package_graph_digest: Digest::new(graph_digest).map_err(anyhow::Error::msg)?,
+        entry: serde_json::from_value(document["entry"].clone())?,
+        project_root_discovery: serde_json::from_value(document["projectRootDiscovery"].clone())?,
+        path_canonicalizers: serde_json::from_value(document["pathCanonicalizers"].clone())?,
         protected_artifacts: vec![
             ExpectedProtectedArtifact {
                 role: ProtectedArtifactRole::ArmedPolicy,
@@ -791,7 +892,7 @@ fn build_exact_embedder_artifacts_with_gpu(
     }
     let snapshot_bytes = serde_json::to_vec(&document)?;
     let snapshot = ArmedSnapshot::load(&snapshot_bytes, &expected)
-        .context("built Exact snapshot authentication refused")?;
+        .map_err(|error| anyhow::anyhow!("built Exact snapshot authentication refused: {error}"))?;
     super::validate_loaded_engine_identity(&snapshot)?;
     super::validate_snapshot_protected_artifacts(&snapshot)?;
     super::validate_snapshot_root_bindings(&snapshot)?;
@@ -957,6 +1058,7 @@ mod tests {
         .unwrap();
         snapshot["workflow"] = serde_json::json!("production");
         snapshot["effectiveMode"] = serde_json::json!("enforce");
+        snapshot["environmentBase"] = serde_json::json!([]);
         snapshot["engine"] = serde_json::json!({
             "target": runtime_target_triple(),
             "binaryDigest": engine.binary_digest,
@@ -986,6 +1088,25 @@ mod tests {
             "hostPath": absolute_host_path(&project_root),
             "object": super::super::object_identity_for_host_path(&project_root).unwrap(),
         }]);
+        let project_path = absolute_host_path(&project_root);
+        snapshot["projectRootDiscovery"] = serde_json::json!({
+            "origin": project_path,
+            "selectedRoot": absolute_host_path(&project_root),
+            "markerKind": "explicit-project",
+            "markerPath": absolute_host_path(&project_root),
+            "markerSetVersion": capsec_semantics::arming::PROJECT_ROOT_MARKER_SET_VERSION,
+        });
+        let fixture_bindings: Vec<capsec_semantics::arming::ArmedRootBinding> =
+            serde_json::from_value(snapshot["rootBindings"].clone()).unwrap();
+        snapshot["pathCanonicalizers"] = serde_json::to_value(
+            capsec_semantics::path_alias::contract_fixture_canonicalizer_rows(
+                fixture_bindings
+                    .iter()
+                    .map(|binding| (binding.object.platform, binding.object.volume.clone())),
+            )
+            .unwrap(),
+        )
+        .unwrap();
 
         let (policy_path, policy_object, policy_content) = materialize_test_artifact(
             &artifacts,
@@ -1040,6 +1161,13 @@ mod tests {
                 .map(|feature| feature.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            entry: serde_json::from_value(snapshot["entry"].clone()).unwrap(),
+            project_root_discovery: serde_json::from_value(
+                snapshot["projectRootDiscovery"].clone(),
+            )
+            .unwrap(),
+            path_canonicalizers: serde_json::from_value(snapshot["pathCanonicalizers"].clone())
+                .unwrap(),
             protected_artifacts: vec![
                 ExpectedProtectedArtifact {
                     role: ProtectedArtifactRole::ArmedPolicy,
@@ -1265,6 +1393,11 @@ mod tests {
             engine_binary_digest: Digest::new(engine.binary_digest).unwrap(),
             features: engine.structural_features,
             package_graph_digest: digest(&["packageGraph", "digest"]),
+            entry: serde_json::from_value(checked["entry"].clone()).unwrap(),
+            project_root_discovery: serde_json::from_value(checked["projectRootDiscovery"].clone())
+                .unwrap(),
+            path_canonicalizers: serde_json::from_value(checked["pathCanonicalizers"].clone())
+                .unwrap(),
             protected_artifacts: Vec::new(),
         }
     }

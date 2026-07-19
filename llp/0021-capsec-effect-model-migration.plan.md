@@ -6,6 +6,8 @@
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
 **Revised:** 2026-07-18 (ENG-25076 adds the target-local Exact GPU binding/profile producer and independently executed preparation evidence while preserving empty advertisements)
+**Revised:** 2026-07-17 (ENG-24578 moves the lockdown startup postcondition to authenticated direct-file native-graph execution while retaining a separate zero-decision startup window, because persistent-session lowering intentionally closes evaluator syntax)
+**Revised:** 2026-07-17 (ENG-24578 moves the four lockdown-tamed evaluator probes from the deliberately syntax-closed persistent-session route to authenticated direct-file native-graph admission, preserving exact loaded-engine evidence without reopening REPL dynamic code)
 **Revised:** 2026-07-18 (ENG-24933 binds direct path truncation to retained-object typed authorization and physically proves five Apple scenarios)
 **Revised:** 2026-07-18 (ENG-24933 removes the stale descriptor durability-read branch under LLP 0023's write-authorized durability contract, physically executes the asynchronous durability-write branch on Apple, and keeps the aggregate metadata-write branch residual pending an exact open/closed split)
 **Revised:** 2026-07-18 (ENG-24933 physically executes open-family retained descriptor truncation on an exact Apple-owned file while keeping closed metadata mutation, absent Windows surfaces, and prerequisite-conflicting denial residual)
@@ -21,13 +23,16 @@
 **Revised:** 2026-07-18 (ENG-24933 binds direct terminal-builtin import-gate closure when the static route has no downstream alternative, after the complete Apple run exposed the validator mismatch)
 **Revised:** 2026-07-17 (ENG-24933 closes the armed Exact/Bun accessibility application-state namespace after trusted bootstrap and binds its source-derived cells to physical absence)
 **Revised:** 2026-07-17 (ENG-24933 restamps the reviewed Hermes evaluator identity after the Release artifact builder changed, preserving fail-closed source-authority drift detection)
+**Revised:** 2026-07-17 (ENG-24578 binds native-public async completion to event-loop quiescence, reconciles retained-path live traces with the source-bound internal observer-stage contract, and keeps armed `mkdtemp` residual because its public entry point remains closed)
+**Revised:** 2026-07-17 (ENG-25062 was reopened after merge-prep review confirmed that graph-link receipts are produced and retained, but production source/cache/prepared-carrier reads do not yet enter the receipt-revalidated access closures; the existing Host edge authentication and exact prepared-byte comparison remain in force without claiming the stronger closure-gated boundary)
+**Revised:** 2026-07-16 (the module-runner safety review classifies exact generated manifest-builtin fan-out as closed private runtime linkage that may be eagerly materialized without a package/filesystem probe, but activation is confined to the exact builtin record's synchronous evaluation and cannot escape or re-enter through a retained `require` closure)
 **Revised:** 2026-07-17 (ENG-24933 versions the conformance cache by the no-debugger build profile and reattests every restored framework before execution)
 **Revised:** 2026-07-17 (ENG-24933 explicitly binds CI artifact selection and wrapper compilation to the Release profile and makes symbol attestation SIGPIPE-safe)
 **Revised:** 2026-07-17 (ENG-24933 binds 33 legacy-bootstrap global paths to physical absence from the armed shared runtime without dereferencing missing roots)
 **Revised:** 2026-07-17 (ENG-24933 binds all nine debugger ABI functions and their nine native-operation facets to physical null/zero/no-event results on the exact no-debugger Apple artifact)
 **Revised:** 2026-07-17 (ENG-24933 binds all 106 source and alias facets of the terminal `async_hooks`, inspector, VM, WASI, and worker-thread builtins to loaded-engine denial of every public alias under an authenticated overbroad snapshot)
 **Revised:** 2026-07-17 (ENG-24933 completes a source-, tree-, engine-, target-, and catalog-bound physical Apple Release report with 24/24 prerequisite commands passing; the report remains fail-closed with 1 conformant cell, 7,107 incomplete cells, and no advertisement)
-**Revised:** 2026-07-17 (ENG-24933 implements Windows mapped-DLL object identity and a pinned patched no-debugger Release artifact pipeline while retaining the target's unsupported status pending runtime evidence)
+**Revised:** 2026-07-17 (ENG-24933 implements a pinned patched no-debugger Windows Release artifact pipeline and a loader-path reopen check while retaining independent-build and mapped-image provenance blockers)
 **Revised:** 2026-07-17 (ENG-24933 binds every exact-target evidence producer to the Apple OpenSSL crypto profile after a physical no-debugger Release run exposed the missing feature contract)
 **Revised:** 2026-07-17 (ENG-24933 credits 14 source-bound asymmetric/EVP crypto executions on the Apple OpenSSL target profile)
 **Revised:** 2026-07-17 (ENG-24933 credits nine bounded authority-control refusals and the post-capture absence of the loader-private manifest resolver)
@@ -36,7 +41,7 @@
 **Revised:** 2026-07-17 (ENG-24933 credits two incomplete authority-call refusals and the exact invalid spawned-process handle refusal)
 **Revised:** 2026-07-17 (ENG-24933 proves immutable module-level intrinsic receivers in builtin routes, removing 404 false ambiguous-route residuals without promoting unexecuted fixtures)
 **Revised:** 2026-07-17 (ENG-24933 authenticates timer cancellation and ref-state mutation to the retained timer owner, replacing four closed native/global rows with eight executable non-capability and invariant recipes)
-**Revised:** 2026-07-17 (ENG-24933 credits 29 exact module-runner executions: four loader/source-acquisition surfaces, 24 native ABI lifecycle surfaces, and one armed namespace-inspection closure)
+**Revised:** 2026-07-17 (ENG-24578 reconciles module-runner evidence with the production security boundary and credits 24 exact executions: four loader/source-acquisition surfaces, 19 native ABI lifecycle surfaces, and one armed namespace-inspection closure; four deferred-edge ABIs and the teardown-only generation-unpin ABI remain residual)
 **Revised:** 2026-07-16 (ENG-24933 removes thirteen closed memory-debug implementation surfaces by capturing diagnostic state behind its deliberate API)
 **Revised:** 2026-07-16 (ENG-24933 removes ten closed internal locale/accessibility state surfaces by retaining mutable state in module singletons)
 **Revised:** 2026-07-16 (ENG-24933 completes malformed, missing-attribution, and wrong-principal scenarios for bounded loopback TCP connect)
@@ -44,14 +49,37 @@
 **Revised:** 2026-07-16 (ENG-24933 closes twelve malformed, missing-attribution, and wrong-principal scenarios for retained metadata and whole-file reads)
 **Revised:** 2026-07-16 (ENG-24933 binds direct `statfs` metadata to retained typed `fs:list` authorization and closes five exact public scenarios)
 **Revised:** 2026-07-16 (ENG-24933 binds asynchronous `chmod` and `utime` to retained files, repeats authorization on the worker, and closes twelve exact public scenarios with owned cleanup)
+**Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the Exact-bound artifact preparer while preserving empty advertisements)
 **Revised:** 2026-07-15 (ENG-25062 registered the module-runner factory, record, CJS-to-ESM edge, generation-lease, and compatibility-marker surfaces as closed non-capability control-plane operations)
 **Revised:** 2026-07-15 (ENG-25066 made the authenticated graph decision set and process-stable principal projection the ordinary-ESM execution path)
 **Revised:** 2026-07-15 (LLP 0026 adoption defines the module-initialization task boundary and trusted-loader source-acquisition classification)
+**Revised:** 2026-07-16 (ENG-24578 residualizes 3,018 rationale-only
+callback/control-plane rows because a generic invariant run cannot prove an
+arbitrary carrier's selected branch; it retains eight exact embedder-mechanism
+executions and requires every authenticated work-unit publication to be
+consumed before teardown.)
+**Revised:** 2026-07-15 (ENG-24578 residualizes raw resolver-output rows:
+the resolver bridges are bootstrap-private and sealed before authenticated
+project-source ingress, so unarmed or pre-bootstrap bare evaluation cannot
+serve as execution evidence.)
+**Revised:** 2026-07-15 (ENG-24578 binds cwd disclosure to the public
+`process.cwd` facade over the sealed private bridge, and records the legacy
+`.node`/`.wasm` resolver facets as residual until an authenticated source-bound
+executor can distinguish their private rejection branches.)
+**Revised:** 2026-07-15 (ENG-24578 aligns non-recursive armed `mkdir`
+with LLP 0023's one-`mkdirat` contract: authorization retains the parent and
+preauthorizes the absent child, but a failed post-create commit never performs
+name-bound rollback that could unlink a racing replacement.)
+**Revised:** 2026-07-14 (ENG-24578 binds the armed environment to an explicitly
+empty base plus per-principal overlays, and replaces ambient compatibility
+switches with fixed, digest-bound bootstrap modes; the Bun facade remains absent
+unless the authenticated snapshot opts in.)
+**Revised:** 2026-07-14 (ENG-24578 constrains diagnostic child IPC to a private one-shot POSIX socket handoff while armed IPC remains closed and unadvertised); 2026-07-14 (ENG-24933 introduces the dedicated binary Exact app/agent ingress while preserving the unadvertised Apple target and records the remaining artifact/conformance gate); 2026-07-12 (ENG-24263: the complete exact-engine prerequisite matrix and artifact evidence now run in CI, which requires the incomplete candidate to remain unadvertised rather than treating expected refusal as conformance); 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
 **Revised:** 2026-07-17 (ENG-24933 records the retained TCP metadata residual gate after physical loopback execution exposed repeat decisions on actionless logical fixtures)
 **Revised:** 2026-07-17 (ENG-24933 proves armed whole-environment enumeration selects its empty zero-decision branch without crediting the unreachable legacy wildcard path)
 **Revised:** 2026-07-17 (ENG-24933 closes both public cr-sqlite enablement exports through exact in-memory refusal evidence)
 **Revised:** 2026-07-17 (ENG-24933 closes both public SQLite extension-loading exports through exact in-memory refusal evidence); 2026-07-17 (ENG-24933 closes public messaging roots and executes debugger/shared-runtime/native absence evidence on both exact candidates); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the Exact-bound artifact preparer while preserving empty advertisements); 2026-07-14 (ENG-24933 introduces the dedicated binary Exact app/agent ingress while preserving the unadvertised Apple target and records the remaining artifact/conformance gate); 2026-07-12 (ENG-24263: the complete exact-engine prerequisite matrix and artifact evidence now run in CI, which requires the incomplete candidate to remain unadvertised rather than treating expected refusal as conformance); 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
-**Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); LLP 0026 (module-runner authority amendments); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
+**Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); LLP 0026 (module-runner authority amendments); LLP 0027 (module artifacts and interop); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
 
@@ -297,15 +325,18 @@ must use this classification before the ModuleRunner security integration can
 claim conformance; denial, no-probe, cache-hit, prepared-carrier, and
 wrong-principal fixtures are mandatory.
 
-ENG-25062 implements that boundary as a typed `GraphDecisionSet` over the
+ENG-25062 defines that boundary as a typed `GraphDecisionSet` over the
 exact requesting and target `SourceId`, resolution kind, conditions,
 attributes, actor, effect owner, schedule-time identity, canonical constrained
 set, stage, atomicity group, graph generation, and coverage edge. Successful
 authorization returns an opaque receipt bound to the armed snapshot digest and
-all four authority generations. Source, cache, and prepared-carrier access is
-possible only through a closure entered after the receipt is revalidated for
-the exact target and generation. Module factories remain reachability-only at
-the graph boundary; host effects they perform still enter ordinary typed
+all four authority generations. The graph linker produces and retains those
+receipts. The receipt-revalidated closures for source, cache, and
+prepared-carrier access exist and are unit-tested, but production acquisition
+still occurs through the exact Host-authenticated edge path (or exact prepared
+byte comparison) before link authorization; wiring those reads through the
+closures remains open in ENG-25062. Module factories remain reachability-only
+at the graph boundary; host effects they perform still enter ordinary typed
 semantic-core `DecisionSet`s at their native effect gates. Generated target
 cells remain unsupported until executed conformance evidence promotes them.
 
@@ -636,14 +667,12 @@ validates the complete `exactGpuProvider` identity, verifies the exact profile
 bytes before cache publication, and protects that profile as the sixth
 artifact. The non-GPU path cannot acquire this binding, while package-bearing
 policy input remains a separate future contract. Apple/Windows conformance
-reports and target advertisements remain incomplete. The refreshed per-target
-catalogs each have 23,014 required fixtures: Apple has 5,238 fully executable
-recipes and 17,776 unresolved fixtures, while Windows has 5,084 executable and
-17,930 unresolved.
-The Windows difference is explicit target applicability: 102 Apple
-target-absence probes are not applicable and 16 Windows non-capability paths
-remain unauthored. None of those differences is credited as a pass. The latest
-source-bound tranches add 322 armed shared-runtime global
+reports and target
+advertisements remain incomplete. The merge reconciles both per-target
+catalogs from the source registry before retaining evidence; point counts from
+either pre-merge catalog are not publication authority. Windows differences
+remain explicit target-applicability or unauthored-path facts, and none is
+credited as a pass. The latest source-bound tranches add 322 armed shared-runtime global
 absence recipes, nine armed direct-native global absence recipes, 18 physical
 no-debugger ABI closure recipes, 106
 terminal-builtin closure recipes, four public SQLite extension-load and
@@ -688,6 +717,9 @@ native state in one bounded invocation. Fourteen Linux/Android-only
 real public module path rather than remaining generic availability residuals.
 Async evidence remains open through a bounded event-loop quiescence drain and
 binds both the dispatch edge and the worker edge actually observed at runtime.
+The armed `mkdtemp` family remains unresolved: its returned generated path is
+not yet retained and authenticated strongly enough for the executor to remove
+the created directory, so it cannot claim safe public execution or cleanup.
 Both candidate matrices therefore remain unsupported;
 this partial implementation is not grounds to promote a target or retain
 production benchmark evidence.
@@ -736,8 +768,10 @@ that would mint them; this removes 180 inapplicable callback-invariant
 obligations instead of pretending those unreachable members are independent
 APIs. The 232 source-derived storage cells raise each exact target to 618
 closed fixtures; the loaded Apple engine passes the complete batch with zero
-typed or legacy decisions. Its reduced 2,737-fixture callback-invariant batch
-also passes against the same catalog and loaded engine. The application runtime
+typed or legacy decisions. Rationale-only callback rows remain residual: only
+the eight exact embedder-mechanism probes execute as callback-invariant
+evidence, and every authenticated work-unit publication must be consumed
+before teardown. The application runtime
 does not install the worklet-only `worklet`, `measure`, or
 `scheduleOnAppRuntime` namespaces. Eleven exact source facets now prove that
 runtime-variant boundary through physical absence, including `worklet.clamp`
@@ -948,12 +982,29 @@ fresh 128-bit value with the operating-system CSPRNG, and finalizes the armed
 digest before handing the snapshot to the host and engine. Fixed nonces remain
 valid only in contract fixtures; RNG failure refuses construction.
 
+The same construction boundary owns every compatibility input that may affect
+trusted bootstrap shape. It reads an admitted launcher control at most once
+before arming, normalizes it into the closed, sorted
+`bootstrapCompatibilityModes` set, and includes that set in the final snapshot
+digest. After arming, native bootstrap receives only the authenticated fixed
+projection: it does not reread the launcher environment, and its temporary
+carrier is sealed before project code. These modes grant no authority and are
+not environment entries.
+
+The snapshot separately requires `environmentBase: []`. An armed runtime never
+copies the host process environment into JavaScript or falls through to it.
+Values created during execution live only in a runtime-scoped map keyed by the
+authenticated principal; exact-name read, write, and non-empty enumeration are
+independently authorized at their requested and commit stages.
+
 Acceptance:
 
 - The runtime refuses before project code on stale/mismatched policy, registry,
   engine target, package graph, or required target cell.
 - Mutable authored files and environment variables are not consulted after
   arming.
+- The environment base is explicitly empty, and compatibility shape is a
+  digest-bound fixed-mode projection rather than an environment backchannel.
 - Audit, denial, handle, and dynamic-permission records carry the loaded
   semantic identity and snapshot generation.
 
@@ -1019,7 +1070,8 @@ path lookup and retained-object discovery, then `fs:read` authorizes commit
 immediately before the first byte can be observed and every repeat lease. The
 private descriptor open between discovery and commit discloses no file bytes
 and does not add a redundant read-discovery decision. Public `Cargo.toml`
-allow/deny recipes prove the four-stage action sequence and fail closed at the
+allow/deny recipes prove the six-decision component-walk, commit, and repeat
+sequence and fail closed at the
 first list decision when lookup authority is absent. Whole-file reads accept
 only retained regular files. They perform one full repeat decision per
 descriptor lease and cheaply compare
@@ -1035,13 +1087,22 @@ serialization. Sync and async lstat retain the link object itself with
 no-follow descriptor under its own list edge. Whole-file replace,
 append, and worker-backed write use their own edges, authorize absent-create or
 existing state before `openat`, commit the actual regular file before delayed
-truncation, and recheck before each write/flush. The remaining path-based
-filesystem operations are still pending. Non-recursive synchronous and
-worker-backed directory creation now use the `mkdir` edge: they authorize the
-requested path, retain and verify the parent, preauthorize absent creation,
-create with `mkdirat`, and commit the opened directory identity, rolling the
-new directory back if commit fails. Recursive creation remains closed until
-every created component can run that full sequence independently. Path removal
+truncation, and recheck before each write/flush. The registry's ordinary
+`fs:list` lifecycle remains requested/discovery; retained-object Repeat checks
+are separately bound to exact native filesystem terminals by the source-authored
+internal-observer stage contract. Non-recursive synchronous and worker-backed
+directory creation use the `mkdir` edge: they authorize the requested path,
+retain and verify the parent, preauthorize absent creation, and create exactly
+once with `mkdirat`. A failed post-create check leaves the new, still-empty
+directory in place: reopening the name to verify and then calling `unlinkat`
+would permit a replacement race, so armed code deliberately performs no
+name-bound rollback. Worker-backed single-path `chmod` and `utime` are the
+narrow metadata-mutation exception: both retain the target, authorize commit,
+and repeat authorization on the worker immediately before `fchmod`/`futimes`.
+Their synchronous, link, ownership, and descriptor variants remain closed.
+`mkdtemp` also remains closed at the armed public entry point. Recursive
+creation remains closed until every created component can run the full
+object-bound sequence independently. Path removal
 also remains closed in armed execution: retaining a target descriptor and then
 calling name-based `unlinkat` would still permit a swap between identity check
 and deletion, so sync and async denial fixtures require the original file or
@@ -1062,10 +1123,11 @@ evict stale rows on descriptor-number reuse. Async worker exceptions and result
 delivery failures reject instead of aborting or hanging, completed closures
 release descriptor captures eagerly, and callback attribution intersects live,
 captured, owner, and scheduler principals. Async directory traversal, realpath,
-mkdtemp, watch polling, recursive-readdir spelling, and non-recursive `rm`
-parity now use worker-backed paths. Windows preserves distinct errno values and
-implements recursive-mkdir results, exclusive copy, truncate, utimes, and
-statfs through the portable host ABI.
+watch polling, recursive-readdir spelling, and non-recursive `rm` parity now use
+worker-backed paths; that worker plumbing does not reopen the armed `mkdtemp`,
+watch, recursive, or removal entry points described above. Windows preserves
+distinct errno values and implements recursive-mkdir results, exclusive copy,
+truncate, utimes, and statfs through the portable host ABI.
 
 Filesystem path occurrences now retain a non-wire projection for every
 constrained principal, keyed exactly to the constrained set and effect index.
@@ -1175,23 +1237,34 @@ therefore no longer consult `PolicyFile` once armed.
 Armed runtime construction also rejects every inspector activation and
 configuration flag (`inspect`, wait/open/pause, host, and port), including the
 duplicate `run`-subcommand spellings, before reading arming artifacts or
-allocating the engine. The opt-in Bun compatibility facade is closed at the
-same boundary before its process-global environment marker can be installed.
-Hidden compatibility-fidelity controls that expose internals or alter
-process-wide stack/HTTP-parser configuration are rejected there as well,
-before armed artifact I/O.
+allocating the engine. Ambient compatibility switches do not survive that
+boundary as mutable controls. The trusted launcher may instead capture the
+closed fixed compatibility set into the snapshot before its digest is
+finalized; native bootstrap consumes only that authenticated projection and
+seals its temporary carrier. The Bun facade is absent by default. When, and
+only when, the snapshot includes `bun`, bootstrap installs `Bun` as the same
+object as `Exact`; that identity adds no effect authority and cannot be toggled
+by a later `process.env` write. Hidden compatibility-fidelity controls that
+expose internals or alter process-wide stack/HTTP-parser configuration remain
+rejected before armed artifact I/O.
 Ad-hoc eval/print, explicit or implicit REPL entry, and debug-registry commands
 are likewise rejected at the production dispatcher/runtime boundary before
 arming artifact I/O, engine allocation, or evaluation of supplied code.
-At runtime scalar broker-base environment reads use exact-name typed
-`env:read` decisions at requested and commit before disclosure. Environment
-enumeration remains explicitly closed and returns an empty object until it can
-authorize every concrete name without a wildcard. Process cwd disclosure now
-uses the same exact typed `sys:read`
-plane as other system information: requested and commit authorize the `cwd`
-selector before `getcwd`, while denial occurs before disclosure. Cwd mutation
-remains denied without changing the host process directory. Live armed
-fixtures cover these boundaries.
+At runtime armed `process.env` has no broker-base branch. It begins at the
+snapshot's explicit empty base and projects only the current authenticated
+principal's runtime-scoped overlay. Scalar read, mutation, and each non-empty
+enumeration member take exact-name typed decisions at requested and commit;
+`env:read` and `env:write` remain independent. A write changes neither the host
+process environment nor another principal's overlay, and a fresh runtime starts
+empty. Process cwd disclosure uses its distinct `path:cwd-observe` action over
+the exact `session-state` / `cwd` selector: requested and commit authorize the
+read before `getcwd`, while denial occurs before disclosure. The armed root
+realm exposes only `process.cwd`; that public function has captured the sealed
+private `__exactGetCwd` bridge, whose own root property remains absent. The
+source-derived facade path and both root-global disposition identities are
+digest-bound in the loaded-engine fixture. Cwd mutation remains denied without
+changing the host process directory. Live armed fixtures cover these
+boundaries.
 The same live fixture invokes shell exec, synchronous spawn, and asynchronous
 spawn with a real marker-file command. All three are denied at the armed native
 boundary and the marker remains absent, so executable selection, child
@@ -1201,6 +1274,22 @@ Diagnostic audit keeps the child-process compatibility suite executable without
 widening that production boundary. Its low-descriptor regression uses a plain
 POSIX child to exercise IPC and extra-stdio `dup2` mapping directly; it does not
 grant a nested Ibex runtime ambient ownership of inherited numeric descriptors.
+A diagnostic nested Ibex child may adopt exactly one inherited POSIX IPC socket,
+but only through a process-wide, construction-captured, one-shot lease released
+to the first claimed unarmed Host context. The socket is validated and bound to
+the runtime plus device/inode identity, its close-on-exec flag is restored before
+project code, both startup markers stay absent from the principal environment,
+and the temporary bootstrap carrier is removed after trusted runtime capture.
+The captured carrier exposes only a frozen zero-argument close hook bound to
+that runtime and socket identity. Trusted `process.disconnect()` consumes the
+hook once; runtime teardown is the exact-once fallback. Each close revalidates
+the native socket identity, so a stale or reused descriptor number revokes the
+old lease without ever closing the replacement object.
+Armed contexts, later runtimes, invalid descriptors, Windows, and unrelated
+grandchildren cannot consume or inherit that lease. This is diagnostic
+compatibility plumbing, not `ipc:channel` authority or target-conformance
+evidence; every armed IPC cell remains closed and unsupported until a typed,
+attributed channel design and its exact-target fixtures exist.
 Parent-side extra stdio is a bounded, backpressure-aware full-duplex stream:
 `end` half-closes writes, readable EOF gates the child `close` event, and
 `destroy` releases both directions. Production child environment and inherited
@@ -1223,10 +1312,14 @@ unchanged under the corrected rule. A missing surface binding still fails
 closed rather than turning an empty alternative set into wildcard authority.
 On-disk `.node` native-addon and `.wasm` module candidates now refuse in the
 native resolver before their bytes are read into the JavaScript compilation
-path. Exact loaded-engine fixtures use valid JavaScript payloads under both
-extensions and require the resolver-specific refusal while proving the payload
-marker never executes; both the public loader-kind facet and its compatibility
-module facet bind to that same runtime-derived denial.
+path. The authenticated VFS import path used by loaded-engine conformance does
+not execute the legacy `resolve_with_oxc` facet named by those inventory rows,
+and its normalized public error cannot identify which private rejection branch
+fired. The public loader-kind and compatibility-module facets therefore remain
+residual even though the underlying resolver refusal is implemented. Promotion
+requires a future authenticated, source-bound executor that reaches and
+distinguishes each legacy branch without treating a generic failed import as
+branch evidence.
 The eight native OS-information functions used by public `node:os` now enter
 the same exact typed plane on every implementation target. Hostname, CPU,
 memory, uptime, user, load-average, and network-interface reads authorize both
@@ -1252,7 +1345,8 @@ before enqueuing a line. Denial therefore cannot leak output through the
 best-effort mirror, and this public path no longer bypasses typed
 `stdio:write` authority.
 The initial profile therefore has no debugger protocol or compatibility-facade
-route into package memory or runtime internals.
+route that bypasses package attribution or typed authority. Snapshot-enabled
+`Bun` is only an identity alias of the already-governed `Exact` object.
 
 ### WP8 — Port handles, dynamic authority, and audit evidence
 
@@ -1344,20 +1438,26 @@ decision and its exact structured evidence from one evaluation; bounded
 history receives a clone of that same record and is no longer queried to build
 the response.
 
-Implementation update (2026-07-12): exact source-bound public conformance now
-executes six callback/control-plane invariants against the loaded armed Hermes
-engine through production `process.env` and public authority-control operations:
+Implementation update (2026-07-16): a diagnostic harness executes six
+callback/control-plane invariants against the loaded armed Hermes engine through
+production `process.env` and public authority-control operations:
 missing attribution denies, scheduled decisions recheck authority after
 generation changes, callback principals restore after delivery, bearer handles
 cannot cross snapshot identities, public grant requests cannot widen the static
 ceiling, and lockdown remains structurally immutable. A feature-gated one-shot
 observer records only the actual principal and runtime nonce; it cannot evaluate
 or authorize an operation, and the harness deletes its global before the public
-invariant operation runs. The 2,836 applicable non-capability fixtures carry
-runtime-derived results, exact structured typed outcomes/reasons where an
-auxiliary decision is required, and zero legacy observations. This closes those
-recipe obligations without advertising a target; target promotion remains gated
-on the complete exact-target execution report.
+invariant operation runs. These six generic invariant runs are suite-prerequisite
+diagnostics only. Async attribution remains channel-by-channel rather than
+structurally forced through one chokepoint (LLP 0016 §W2), so a rationale ID and
+static source reference do not prove that an arbitrary carrier entered its body
+or used the checked mechanism. The 2,976 carrier-specific invariant recipes
+therefore remain residual pending exact carrier execution or an independently
+proved carrier-to-mechanism relation with its own non-terminal evidence contract.
+Only nine Exact embedder rows currently have source-bound exact-mechanism public
+executions; those carry runtime-derived lifecycle results and zero legacy
+observations. No diagnostic run may manufacture a `terminalObservedKey` or close
+an enforcement-branch fixture for a carrier it did not execute.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 
@@ -1374,8 +1474,10 @@ allow/deny overrides, environment-endowment widening, and advisory-attribution
 flags/environment inputs refuse instead of weakening production. Lockdown is
 installed structurally for both the ordinary CLI and direct `Runtime`
 construction, and missing lockdown, frame attribution, or package isolation is
-a hard enforce failure with no advisory override. Compatibility, inspector,
-and runtime-fidelity controls also refuse at ordinary host construction. The
+a hard enforce failure with no advisory override. Inspector and runtime-fidelity
+controls refuse at ordinary host construction. Compatibility inputs cannot
+remain ambient controls: the only admitted armed forms are launcher-captured,
+fixed modes bound into the finalized snapshot, and they grant no authority. The
 ordinary no-policy path now constructs an execution-bound immutable typed
 snapshot instead of the legacy host: it binds the actual project directory
 object, patched-Hermes binary digest, exact advertised target/features, empty
@@ -1448,16 +1550,17 @@ records keep the report incomplete. Promotion remains closed until real
 executable evidence exists for every required fixture and the full matrix is
 green.
 
-Implementation status (2026-07-14): the first report-crediting fixture pilot
-reruns exactly seven Exact embedder mechanisms independently of the public
-catalog/adapter batches: three views of the single-use host-call completion
-route, endowment installation, exact-set authorization, armed-artifact
-freshening, and the unendowed-operation closure. Every
+Implementation status (2026-07-16): the report-crediting fixture pilot reruns
+exactly nine source-bound Exact embedder mechanisms independently of the public
+catalog/adapter batches. The set covers the single-use host-call route,
+endowment and exact-set authorization, unendowed-operation closure, and all three
+artifact-bound preparation/materialization ABIs; generic callback/control-plane
+rows are not credited by analogy. Every
 `ibex/capsec-fixture-evidence/2` record carries the committed revision/tree,
 exact target and mapped engine identity, full fixture plan, recipe/public
 digests, producer command and exit status, and the fresh runtime observation.
 The runner validates the artifact through its `--fixture-evidence` path and
-credits exactly seven passes; the other 22,983 obligations remain missing, so
+credits exactly nine passes; all other obligations remain missing or residual, so
 the report remains `incomplete` and the target remains unadvertised. Missing,
 duplicate, stale, mismatched-plan/engine, or mechanism-invalid pilot evidence
 fails closed rather than reverting to zero credited rows.
@@ -1488,11 +1591,15 @@ event-loop quiescence before the per-export observer opens, then the invocation
 still performs the authenticated public `require` and resolves the
 source-derived export from that cache. This isolates both synchronous and
 deferred module initialization from the export body without claiming that
-initialization was zero-effect. Manifest-builtin initialization may resolve
-exact manifest-owned private builtin dependencies without creating package
-import edges, but that exemption is scoped to synchronous body evaluation and
-does not suppress capability terminal checks or survive through an exported
-`require` closure.
+initialization was zero-effect. The closed generated builtin manifest may
+authenticate, source-materialize, compile, and link exact private builtin
+dependencies as runtime build metadata before a builtin body executes. That
+operation has no package/path resolver route and no ambient filesystem probe,
+so it does not create a package import edge. Activation of one of those links
+is nevertheless confined to the exact builtin record at the top of synchronous
+initialization: the exemption does not suppress capability terminal checks,
+survive after initialization, or re-enter through an exported `require`
+closure while another record is active.
 
 Bounded non-capability callable recipes are grouped by exact source template,
 not inferred from `typeof value === "function"`. The first authored families
@@ -1545,7 +1652,10 @@ parser against the live Clap command and then observes the production entry
 reject that selected control before artifact or project execution. The four
 Hermes evaluator identities additionally bind the reviewed engine identity and
 lockdown-taming digest, resolve their exact intrinsic access path, and must
-actually throw the native lockdown error when invoked on the loaded engine.
+actually throw the exact native lockdown error when invoked on the loaded
+engine. Their public fixture is an authenticated direct-file program admitted
+through the native module graph: persistent-session lowering intentionally
+closes evaluator syntax before runtime and is never bypassed for this evidence.
 
 Production startup evidence now covers ten curated structural stages against a
 fresh armed runtime from the exact mapped Hermes artifact: runtime creation,
@@ -1554,14 +1664,21 @@ eager lazy-installer sealing, lockdown, freeze-hatch sealing, compartment
 registry installation, and explicitly enabled Web Streams installation. Each
 stage has one fixed source descriptor and an independently validated
 postcondition; the probe then executes a project marker and requires zero
-legacy or typed decisions. Scanner-only script URLs, evaluation/call-site
+legacy or typed decisions. The lockdown-stage self-check uses authenticated
+direct-file native-graph admission so it can inspect the tamed evaluator
+without bypassing the persistent-session syntax closure; its startup,
+admission, and execution observation windows are independently empty.
+Scanner-only script URLs, evaluation/call-site
 facets, installer definitions, skipped legacy bootstraps, and platform-only
 routes remain residual rather than inheriting these stage results.
 Direct non-recursive `__exactMkdir` now uses a separate harness-owned path under
 `target/`, an exact `fs:list` and `fs:write` floor, and source-authored boolean
-arguments. Successful public execution must emit requested, retained-parent
-discovery, leaf discovery, and commit decisions, and the harness must remove
-the created directory before
+arguments. Successful public execution must emit the complete seven-decision
+component walk: requested full spelling, authenticated-root discovery,
+requested/repeat authorization for the retained `target` directory, requested
+leaf lookup, requested dangling spelling, and absent-create discovery. The
+authorized `mkdirat` is deliberately the terminal mutation and emits no
+name-bound post-create commit; the harness must remove the created directory before
 the fixture can pass. Denial occurs at requested before creation. This closes
 the direct Apple and Windows surface cells independently from the asynchronous
 dispatcher route; recursive creation remains closed under armed startup.
@@ -1569,25 +1686,29 @@ Direct `__exactWriteFile` similarly receives bytes from the source-bound
 `__exactStringToUtf8Bytes` native producer and a null typed-handle argument. It
 can create only one exact harness-owned target file under the joint `fs:list`
 and `fs:write` floor. Passing evidence requires requested, retained-parent and
-created-target discovery, commit, and repeat decisions, exact written bytes,
-and removal of the file after the
+created-target discovery through the complete nine-decision component walk,
+commit, and repeat sequence, exact written bytes, and removal of the file after the
 call; denial stops at requested before creation.
 Direct `__exactAppendFile` uses the same typed retained-object route against a
 pre-seeded exact harness-owned file. Passing evidence must preserve the known
-prefix, append all source-derived suffix bytes, observe requested, two
-discovery, commit, and repeat decisions, and then remove the file. Denial stops
+prefix, append all source-derived suffix bytes, observe the eight-decision
+existing-path sequence (full-spelling request, authenticated-root discovery,
+requested/repeat checks for both components, commit, and write repeat), and
+then remove the file. Denial stops
 at requested, leaves the prefix byte-identical, and still removes the harness
 fixture outside the observation.
 Direct `__exactFsOpen` covers its read, write, and read-write logical branches
 with non-mutating `r`, `a`, and `r+` flags against three exact pre-seeded files.
-Successful and branch-selection evidence must emit requested, discovery,
-target discovery, and commit decisions, close the returned descriptor through
+Successful and branch-selection evidence must emit an access-class request,
+the six-decision existing-path component walk, and commit (eight decisions),
+then close the returned descriptor through
 `__exactFsClose`, prove the fixture bytes unchanged, and remove the file.
 Denial stops at requested and still proves unchanged bytes before harness
 cleanup.
 The POSIX `__exactFsOpenAsync` surface mirrors those three exact owned fixtures
 through event-loop quiescence. Successful and branch-selection evidence binds
-the asynchronous surface plus its synchronous descriptor-cleanup terminal,
+the seven-decision component-walk-and-commit sequence to the asynchronous
+surface plus its synchronous descriptor-cleanup terminal,
 closes the returned descriptor, proves unchanged bytes, and removes the file;
 denial stops at requested and removes its unchanged fixture. The Windows
 backend does not install `__exactFsOpenAsync`, so Windows recipes remain
@@ -1624,7 +1745,7 @@ and timestamp mutation remain unresolved: LLP 0023 keeps `fchmod` and `futimes`
 closed pending object-bound mutation work, so physical execution alone would
 overclaim the governing contract.
 Direct `__exactTruncate` now uses the same object-bound shape on armed Apple
-runtimes: requested and retained-parent discovery decisions precede a
+runtimes: the six-decision existing-path component walk precedes a
 non-truncating `openat`, commit binds the actual regular-file descriptor, and a
 repeat decision immediately precedes `ftruncate`. Five public recipes operate
 only on an exact harness-owned file, verify its two-byte result or unchanged
@@ -1645,9 +1766,10 @@ and the Windows backend does not install this dispatcher. The aggregate
 pending object-bound mutation work. One `ftruncate` execution therefore cannot
 honestly prove that branch; its registry/runtime split is follow-up work.
 Direct `__exactReaddir` now enumerates a separate exact directory containing one
-harness-owned file. Passing evidence must select requested, discovery, and two
-repeat decisions: one retained-target authorization and one generation-bound
-enumeration lease. The harness removes the entry and directory after both
+harness-owned file. Passing evidence must select the six-decision existing-path
+component walk and three later repeat decisions: retained-target open,
+pre-enumeration reauthorization, and the generation-bound lease for the one
+disclosed entry. The harness removes the entry and directory after both
 success and denial, and successful evidence records that cleanup explicitly.
 The runtime-create descriptor binds `ex_hermes_create_armed`, not the historical
 `ex_hermes_create` symbol that production deliberately leaves non-executable.
@@ -1703,16 +1825,18 @@ because it shares the source pin and patch digest. The job explicitly exports
 compiled Exact wrapper to that profile. Symbol checks capture the complete
 `nm` output before matching, so `grep -q` cannot terminate the producer with
 SIGPIPE and turn a present debugger symbol into a false absence result.
-Windows no longer has to rely on the historical unpatched NuGet artifact or a
-pathname-only loaded-engine identity. Its installer now fetches the exact
-commit-plus-patch-digest Release bundle and falls back to the same source build;
-the artifact manifest binds commit, patch digest, architecture, configuration,
-debugger state, and DLL digest. At runtime, a pinned Rust file handle derives
-the Windows volume serial/file index while the C++ bridge independently locates
-the DLL containing `makeHermesRuntime` and derives the mapped module's identity
-for comparison. The release workflow has now built and inspected that DLL on a
-Windows runner and published the exact checksummed Release bundle; its DLL
-digest is
+Windows no longer has to rely on the historical unpatched NuGet artifact. Its
+installer now fetches the exact commit-plus-patch-digest Release bundle and
+falls back to the same source build; the artifact manifest binds commit, patch
+digest, architecture, configuration, debugger state, and DLL digest. At
+runtime, the C++ bridge independently locates the loader-reported pathname for
+the DLL containing `makeHermesRuntime`; Rust reopens that pathname and compares
+its Windows volume serial/file index with the pinned file used for hashing.
+That detects ordinary named-file substitution, but it does not authenticate
+the already mapped image section: a post-load replacement can make both file
+handles identify different bytes from the code supplying the running process.
+The release workflow has now built and inspected the DLL on a Windows runner
+and published the exact checksummed Release bundle; its DLL digest is
 `6f5190b9f8bf943b073e62dc5dbc2e297b77b7becbac3ca0c209b12d92828b6a`.
 Windows x64 is now a declared but unadvertised candidate alongside Apple arm64.
 The complete-matrix workflow installs the checked Release DLL, revalidates its
@@ -1731,19 +1855,22 @@ argument (the prior unquoted PowerShell token preserved `$debugger` literally),
 checks the configured CMake cache, and rejects the implementation-only
 `CDPAgent`/`CDPDebugAPI` exports before writing a manifest. Install and
 publication paths independently enforce the same implementation-symbol check.
-A rebuilt physical artifact and complete report must
-still finish and be inspected before any Windows target cell or advertisement
-can change; incomplete evidence is retained as a refusal artifact, not
-promotion authority.
+A rebuilt physical artifact must still close both the independent source-build
+authority and mapped-image provenance blockers, and a complete report must
+finish and be inspected, before any Windows target cell or advertisement can
+change. Incomplete evidence is retained as a refusal artifact, not promotion
+authority.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
 content-addressed attestation; the generator reopens and validates the report,
 the complete executable-recipe catalog, and a separate public-surface execution
-artifact. All three are immutable regular files addressed by their raw content,
-and the report and attestation bind the catalog and public-execution semantic
-digests. Adapter-probe evidence is a distinct diagnostic schema and is rejected
-at publication. `IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT` only selects the
+artifact, plus the loaded-engine output-disposition evidence. All four are
+immutable regular files addressed by their raw content, and the report and
+attestation bind the catalog and public-execution semantic digests together
+with the exact output-disposition evidence bytes. Adapter-probe evidence is a
+distinct diagnostic schema and is rejected at publication.
+`IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT` only selects the
 harness-owned diagnostic artifact destination; it never supplies authority,
 policy, a principal, a target claim, or production runtime input. The generator
 re-derives the exact required fixture set and
@@ -1751,7 +1878,7 @@ requires one passing authored public-surface invocation (or target-absence
 probe) with the selected terminal observation for every recipe, with zero
 residual, missing, duplicate, or failed rows. It then derives every cell and
 advertisement and permits no source changes after the reported revision except
-those three evidence files, the attestation, and generated publication
+those four evidence files, the attestation, and generated publication
 artifacts. Until every required fixture genuinely passes, production startup
 refuses before project code on every target.
 

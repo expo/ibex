@@ -5,19 +5,23 @@
 **Systems:** Module Loader, Runtime, Engine, Build, Security
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-15
-**Revised:** 2026-07-15 (ENG-25060 made frame-attribution feature detection inspect the exact linked macOS framework or Linux library, keeping every advertised engine build fail-closed); 2026-07-15 (ENG-25060 added non-root frame-attribution fixtures for cold and repeated source factories plus prepared source and HBC carriers); 2026-07-15 (ENG-25066 set measured checked-cell and cold `require(ESM)` envelopes and added exact-host micro-performance evidence); 2026-07-15 (ENG-25061 added a fail-loud, no-execution graph/effect-trace shadow between checked authenticated producer artifacts and the exact legacy scanner, including all three historical scanner-repair families); 2026-07-15 (ENG-25066 made the native target advertisement exact and non-empty for macOS arm64 and Linux x64, with Windows explicitly compatibility-only pending a patched Hermes artifact); 2026-07-15 (ENG-25066 narrowed legacy admission to typed unsupported producer shapes and retained fatal behavior for authorization, syntax, integrity, and linkage failures); 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
+**Revised:** 2026-07-17 (reconciled resolver shipped state: the typed import/require condition split and module-type-backed file metadata route are landed; package-facing `require.resolve` aliases preflight `checkImportGate` outside trusted synchronous manifest-builtin initialization; public metadata omits executable source while trusted integrity witnesses may hash raw bytes; Node-style ambiguous-`.js` syntax detection remains unlanded; LLP 0023 records `OBL-RESOLVE-GATE` complete, with its runtime scope made explicit here); 2026-07-17 (ENG-25062 was reopened after merge-prep review distinguished the implemented exact Host authentication and link-time graph receipts from the still-unwired receipt-revalidated source/cache/prepared-carrier access closures; this RFC no longer claims the stronger access boundary is complete)
+**Revised:** 2026-07-16 (an adversarial ingress review found that the native runner eagerly resolved and preauthorized authored literal `require()` and dynamic-import edges; those shapes now select the bounded 0.1 compatibility loader before the deferred target can be resolved, the authenticated native linker independently refuses them, manifest-builtin private fan-out is restricted to synchronous initialization, and ENG-25206 owns the permanent in-drive call-time activation coordinator); 2026-07-16 (the self-authenticating writable prepared cache was replaced by exact rendering from the current Host-authenticated source graph and is classified as a source-mode acceleration, not parse-free production startup); 2026-07-16 (native `import.meta.resolve` now fails with one stable explicit refusal until its typed resolution-only capability is connected); 2026-07-15 (ENG-25060 made frame-attribution feature detection inspect the exact linked macOS framework or Linux library, keeping every advertised engine build fail-closed); 2026-07-15 (ENG-25060 added non-root frame-attribution fixtures for cold and repeated source factories plus prepared source and HBC carriers); 2026-07-15 (ENG-25066 set measured checked-cell and cold `require(ESM)` envelopes and added exact-host micro-performance evidence); 2026-07-15 (ENG-25061 added a fail-loud, no-execution graph/effect-trace shadow between checked authenticated producer artifacts and the exact legacy scanner, including all three historical scanner-repair families); 2026-07-15 (ENG-25066 made the native target advertisement exact and non-empty for macOS arm64 and Linux x64, with Windows explicitly compatibility-only pending a patched Hermes artifact); 2026-07-15 (ENG-25066 narrowed legacy admission to typed unsupported producer shapes and retained fatal behavior for authorization, syntax, integrity, and linkage failures); 2026-07-15 (ENG-25065 limited trusted bootstrap evaluation to the unpublished owner-thread construction window while retaining the generation drive gate after publication); 2026-07-15 (ENG-25066 made the authenticated runner the default for ordinary ESM and bounded the legacy loader to the 0.1 compatibility window); 2026-07-15 (ENG-25064 connected the Rolldown cache to canonical per-principal prepared graphs and their full native linker); 2026-07-15 (ENG-25065 amended LLP 0023/0024 with generation-scoped development module incarnations); 2026-07-15 (ENG-25064 implemented canonical per-principal source/HBC carriers, atomic admission, and real-Hermes execution equivalence); 2026-07-15 (ENG-25063 implemented dependency-first async SCCs,
 handled internal record promises, fresh ESM/CommonJS dynamic-import promises,
 sticky rejection, event-loop keepalive, and mixed re-entry refusal); 2026-07-15
-(ENG-25062 implemented immutable-snapshot graph authorization receipts, the autonomous initialization context, and the no-probe trusted-loader access boundary); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
+(ENG-25062 introduced immutable-snapshot graph authorization receipts and the autonomous initialization context; receipt-revalidated trusted-loader access remains incomplete as recorded by the 2026-07-17 revision); 2026-07-15 (accepted by the author after the bounded producer spike passed 12/12 canonical artifacts and 20/20 frozen test262 cases; wire and interop details split to LLP 0027); 2026-07-15 (moved to Review and created the ENG-25054 Linear execution program); 2026-07-15 (rounds 1–8: dual-model review revisions; see `llp/reviews/0026-esm-module-runner.{fable,codex}.md`)
 **Related:** LLP 0002 (host embedding ABI); LLP 0003 (Hermes engine bridge); LLP 0004 (module loading); LLP 0005 (hermetic build); LLP 0006 (native-first diagnostics); LLP 0007 (transform convergence); LLP 0009 (runtime transform scope); LLP 0012 (runtime identity / Node compatibility target); LLP 0013 (package compartments); LLP 0014 (import policy); LLP 0018 (fail-loud agent tooling); LLP 0019 (Hermes-compat transform authority); LLP 0021 (CapSec effect model); LLP 0022 (REPL behavior); LLP 0023 (source identity); LLP 0024 (structured evaluation); LLP 0025 (terminal session ownership); LLP 0027 (artifact wire and ESM/CommonJS interop contract)
 
 ## Summary
 
-Ibex should replace its file-at-a-time ESM-to-CommonJS compatibility path with
-an **ESM module runner**: an authenticated module graph that parses and lowers
-source before Hermes sees it, creates real module records, links static edges,
-preserves live bindings and cycles, and evaluates asynchronous graphs including
-dependency-level top-level `await`.
+On advertised native-runner targets, Ibex uses an **ESM module runner** for
+ordinary authenticated ESM: an authenticated module graph that parses and
+lowers source before Hermes sees it, creates real module records, links static
+edges, preserves live bindings and cycles, and evaluates asynchronous graphs
+including dependency-level top-level `await`. Explicitly unsupported call-time
+interop shapes, and unadvertised targets while the 0.1 window remains open,
+retain the file-at-a-time ESM-to-CommonJS compatibility path. An unadvertised
+target refuses once that window closes.
 
 The target architecture is:
 
@@ -47,22 +51,22 @@ artifacts in process. Both paths must preserve per-module `SourceId`, defining
 principal, import-policy edge, source map, and integrity provenance even when
 several factories share one physical chunk.
 
-This RFC proposes to resolve the architecture fork left open by LLP 0007. LLP 0007 remains
-the authority for transform-toolchain convergence; this document owns module
-graph, linking, evaluation, ESM/CommonJS interop, and migration away from the
-bootstrap ESM string transformer. It does not make the proposal accepted merely
-by existing: the author still decides when the design has enough review and
-evidence to advance.
+This RFC resolves the architecture fork left open by LLP 0007. LLP 0007 remains
+the authority for transform-toolchain convergence; this document owns typed
+resolution, module graph, linking, evaluation, ESM/CommonJS interop, and
+migration away from the bootstrap ESM string transformer. LLP 0004 is the
+descriptive map of the shared resolver and builtin implementation; LLPs 0014,
+0021, and 0023 retain their authorization and source-identity authority.
 
 ## Motivation
 
-### The current fallback is doing a parser and linker's job
+### The adoption-time fallback was doing a parser and linker's job
 
-The Rust loader currently transforms TypeScript/JSX-like extensions and a
-scanner-selected subset of JavaScript, while ordinary ESM-heavy JavaScript is
-served verbatim for a fast path `[observed]`
+At adoption, the Rust loader transformed TypeScript/JSX-like extensions and a
+scanner-selected subset of JavaScript, while ordinary ESM-heavy JavaScript was
+served verbatim for a fast path `[observed at adoption]`
 (`src/module_loader/mod.rs`, `needs_transpile`, `needs_js_downlevel`, and
-`resolve_with_oxc`). Hermes cannot execute that ESM through the synchronous
+`resolve_with_oxc`). Hermes could not execute that ESM through the synchronous
 function-body loader, so `transformEsmToCjs` in
 `src/engine/bootstrap/module-loader.js` recognizes and rewrites module syntax
 with string, delimiter, and regular-expression scanners `[observed]`.
@@ -265,10 +269,10 @@ evaluation, but CommonJS does not acquire implicit suspension semantics.
 
 ### 1. Source admission and resolution
 
-The existing resolver remains the authority for specifier resolution,
-conditions, extension aliases, builtins, authenticated package roots, and
-import policy. The new graph calls it through typed operations rather than
-letting transformed JavaScript reconstruct resolution.
+The shared Rust/Host resolver remains the implementation authority for
+specifier resolution, conditions, extension aliases, builtins, authenticated
+package roots, and import policy. The native graph calls it through typed
+operations rather than letting transformed JavaScript reconstruct resolution.
 
 For every static edge, linking performs this order:
 
@@ -281,31 +285,41 @@ For every static edge, linking performs this order:
 The exact staged authorization and no-probe rules remain those of LLPs 0014,
 0021, and 0023. This RFC must not create a convenient graph-prefetch bypass.
 
-The shipped resolver is body-read-free today: module-type detection is
-disabled, so the resolve-time ESM classification read is a *latent* branch,
-one configuration flip from live `[observed]` (`src/module_loader/mod.rs`,
-`ResolveOptions` default and the ENG-22950 dormancy note). LLP 0023's
-`OBL-RESOLVE-GATE` ledger row describes that branch as live and must be
-re-audited to say "latent"; LLP 0002/0004's body-read-free documentation is
-currently accurate. Phase 1 makes the property hold *by construction*:
-classification is split from body loading, the typed resolver is
-body-read-free until the exact target edge, binding owner, locator,
-integrity, and `SourceId` are authenticated, and denial/non-disclosure
-fixtures use ordinary `.js`/`.mjs` targets (a `.ts` fixture is classified by
-extension without a read and proves nothing).
+The shipped typed file resolver separates metadata lookup from executable-source
+acquisition. Module-type detection is enabled, but an armed lookup gives Oxc
+only its descriptor-backed filesystem and authenticated captured
+`package.json` bytes. For file-backed requests, metadata may classify from
+extension or manifest data, but Oxc cannot open the executable body and the
+public metadata record contains no source; resolution does not decode, parse,
+transpile, or disclose it. Executable-source acquisition occurs only after the
+requester, target binding and principal, and applicable locator, integrity, and
+`SourceId` checks. A trusted package-integrity witness may read and hash raw
+installed bytes before path disclosure, but it does not parse, transpile, or
+return those bytes as module source. Registered builtins are the in-memory
+exception: resolver metadata retains their embedded source internally, while
+the public metadata ABI omits it and no file-body lookup occurs `[observed]`
+(`resolve_meta_authenticated_typed`,
+`resolve_meta_from_authenticated_bound_package_typed`, and
+`resolve_with_resolver_at`). LLP 0023 now records `OBL-RESOLVE-GATE` complete;
+this RFC makes its package-facing and file-backed runtime scope explicit. Its
+ordinary `.js`/`.mjs` denial and non-disclosure fixtures avoid relying on a
+`.ts` target that extension classification could satisfy without a read.
 
-The current resolver is also intentionally CommonJS-shaped: one merged
-condition set contains both `require` and `import`, private package imports
-prioritize `require`, and unclassified modules default to CommonJS
-`[observed]`. The runner replaces that with a typed resolution contract.
-Every request carries a **ResolutionKind** — ESM static import/re-export,
-dynamic `import()`, CommonJS `require()`, or entry — which selects the ordered
-condition membership set, participates in the resolution cache key so modes
-can never alias, and drives source-goal classification: package `type` when
+The adoption-time resolver was CommonJS-shaped: one merged condition set
+contained both `require` and `import`, private package imports prioritized
+`require`, and unclassified modules defaulted to CommonJS. The shipped typed
+condition contract now separates those modes. Every request carries a
+**ResolutionKind** — ESM static import/re-export, dynamic `import()`, CommonJS
+`require()`, or entry — which selects the condition membership set and
+participates in cache identity so modes cannot alias. The complete contract
+also pairs resolution with source-goal classification: package `type` when
 present, extension when unambiguous, and for ambiguous `.js` the pinned Node
 oracle's unambiguous-module-syntax detection (a cached detection parse; see
-Design principles). Conditions are **membership tests, not a precedence
-order**: the pinned Node algorithm selects conditional-exports branches in
+Design principles). Package-type and unambiguous-extension classification are
+shipped; unresolved ambiguous `.js` still defaults to CommonJS, so the pinned
+Node syntax-detection branch remains unlanded. Conditions are **membership
+tests, not a precedence order**: the pinned Node algorithm selects
+conditional-exports branches in
 package-object key order, and `default` is unconditional — an invented
 precedence over `{ "default": ..., "import": ... }` would change which code
 executes and under which defining principal. Import-class requests carry the
@@ -643,14 +657,17 @@ minimal-authority importer triggers initialization of an effectful
 privileged module, alongside the sticky-error poisoning scenario the
 amendment forecloses.
 
-ENG-25062 realizes the synchronous half of this contract in
+ENG-25062 realizes the graph-link portion of this contract in
 `module_loader::security`: every reachable static import, re-export, and JSON
 edge must produce a typed graph decision and immutable-snapshot receipt before
 the native graph compiles a factory. The same closed operation algebra reserves
 dynamic import, literal/computed `require`, cache, prepared-carrier, and factory
-operations for their owning phases. Receipt checks bind the exact target,
-coverage edge, snapshot digest, authority generations, and graph generation;
-chunk co-residence and cache presence therefore confer no authorization. The
+operations for their owning phases. Link-time receipt checks bind the exact
+target, coverage edge, snapshot digest, authority generations, and graph
+generation, so chunk co-residence does not authorize a linker edge. Production
+source and prepared-cache acquisition still precede these receipts and rely on
+the exact Host-authenticated edge and exact prepared-byte comparison; consuming
+the access-operation receipts at those reads remains open in ENG-25062. The
 unauthenticated linker remains test-only, and target cells stay unsupported
 until their executed fixture evidence exists.
 
@@ -775,18 +792,40 @@ same evaluation promise and is attributed to the owning/scheduling principal.
 4. evaluates it; and
 5. resolves to the stable namespace object.
 
-The initial native ABI realizes that contract with one retained, immediately
-handled internal evaluation promise per record and a fresh derived public
-promise for every invocation. Literal dynamic edges are semantic artifact
-fields. Computed sites carry stable producer-order ids and may select only from
-the exact authenticated candidate map supplied with the graph; a spelling not
-in that map becomes a rejected promise without a resolution or filesystem
-probe. Dependency closures are collapsed into deterministic SCC metadata,
-async taint propagates to importers, and Rust advances the native graph only by
-non-blocking polls between host event-loop drives. Both fulfillment handlers
-and the internal rejection handler are attached before execution returns to
-the host; public rejection remains observable without manufacturing a second
-unhandled rejection from the runner's bookkeeping chain.
+**Implementation safety boundary (2026-07-16).** The accepted design above is
+not yet fully realized for call-time edges. Review found that the first native
+implementation resolved, source-read, authorized, compiled, and linked literal
+dynamic-import and `require()` candidates before execution, then let the live
+callback consume only a prelinked table. That mechanism cannot prove either the
+dead-branch no-probe rule or the live requester/effect/schedule/constrained
+context. Production therefore selects the bounded 0.1 compatibility loader as
+soon as an admitted artifact contains any dynamic import or any authored
+CommonJS `require()`, before resolving that deferred target; the authenticated
+native linker repeats the refusal for alternate internal callers. The only
+native `require` fan-out retained is the already-specified exact
+manifest-builtin private dependency exception, and its callback is usable only
+while that exact builtin record is the active synchronous initializer; a
+retained closure cannot escape or re-enter from another record. ENG-25206 owns the
+generation-pinned private in-drive activation coordinator required to remove
+this safety boundary. The compatibility transformer relocalizes compiler-lowered
+`globalThis["import"](...)` calls, and structured-session lowering protocol v2
+routes entry imports through a private native hook carrying the admitted logical
+referrer, so delayed edges retain their identity without requesting cwd authority.
+Disabling the compatibility window makes these shapes fail loudly; it does not
+restore the eager native mechanism.
+
+The initial native ABI contains dormant/private-test machinery for one
+retained, immediately handled internal evaluation promise per record and a
+fresh derived public promise for every invocation. It does not realize the
+call-time admission contract while the safety boundary above is active.
+Literal dynamic edges remain semantic artifact fields, and computed sites
+carry stable producer-order ids, so ENG-25206 can reuse the authenticated plan
+algebra. Dependency closures are collapsed into deterministic SCC metadata,
+async taint propagates to importers, and Rust advances native static graphs
+only by non-blocking polls between host event-loop drives. Both fulfillment
+handlers and the internal rejection handler are attached before execution
+returns to the host; public rejection remains observable without manufacturing
+a second unhandled rejection from the runner's bookkeeping chain.
 
 Event-loop keepalive, cancellation, work-unit identity, and exactly-once
 rejection reporting for suspended graphs are LLP 0024/0025 contracts, and
@@ -926,16 +965,34 @@ invalidation operation replacing trusted cache mutation. Any facade ever
 exposed afterward is principal-filtered, immutable, and keyed by virtual
 spellings per LLP 0023. `import.meta` values and dynamic-import referrers are
 derived from the authenticated record — `SourceLabel` for display, retained
-identity for resolution — never from host path strings. `import.meta.resolve`
-is supported and routed through the same typed edge gate as dynamic import,
-resolution-only: no body read, no probing, non-disclosing denials, per
-LLP 0023's resolve-gate rules. CommonJS `require.resolve` uses that same
-resolution-only typed gate and the same denials. Today it bypasses the
-JavaScript `checkImportGate` helper — though the armed native metadata bridge
-it calls still preflights the authenticated requester and import policy — and
-it does not yet flow through one unified typed edge path; that remaining
-`OBL-RESOLVE-GATE` work (and the ledger row's wording, which overstates the
-bypass) closes with Phase 2's loader-state work.
+identity for resolution — never from host path strings. The target contract
+routes `import.meta.resolve` through the same typed edge gate as dynamic
+import, resolution-only: no executable-source acquisition or disclosure,
+authorize before probing, and non-disclosing denials, per LLP 0023's
+resolve-gate rules. Trusted integrity witnesses may still hash raw bytes. Until
+that native resolution-only capability is connected, the native record
+installs one stable `ERR_IMPORT_META_RESOLVE_UNAVAILABLE` refusal; it never
+exposes an undefined property or falls through to an ambient JavaScript
+resolver. CommonJS
+`require.resolve` uses the same target resolution-only gate and denials.
+Package-facing module-local, global, `__exactRequire`, and `createRequire`
+aliases call `checkImportGate` before metadata resolution. The explicit trusted
+exception applies while a manifest builtin's body is being invoked
+synchronously. During that invocation, its module-local `require.resolve`
+skips the JavaScript membership gate and calls the general metadata resolver;
+any file-backed result still passes the armed Host's requester/target preflight
+and the native stages below. The alias becomes package-gated again when the
+invocation returns. This resolve-only exception is broader than, and distinct
+from, full builtin implementation fan-out, whose manifest-only bridge accepts
+only exact generated-manifest dependencies. For file-backed targets, the armed
+Host repeats the typed requested/discovery/commit/repeat authorization stages
+without acquiring, parsing, transpiling, or disclosing executable source. A
+package integrity witness may hash raw bytes. Builtins have no file path and
+therefore no filesystem stages; their embedded source remains internal to
+resolver metadata. LLP 0023 therefore records `OBL-RESOLVE-GATE` complete
+under this scoped contract. That completed resolve-only route is distinct from
+native `import.meta.resolve`, which retains the explicit unavailable result
+above.
 
 One inherited divergence is imported explicitly: LLP 0023 maps query/fragment
 specifier variants to one file-backed `SourceId`, unlike Node ESM, so the
@@ -1260,12 +1317,15 @@ than creating path-keyed debt.
   `OBL-MODULE-IDENTITY`.
 - Select one Oxc/Rolldown integration and prove it compiles on the pinned Rust
   toolchain, or record an explicit toolchain-upgrade decision per LLP 0009.
-- Land the typed resolution contract of §1 (`ResolutionKind` condition sets,
-  source-goal selection, cache-key isolation), body-read-free by
-  construction, with `.js`/`.mjs` denial and non-disclosure fixtures; correct
-  LLP 0023's `OBL-RESOLVE-GATE` row to describe the classification read as a
-  latent branch (LLP 0002/0004's body-read-free documentation is accurate
-  today and stays accurate).
+- Landed the `ResolutionKind` condition split, cache-mode isolation, and
+  package-type/unambiguous-extension classification. Node-style ambiguous-`.js`
+  syntax detection remains Phase 1 work, so §1's complete source-goal contract
+  is not yet landed. The public file-metadata route does not acquire, parse,
+  transpile, or disclose executable source; trusted package-integrity witnesses
+  may hash raw bytes, and builtin resolver records retain embedded source
+  internally. `.js`/`.mjs` denial and non-disclosure fixtures cover the
+  file-backed route. LLP 0023 records package-facing alias coverage and the
+  scoped resolve-only gate under `OBL-RESOLVE-GATE`.
 - Introduce typed `ModuleArtifact` and `ModuleRecord` structures behind an
   experimental feature/runtime flag.
 - Emit artifacts with Oxc from source without changing the default evaluator;
@@ -1311,15 +1371,26 @@ than creating path-keyed debt.
 
 ### Phase 4: Prepared production graph
 
-**Implementation state (2026-07-15).** The existing Rolldown cache now
-publishes a canonical `ibex/prepared-module-graph/1` index beneath the cached
-deployment graph. It groups verified artifacts into one JavaScript factory
-carrier per defining principal, binds every original `SourceId` and resolved
-edge, and admits the index, artifacts, and carriers before the native linker
-can execute them. The same carrier contract also admits matching-engine HBC;
+**Implementation state (revised 2026-07-16).** The existing writable Rolldown
+cache publishes a canonical `ibex/prepared-module-graph/1` index beneath the
+cached deployment graph. It emits one principal-bound JavaScript factory
+carrier per original module, binds every original `SourceId` and resolved edge,
+and admits the index, artifacts, and carriers before the native linker can
+execute them. The same carrier contract also admits matching-engine HBC;
 source and HBC carrier equivalence is covered on real Hermes. The default
 publisher currently chooses JavaScript factory carriers, so producing HBC is
 an optional preparation optimization rather than a runtime dependency.
+
+This writable cache is not an independent trust root: Host first reconstructs
+the authenticated inline source graph and requires every cached byte to equal
+the deterministic publication rendered from it. That makes the current path a
+safe source-mode acceleration, but it necessarily parses the application graph
+before a warm reload and therefore does **not** satisfy the parse-free prepared
+production startup gate below. A production-prepared deployment must instead
+bind the publication root through an independently authenticated deployment
+commitment (for example an armed-snapshot field) that is unavailable to the
+writable cache. Until that contract exists and is verified, Ibex must not
+advertise this cache path as prepared production startup.
 
 - Upgrade the existing Rolldown bundle cache, integrity manifests, and
   per-package chunk pipeline in place to emit the same logical artifacts and
@@ -1334,20 +1405,23 @@ an optional preparation optimization rather than a runtime dependency.
 
 ### Phase 5: Default switch and retirement
 
-**Implementation state (2026-07-15).** The `module-runner` Cargo feature is
+**Implementation state (2026-07-16).** The `module-runner` Cargo feature is
 enabled by default. Ordinary authenticated ESM graphs use AST-derived edges,
 TLA metadata, and the native graph linker; authorization, parsing, linking, or
 evaluation failures fail closed and never retry through the legacy loader.
 Only explicitly unsupported interop shapes may enter the compatibility path,
 which is bounded to Ibex 0.1 and can be closed early with
-`IBEX_LEGACY_MODULE_LOADER=0`. CommonJS, JSON, builtin, and literal dynamic
-imports now use native records. Only producer shapes that cannot yet name an
-authenticated finite edge set — computed dynamic import, computed CommonJS
-`require()`, and dynamic-import options — use that window, so the compatibility
-scanners and SWC dependencies cannot yet be deleted. Hosted platform and
-performance evidence remains the final release gate; the CI workflow records
-both default and no-default build coverage plus the prepared-cache end-to-end
-test.
+`IBEX_LEGACY_MODULE_LOADER=0`. Static-only ESM, JSON, and CommonJS records use
+the native runner, as does exact manifest-owned builtin fan-out confined to
+synchronous builtin initialization. Any dynamic import and any authored
+literal or computed `require()` select the compatibility window before their
+deferred targets are resolved; computed dynamic import and dynamic-import
+options remain there as well. This is a deliberate security rollback from the
+earlier implementation claim, pending ENG-25206, so the compatibility scanners
+and SWC dependencies cannot yet be deleted. Hosted platform and performance
+evidence remains a release gate; the CI workflow records both default and
+no-default build coverage plus the prepared-cache end-to-end test, but those
+results must not be described as native call-time-edge conformance.
 
 - Make the module runner default after semantic, security, platform, and
   performance gates pass.
@@ -1405,7 +1479,8 @@ a patched engine while compiling the bridge into its legacy-attribution mode.
 - warm artifact-cache module loading must remain within an explicitly accepted
   envelope of the current warm loader on macOS, Linux, and Windows;
 - prepared production startup must not parse the full application graph at
-  runtime;
+  runtime; the current writable-cache path explicitly does not satisfy this
+  gate because exact cache authentication reconstructs the source graph first;
 - mobile embedders must be able to consume prepared artifacts without shipping
   a Node/Bun dependency or writable project tree;
 - transform cache size, eviction, and cold-load cost must be measured on a
@@ -1553,8 +1628,10 @@ This RFC is implemented when:
     0023, 0024, and 0025 have been reconciled with the shipped architecture,
     including
     LLP 0023's obligations ledger (`OBL-SOURCE-ID`, `OBL-SOURCE-PROVENANCE`,
-    `OBL-MODULE-IDENTITY`, and the `OBL-RESOLVE-GATE` latent-branch
-    correction), LLP 0023 §2.3's generation scoping of module identity,
+    `OBL-MODULE-IDENTITY`, and the scoped typed `OBL-RESOLVE-GATE` with
+    package-facing alias coverage, file-backed source non-disclosure, and its
+    named integrity-witness/builtin exceptions), LLP 0023 §2.3's generation
+    scoping of module identity,
     LLP 0024's failure-caching and one-file-one-instance wording, and
     LLP 0019's implementation-tier list.
 

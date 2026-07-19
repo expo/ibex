@@ -35,6 +35,10 @@ pub struct CanonicalPolicy {
     pub policy_digest: Digest,
     pub purpose: String,
     pub mode: String,
+    /// Package locators with an authenticated root import site. Keeping this
+    /// projection explicit prevents a session entry from promoting a
+    /// transitive-only or orphan policy principal to direct Root authority.
+    pub root_imports: Vec<NonEmptyString>,
     pub principals: Vec<CanonicalPrincipalPolicy>,
 }
 
@@ -118,6 +122,8 @@ impl CanonicalPolicy {
         require("purpose", &self.purpose, "production")?;
         require("mode", &self.mode, "enforce")?;
 
+        require_sorted_unique(&self.root_imports, "root package imports")?;
+
         require_sorted_by_canonical(
             &self.principals,
             |row| serde_json::to_value(&row.principal),
@@ -139,6 +145,22 @@ impl CanonicalPolicy {
             require_sorted_unique(&row.imports.builtins, "builtin imports")?;
             require_sorted_unique(&row.imports.packages, "package imports")?;
             require_sorted_unique(&row.endowments, "endowments")?;
+        }
+        let package_locators = self
+            .principals
+            .iter()
+            .filter_map(|row| match &row.principal {
+                Principal::Package { locator, .. } => Some(locator.as_str()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        for locator in &self.root_imports {
+            if !package_locators.contains(locator.as_str()) {
+                return refused(format!(
+                    "root import {} has no matching package principal",
+                    locator.as_str()
+                ));
+            }
         }
         Ok(())
     }

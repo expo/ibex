@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Crypto, CI
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-17 (ENG-24933 adds a pinned patched no-debugger Windows Hermes source build/release bundle pipeline; Windows remains compatibility-only with pathname-reopen identity explicitly insufficient for mapped-image attestation)
 **Revised:** 2026-07-17 (ENG-24933 adds Windows x64 as an explicit unadvertised CapSec candidate and runs the complete exact-target report against the pinned patched no-debugger DLL; Windows remains compatibility-only while that report is incomplete)
 **Revised:** 2026-07-15 (ENG-25066 advertises the native module runner on exact macOS arm64 and Linux x64 targets while retaining Windows as an explicit compatibility-only row until a matching patched Hermes artifact exists); 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
@@ -199,14 +200,20 @@ old NuGet installer is replaced by a download-first, source-build fallback for
 the same pinned commit and patch digest as Apple/Linux; the artifact workflow
 builds a no-debugger Release `hermesvm.dll`, checks the patched attribution
 export, records its binary digest/profile, and publishes the exact x64 bundle.
-Loaded-engine attestation separately derives the module DLL's Windows volume
-serial/file index and compares it with the pinned file handle used for hashing.
-These mechanisms remove the pathname-only and mismatched-engine blockers. The
-Windows x64 row is now an explicit CapSec candidate, and the complete-matrix
-workflow consumes that bundle to produce target-, source-, catalog-, and
-loaded-DLL-bound evidence. It remains compatibility-only while the report is
-incomplete; no advertisement follows from the candidate declaration or report
-execution alone `[observed]` (`scripts/build-hermes-windows.ps1`;
+The runtime separately derives the loader-reported module DLL pathname, reopens
+that pathname, and compares its current Windows volume serial/file index with
+the pinned file handle used for hashing. That detects ordinary named-file
+substitution but does not authenticate the image section that supplied already
+mapped code: a replacement after load can make both reopened handles name the
+same different file. This closes ordinary pathname-only and mismatched-file
+substitution but not mapped-image provenance, so the conformance ledger retains
+that explicit Windows blocker. Windows x64 is nevertheless an explicit CapSec
+candidate, and the complete-matrix workflow consumes the pinned bundle to
+produce target-, source-, catalog-, and loaded-DLL-bound evidence. The target
+remains compatibility-only while the report is incomplete and mapped-image
+provenance is unresolved; no advertisement follows from the implementation,
+candidate declaration, or report execution alone `[observed]`
+(`scripts/build-hermes-windows.ps1`;
 `scripts/install-windows-hermes.ps1`; `.github/workflows/hermes-artifacts.yml`;
 `.github/workflows/module-loader-baselines.yml`;
 `.github/workflows/compartment-conformance.yml`).

@@ -5,8 +5,88 @@
 **Systems:** CLI Runtime, REPL, Runtime, Security
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-15 (ENG-25066 routed default file-module execution through the same TLA keepalive/cancellation unit); 2026-07-15 (ENG-25063 classified a TLA-suspended module graph as
-one keepalive/cancellation unit rather than one target per import waiter)
+**Revised:** 2026-07-18 (environment-inventory reconciliation now covers 159
+source-derived rows and 343 exact occurrences, including the current
+module-runner and conformance-harness reads.)
+**Revised:** 2026-07-18 (the any-thread structured-control ABI now requires a
+captured runtime-generation nonce and a teardown-drained full-operation lease.)
+**Revised:** 2026-07-15 (ENG-25066 routed default file-module execution through
+the same TLA keepalive/cancellation unit); 2026-07-15 (ENG-25063 classified a
+TLA-suspended module graph as one keepalive/cancellation unit rather than one
+target per import waiter.)
+**Revised:** 2026-07-15 (environment-inventory reconciliation now covers 156
+source-derived rows and 338 exact occurrences, including closed child-process
+environment construction, per-loader transform selection, armed-fresh
+in-memory transpilation, armed-unreachable disk-fallback controls, and
+diagnostic-only native enumeration.)
+**Revised:** 2026-07-15 (implementation reconciliation: final cooked-mode
+restoration now completes before scoped SIGINT dispositions are returned, with
+a retained self-pipe reader keeping that mediation safe after its coordinator
+joins; if cooked-mode restoration itself fails, the safe scoped SIGINT and fatal
+signal dispositions plus the pipe remain process-lifetime instead of returning
+default-killing handlers.
+The fatal-handler fallback restores termios and exits without cosmetic TTY
+writes, which are async-signal-safe as calls but can still block on a
+flow-controlled terminal; ordinary supervisor paths retain the complete reset.)
+**Revised:** 2026-07-15 (implementation reconciliation: launcher,
+direct-execution, and terminal-session self-pipe bridges are one-shot per CLI
+process. Teardown restores prior signal dispositions and joins ordinary
+consumers, but retains the CLOEXEC pipes and global claims so a handler already
+entered on another thread cannot write to a reused descriptor or notify a later
+scope; isolated process fixtures cover delayed handler completion and the
+explicit sequential-reinstallation refusal.)
+**Revised:** 2026-07-15 (implementation reconciliation: ordinary input-lane
+fullness is now diagnosed as backlog exhaustion instead of fabricated
+per-submission overflow; the raw scanner keeps recognizing control bytes while
+it discards ordinary input through an outside-paste boundary, and decoded
+record length remains the sole 1 MiB test. Fresh bracketed-paste data uses its
+arrival prompt provenance for the interrupt-run reset, and UTF-8 backspace
+removes a complete final scalar while making safe bytewise progress over
+malformed or incomplete suffixes.)
+**Revised:** 2026-07-15 (implementation reconciliation: an editor-time external
+SIGINT and a raw Ctrl+C byte now enter the same serialized generated interrupt
+dispatch and priority event lane; authenticated PTY fixtures prove both routes
+through a wedged completion and restoration. A watch controller now gives the
+group-signaled child two seconds to finish its own direct-execution cleanup
+before TERM/kill fallback, without sending a duplicate SIGINT. A real shell
+fixture proves the grace/no-TERM boundary; the public watch-child fixture
+remains blocked by ENG-24933's intentionally absent production advertisement.)
+**Revised:** 2026-07-15 (implementation sync: Unix in-process one-shot and
+direct-file adapters now install scoped SIGINT mediation before project source
+executes. A self-pipe ordinary lane requests id-exact cancellation when an
+executing target exists, restores fd 1/2 before bounded broker completion, and
+exits 130 without waiting for Hermes; the handler-only fallback performs only
+descriptor restoration and `_exit(130)`. Complete observer-cell process/pipe
+fixtures exercise real Hermes `while(true){}` without promoting the
+ENG-24933-blocked public target. Non-Unix direct execution remains refused and
+has no claimed console-control evidence.)
+**Revised:** 2026-07-15 (implementation sync: the Unix production editor now
+owns raw input independently of a capacity-one static completion producer,
+publishes queued/begin/finish identities into the generated interrupt machine,
+and has authenticated adapter-level PTY evidence for interrupting a deliberately
+wedged completion; public-binary advertisement and Windows ConPTY evidence remain
+separate gates.)
+**Revised:** 2026-07-15 (implementation sync: package-script and watch
+launchers install SIGINT mediation before child spawn, remain alive to reap the
+foreground-group child, never duplicate the group-delivered SIGINT, and return
+the child's shell-style signal status or the controller's latched 130
+after bounded fallback cleanup.)
+**Revised:** 2026-07-15 (implementation reconciliation: the cooperative
+lifecycle event, production-fresh armed run nonce, root-owned history option,
+and published keybinding surface are now bound to their landed adapters and
+tests; registry, completion/editor, environment-inventory, and ledger-check
+rows retain their explicit residual gaps.)
+**Revised:** 2026-07-14 (implementation sync: the startup-environment inventory
+distinguishes launcher-time capture of fixed compatibility controls from
+post-arming consumption of their digest-bound snapshot projection; principal
+environment overlays are runtime data, never a host-environment fallback.)
+**Revised:** 2026-07-13 (non-review implementation sync: discharges
+`OBL-CONSTANTS-ANNEX` with canonical `session/session-constants.v1.json`, its
+strict schema, generated Rust module, and code/model drift gate; records the
+already-landed interrupt model artifacts; delivers the runtime half of
+`OBL-UNIT-PUBLICATION` with the bounded native work-unit event ABI, exact
+executing-target cancellation, and timer `Due{sched}`/Undue publication; no
+normative value from the reviewed design changed.)
 **Revised:** 2026-07-12 (round-10, terminal. Families **split** — Fable `READY`, Codex `NOT READY` — so `Status` stays
 `Draft` (no both-READY on one revision). Codex's single Blocking was the scoped downstream straggler: `idle × CompletionQueued`
 resolved two ways (rule 4 → idle prompt → `Orderly`; the "idle, work in flight" row → `Interrupt(130)`). Fixed single-valued
@@ -244,39 +324,123 @@ named `build` shadows a same-named package script — the *opposite* of the npm 
 stating. `--watch` is a **controller** that repeatedly spawns an `ibex` child with an inherited terminal.
 
 For the child-launcher cases the terminate tier's "request cancellation (id-exact)" wording is meaningless — there is no
-engine in this process to cancel — and **the current behavior is kernel default, not controller mediation.** No signal
-handler is installed on any `run`/`watch` path (the only handlers in the binary are behind `--keep-alive`'s debug loop),
-and Ibex shares the child's foreground process group, so a terminal `Ctrl+C` is delivered to **both** processes by the
-kernel and Ibex dies of its own default disposition. The matrix states that fact, not an aspiration:
+engine in this process to cancel. Package-script and watch launchers now install their SIGINT listener **before** child
+spawn. Ibex and its child remain in the same foreground process group, so a terminal `Ctrl+C` reaches both, but the
+launcher holds the signal while the child retains its exec-time default disposition. Ibex then reaps the child and
+turns its real signal disposition into the shell-style `128 + signal` status. It does **not** explicitly forward the
+same SIGINT: foreground-group delivery already reached the child, and a second delivery could turn an application's
+first graceful interrupt into its forced-interrupt path. The launcher allows two seconds for the child's real status;
+if the signal was caught in the install-before-spawn interval, or the child remains alive, it terminates and reaps the
+child without fabricating another SIGINT and returns the controller's 130 cause. The watch controller applies the same
+two-second grace to its direct-execution child before its existing TERM/kill fallback, so descriptor restoration and
+bounded broker close are not preempted by an immediate SIGTERM. Unix one-shot and direct-file engine
+execution separately install the terminate tier only for the scoped lifetime of their authenticated execution adapter;
+the prior disposition is restored before that adapter returns, so launcher and unrelated commands do not inherit it.
+Each CLI process admits at most one launcher bridge. Teardown restores the prior disposition and joins the ordinary
+consumer but retains the CLOEXEC pipe descriptors and global claim until process exit; POSIX disposition restoration
+cannot join a handler already entered on another thread, so descriptor reuse or sequential bridge installation would
+otherwise let that stale handler write into an unrelated fd or notify a later launcher scope.
+The in-process direct-execution bridge follows the same one-shot rule. Its atomic `ACTIVE → FINALIZING` transition
+prevents a delayed handler from claiming an already-settled execution; its prior SIGINT action is restored, while its
+claim and CLOEXEC pipe remain process-lifetime so neither descriptor reuse nor a later direct-execution adapter can be
+mistaken for the original scope. A second direct adapter in the same process is refused.
+The matrix separates those two delivered realizations:
 
-| Topology | Terminal owner | Broker | Interrupt (current, kernel-default) | Exit status |
+| Topology | Terminal owner | Broker | Interrupt | Exit status |
 | --- | --- | --- | --- | --- |
-| **direct file execution** (`ibex <file>`, or `ibex run <file>`) | this process | in-process broker (§3) | **specified target**: the terminate tier (id-exact request, then `_exit` 130). **Current:** no SIGINT handler exists, so today it too dies of kernel default like the launcher rows — the terminate tier is the target this document specifies, not present behavior | file-execution / lifecycle codes |
-| **package-script execution** (`ibex run <bare-name>`) | the **shell child** (inherited fds) | none — the child writes the terminal directly | the kernel delivers `SIGINT` to the whole foreground group; **both Ibex and the child die of it** | Ibex exits by signal (130); its `128 + signal` status mapping (POSIX) applies only when the **child** dies while Ibex survives — an external `kill` or a child self-exit, not a terminal `Ctrl+C` |
-| **watch controller** (`--watch`) | the controller, between child runs | none | `SIGINT` reaches both controller and child by group delivery; the controller installs no handler, so it dies by signal too | exits by signal on `Ctrl+C`; its only orderly exit is the watcher-channel-closed path |
-| **watch child** (each run) | the child (inherited fds) | **its own** file-execution broker | on a terminal `Ctrl+C`, delivered by group signal and the child dies of it (as does the controller); the controller's reap loop applies only to a child self-exit or external kill, not this `Ctrl+C` path | its own mode's codes |
+| **direct one-shot / file execution** (`-e`, `-p`, `ibex eval`, `ibex <file>`, or `ibex run <file>`) | this process | in-process broker (§3) | **delivered on Unix**: a scoped handler claims one SIGINT and wakes an ordinary self-pipe lane; that lane requests cancellation only for the exact executing target, restores fd 1/2, closes the broker under its budget, and exits 130 without waiting for the engine. If the ordinary lane cannot be woken, the handler restores fd 1/2 and `_exit(130)` directly. Non-Unix direct execution remains refused rather than advertising unverified console-control behavior | one-shot / file-execution / lifecycle codes normally; **130** for SIGINT |
+| **package-script execution** (`ibex run <bare-name>`) | the **shell child** (inherited fds) | none — the child writes the terminal directly | the group signal reaches both processes; the launcher holds it, waits, and reaps while the shell child handles or dies from exactly one SIGINT; the pre-spawn/still-live fallback terminates without a duplicate SIGINT | the child's explicit code, or **130** for the controller's SIGINT |
+| **watch controller** (`--watch`) | the controller, between child runs | none | the controller holds group SIGINT, gives the already-signaled child two seconds for its own cleanup, then uses TERM/kill only as fallback; it reaps and exits without restarting or duplicating SIGINT | **130** for SIGINT; watcher-channel close remains orderly |
+| **watch child** (each run) | the child (inherited fds) | **its own** file-execution broker | the group signal reaches the child under its own mode's disposition while the controller survives to reap it | its own mode's codes; controller returns 130 for the initiating SIGINT |
 
 The **watch child carries its own mode's guarantees** — it *is* an Ibex engine runtime — so only the *controller* and the
-*package-script shell child* are unarmed launcher routes carrying none of §§3–9. Making a launcher route's interrupt
-propagation actually mediated (Ibex holding `SIGINT` while it waits, shell-style, so `128 + signal` is real on `Ctrl+C`)
-is a normative *target*, not current behavior, and is ledgered as `OBL-LAUNCHER-SIGNALS`. This document describes what is,
-and names what should be, rather than asserting the second as the first.
+*package-script shell child* are unarmed launcher routes carrying none of §§3–9. `launcher_signal_mediation` exercises
+both launcher spellings in a private process group: the package parent survives the group SIGINT, observes exactly one
+delivery, reaps its shell child, and exits 130; the watch controller's pre-spawn readiness boundary likewise survives
+and exits 130. `watch_group_interrupt_grace_does_not_preempt_child_cleanup_with_sigterm` separately drives a real shell
+child whose SIGINT trap publishes begin/finished cleanup markers and whose SIGTERM trap publishes a failure marker; it
+proves the watch helper reaps code 130 after the grace path without sending TERM. That split is deliberate: the checked
+production target-advertisement set is empty under ENG-24933, so a public watch child cannot honestly publish a
+post-arming readiness marker yet. This discharges `OBL-LAUNCHER-SIGNALS`. The separate observer-only direct-execution
+process fixture covers both one-shot and file adapters with real Hermes `while(true){}` and a real SIGINT, but does not
+create or promote that blocked public target advertisement.
 
 ### 2. Startup configuration is captured before arming
+
+Here, **startup configuration** means the fixed presentation and compatibility
+inputs captured for the trusted bootstrap; it does not mean every host fact an
+effectful runtime operation may later read.
 
 Terminal presentation configuration — the prompt override (`IBEX_REPL_PROMPT`, legacy
 `EX_REPL_PROMPT`), the color predicate's inputs (`NO_COLOR`, `CLICOLOR_FORCE`, `TERM`) and the
 per-stream decision they produce, the history mode and location, the descriptor topology, and the
 terminal's initial mode and capabilities — is **terminal-operator state** owned by the Rust CLI and
-read into an **immutable startup configuration before the armed host exists**. After arming, no
-session surface consults the mutable host environment. Startup configuration is never readable from
-JavaScript.
+read into an **immutable startup configuration before the armed host is published for project
+execution**. Those fixed presentation inputs have no later host-environment fallback, cannot be
+changed through a principal overlay, and are never readable from JavaScript. This is not a claim
+that every host fact is frozen: the trusted engine-bootstrap interval and effectful runtime
+operations have the separately enumerated reads below.
 
 **This document owns the post-arming environment inventory** as an artifact — the one generated list
 of every variable the runtime reads and the stage at which it is read — so that an un-dispositioned
 variable fails the build. It does not own every *rule* in it: the evaluation rows are LLP 0024's, and
 LLP 0024 **retires** the await-unwrap timeout rather than capturing it pre-arming. This document
 contributes the presentation rows.
+
+The canonical artifact is `capsec/registry/runtime-environment-inventory.json`, generated by
+`packages/ibex-devtools/src/scripts/generate-runtime-environment-inventory.mjs` and validated against
+`capsec/schema/runtime-environment-inventory.schema.json`. Each exact source occurrence records its
+accessor, direction, lexical scope, source evidence, and one of the closed stages
+`launcher-pre-arm-read`, `armed-bootstrap-host-read`, `post-arm-host-read`,
+`principal-overlay-read`, `trusted-bootstrap-host-write`, or `child-environment-construction`.
+Discovery of a new static or dynamic occurrence, movement to a different scope, disappearance of a
+reviewed occurrence, or a stage not admitted by the reviewed row fails the generator check. Every
+`post-arm-host-read` additionally carries a typed disposition and source-anchored evidence; evidence
+records why the occurrence is effect-gated, armed-unreachable, production-unreachable, or a
+test-only effect hook, and is not itself permission to consult the host environment.
+
+`armed-bootstrap-host-read` names the trusted bootstrap window after the authenticated armed
+snapshot identity has been installed but **before package code is eligible to execute**. It is not
+an ambient session read and does not admit a later fallback. `post-arm-host-read` is reserved for an
+occurrence reachable during session operation: the production reads in that class are either behind
+the typed effect decision for the operation (for example DNS resolution, storage/user information,
+or child-process environment/PATH construction) or proved unreachable from an armed caller; the
+remaining occurrences are explicit test-only effect hooks. The inventory records that distinction
+per exact occurrence instead of deriving permission from a stage label.
+
+The current checked projection has **159 rows / 343 exact occurrences**:
+99 armed-bootstrap reads, 25 launcher reads, 103 principal-overlay reads, nine
+trusted-bootstrap writes, 74 child-environment construction occurrences, and
+33 post-arm host-read source sites. Those post-arm sites are dispositioned as
+16 effect-gated reads, eleven armed-unreachable reads, and six test-only hooks.
+Child construction is modeled explicitly: each Rust `Command` starts with a
+dynamic default-inheritance occurrence, while `env_clear`, exact `env` writes,
+and removals record how the child is closed or rebuilt. The runtime JS tool,
+policy, module-transpile, and Hermes compiler children clear inheritance and
+receive only their fixed private directories, locale/timezone, and narrowly
+reviewed test barriers. Transform-engine selection is captured per loader
+before armed publication. The armed transition then permanently selects fresh
+in-memory lowering; it never consults the diagnostic transpile cache or its
+temporary fallback, so an earlier diagnostic loader cannot seed armed output,
+path, or tooling state.
+
+The inventory must distinguish a **source read** from a **bootstrap use**. An
+admitted fixed compatibility control is read by the trusted launcher before
+arming, normalized into the closed `bootstrapCompatibilityModes` set, and bound
+by the final snapshot digest. Native and JavaScript bootstrap thereafter consume
+only that authenticated projection; they do not read the launcher environment
+again, and the temporary projection carrier is sealed before project code. An
+inventory row that labels a compatibility-named environment variable as a
+permitted post-arming read is therefore wrong even if it produces the same
+value in a test process.
+
+Armed `process.env` is not startup configuration. Its snapshot base is
+explicitly empty, and later values live only in runtime-scoped per-principal
+overlays reached through exact-name typed decisions. Reading, enumerating, or
+mutating such an overlay is not consultation of the host environment and cannot
+change a captured bootstrap mode. In particular, `Bun` is absent unless the
+snapshot opted in before arming; if enabled it is the same object as `Exact`,
+not a facade that can be switched by changing an overlay entry.
 
 **Live terminal facts are not startup configuration.** Window dimensions change under `SIGWINCH` and
 cannot be frozen; the terminal's mode changes as the session enters and leaves raw mode. These are
@@ -437,12 +601,26 @@ supported so pasted text enters the buffer **inertly**. Window resize must not c
 Emacs-style editing and reverse history search are v1 behavior. OSC 133 prompt marks are permitted under the TTY
 predicate.
 
-**The editor must be non-blocking.** §6 requires that a `Ctrl+C` byte be consumed and acted on *while a completion
-query is in flight* — the operator's `foo.` preserved and redrawn. A synchronous completer that blocks inside the
-editor awaiting the engine cannot do that, and the shipping rustyline integration is exactly such a completer: it
-blocks on a channel receive inside the completion callback. Moving the engine into a worker does not fix this by
-itself. Either completion is dispatched **asynchronously** to a session that continues to own the input bytes, or the
-editor integration is replaced. This is a feasibility obligation on the implementation, and it is part of §7's gate.
+**The editor is non-blocking on Unix.** §6 requires that a `Ctrl+C` byte be consumed and acted on *while a completion
+query is in flight* — the operator's `foo.` preserved and redrawn. The production adapter therefore keeps one
+dedicated raw-input reader independent of one dedicated completion producer. Ordinary input crosses a fixed-size,
+capacity-`MAX_INPUT_BYTES` byte lane; interrupt, EOF, and error events use an independent capacity-8 priority lane.
+A full ordinary lane is accumulated backlog, not evidence that the current physical submission exceeded
+`MAX_INPUT_BYTES`. The raw scanner diagnoses **backlog exhaustion**, discards queued/current ordinary input through the
+next CR/LF outside bracketed paste, and continues recognizing `Ctrl+C`/`Ctrl+Z` on the independent control path; no
+truncated suffix can execute. The editor consumer separately applies the size limit to each decoded submission and
+rejects that whole record through its next CR/LF outside bracketed paste. The editor never waits inside a completion
+callback. Completion receives only an immutable,
+authority-free snapshot of parser-tracked bindings plus generated/static manifests; it cannot evaluate JavaScript,
+import, inspect the filesystem, or reach `Host`. Its job lane and result lane each have capacity one, and only one
+producer thread exists per interactive session. A full stale job slot makes a later Tab advisory no-op, not a session
+failure.
+
+Every query carries a monotonic request id and the exact input generation. The producer publishes `Began` with a
+distinct target id and waits for the session's acknowledgement before it computes; `Finished` is adopted only if all
+three identities still match. Buffer mutation, submission, or interrupt invalidates the generation, so an abandoned
+result can never edit later input. The raw reader continues consuming bytes throughout. This discharges the Unix
+feasibility obligation; it does not manufacture product-surface advertisement or Windows console evidence.
 
 **The session holds the terminal in raw mode with `ISIG` off for as long as it owns it — including while
 the engine is busy** (on Windows: ConPTY with `ENABLE_PROCESSED_INPUT` cleared). §6's byte-level interrupt
@@ -457,16 +635,26 @@ kernel `SIGTSTP`.** Interactive suspension therefore does not happen by itself. 
 the editor accepts. It lives in the CLI surface manifest (LLP 0010), beside the command table, and it carries
 `Ctrl+C`, `Ctrl+D`, `Ctrl+R`, and `Ctrl+Z`.
 
-**The terminal is restored on every process-controlled exit path** — cooked mode, cursor visible, alternate
-screen exited, bracketed paste off — for orderly exit, EOF, fatal error, cooperative exit, catchable panic,
-every signal in §8's status table, and suspension. On Windows, restoration reinstates the console mode flags
-and VT state captured at startup.
+**The terminal is restored on every ordinary process-controlled exit path** — cooked mode, cursor visible,
+alternate screen exited, bracketed paste off — for orderly exit, EOF, fatal error, cooperative exit, catchable
+panic, every signal in §8's status table, and suspension. On Windows, restoration reinstates the console mode
+flags and VT state captured at startup.
 
 **Restoration precedes every potentially blocking step.** The order is: restore, then flush the broker under
 budget, then release resources. A cleanup step that can block must never sit between the decision to exit and
 the restoration. History needs no exit-path step at all (§9).
 
-Restoration must be performable from an **async-signal-safe** context (`tcsetattr`, `write`, `_exit`).
+The terminal session's SIGINT/SIGTSTP/SIGWINCH bridge is likewise **one-shot per CLI process**. After the final
+cooked-mode restore it returns the inherited dispositions and joins the coordinator, but retains its CLOEXEC
+self-pipe and global claim until process exit. This makes a handler already entered on another runtime thread
+harmless instead of allowing it to write through a reused descriptor or into a later session. A sequential
+session capture in the same process is refused; test fixtures that need independent captures use isolated child
+processes.
+
+The **handler-only fatal fallback** guarantees cooked termios and `_exit` using only async-signal-safe
+operations. It deliberately omits cursor/SGR writes: although `write` is async-signal-safe, a blocking,
+flow-controlled TTY can still prevent the required `_exit`. Cosmetic restoration therefore belongs to the
+ordinary supervisor path; a handler-only fault may leave presentation cosmetics unrestored.
 
 **Fault classes.** Restoration is guaranteed for faults the process can still observe — a handler runs
 (`SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`, `SIGABRT`) — and *not* for `SIGKILL`, power loss, or a stack too
@@ -475,15 +663,16 @@ alone (§7).
 
 ### 6. Interruption and cancellation
 
-**This machine will be generated, not written.** *Five* successive hand-written versions of this section were each
+**This machine is generated, not written.** *Five* successive hand-written versions of this section were each
 falsified on review — by a stale latch, by an unbounded `setInterval` turnover storm, by typed-ahead, by a class-flip
 that reset escalation, and by a `credit ≻ promise` precedence that let a credit press override a promised status — and
 each time the prose looked right to its author. The transition relation is therefore **owner-authored data**: states, an
 event alphabet, and transitions, from which the table below, the implementation's dispatch, and AC 7's exhaustive
 trajectory enumeration are all **generated**, and over which the invariants are **model-checked** against an adversarial
-scheduler. The data, its generator, and the checker are named in §12 and gated in CI; until that source is checked in,
-the tables below are the specification and the generation obligation is outstanding (`OBL-INTERRUPT-MODEL`) — this
-document does not claim an artifact it does not have.
+scheduler. The owner-authored source is `session/interrupt-machine.v1.json`; its deterministic generator and checker are
+`packages/ibex-devtools/src/scripts/generate-interrupt-machine.mjs`, and the Rust dispatch plus checked trajectories live
+under `vendored-generated/`. The tables below are the human-readable projection of that checked relation
+(`OBL-INTERRUPT-MODEL`).
 
 This is the same reasoning that already governs the fd-0 route table, the command table, and the path observables:
 a security-relevant table that is maintained by hand drifts. The interrupt machine was the last one still written in
@@ -516,12 +705,12 @@ unconditional backstop. That is the entire machine.
 
 - **The live-unit set** is discriminated so target selection is total: **`Executing{id}`**, **`Suspended{id}`** (awaiting),
   **`Due{sched}`** (ready but not begun — a scheduling identity `sched`, *not* a cancellation target id, so two due timers are distinct set members and the machine can tell after one begins whether another remains due), and **`CompletionQueued{request_id}`** (a completion query dispatched
-  but not yet begun on the engine thread — the interval the shipping synchronous completer makes real). Work is **in
+  but not yet begun on its bounded producer — a request identity exists, but no executing target identity does). Work is **in
   flight** if the set is non-empty. A **scheduled-but-not-yet-due** timer is **not** in the set — LLP 0024 draws the same
   line, and a session holding a one-second repeating timer is quiescent between ticks, so `Ctrl+C Ctrl+C` at its prompt is
   an orderly exit, not an interrupt termination.
 - **`Executing` versus `CompletionQueued` is the universal running-work discriminant, in every phase.** A completion query
-  that has not begun on the engine thread (`CompletionQueued`) has touched nothing that can wedge, so an interrupt
+  that has not begun on its producer (`CompletionQueued`) has touched nothing that can wedge, so an interrupt
   **abandons it** (invalidating it by buffer generation) and then proceeds **as if it were absent** — falling through to any
   `Executing`/`Suspended`/`Due` work, else to the phase's non-work target. Only an **`Executing`** completion query counts
   as **running work** (it can wedge the engine, so it needs the escape). This one rule makes target-selection rule 4, the
@@ -557,6 +746,18 @@ a request carries the id it was raised against, so a request aimed at a callback
 on its successor. This is forced by the engine: the queued interrupt runs *exactly once*, and one native poll drains a
 whole callback queue and several due timers, so a Rust id wrapped around the FFI call cannot name a unit — publishing
 unit boundaries natively is an obligation on the engine seam (§11).
+
+**The any-thread native control seam is generation-bearing and leased.** The terminal controller captures
+`ex_hermes_runtime_nonce(runtime)` while it owns the live runtime and carries that nonce, unchanged, with every
+work-unit take, cancellation-result take, active-target query, and id-exact cancellation request. It must never recover
+the current nonce from a retained pointer when the control fires: an allocator may have reused that address for a later
+runtime. Native admission validates the pointer-plus-nonce pair against the exact **Running** registry generation and
+acquires a teardown-counted lease before dereferencing the handle; the lease remains held through the complete queue or
+cancellation operation. A mismatched, zero, Closing, destroyed, or address-reused generation fails closed (`FAILED`, or
+zero for the active-target query), without touching runtime-owned mutexes or Hermes. Teardown atomically changes Running
+to **Closing**, refuses later leases, and does not erase or delete the generation until every already-admitted control
+lease has completed. A check without the full-operation lease is non-conforming because it leaves a check-to-dereference
+use-after-free race.
 
 **More than one unit can be live at once**, so the target is chosen by an **ordered selection function**, not by a
 singular "the in-flight work". LLP 0024 permits a background callback to execute *while* an input is suspended at a
@@ -610,11 +811,13 @@ This is the latch's deletion made concrete.
 The **shutdown** phase has no row here because it never takes a *first* interrupt: reaching shutdown means a cause is
 already latched, and every interrupt in shutdown is governed by cause precedence below (expedite, keep the status).
 
-A **completion query is killable work**. It is advisory and bounded (LLP 0022), so an interrupt abandons its result —
-but if it is in flight it is live work the escape invariant covers — whether `Executing` (running work, which can wedge) or still `CompletionQueued` (abandoned, then fall-through). The alternative, which an earlier draft
-adopted, is unsafe: today's member completion evaluates its base through `Function('return (' + expr + ')')()` on the
-engine thread, and its budget is a `recv_timeout` on the editor thread that releases the editor without cancelling the
-engine. A bounded budget is only a bound if something can enforce it.
+A **completion query is killable work**. It is advisory and bounded in queue occupancy (LLP 0022), so an interrupt
+abandons its result — but if it is in flight it is live work the escape invariant covers — whether `Executing` (running
+work, which a hostile test producer can wedge) or still `CompletionQueued` (abandoned, then fall-through). The production
+query cannot run user code or hold engine authority; abandonment is enforced by exact request/target ids plus buffer
+generation, and the second promised interrupt ends the session even if the producer never returns. A separate elapsed
+completion budget remains one of §12's explicitly unbound engine-dependent constants; queue bounds and interrupt escape
+do not pretend to choose that policy value.
 
 **Two rules make the two guarantees true. Both are arithmetic; neither is case analysis.**
 
@@ -705,7 +908,9 @@ second press, and it carries its own status — so the contradiction has no surf
 **Interrupts are handled atomically.** **Non-coalescing is promised for terminal-generated interrupts only**: two `Ctrl+C`
 keystrokes are two bytes on a descriptor the session owns (§5's raw-mode commitment), and are two interrupts even within one
 quantum. Two external `SIGINT`s may be coalesced by the kernel before user space observes them; external counting is
-best-effort, and a test that sends two must wait for the first to be acknowledged.
+best-effort, and a test that sends two must wait for the first to be acknowledged. Once observed, both sources enter the
+same serialized `ReplInterruptIngress`: it calls the generated dispatch, performs the selected cancellation/force action,
+and publishes the same priority `Interrupt` event. The signal path is not a second handwritten transition machine.
 
 > **Escape invariant.** From **any** reachable state, **at most three consecutive interrupts** — no intervening editor input
 > — end the session, with the terminal restored, and none of them depends on the engine, the worker, or JavaScript
@@ -1130,25 +1335,25 @@ text before acting on any row.
 
 | Id | Obligation | Owner | Verified at |
 | --- | --- | --- | --- |
-| `OBL-UNIT-PUBLICATION` | **Native begin/end publication** of every unit of work so a target id can name one unit; **and due/undue transitions carrying the scheduling identity `sched`**, since begin/end alone cannot populate `Due{sched}` before begin and the native `TimerEntry.id` is not exposed (`ex_hermes_next_timer` gives only the earliest deadline). A Rust id wrapped around the FFI call cannot do this: one native poll drains a whole callback queue and several timers | LLP 0024 (engine seam) | `0024@6416ccb8c3c2` — begin/end **delivered**; the **due/undue seam is not yet exposed** |
+| `OBL-UNIT-PUBLICATION` | **Native begin/end publication** of every unit of work so a target id can name one unit; **and due/undue transitions carrying the scheduling identity `sched`**, since begin/end alone cannot populate `Due{sched}` before begin and the native `TimerEntry.id` is not exposed (`ex_hermes_next_timer` gives only the earliest deadline). A Rust id wrapped around the FFI call cannot do this: one native poll drains a whole callback queue and several timers | LLP 0024 (engine seam) | **delivered for the production work sources** — the bounded `ExHermesWorkUnitEvent` queue publishes evaluation, callback, timer, and microtask-drain boundaries independently of submissions; timer `Due`/`Undue` records carry `TimerEntry.id`, and overflow is explicit. The production static completion producer separately publishes `CompletionQueued{request_id}`, acknowledges `Executing{target_id}` before computation, and finishes against both identities plus the input generation. The controller feeds those states into the same generated machine; completion has no engine authority and therefore does not fabricate a native engine event |
 | `OBL-CANCEL-EDGES` | Cancellation edge semantics: `accepted` is **target-generic** (for a callback or query it means the unit returned; the structured `cancelled` *outcome* belongs to evaluations only); a consistency-check failure resolves **`failed` immediately**, not only at teardown; teardown failure is reserved for requests still `Pending` | LLP 0024 ↔ §6 | `0024@6416ccb8c3c2` — both documents were loose here; §6 now states the edges and 0024 must agree |
 | `OBL-SEQUENCE-ALLOCATOR` | Sequence numbers assigned at **session-layer receipt**, never minted by the worker | LLP 0024 | `0024@6416ccb8c3c2` — **0024 is right and this document was wrong**; §3 now adopts it. A hostile worker must not be able to forge ordering |
-| `OBL-SUSPENDED-UNIT` | The **unit boundary** for an input suspended at top-level `await`: is the callback that settles its promise part of that unit, or a separate unit? §6 no longer *raises a request* against a suspended unit (the credit and promise carry it), so this no longer blocks §6 — but a fuller future selector would need it | LLP 0024 | `0024@6416ccb8c3c2` — open, no longer blocking |
-| `OBL-LIFECYCLE-UNITGENERIC` | §8's cooperative exit needs a **unit-generic lifecycle outcome**: a root-attributed *timer* may request exit with no in-flight evaluation, so 0024 §6's outcome — currently *input-scoped* — must also admit a bare no-evaluation control event. §8 cites it as unit-generic; 0024 does not yet own the bare event | LLP 0024 | `0024@6416ccb8c3c2` — **not yet**; 0024 §6's lifecycle outcome is input-scoped |
-| `OBL-0024-EPOCH-VOCAB` | LLP 0024's shared-vocabulary table still defines "work epoch" as "LLP 0025 §6's **interrupt-latch unit**" — 0025 now has neither a latch nor a work-epoch unit, so the entry is dangling and should be retired | LLP 0024 | `0024@6416ccb8c3c2` — stale reference to a deleted concept |
+| `OBL-SUSPENDED-UNIT` | The **unit boundary** for an input suspended at top-level `await`: its evaluation and each settling callback are distinct cancellable **work units** with their own target ids, while the input's **settlement unit** aggregates those jobs only for the one input outcome. A suspended settlement is not itself a cancellation target. | LLP 0024 | **delivered** — LLP 0024's shared vocabulary and §7.4 make the split normative; native work-unit publication emits callback and evaluation boundaries separately, and `suspended_top_level_await_resumes_without_assimilating_completion` binds the settlement behavior |
+| `OBL-LIFECYCLE-UNITGENERIC` | §8's cooperative exit needs a **unit-generic lifecycle outcome**: a root-attributed *timer* may request exit with no in-flight evaluation, so 0024 §6's outcome must also admit a bare no-evaluation control event | LLP 0024 | **delivered** — `SessionLifecyclePort` publishes one root-only, idempotent `LifecycleExitRequest` independently of an input; the staged Host ABI commits an `AuthorizedWorkerLifecycleCommit`; `ControlMessage::LifecycleCommit` is a bare authenticated control event; and the supervisor preserves an accepted lifecycle request over later worker death. Bound tests are `root_operations_share_state_and_publish_one_idempotent_event`, `every_non_root_projection_denies_without_state_change`, `acknowledged_worker_lifecycle_commit_parks_without_returning`, `unacknowledged_worker_lifecycle_commit_uses_reserved_status`, and `accepted_lifecycle_wins_over_later_foreground_worker_death`. `EX_HERMES_POLL_LIFECYCLE_REQUESTED` exposes the engine-independent poll result; target promotion remains a separate conformance gate |
+| `OBL-0024-EPOCH-VOCAB` | Retire the dangling "work epoch" alias for LLP 0025's deleted interrupt latch; only LLP 0024's worker-restart **sequence epoch**, work units, and settlement units remain current vocabulary. | LLP 0024 | **delivered** — the historical row was removed and current prose no longer treats a work epoch as a live LLP 0025 concept |
 | `OBL-HISTORY-LOCALITY` | §9's nonce-bound equality proof crosses a *fresh-nonce-keyed, non-rehydratable* digest of the root, not an identity. LLP 0023's by-design-crossings parenthetical does not yet name it; one acknowledging line there closes the seam (the proof arguably already complies, being non-rehydratable) | LLP 0023 | `0023@a77e5a385f6a` at first review; **re-pinned `0023@601cb5213dca`** (2026-07-12) — **delivered**: current 0023's worker-locality section now explicitly names "LLP 0025's history-scope equality-proof digest" as a by-design crossing (0023 §7.1). The seam is closed; the ledger surfaced the favorable landing on its last outing |
-| `OBL-INTERRUPT-EPOCH` | LLP 0022's epoch definition: it still closes an epoch on "quiescence **plus a republished prompt**" — the coupling this document **deleted** as undefinable. 0022 pinned its row against a pre-round-7 revision of this document and is now stale in exactly the way a pinned row is supposed to reveal | LLP 0022 | `0022@88decefdc683` — stale |
-| `OBL-INTERRUPT-BOUND` | LLP 0022's "**two interrupts within one work epoch** end the session" is falsified by this machine's editing row, where the first press discards the buffer and prints no promise, so **three** presses are needed. 0022's own "worst case is three" sentence is correct; the two-press sentence is not | LLP 0022 | `0022@88decefdc683` — stale |
+| `OBL-INTERRUPT-EPOCH` | LLP 0022 must not recreate an epoch definition coupled to prompt publication; it cites this document's generated state and typed-promise machine directly | LLP 0022 | **delivered in current §10** — the deleted work-epoch alias no longer appears in its normative interrupt prose |
+| `OBL-INTERRUPT-BOUND` | LLP 0022 must preserve this machine's exact bound: a promise is honored on the next press, while a no-promise edit-buffer discard can require the credit's third press | LLP 0022 | **delivered in current §10 and AC 15** — both cite the typed promise and escape credit without the false “two within one work epoch” paraphrase |
 | `OBL-BRANCH-VOCAB` | Branch-selection vocabulary admitting a **mode-scoped** selection fact | LLP 0021 | not verified this round |
-| `OBL-REGISTRY-ROWS` | `lifecycle:exit`; the protected-descriptor class; history-store rows; the worker-bootstrap route; listener no-effect branches across every registration alias; the reconciliation entries | capsec registry | `coverage-edges.json`@blob:d495d9d6318f (2026-07-12) — no `lifecycle:exit` capability exists; exit surfaces remain `closed` under `process:signal`/`runtime:inspect` |
-| `OBL-CLI-SURFACE` | `--history` rows on both spellings; the **keybinding manifest** (incl. `Ctrl+Z`) beside the command table | CLI surface manifest (LLP 0010) | `runtime-surface.json`@blob:2ad526bc2fa9 (2026-07-12) — clap surface only; no history option, no keybinding section |
-| `OBL-LAUNCHER-SIGNALS` | Mediated interrupt propagation for launcher routes (`ibex run <bare-name>`, `--watch`): Ibex holding `SIGINT` while it waits on the child so `128 + signal` is real on `Ctrl+C`, rather than both dying of the group signal. §1's matrix describes current kernel-default behavior and names this as the target | this document + `src/bin/ibex/main.rs` | `main.rs`@blob:`09e0b170d16b` (2026-07-12) — no handler on the run/watch paths today |
-| `OBL-FRESH-NONCE` | §7's control records authenticate with an **armed session nonce**. The armed-snapshot schema checks only that it is base64url; nothing checks **freshness or uniqueness**. A nonce that is a fixed constant authenticates nothing — and note §7's own limit: authentication proves channel membership, not truthfulness | LLP 0021 / runtime | `armed-snapshot.schema.json`@blob:7d7784994b9e (2026-07-12) — checks base64url only; no freshness/uniqueness check |
-| `OBL-INTERRUPT-MODEL` | The §6 transition data, its generator, and the model checker — checked in, digest-bound, CI-gated, with `interrupts_without_editor_input ≤ 3` and `promised_next_exit ⇒ next interrupt terminal` as checked temporal properties. **Until this lands, §6's tables are the specification and nothing is generated.** This document does not claim the artifact it does not have | this document + tooling | not started |
-| `OBL-CONSTANTS-ANNEX` | `session-constants.json` (§12) as a real, digest-bound file, cited by 0022 and 0024 rather than re-deferred | this document + tooling | **does not exist yet** — §12's values are normative *here*; the file is owed |
-| `OBL-ENV-INVENTORY` | The §2 post-arming environment inventory as a named artifact with a schema, so an un-dispositioned variable fails the build | this document + tooling | not started |
-| `OBL-EDITOR-ASYNC` | A non-blocking editor integration. **This is a release gate, not a preference**: the shipping completer blocks inside rustyline's synchronous `Completer::complete`, so while a completion query is wedged the editor cannot consume a `Ctrl+C` byte *at all* — the physical keypress never becomes a machine event, and §6's completion-query row is unimplementable | this document + tooling | `repl/mod.rs`@blob:c4bcf99bbcb7 (2026-07-12) — completer blocks synchronously |
-| `OBL-LEDGER-CHECK` | Obligation-id machinery in `./ref-check` that recomputes each row's digest and **fails the build on a mismatch**, so this ledger becomes a control rather than a comment | process tooling | not started |
+| `OBL-REGISTRY-ROWS` | `lifecycle:exit`; the protected-descriptor class; history-store rows; the worker-bootstrap route; listener no-effect branches across every registration alias; the reconciliation entries | capsec registry | **delivered** — the source-derived registry retains the typed `lifecycle:exit` effects, six protected-session-descriptor Host ABI routes, and ten supervisor-history discovery/read/write rows. The exact private constants `__ibex-session-worker-v1` / `private:ibex:session-worker-bootstrap:v1` produce one private, JavaScript-unreachable `terminal-session-control` row and fail classification if their evidence drifts. `addListener`, `listenerCount`, `listeners`, `off`, `on`, `once`, `prependListener`, `prependOnceListener`, `rawListeners`, `removeAllListeners`, and `removeListener` are closed by default and carry explicit no-effect `before-exit` / `exit` branches; `emit` and `emitWarning` remain wholly closed under `ipc:channel`, and `eventNames` remains wholly closed under `runtime:inspect` |
+| `OBL-CLI-SURFACE` | `--history` rows on both spellings; the **keybinding manifest** (incl. `Ctrl+Z`) beside the command table | CLI surface manifest (LLP 0010) | **delivered** — root-owned `HistoryMode` accepts `--history` before `repl` and after the explicit `repl` spelling (`history_mode_is_root_owned_and_reaches_both_repl_spellings`), and the generated CLI inventory carries its option/default/enum rows. `runtime-surface.json#keybindingSurface` publishes Tab, `Ctrl+C`, `Ctrl+D`, `Ctrl+R`, and `Ctrl+Z`; `generate-repl-surface.mjs` validates their exact bytes and generates the Rust dispatcher/help projections used by `terminal_session.rs` |
+| `OBL-LAUNCHER-SIGNALS` | Mediated interrupt propagation for launcher routes (`ibex run <bare-name>`, `--watch`): Ibex holds `SIGINT` while it waits on the child so `128 + signal` is real on `Ctrl+C`, rather than both dying of the group signal | this document + `src/bin/ibex/main.rs` | **delivered on Unix** — `LauncherInterrupt` is installed before child spawn; package scripts accept the foreground group's one SIGINT, wait for the real child status, and use bounded termination/reap plus controller status 130 only for the pre-spawn/still-live fallback. They never explicitly redeliver the group signal. Watch gives its already-signaled child a two-second direct-cleanup grace before TERM/kill fallback, reaps, and returns 130. `launcher_signal_mediation` proves package child delivery and both real controller routes; `watch_group_interrupt_grace_does_not_preempt_child_cleanup_with_sigterm` proves the watch grace with begin/finish/TERM markers in a real shell child. A public post-arming watch-child fixture remains honestly blocked by ENG-24933's empty advertisement set. Windows console-control mediation remains a platform-verification item rather than a POSIX-status claim |
+| `OBL-FRESH-NONCE` | §7's control records authenticate with an **armed session nonce**. A nonce that is a fixed constant authenticates nothing — and note §7's own limit: authentication proves channel membership, not truthfulness | LLP 0021 / runtime | **delivered for production construction** — `prepare_embedder_artifacts` authenticates the template, replaces its reserved nonce with 16 bytes from the OS CSPRNG in `fresh_production_nonce`, recomputes the checked snapshot digest, and re-ingests the pair. `freshening_replaces_reserved_nonce_and_is_replay_distinct` proves two constructions differ and `freshening_binds_nonce_into_checked_digest` proves the digest binding. `ArmedSessionBinding::from_snapshot` requires the exact 16-byte nonce, and `frame_is_bound_to_exact_run_nonce_epoch_and_direction` proves the authenticated control frame refuses a different nonce. The schema remains only a shape check; freshness is a trusted-constructor invariant, not a claim that arbitrary supplied snapshot bytes become fresh |
+| `OBL-INTERRUPT-MODEL` | The §6 transition data, its generator, and the model checker — checked in, digest-bound, CI-gated, with `interrupts_without_editor_input ≤ 3` and `promised_next_exit ⇒ next interrupt terminal` as checked temporal properties | this document + tooling | **delivered** — `session/interrupt-machine.v1.json`, `packages/ibex-devtools/src/scripts/generate-interrupt-machine.mjs`, and the generated dispatch/manifest/table/trajectories under `vendored-generated/` |
+| `OBL-CONSTANTS-ANNEX` | `session/session-constants.v1.json` (§12) as a real, digest-bound file, cited by 0022 and 0024 rather than re-deferred | this document + tooling | **delivered** — strict schema at `session/schema/session-constants.schema.json`; deterministic generator/check at `packages/ibex-devtools/src/scripts/generate-session-constants.mjs`; Rust projection at `vendored-generated/session_constants.generated.rs` |
+| `OBL-ENV-INVENTORY` | The §2 post-arming environment inventory as a named artifact with a schema, so an un-dispositioned variable fails the build | this document + tooling | **delivered** — canonical `capsec/registry/runtime-environment-inventory.json` (159 rows / 343 exact occurrences), strict `capsec/schema/runtime-environment-inventory.schema.json`, and `generate-runtime-environment-inventory.mjs` assign and check every static and dynamic occurrence. The checked projection has 33 post-arm host-read sites: 16 source-anchored effect-gated reads, eleven armed-unreachable reads, and six test-only effect hooks. JavaScript reads are principal-overlay-only; full native enumeration is diagnostic-only; fixed compatibility and disk-fallback controls have no armed ambient fallback; subprocess scanners model default inheritance plus exact clearing/reconstruction; prohibited fixed controls fail even if reviewed; and package scripts plus generated-drift/conformance wiring make missing, moved, stale, or undispositioned occurrences build failures |
+| `OBL-EDITOR-ASYNC` | A non-blocking editor integration. **This is a release gate, not a preference**: raw input must remain consumable while a completion producer is queued, executing, abandoned, or wedged | this document + tooling | **delivered on Unix at the authenticated adapter boundary** — `run_interactive_repl` owns the bounded raw-input lanes while `AsyncCompletionProducer` owns one capacity-one job lane, one capacity-one result lane, and no evaluator/Host authority. `production_editor_adapter_status` reports `BoundedAsynchronousCompletion`. `authenticated_interactive_adapter_consumes_ctrl_c_during_wedged_completion` uses a real PTY and complete authenticated interactive fixture: after an acknowledged test-owned wedge, the first byte prints the completion notice and redraws `foo.`, the second exits 130, and configurable termios state is restored. `authenticated_interactive_adapter_routes_external_sigint_during_wedged_completion` repeats that proof with real process-directed SIGINTs through the same generated ingress and excludes only the kernel-maintained transient `PENDIN` status bit from its restoration comparison. The tests are adapter-level because ENG-24933 still blocks honest public-binary target advertisement; Windows still needs the corresponding ConPTY fixture with processed input disabled |
+| `OBL-LEDGER-CHECK` | Obligation-id machinery in `./ref-check` that recomputes each row's digest and **fails the build on a mismatch**, so this ledger becomes a control rather than a comment | process tooling | **open as ENG-25052** — `./ref-check` validates LLP metadata and `@ref` targets only; it has no obligation-table parser, digest recomputation, or stale-pin failure path. This document update does not turn prose into that control |
 
 ### 12. Constants
 
@@ -1156,8 +1361,12 @@ Bounds that are **user-visible and independent of the engine** are pinned **now*
 and a conformance suite cannot assert a truncation marker it has not been given. An earlier draft claimed these were "pinned constants with a version" while supplying neither values nor an
 artifact; that claim was simply false, and saying so is cheaper than leaving a reader to discover it.
 
-They are normative **here and now**. The **file** that will carry them — `session-constants.json`, version 1, digest-bound, owned by this document and cited by the siblings rather than
-re-deferred — **does not exist yet**, and this document does not claim it does (`OBL-CONSTANTS-ANNEX`). The values below are the contract; the file is owed.
+They are normative **here and now**. The canonical file carrying them is
+`session/session-constants.v1.json`, owned by this document and cited by the siblings rather
+than re-deferred. Its strict schema is `session/schema/session-constants.schema.json`; the
+deterministic generator embeds source, schema, and generator SHA-256 digests in
+`vendored-generated/session_constants.generated.rs` and audits the Rust consumer and interrupt
+status vocabulary for drift (`OBL-CONSTANTS-ANNEX`). The values below remain the contract.
 
 | Constant | v1 value | on overflow |
 | --- | --- | --- |
@@ -1182,21 +1391,33 @@ record over its maximum is **rejected** (truncating a recalled command would be 
 over its size renders opaque. Each constant's overflow column above is normative.
 
 These are revisable by bumping the annex version; they are not revisable by an implementation choosing differently. The budgets whose right values genuinely depend on the **cancellation
-prototype** remain open — the shutdown drain, the cancellation budget, the completion budget, and the async-storm coalescing window; the **renderer/wire-format version** is owed with the annex
-file (`OBL-CONSTANTS-ANNEX`), not asserted here. Everything else user-visible and engine-independent — the flush budget, the history-lock bound, and maximum input size included, since they depend
+prototype** remain open — the shutdown drain, the cancellation budget, the completion budget, and the async-storm coalescing window — and v1 records each as explicitly unbound. The annex pins
+the renderer/wire-format as little-endian **IBDX v1**, including field widths and node tags. Everything else user-visible and engine-independent — the flush budget, the history-lock bound, and maximum input size included, since they depend
 on I/O or parse cost and not on Hermes — is pinned above, and **every criterion that depends on a budget runs against a deterministic test clock**, so conformance does not wait even on the open ones.
 
 ## Acceptance criteria
 
-Fixtures are generated from the surface registry. Interactive criteria run under a **PTY** (ConPTY on Windows); the existing signal tests use null stdin and piped outputs and cannot exercise
-any of this.
+Fixtures are generated from the surface registry. The Unix editor/interrupt boundary now has an authenticated
+**adapter-level PTY** fixture. That is real terminal evidence but not a claim that the advertised public binary target
+is complete: ENG-24933 still blocks that product-surface route. Windows requires the parallel ConPTY fixture with
+`ENABLE_PROCESSED_INPUT` cleared. Signal tests using null stdin and piped outputs cannot substitute for either PTY gate;
+they are the correct topology for one-shot and direct-file execution, which own no editor or PTY.
 
 1. **fd 0, per mode.** In every session mode, every fd-0 route observes the EOF view (or the typed denial where Node throws) — for root and package alike. In one-shot and file execution,
    `echo data | ibex -e '…'` reads `data`. The route table is verified to be *generated*.
 2. **fd 1/2, protected class, terminal facts.** `close(1)`/`close(2)` are no-ops; `dup2` onto 0/1/2 is refused. **No numeric descriptor API can name or operate on a control, relay, or
    watchdog handle, for any principal — including a guessed integer.** `process.stdout.isTTY` and dimensions reflect `stdio:query`; **dimensions change after `SIGWINCH`**;
    `process.stdin.isTTY` is `false` at an interactive prompt; no startup configuration value is readable from JavaScript.
-3. **No post-arming environment consultation.** An un-dispositioned variable fails the build.
+3. **No post-arming fallback for fixed startup inputs.** The inventory records
+   fixed compatibility and presentation inputs as pre-arm launcher reads followed
+   by snapshot/configuration-field consumption, never as permitted environment
+   reads after arming; changing one of those fixed host variables after snapshot
+   finalization has no effect. An un-dispositioned variable fails the build.
+   Principal-overlay access is exercised separately and never falls through to
+   the host environment. Separately enumerated runtime host facts remain reachable
+   only behind their typed effect decision (or are proved armed-unreachable), as
+   §2 states; this criterion does not misclassify an authorized DNS, system-info,
+   or child-spawn read as fixed startup configuration.
 4. **Terminal safety.** Every runtime-authored surface — value, error, stack frame, source excerpt, async report, completion candidate, live edit buffer, recalled history entry, **and the
    prompt override** — containing `ESC`, CSI, OSC, **APC or DCS** (single-byte C1 and UTF-8) renders escaped; bidi overrides and U+2028/2029 are escaped in displayed values too. A **hostile
    display tree** (unknown kind, invalid UTF-8, over-deep, over-wide, unknown version) renders safely. **A hostile tree cannot select a session-decoration style** — the kind→style codomain is
@@ -1224,10 +1445,9 @@ any of this.
    **(f)** typed-ahead drained into a republished prompt does **not** reset the credit or promise; **(g)** three presses at an idle prompt — press 2 begins an orderly shutdown, press 3 **expedites with the
    same status**, never 130 (cause precedence); **(h)** a `Ctrl+C` promise `Interrupt(130)` latched, then a **root `process.exit(7)`** before the next press — the next press ends the session (notice kept)
    with status **7**, the cause superseding the promise's status but not its termination; **(i)** an interrupt while an input is suspended at `await` *and* a background callback executes selects the
-   **executing** unit; **(j)** the **undispatched-submission** row also prints no promise, so from it three presses are needed (discard → idle promise → terminate) — a fixture asserts three, matching the editing row; **(k)** a `CompletionQueued` (dispatched, not begun) interrupt raises **no** request and its notice is `work is in flight`, while an `Executing` completion query raises the id-exact request — the two are distinct fixtures; **(l)** §8's status table is asserted to agree with §6 on trajectory (e): the credit-3 press takes the promised `Orderly`, not a target-derived 130; **(m)** an **idle prompt whose only live unit is a `CompletionQueued`** (a global Tab-complete at an empty prompt) — the interrupt abandons it and takes the **idle-prompt** path (`Orderly`), never `Interrupt(130)`, and this is asserted single-valued against both rule 4 and the idle-work row; **(n)** **two simultaneous due-but-not-begun timers** are distinct `Due{sched}` members and the machine determines after one begins whether another remains due (requires the due/undue publication seam of `OBL-UNIT-PUBLICATION`). A **PTY test asserts a `Ctrl+C` byte is consumed and `foo.`
-   redrawn while a completion query is in flight** — the case a synchronous, blocking completer cannot serve (`OBL-EDITOR-ASYNC`, a release gate).
-8. **Restoration.** Cooked mode and cursor visibility after every process-controlled exit path — orderly, EOF, cooperative, fatal, forced engine fault (`SIGSEGV`), worker death, `SIGTERM`, `SIGHUP`,
-   `SIGQUIT`, and suspend/resume via **both** the `Ctrl+Z` **byte** and an external `SIGTSTP`. Restoration precedes a deliberately stalled flush. A supervisor `SIGKILL` leaves **no orphaned worker**, and the
+   **executing** unit; **(j)** the **undispatched-submission** row also prints no promise, so from it three presses are needed (discard → idle promise → terminate) — a fixture asserts three, matching the editing row; **(k)** a `CompletionQueued` (dispatched, not begun) interrupt raises **no** request and its notice is `work is in flight`, while an `Executing` completion query raises the id-exact request — the two are distinct fixtures; **(l)** §8's status table is asserted to agree with §6 on trajectory (e): the credit-3 press takes the promised `Orderly`, not a target-derived 130; **(m)** an **idle prompt whose only live unit is a `CompletionQueued`** (a global Tab-complete at an empty prompt) — the interrupt abandons it and takes the **idle-prompt** path (`Orderly`), never `Interrupt(130)`, and this is asserted single-valued against both rule 4 and the idle-work row; **(n)** **two simultaneous due-but-not-begun timers** are distinct `Due{sched}` members and the machine determines after one begins whether another remains due (requires the due/undue publication seam of `OBL-UNIT-PUBLICATION`). The Unix authenticated adapter PTY test starts an acknowledged deliberately wedged completion, consumes a `Ctrl+C` byte, prints `cancelling completion`, redraws `foo.` without `^C`, then exits 130 on the second byte and proves termios was restored before child exit. For editorless direct execution, `direct_engine_execution_sigint_flushes_and_exits_130_without_engine_cooperation` starts separate one-shot and direct-file processes, proves each remains inside real Hermes `while(true){}` after a brokered readiness record, sends one real SIGINT, observes status 130 rather than kernel-default signal death, and verifies that the pre-interrupt record survived bounded broker close. Public-binary and Windows ConPTY evidence retain the scoped residuals above.
+8. **Restoration.** Cooked mode and cursor visibility after every ordinary process-controlled exit path — orderly, EOF, cooperative, fatal, worker death, `SIGTERM`, `SIGHUP`,
+   `SIGQUIT`, and suspend/resume via **both** the `Ctrl+Z` **byte** and an external `SIGTSTP`; a handler-only forced engine fault such as `SIGSEGV` guarantees cooked mode but not cosmetic writes. Restoration precedes a deliberately stalled flush. A supervisor `SIGKILL` leaves **no orphaned worker**, and the
    watchdog fires while the worker is stuck holding the FFI lock.
 9. **Lifecycle.** Root `process.exit(7)` exits 7 with the terminal restored, and code after the call — **including a `finally` block** — does not run; `console.log("bye"); process.exit(0)` **emits `bye`**
    (the record carries the cutoffs); `process.on('exit', fn)` **registers without throwing, is diagnosed once, never fires, and is absent from `listeners()`/`listenerCount()`**; manual `emit('exit')` is
@@ -1272,9 +1492,10 @@ any of this.
    works for **Ibex-built bytecode**, which carries no async-break checks. Prototype before implementing the interruption guarantees. (The *lifecycle* exit no longer depends on this — §8 parks. Neither does the *escape* —
    the credit is arithmetic.)
 2. Should `AsyncBreakCheckInEval = true` be pinned as a **normative arming requirement**? The escape does not depend on it (the credit and promise carry every case), but §6 leans on "Hermes emits break checks in eval'd code by default" — a default that can be turned off, weakening the *redundant* cancellation path. Making it non-optional costs one arming assertion.
-3. **Can the editor be made non-blocking, or must it be replaced?** §5 requires a `Ctrl+C` byte to be consumed while a completion query is in flight, with the buffer preserved and redrawn. The shipping rustyline
-   integration blocks inside a synchronous completer awaiting the engine and cannot do this. Prototype an asynchronous completion dispatch against a session that owns the input bytes, or select another editor, before
-   claiming §6's completion-query row is feasible.
+3. **What is the Windows realization of the now-delivered asynchronous editor contract?** Unix no longer has the
+   feasibility question: the production raw reader and capacity-one static producer satisfy §5 and the authenticated
+   PTY fixture exercises the wedged-query trajectory. Windows still needs a ConPTY adapter and equivalent evidence with
+   `ENABLE_PROCESSED_INPUT` cleared; the Unix result must not be projected across that platform boundary by assertion.
 4. Is the worker a separate **process** or a thread? §7 specifies a process; the cost has not been measured.
 5. Should `exit`/`beforeExit` listeners be admitted once a safe mechanism exists, or is never the right answer?
 6. Should a second interrupt against a wedged worker **respawn** it — returning the operator to a live but empty prompt — rather than end the session? §6 does not adopt it: a prompt that silently forgot every binding is
@@ -1283,10 +1504,13 @@ any of this.
 8. Should the supervisor own the one-shot and file-execution modes too, for uniformity? §1 pins them in-process for v1, which keeps two lifecycle realizations alive. Relatedly: under a supervisor, what do `process.pid`,
    `ppid`, and process-group observables report — the worker or the session?
 9. What are the **engine-dependent** budgets — shutdown drain, cancellation budget, completion budget, async-storm window? §12 pins every engine-independent constant now (the flush and history-lock bounds included); only these four wait on OQ 1's prototype.
-10. For a suspended top-level `await`, is the callback that settles its promise part of the same **unit** for target-id purposes, or a separate unit? This is the boundary `OBL-SUSPENDED-UNIT` must publish.
+10. *(Resolved by LLP 0024's work-unit / settlement-unit split.)* A callback that
+    settles a suspended top-level `await` is a separate target-id-bearing work unit; the
+    evaluation and callback participate in the same input settlement unit only for the
+    eventual structured outcome. The suspended settlement itself is not a cancellation
+    target.
 11. What would a deliberate **PTY hand-off** to a child look like, given §3 now forbids inheriting the session's descriptors? A full-screen child at the prompt is a real capability this version removes.
-12. Should the display tree, the supervisor event stream, and the framed transcript protocol be literally **one** versioned wire format? And should `session-constants.json` (§12) absorb the siblings' bounds, so that one
-    annex answers the question all three documents currently defer to each other?
+12. Should the display tree, the supervisor event stream, and the framed transcript protocol be literally **one** versioned wire format, or should `session/session-constants.v1.json` continue to bind the shared constants and IBDX display tree while the other protocols version independently?
 13. **Should a compromised native worker be contained, and at what platform cost?** §7 claims only stuck/crashed engines and hostile JavaScript behind intact mediation. A same-UID native
     process defeats the fd allowlist and knows the session nonce. Genuine containment needs per-platform sandboxing, credential separation, and process-tree denial — a real cost against a
     threat the initial profile may reasonably decline. Decide explicitly rather than by silence.

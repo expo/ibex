@@ -38,6 +38,12 @@ use std::time::{Duration, Instant};
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
+// `capsec audit` authenticates and hashes the complete lowering/bundling
+// toolchain before the signal fixture starts. Shared-host full-matrix load can
+// exhaust shorter deadlines before READY or the fixture result. This is a
+// deadlock bound, not a startup-performance assertion.
+const DIAGNOSTIC_AUDIT_TIMEOUT: Duration = Duration::from_secs(120);
+
 fn unique_dir(tag: &str) -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -117,10 +123,25 @@ fn run_with_signals(
         s
     });
 
-    if !signals.is_empty() {
+    let mut timed_out = false;
+    let ready = if signals.is_empty() {
+        true
+    } else {
         // Wait for READY (bounded) so the JS handler is registered before we
-        // signal; a process that dies first drops the channel.
-        let _ = ready_rx.recv_timeout(Duration::from_secs(20));
+        // signal. Refuse to deliver a signal when startup never reached that
+        // synchronization point, because doing so would not test JS semantics.
+        match ready_rx.recv_timeout(DIAGNOSTIC_AUDIT_TIMEOUT) {
+            Ok(()) => true,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                timed_out = true;
+                false
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => false,
+        }
+    };
+    if ready {
         for (sig, delay) in signals {
             thread::sleep(*delay);
             unsafe {
@@ -129,21 +150,24 @@ fn run_with_signals(
         }
     }
 
-    let deadline = Instant::now() + timeout;
-    let mut timed_out = false;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
-                if Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    timed_out = true;
-                    break None;
+    let status = if timed_out {
+        None
+    } else {
+        let deadline = Instant::now() + timeout;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Some(status),
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        timed_out = true;
+                        break None;
+                    }
+                    thread::sleep(Duration::from_millis(20));
                 }
-                thread::sleep(Duration::from_millis(20));
+                Err(_) => break None,
             }
-            Err(_) => break None,
         }
     };
 
@@ -236,6 +260,29 @@ setTimeout(() => { console.log('STILL-ALIVE'); process.exit(3); }, 15000);
     );
 }
 
+#[test]
+fn pre_ready_exit_retains_status_without_delivering_signal() {
+    let run = run_with_signals(
+        "pre-ready-exit",
+        "process.exit(17);",
+        &[],
+        &[(libc::SIGINT, Duration::from_millis(0))],
+        Duration::from_secs(30),
+    );
+    assert!(
+        !run.timed_out,
+        "pre-READY exit was misclassified as a timeout\nstdout:\n{}\nstderr:\n{}",
+        run.stdout, run.stderr
+    );
+    assert_eq!(
+        (run.code, run.signal),
+        (Some(17), None),
+        "pre-READY exit status was not retained\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
 const SELF_USR2_APP: &str = r#"
 let delivered = false;
 process.on('SIGUSR2', () => {
@@ -248,7 +295,7 @@ setTimeout(() => { console.log('delivered=' + delivered); process.exit(delivered
 "#;
 
 fn assert_self_usr2_delivers(tag: &str, env: &[(&str, &str)]) {
-    let run = run_with_signals(tag, SELF_USR2_APP, env, &[], Duration::from_secs(30));
+    let run = run_with_signals(tag, SELF_USR2_APP, env, &[], DIAGNOSTIC_AUDIT_TIMEOUT);
     assert!(
         run.stdout.contains("USR2-DELIVERED") && run.code == Some(0),
         "self process.kill(process.pid, 'SIGUSR2') was not delivered (code={:?})\nstdout:\n{}\nstderr:\n{}",
@@ -322,7 +369,7 @@ fn signal_listener_does_not_keep_process_alive() {
 process.on('SIGINT', () => {});
 console.log('DONE');
 "#;
-    let run = run_with_signals("sigint-noref", app, &[], &[], Duration::from_secs(20));
+    let run = run_with_signals("sigint-noref", app, &[], &[], DIAGNOSTIC_AUDIT_TIMEOUT);
     assert!(
         !run.timed_out,
         "signal listener kept the process alive\nstdout:\n{}\nstderr:\n{}",

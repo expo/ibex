@@ -5,15 +5,22 @@
 This broad harness runs plain JavaScript fixtures through:
 
 - `tools/hermes/hermes` (or `HERMES_BENCH_BIN`)
-- ordinary `ibex run` (enforce + lockdown by default)
+- ordinary `ibex run` when the exact engine target has a verified advertisement
 - the separate `ibex capsec audit` foreground diagnostic
 
 Retired permissive/audit flags are intentionally absent: they are not members
-of the production profile. The harness reports median subprocess wall-clock and
-median absolute deviation (MAD) for startup-only, math/global lookup,
-object/array, JSON/string, and Promise workloads. It rotates runner order per
-sample and disables Ibex's persistent bytecode cache, so both subprocess arms
-parse each sample instead of granting only Ibex a warm compile cache.
+of the production profile. Before measuring, the harness probes ordinary
+production execution. The exact expected fail-closed refusal for an
+unadvertised engine is reported as `ibex-default: N/A (unadvertised)` and that
+arm is omitted; audit remains labelled audit. Any other production failure is
+an error. Once the target is advertised, the three-way comparison returns
+automatically.
+
+The harness reports median subprocess wall-clock and median absolute deviation
+(MAD) for startup-only, math/global lookup, object/array, JSON/string, and
+Promise workloads. It rotates runner order per sample and disables Ibex's
+persistent bytecode cache, so both subprocess arms parse each sample instead of
+granting only Ibex a warm compile cache.
 
 ```sh
 cargo build --release --bin ibex
@@ -22,9 +29,12 @@ BENCH_SAMPLES=9 BENCH_WARMUP=2 \
   cargo bench --bench runtime_compare
 ```
 
-The harness refuses a debug Ibex binary by default because a debug-vs-release
-headline is not meaningful. `BENCH_ALLOW_DEBUG=1` permits an explicitly
-non-comparable smoke run while iterating locally.
+A debug Ibex binary runs a correctness-only smoke by default: one production
+availability probe and one `capsec audit` startup invocation, with no Hermes
+requirement and no performance comparison. Cargo-test execution uses the same
+bounded smoke. Set `BENCH_ALLOW_DEBUG=1` to opt into the full workload with an
+explicitly non-comparable debug binary; use a release binary for meaningful
+numbers.
 
 Use `HERMES_BENCH_BIN=/path/to/upstream/hermes` for a strict upstream-unpatched
 Hermes control. The default local `tools/hermes/hermes` is a useful shell
@@ -56,10 +66,10 @@ globalForFrame(Runtime &runtime, CodeBlock *cb) {
 
 The A/B is the **same** compute-heavy JS workload run with that guard:
 
-| Arm | Command flag | `anyCompartmentActive_` | On the hot opcodes |
-|-----|--------------|-------------------------|--------------------|
-| baseline | (none) | `false` | one predicted-not-taken branch, return real global |
-| active | `IBEX_COMPARTMENTS=1` | `true` | the Domain walk runs |
+| Arm | Diagnostic command environment | `anyCompartmentActive_` | On the hot opcodes |
+|-----|--------------------------------|-------------------------|--------------------|
+| baseline | `EXACT_COMPAT_TEST=1` | `false` | one predicted-not-taken branch, return real global |
+| active | `EXACT_COMPAT_TEST=1 IBEX_COMPARTMENTS=1` | `true` | the Domain walk runs |
 
 `overhead = (active − baseline) / baseline`.
 
@@ -67,7 +77,11 @@ The A/B is the **same** compute-heavy JS workload run with that guard:
 
 The guard is armed the first time a compartment is bound to a package's `Domain`
 (the native `__exactSetCompartmentFor`, which the module loader calls when
-`IBEX_COMPARTMENTS=1` / lockdown is on). The workload
+`IBEX_COMPARTMENTS=1` / lockdown is on). Both arms use the explicit
+`ibex capsec audit` diagnostic with `EXACT_COMPAT_TEST=1`; fixture mode bypasses
+the normal audit bundler so `IBEX_COMPARTMENTS` remains the sole guard toggle.
+This does not weaken or bypass the ordinary production route, which continues
+to refuse execution until the exact engine target is advertised. The workload
 (`fixtures/compartment_overhead/app.js`) `require`s a trivial `arm-pkg` for
 exactly that purpose; under the active arm the loader binds its compartment,
 arming the guard process-wide. The workload reads `arm-pkg.processWithheld` back
@@ -94,8 +108,11 @@ cargo bench --bench compartment_overhead
 
 Tunables (env): `BENCH_ITERS` (default 12,000,000), `BENCH_SAMPLES` (15),
 `BENCH_WARMUP` (3), and `IBEX_BENCH_BIN` to point at an already-built binary
-(e.g. `target/debug/ibex`) for a quick reduced-iteration check without a release
-rebuild:
+(e.g. `target/debug/ibex`) for a reduced-iteration check without a release
+rebuild. A debug binary with no measurement controls, and Cargo-test execution,
+runs exactly one 100,000-iteration baseline/active correctness pair and prints
+no performance verdict. Set the measurement controls explicitly to run the full
+harness with a debug binary:
 
 ```sh
 BENCH_ITERS=12000000 BENCH_SAMPLES=15 \

@@ -150,6 +150,8 @@ pub fn validate_selector_resource(resource: &SelectorResource) -> Result<()> {
         | SelectorResource::DeviceLocation { .. }
         | SelectorResource::Microphone { .. }
         | SelectorResource::StorageNamespace { .. }
+        | SelectorResource::SessionLifecycle { .. }
+        | SelectorResource::SessionState { .. }
         | SelectorResource::ClosedSurface { .. } => {}
         SelectorResource::Executable {
             path, interpreter, ..
@@ -589,10 +591,14 @@ pub fn validate_occurrence_stage_facts(occurrence: &EffectOccurrence) -> Result<
             object_state,
             parent_object,
             final_object,
+            final_object_generation,
             retained_handle,
             ..
         } => {
             validate_logical_path(requested)?;
+            if (stage == Stage::Requested) != (*object_state == ObjectState::Unknown) {
+                return invalid("path object state must be unknown exactly at requested stage");
+            }
             fact(
                 "parentObject",
                 parent_object.is_some(),
@@ -605,6 +611,13 @@ pub fn validate_occurrence_stage_facts(occurrence: &EffectOccurrence) -> Result<
                 stage.is_at_least_discovery(),
                 *object_state == ObjectState::Existing && stage.is_at_least_discovery(),
             )?;
+            if final_object_generation.is_some()
+                && (final_object.is_none() || !stage.is_at_least_discovery())
+            {
+                return invalid(
+                    "finalObjectGeneration requires a discovered retained final object",
+                );
+            }
             fact(
                 "retainedHandle",
                 retained_handle.is_some(),
@@ -877,6 +890,29 @@ pub fn validate_occurrence_stage_facts(occurrence: &EffectOccurrence) -> Result<
                 SelectorResource::StorageNamespace { .. }
             ) {
                 return invalid("storage occurrence requested a non-storage resource");
+            }
+            validate_selector_resource(requested)?;
+        }
+        OccurrenceResource::LifecycleOccurrence { requested } => {
+            if !matches!(
+                requested.as_ref(),
+                SelectorResource::SessionLifecycle { .. }
+            ) {
+                return invalid("lifecycle occurrence requested a non-lifecycle resource");
+            }
+            if !matches!(stage, Stage::Requested | Stage::Commit) {
+                return invalid("lifecycle occurrence supports only requested and commit stages");
+            }
+            validate_selector_resource(requested)?;
+        }
+        OccurrenceResource::SessionStateOccurrence { requested } => {
+            if !matches!(requested.as_ref(), SelectorResource::SessionState { .. }) {
+                return invalid("session-state occurrence requested a non-session-state resource");
+            }
+            if !matches!(stage, Stage::Requested | Stage::Commit) {
+                return invalid(
+                    "session-state occurrence supports only requested and commit stages",
+                );
             }
             validate_selector_resource(requested)?;
         }

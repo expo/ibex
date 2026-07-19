@@ -1,11 +1,11 @@
 //#region src/builtins/crypto.js
-var _swallowDebugLog = null;
+var _swallowDebugLog;
+try {
+	_swallowDebugLog = require("util").debuglog("crypto");
+} catch (_swallowInitErr) {
+	_swallowDebugLog = function() {};
+}
 function _swallowDebug(msg, err) {
-	if (_swallowDebugLog === null) try {
-		_swallowDebugLog = require("util").debuglog("crypto");
-	} catch (_swallowInitErr) {
-		_swallowDebugLog = function() {};
-	}
 	_swallowDebugLog(msg, err);
 }
 var _CipherStreamTransform = null;
@@ -2707,7 +2707,7 @@ function publicEncrypt(key, buffer) {
 		var keyText = _extractKeyText(key);
 		var data = _toUint8Array(buffer);
 		try {
-			var result = __exactRsaOaepEncrypt(keyText, data);
+			var result = __exactRsaOaepEncrypt(keyText, "SHA-1", new Uint8Array(0), data);
 			if (typeof Buffer !== "undefined" && Buffer.from) return Buffer.from(result);
 			return result;
 		} catch (e) {
@@ -2721,7 +2721,7 @@ function privateDecrypt(key, buffer) {
 		var keyText = _extractKeyText(key);
 		var data = _toUint8Array(buffer);
 		try {
-			var result = __exactRsaOaepDecrypt(keyText, data);
+			var result = __exactRsaOaepDecrypt(keyText, "SHA-1", new Uint8Array(0), data);
 			if (typeof Buffer !== "undefined" && Buffer.from) return Buffer.from(result);
 			return result;
 		} catch (e) {

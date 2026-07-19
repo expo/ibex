@@ -5,8 +5,8 @@
 **Systems:** CLI Runtime, Runtime, Build, Distribution, Documentation
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-11
-**Related:** LLP 0000; LLP 0002; LLP 0005; LLP 0006
+**Revised:** 2026-07-13
+**Related:** LLP 0000; LLP 0002; LLP 0005; LLP 0006; LLP 0022; LLP 0024; LLP 0025
 
 ## Summary
 
@@ -49,12 +49,41 @@ LLP 0180 split stranded exact's original manifest and its clap-tree pin
 (exact-side LLP 0175 §8.1a), the manifest moved here with the binary
 (ENG-22429).
 
-Manifest version 4 includes a deterministic `clapSurface.commands` inventory.
-Each row identifies one canonical recursive command path and, when present,
-its hidden state, command flag forms, visible and hidden aliases, options, and
-positionals. Each option records its stable clap ID, canonical long/short
+Manifest version 5 includes the deterministic `clapSurface.commands` inventory
+introduced in version 4 and adds `replSurface` and `keybindingSurface` as the
+machine-readable authorities for the interactive runtime surface. The version
+bump is deliberate: a consumer that understands only the Clap inventory must
+not silently treat the larger manifest as if it had classified every runtime
+control.
+
+`replSurface` records the complete dot-command namespace and command-recognition
+grammar, including aliases, usage and arity, admissible session modes and input
+states, success and error destinations, affordance-parity classification,
+CapSec relations, source-submission/ordinal behavior, and help text. It also
+owns `.load`'s longest-suffix-first dialect and named-refusal table. The
+deterministic generator validates the section against
+`session/schema/repl-surface.schema.json` and emits the Rust dispatcher and
+lookup tables, the exact `.help` fixture, and a generated reference table under
+`vendored-generated/`. Dispatcher recognition, command completion, help,
+argument validation, `.load` classification, and source-ordinal routing consume
+that generated projection rather than parallel handwritten lists (LLP 0022 §8,
+LLP 0024 §2).
+
+`keybindingSurface` is the exhaustive published set of Ibex-owned session
+controls beside that command table. It records the byte sequence, semantic
+action, interrupt-credit classification, and help text for Tab, `Ctrl+C`,
+`Ctrl+D`, `Ctrl+R`, and `Ctrl+Z`. Ordinary Emacs-profile editing remains the
+editor's behavior; these are the controls Ibex dispatches and documents. The
+same generator emits their typed Rust table, so the editor byte dispatcher and
+`.help` cannot disagree (LLP 0025 §5).
+
+Each retained Clap row identifies one canonical recursive command path and,
+when present, its hidden state, command flag forms, visible and hidden aliases,
+options, and positionals. Each option records its stable clap ID, canonical long/short
 spellings, hidden state, visible or hidden aliases, and its recorded
-`valueShape`. Positionals record their stable clap ID, index, passthrough
+`valueShape`; a root-authored global option additionally records `global: true`
+once on its authority row, while Clap's inherited child copies are not duplicated.
+Positionals record their stable clap ID, index, passthrough
 status, and the same value shape. A value shape fixes the Clap action,
 requiredness, value names, minimum and maximum cardinality (`maxValues: null`
 means unbounded), whether the domain is none/arbitrary/enumerated, every
@@ -70,7 +99,7 @@ semantics, not a claim that help text or every Clap-internal setting is
 serialized. The source-side test accepts only reviewed `#[arg]` and
 `#[command]` attribute keys, so a new unrepresented parser relation fails
 before it can hide behind an unchanged manifest. The accepted inventory
-currently contains 14 command paths including the root, 57 options, and 7
+currently contains 14 command paths including the root, 58 options, and 7
 positionals, of which the root and `run` `ARGS` positionals are passthrough.
 
 Clap's generated help arguments, generated version arguments, and generated

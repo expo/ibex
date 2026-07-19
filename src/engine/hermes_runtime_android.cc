@@ -9,6 +9,30 @@
 #include <unordered_set>
 #include <vector>
 
+namespace {
+
+// Android storage roots are backing-host spellings. Compatibility runtimes
+// retain the historical projection, but an armed runtime keeps only the
+// descriptor shape and projects a neutral value for every field.
+// @ref LLP 0023#6-path-bearing-observables — a backing path may not cross into
+// JavaScript; private native paths do not license a realm projection.
+constexpr const char* androidStoragePathForJavaScript(
+    bool armed,
+    const char* host_path) {
+  return armed || host_path == nullptr ? "" : host_path;
+}
+
+static_assert(
+    androidStoragePathForJavaScript(true, "/data/user/0/dev.ibex/files")[0] ==
+        '\0',
+    "armed Android storage paths must be neutralized before JSI projection");
+static_assert(
+    androidStoragePathForJavaScript(false, "/data/user/0/dev.ibex/files")[0] ==
+        '/',
+    "unarmed Android storage path compatibility must be preserved");
+
+} // namespace
+
 #if defined(EXACT_PLATFORM_ANDROID)
 extern "C" int android_clipboard_read_text(char** out_text, char* error, size_t error_capacity);
 extern "C" int android_clipboard_write_text(const char* text, char* error, size_t error_capacity);
@@ -258,35 +282,97 @@ void freeAndroidStoragePaths(AndroidStoragePaths& paths) {
 
 facebook::jsi::Object makeStoragePathsObject(
     facebook::jsi::Runtime& runtime,
-    const AndroidStoragePaths& paths) {
+    const AndroidStoragePaths& paths,
+    bool armed) {
   facebook::jsi::Object storage(runtime);
   storage.setProperty(
       runtime,
       "filesDir",
-      facebook::jsi::String::createFromUtf8(runtime, paths.files_dir ? paths.files_dir : ""));
+      facebook::jsi::String::createFromUtf8(
+          runtime,
+          androidStoragePathForJavaScript(armed, paths.files_dir)));
   storage.setProperty(
       runtime,
       "cacheDir",
-      facebook::jsi::String::createFromUtf8(runtime, paths.cache_dir ? paths.cache_dir : ""));
+      facebook::jsi::String::createFromUtf8(
+          runtime,
+          androidStoragePathForJavaScript(armed, paths.cache_dir)));
   storage.setProperty(
       runtime,
       "noBackupFilesDir",
       facebook::jsi::String::createFromUtf8(
-          runtime, paths.no_backup_files_dir ? paths.no_backup_files_dir : ""));
+          runtime,
+          androidStoragePathForJavaScript(armed, paths.no_backup_files_dir)));
   storage.setProperty(
       runtime,
       "codeCacheDir",
       facebook::jsi::String::createFromUtf8(
-          runtime, paths.code_cache_dir ? paths.code_cache_dir : ""));
+          runtime,
+          androidStoragePathForJavaScript(armed, paths.code_cache_dir)));
   storage.setProperty(
       runtime,
       "externalFilesDir",
       facebook::jsi::String::createFromUtf8(
-          runtime, paths.external_files_dir ? paths.external_files_dir : ""));
+          runtime,
+          androidStoragePathForJavaScript(armed, paths.external_files_dir)));
   return storage;
 }
 
-facebook::jsi::Object makeAndroidPlatformState(facebook::jsi::Runtime& runtime) {
+void installStoragePathsGlobal(
+    facebook::jsi::Runtime& runtime,
+    facebook::jsi::Object storage,
+    bool armed) {
+  runtime.global().setProperty(
+      runtime, "__exactAndroidStoragePaths", std::move(storage));
+  if (!armed) {
+    return;
+  }
+
+  // A second bundled bootstrap may run after project code. Freeze both the
+  // neutral object and its root binding so a project cannot replace the armed
+  // sentinel with a host spelling and trick that later bootstrap into using it.
+  // @ref LLP 0023#6-path-bearing-observables
+  auto objectConstructor =
+      runtime.global().getPropertyAsObject(runtime, "Object");
+  auto freeze = objectConstructor.getPropertyAsFunction(runtime, "freeze");
+  auto defineProperty =
+      objectConstructor.getPropertyAsFunction(runtime, "defineProperty");
+  auto installed = runtime.global().getPropertyAsObject(
+      runtime, "__exactAndroidStoragePaths");
+  freeze.call(runtime, installed);
+
+  facebook::jsi::Object descriptor(runtime);
+  descriptor.setProperty(
+      runtime, "value", facebook::jsi::Value(runtime, installed));
+  descriptor.setProperty(runtime, "writable", false);
+  descriptor.setProperty(runtime, "enumerable", true);
+  descriptor.setProperty(runtime, "configurable", false);
+  defineProperty.call(
+      runtime,
+      runtime.global(),
+      facebook::jsi::String::createFromAscii(
+          runtime, "__exactAndroidStoragePaths"),
+      descriptor);
+}
+
+bool prepareAndroidStoragePathsProjection(
+    bool armed,
+    AndroidStoragePaths& paths,
+    char* error,
+    size_t error_capacity) {
+  paths = AndroidStoragePaths{};
+  if (armed) {
+    // Do not even fetch host spellings for an armed realm. The empty native
+    // record is projected below as five neutral strings so the historical
+    // object shape remains stable without disclosing machine paths.
+    return true;
+  }
+  return android_get_storage_paths(&paths, error, error_capacity) > 0;
+}
+
+facebook::jsi::Object makeAndroidPlatformState(
+    facebook::jsi::Runtime& runtime,
+    bool armed) {
   char error[256] = {};
   facebook::jsi::Object state(runtime);
 
@@ -365,8 +451,9 @@ facebook::jsi::Object makeAndroidPlatformState(facebook::jsi::Runtime& runtime) 
   }
 
   AndroidStoragePaths storage_paths;
-  if (android_get_storage_paths(&storage_paths, error, sizeof(error)) > 0) {
-    auto storage = makeStoragePathsObject(runtime, storage_paths);
+  if (prepareAndroidStoragePathsProjection(
+          armed, storage_paths, error, sizeof(error))) {
+    auto storage = makeStoragePathsObject(runtime, storage_paths, armed);
     state.setProperty(runtime, "storage", std::move(storage));
     freeAndroidStoragePaths(storage_paths);
   }
@@ -374,7 +461,8 @@ facebook::jsi::Object makeAndroidPlatformState(facebook::jsi::Runtime& runtime) 
   return state;
 }
 
-void installAndroidEnvironmentGlobals(facebook::jsi::Runtime& rt) {
+void installAndroidEnvironmentGlobals(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
   char error[256] = {};
 
   char* platform_version = nullptr;
@@ -454,11 +542,13 @@ void installAndroidEnvironmentGlobals(facebook::jsi::Runtime& rt) {
   std::free(initial_url);
 
   AndroidStoragePaths storage_paths;
-  if (android_get_storage_paths(&storage_paths, error, sizeof(error)) > 0) {
+  if (prepareAndroidStoragePathsProjection(
+          handle->armed, storage_paths, error, sizeof(error))) {
     // @ref LLP 0008#android-backend-matrix — Android app storage roots come
-    // from Context directories and seed HOME/TMPDIR/cwd through the JNI bridge.
-    auto storage = makeStoragePathsObject(rt, storage_paths);
-    rt.global().setProperty(rt, "__exactAndroidStoragePaths", std::move(storage));
+    // from Context directories for compatibility runtimes. Armed runtimes keep
+    // the object shape but neutralize every backing-host spelling per LLP 0023.
+    auto storage = makeStoragePathsObject(rt, storage_paths, handle->armed);
+    installStoragePathsGlobal(rt, std::move(storage), handle->armed);
     freeAndroidStoragePaths(storage_paths);
   }
 
@@ -711,7 +801,7 @@ bool dispatchAndroidPlatformEvents(ExactHermesRuntime* handle) {
 
   auto handler = handler_object.asFunction(rt);
   for (const auto& event_json : splitLines(events)) {
-    auto state = makeAndroidPlatformState(rt);
+    auto state = makeAndroidPlatformState(rt, handle->armed);
     handler.call(
         rt,
         facebook::jsi::String::createFromUtf8(rt, event_json),
@@ -790,7 +880,7 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
   registerAndroidRuntime(handle);
 
   auto& rt = *handle->runtime;
-  installAndroidEnvironmentGlobals(rt);
+  installAndroidEnvironmentGlobals(handle);
   installAndroidLocationBridge(rt);
   installAndroidCameraBridge(rt);
 
@@ -798,11 +888,11 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactAndroidGetPlatformState"),
       0,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value*,
-         size_t) -> facebook::jsi::Value {
-        return makeAndroidPlatformState(runtime);
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
+        return makeAndroidPlatformState(runtime, handle->armed);
       });
   rt.global().setProperty(
       rt, "__exactAndroidGetPlatformState", std::move(getPlatformStateFn));

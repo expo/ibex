@@ -262,7 +262,12 @@ impl CdpDebuggerWaiter {
     }
 }
 
+/// Bind the diagnostic listener only after Hermes proves this engine is
+/// unarmed. The authorization value has no production constructor outside the
+/// guarded Hermes module, so an alternate call spelling cannot skip the check.
+/// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
 pub fn start_server(
+    _authorization: &crate::engine::hermes::UnarmedInspectorAuthorization,
     host: &str,
     port: u16,
     backend: Arc<dyn CdpBackend>,
@@ -393,13 +398,15 @@ async fn run_server(
                 tokio::spawn(async move {
                     if let Err(err) = handle_connection(
                         stream,
-                        backend,
-                        local_addr,
-                        connected,
-                        notify,
-                        debugger_ready,
-                        debugger_notify,
-                        permit,
+                        ConnectionContext {
+                            backend,
+                            local_addr,
+                            connected,
+                            notify,
+                            debugger_ready,
+                            debugger_notify,
+                            connection_permit: permit,
+                        },
                     )
                     .await
                     {
@@ -411,16 +418,29 @@ async fn run_server(
     }
 }
 
-async fn handle_connection(
-    stream: tokio::net::TcpStream,
+struct ConnectionContext {
     backend: Arc<dyn CdpBackend>,
     local_addr: SocketAddr,
     connected: Arc<AtomicBool>,
     notify: Arc<Notify>,
     debugger_ready: Arc<AtomicBool>,
     debugger_notify: Arc<Notify>,
-    _connection_permit: OwnedSemaphorePermit,
+    connection_permit: OwnedSemaphorePermit,
+}
+
+async fn handle_connection(
+    stream: tokio::net::TcpStream,
+    context: ConnectionContext,
 ) -> Result<()> {
+    let ConnectionContext {
+        backend,
+        local_addr,
+        connected,
+        notify,
+        debugger_ready,
+        debugger_notify,
+        connection_permit: _connection_permit,
+    } = context;
     let mut stream = stream;
     let mut peek_buf = [0u8; 2048];
     let peek_len = tokio::time::timeout(CDP_PEEK_TIMEOUT, stream.peek(&mut peek_buf))
@@ -1211,6 +1231,11 @@ mod tests {
         }
     }
 
+    fn start_test_server() -> CdpServerHandle {
+        let authorization = crate::engine::hermes::unarmed_inspector_authorization_for_test();
+        start_server(&authorization, "127.0.0.1", 0, Arc::new(NoopBackend)).unwrap()
+    }
+
     async fn connect_websocket(
         server: &CdpServerHandle,
     ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
@@ -1371,7 +1396,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn server_drops_connections_beyond_the_shared_handshake_session_cap() {
-        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let server = start_test_server();
         let mut held = Vec::new();
         for _ in 0..CDP_MAX_CONNECTIONS {
             held.push(TcpStream::connect(server.local_addr()).await.unwrap());
@@ -1395,7 +1420,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn websocket_rejects_oversized_text_and_all_binary_before_dispatch() {
-        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let server = start_test_server();
 
         let mut text = connect_websocket(&server).await;
         send_oversized_and_expect_size_rejection(
@@ -1422,7 +1447,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn fragmented_text_cannot_exceed_the_reassembled_message_budget() {
-        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let server = start_test_server();
         let mut stream = raw_websocket(&server).await;
         let fragment = vec![b'x'; CDP_MAX_TEXT_MESSAGE_BYTES / 2 + 1];
         stream
@@ -1447,7 +1472,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn ping_flood_consumes_the_same_rate_budget_as_text() {
-        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let server = start_test_server();
         let mut socket = connect_websocket(&server).await;
         for _ in 0..=CDP_MAX_MESSAGES_PER_WINDOW {
             if socket.send(Message::Ping(Vec::new())).await.is_err() {
@@ -1460,7 +1485,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn incomplete_websocket_handshake_is_closed_at_its_deadline() {
-        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let server = start_test_server();
         let mut stream = TcpStream::connect(server.local_addr()).await.unwrap();
         let partial = format!(
             "GET / HTTP/1.1\r\nHost: {}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n",

@@ -16,7 +16,7 @@ use oxc_ast::ast::{
     Argument, AssignmentExpression, AssignmentTarget, CallExpression, Declaration,
     ExportDefaultDeclarationKind, Expression, ForOfStatement, FunctionBody, IdentifierReference,
     ImportAttributeKey, ImportDeclarationSpecifier, ImportExpression, ImportOrExportKind,
-    MetaProperty, Program, SimpleAssignmentTarget, Statement, UpdateExpression,
+    MetaProperty, ObjectProperty, Program, SimpleAssignmentTarget, Statement, UpdateExpression,
     VariableDeclarationKind, WithClause,
 };
 use oxc_ast_visit::{walk, Visit};
@@ -95,6 +95,16 @@ fn commonjs_artifact_transform_fingerprint_v1(
         source_integrity(b"typescript=strip;jsx=classic;module-goal=false;decorators=off")?;
     fingerprint.output_options_digest =
         source_integrity(b"factory=commonjs-wrapper;source-map=v3-source-id;minify=false")?;
+    Ok(fingerprint)
+}
+
+fn builtin_artifact_transform_fingerprint_v1(
+    hermes_target: &str,
+) -> Result<TransformFingerprintV1> {
+    let mut fingerprint = commonjs_artifact_transform_fingerprint_v1(hermes_target)?;
+    fingerprint.output_options_digest = source_integrity(
+        b"factory=commonjs-wrapper;source-map=v3-source-id;minify=false;closed-require=internal/test/binding",
+    )?;
     Ok(fingerprint)
 }
 
@@ -282,11 +292,16 @@ struct NestedRewriteVisitor {
 #[derive(Debug)]
 struct CommonJsDependencyVisitor<'s> {
     scoping: &'s Scoping,
+    closed_builtin_require: Option<&'static str>,
     require_specifiers: BTreeSet<String>,
     dynamic_edges: Vec<SpikeDynamicEdge>,
     replacements: Vec<Replacement>,
     computed_require_site: Option<u32>,
 }
+
+const CLOSED_BUILTIN_TEST_BINDING_REQUIRE: &str = "internal/test/binding";
+const CLOSED_BUILTIN_TEST_BINDING_THROW: &str =
+    "(function () { var error = new Error(\"Cannot find module 'internal/test/binding'\"); error.code = 'MODULE_NOT_FOUND'; throw error; }())";
 
 impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
     fn visit_call_expression(&mut self, expression: &CallExpression<'a>) {
@@ -296,7 +311,14 @@ impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
         if is_wrapper_require {
             match expression.arguments.as_slice() {
                 [Argument::StringLiteral(specifier)] => {
-                    self.require_specifiers.insert(specifier.value.to_string());
+                    if self.closed_builtin_require == Some(specifier.value.as_str()) {
+                        self.replacements.push(Replacement {
+                            span: expression.span,
+                            text: CLOSED_BUILTIN_TEST_BINDING_THROW.to_owned(),
+                        });
+                    } else {
+                        self.require_specifiers.insert(specifier.value.to_string());
+                    }
                 }
                 _ => {
                     self.computed_require_site
@@ -330,6 +352,33 @@ impl<'a> Visit<'a> for CommonJsDependencyVisitor<'_> {
 }
 
 impl<'a> Visit<'a> for NestedRewriteVisitor {
+    fn visit_object_property(&mut self, property: &ObjectProperty<'a>) {
+        if property.shorthand {
+            if let Expression::Identifier(identifier) = &property.value {
+                if let Some((specifier, imported)) = self.imported.get(identifier.name.as_str()) {
+                    // Oxc may canonicalize both authored `{ imported }` and
+                    // `{ imported: imported }` to one shorthand property. A
+                    // bare expression cannot replace the shorthand identifier:
+                    // preserve its key explicitly before lowering the live
+                    // imported binding read.
+                    // @ref LLP 0026#parse-once-never-infer-grammar-with-runtime-regular-expressions
+                    self.replacements.push(Replacement {
+                        span: property.span,
+                        text: format!(
+                            "{}: {}.importValue({}, {})",
+                            js_string(identifier.name.as_str()),
+                            self.context,
+                            js_string(specifier),
+                            js_string(imported)
+                        ),
+                    });
+                    return;
+                }
+            }
+        }
+        walk::walk_object_property(self, property);
+    }
+
     fn visit_identifier_reference(&mut self, identifier: &IdentifierReference<'a>) {
         if self.function_depth == 0 && identifier.name == "arguments" {
             self.replacements.push(Replacement {
@@ -902,6 +951,31 @@ pub fn produce_commonjs_artifact_v1(
     producer_binary_digest: CapsecDigest,
     hermes_target: &str,
 ) -> Result<ModuleArtifactV1> {
+    produce_commonjs_artifact_v1_inner(
+        source_id,
+        source_name,
+        source_path,
+        source,
+        producer_binary_digest,
+        hermes_target,
+        None,
+    )
+}
+
+fn produce_commonjs_artifact_v1_inner(
+    source_id: SourceId,
+    source_name: &str,
+    source_path: &Path,
+    source: &str,
+    producer_binary_digest: CapsecDigest,
+    hermes_target: &str,
+    closed_builtin_require: Option<&'static str>,
+) -> Result<ModuleArtifactV1> {
+    if closed_builtin_require
+        .is_some_and(|specifier| specifier != CLOSED_BUILTIN_TEST_BINDING_REQUIRE)
+    {
+        bail!("unsupported closed builtin CommonJS require");
+    }
     let intermediate = transform_with_oxc_goal(source_path, source, false)?;
     let allocator = Allocator::default();
     let parsed = Parser::new(
@@ -930,6 +1004,7 @@ pub fn produce_commonjs_artifact_v1(
     }
     let mut visitor = CommonJsDependencyVisitor {
         scoping: semantic.semantic.scoping(),
+        closed_builtin_require,
         require_specifiers: BTreeSet::new(),
         dynamic_edges: Vec::new(),
         replacements: Vec::new(),
@@ -948,9 +1023,13 @@ pub fn produce_commonjs_artifact_v1(
     }
 
     let detector = lex_commonjs(&intermediate.code)?;
-    visitor
-        .require_specifiers
-        .extend(detector.reexports.iter().cloned());
+    visitor.require_specifiers.extend(
+        detector
+            .reexports
+            .iter()
+            .filter(|specifier| closed_builtin_require != Some(specifier.as_str()))
+            .cloned(),
+    );
     let static_edges = visitor
         .require_specifiers
         .into_iter()
@@ -996,7 +1075,11 @@ pub fn produce_commonjs_artifact_v1(
     )?;
     let source_map = source_map_v1(source_id.clone(), &source_map_value)?;
     let dialect = source_dialect(source_path)?;
-    let fingerprint = commonjs_artifact_transform_fingerprint_v1(hermes_target)?;
+    let fingerprint = if closed_builtin_require.is_some() {
+        builtin_artifact_transform_fingerprint_v1(hermes_target)?
+    } else {
+        commonjs_artifact_transform_fingerprint_v1(hermes_target)?
+    };
     let commonjs_exports = CommonJsExportsV1 {
         detector: fingerprint.commonjs_detector.clone(),
         detector_version: non_empty(CJS_MODULE_LEXER_VERSION, "CommonJS detector version")?,
@@ -1008,6 +1091,7 @@ pub fn produce_commonjs_artifact_v1(
         reexports: detector
             .reexports
             .iter()
+            .filter(|specifier| closed_builtin_require != Some(specifier.as_str()))
             .map(|specifier| non_empty(specifier, "CommonJS reexport specifier"))
             .collect::<Result<Vec<_>>>()?,
     };
@@ -1085,7 +1169,11 @@ pub fn produce_json_artifact_v1(
 
 /// Builtins are authenticated registry sources with CommonJS execution
 /// semantics. They retain the distinct Builtin source goal and SourceId so
-/// package code cannot counterfeit host-owned module identity.
+/// package code cannot counterfeit host-owned module identity. Their exact
+/// production-closed `internal/test/binding` probe is lowered at its authored
+/// call site to a catchable `MODULE_NOT_FOUND`; it never becomes a graph edge,
+/// while ordinary CommonJS receives no such rewrite.
+/// @ref LLP 0026#1-source-admission-and-resolution
 pub fn produce_builtin_artifact_v1(
     source_id: SourceId,
     source_name: &str,
@@ -1095,13 +1183,14 @@ pub fn produce_builtin_artifact_v1(
 ) -> Result<ModuleArtifactV1> {
     let path = PathBuf::from(format!("{source_name}.js"));
     let staging_id = SourceId::synthetic("builtin-producer", source_name)?;
-    let artifact = produce_commonjs_artifact_v1(
+    let artifact = produce_commonjs_artifact_v1_inner(
         staging_id,
         source_name,
         &path,
         source,
         producer_binary_digest,
         hermes_target,
+        Some(CLOSED_BUILTIN_TEST_BINDING_REQUIRE),
     )?;
     let ModulePayloadV1::Inline { factory_source, .. } = artifact.payload else {
         unreachable!()
@@ -1902,6 +1991,33 @@ mod tests {
     }
 
     #[test]
+    fn producer_preserves_object_keys_when_lowering_imported_bindings() {
+        let artifact = produce_spike_artifact(
+            "imported-object-properties",
+            "entry.mjs",
+            Path::new("entry.mjs"),
+            "import { imported } from './dep.js';\nexport const shorthand = { imported };\nexport const explicit = { imported: imported };\n",
+        )
+        .expect("produce imported object-property artifact");
+
+        let allocator = Allocator::default();
+        let wrapped_factory = format!("({})", artifact.factory_source);
+        let parsed = Parser::new(&allocator, &wrapped_factory, SourceType::cjs()).parse();
+        assert!(
+            parsed.errors.is_empty(),
+            "lowered factory must remain valid JavaScript: {:?}\n{}",
+            parsed.errors,
+            artifact.factory_source
+        );
+        assert_eq!(
+            artifact.factory_source.matches("\"imported\":").count(),
+            2,
+            "both shorthand and same-key explicit properties retain their key"
+        );
+        assert_eq!(artifact.factory_source.matches(".importValue(").count(), 2);
+    }
+
+    #[test]
     fn production_adapter_authenticates_literal_and_computed_dynamic_import_sites() {
         let source_id = SourceId::synthetic("fixture", "dynamic-imports").unwrap();
         let artifact = produce_module_artifact_v1(
@@ -2008,6 +2124,66 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("computed CommonJS require"));
         assert!(unsupported_module_runner_reason(&error).is_some());
+    }
+
+    #[test]
+    fn builtin_adapter_closes_only_the_private_test_binding_probe_at_its_call_site() {
+        let producer = source_integrity(b"producer-binary").unwrap();
+        let source = "try { module.exports = require('internal/test/binding'); } catch (error) { module.exports = error.code; }\nrequire('node:stream');\n";
+        let builtin = produce_builtin_artifact_v1(
+            SourceId::builtin("ibex-runtime", "closed-probe").unwrap(),
+            "closed-probe",
+            source,
+            producer.clone(),
+            "hermes-bytecode-96",
+        )
+        .unwrap();
+        assert_eq!(builtin.semantics.source_goal, SourceGoalV1::Builtin);
+        assert_eq!(
+            builtin.semantics.static_edges,
+            [StaticEdgeV1::CommonJsRequire {
+                specifier: NonEmptyString::new("node:stream").unwrap(),
+            }]
+        );
+        assert!(builtin
+            .semantics
+            .commonjs_exports
+            .as_ref()
+            .unwrap()
+            .reexports
+            .is_empty());
+        let ModulePayloadV1::Inline { factory_source, .. } = &builtin.payload else {
+            unreachable!()
+        };
+        assert!(factory_source.contains(CLOSED_BUILTIN_TEST_BINDING_THROW));
+        assert!(!factory_source.contains("require('internal/test/binding')"));
+
+        let ordinary = produce_commonjs_artifact_v1(
+            SourceId::synthetic("fixture", "ordinary-test-binding").unwrap(),
+            "ordinary.cjs",
+            Path::new("ordinary.cjs"),
+            source,
+            producer,
+            "hermes-bytecode-96",
+        )
+        .unwrap();
+        assert!(ordinary.semantics.static_edges.iter().any(|edge| {
+            matches!(
+                edge,
+                StaticEdgeV1::CommonJsRequire { specifier }
+                    if specifier.as_str() == CLOSED_BUILTIN_TEST_BINDING_REQUIRE
+            )
+        }));
+        assert_ne!(
+            ordinary
+                .semantics
+                .transform_fingerprint
+                .output_options_digest,
+            builtin
+                .semantics
+                .transform_fingerprint
+                .output_options_digest
+        );
     }
 
     #[test]

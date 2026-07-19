@@ -332,16 +332,31 @@ async fn cli_runtime_bytecode_magic_throw_sends_one_loopback_request() {
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     stream
-                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .set_read_timeout(Some(Duration::from_millis(250)))
                         .unwrap();
                     let mut request = Vec::new();
                     let mut chunk = [0u8; 1024];
+                    // Six isolated real-binary fixtures share this test
+                    // target. A client can be descheduled after connect while
+                    // its sibling runtimes compile and hash, so a single
+                    // short SO_RCVTIMEO is not a semantic request deadline.
+                    // Poll within one explicit bound and accept scheduler
+                    // stalls without turning EWOULDBLOCK into a server panic.
+                    let request_deadline = std::time::Instant::now() + Duration::from_secs(30);
                     while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
-                        let read = stream.read(&mut chunk).expect("read loopback request");
-                        if read == 0 {
-                            break;
+                        assert!(
+                            std::time::Instant::now() < request_deadline,
+                            "loopback request headers exceeded the 30-second bound; received {} byte(s)",
+                            request.len()
+                        );
+                        match stream.read(&mut chunk) {
+                            Ok(0) => break,
+                            Ok(read) => request.extend_from_slice(&chunk[..read]),
+                            Err(error)
+                                if error.kind() == std::io::ErrorKind::WouldBlock
+                                    || error.kind() == std::io::ErrorKind::TimedOut => {}
+                            Err(error) => panic!("read loopback request: {error}"),
                         }
-                        request.extend_from_slice(&chunk[..read]);
                     }
                     if request.starts_with(b"GET /effect ") {
                         server_count.fetch_add(1, Ordering::AcqRel);
@@ -365,7 +380,7 @@ async fn cli_runtime_bytecode_magic_throw_sends_one_loopback_request() {
     std::fs::write(
         &entry,
         format!(
-            "var cp=require('child_process'); cp.execFileSync('/usr/bin/curl', ['--silent','--show-error','--max-time','5','http://127.0.0.1:{port}/effect'], {{stdio:'ignore'}}); throw new Error('Compiling JS failed: network-side-effect throw');\n"
+            "var cp=require('child_process'); cp.execFileSync('/usr/bin/curl', ['--silent','--show-error','--max-time','30','http://127.0.0.1:{port}/effect'], {{stdio:'ignore'}}); throw new Error('Compiling JS failed: network-side-effect throw');\n"
         ),
     )
     .expect("write network side-effect entry");

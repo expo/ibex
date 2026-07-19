@@ -1,5 +1,29 @@
 (function() {
   if (typeof process !== 'object' || process === null) return;
+  // Native startup authenticates and binds the inherited IPC descriptor to the
+  // exact Host context, then publishes this fixed value only on a temporary
+  // bootstrap root. Capture it before the post-bundle finalizer deletes that
+  // root; do not use the principal-scoped process.env facade as a control
+  // channel.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  var processIpcBootstrap = null;
+  try {
+    var ipcCandidate = globalThis.__exactProcessIpcBootstrap;
+    var ipcCandidateFd = ipcCandidate && Number(ipcCandidate.fd);
+    if (isFinite(ipcCandidateFd) && ipcCandidateFd >= 0 &&
+        Math.floor(ipcCandidateFd) === ipcCandidateFd) {
+      processIpcBootstrap = {
+        fd: ipcCandidateFd,
+        serialization: ipcCandidate.serialization === 'advanced'
+          ? 'advanced'
+          : 'json',
+        close: typeof ipcCandidate.close === 'function'
+          ? ipcCandidate.close
+          : null
+      };
+    }
+  } catch (_) {}
   function defineOwnProcessProperty(name, value, enumerable) {
     try {
       Object.defineProperty(process, name, {
@@ -18,12 +42,19 @@
   }
   function installLateIpcChannel() {
     if (process.channel && typeof process.channel.ref === 'function') return;
-    if (!process.connected || !process.env || !process.env.EXACT_IPC_FD) return;
-    var ipcFd = Number(process.env.EXACT_IPC_FD);
-    if (!isFinite(ipcFd) || ipcFd < 0) return;
+    if (processIpcBootstrap === null) return;
+    var ipcFd = processIpcBootstrap.fd;
+    if (!process.connected) {
+      defineOwnProcessProperty('connected', true, true);
+    }
     if (typeof globalThis.__exactEnsureFs === 'function') {
       try { globalThis.__exactEnsureFs(); } catch (_) {}
     }
+    // Capture the fixed, no-argument close capability from the temporary IPC
+    // carrier. It binds the runtime plus socket identity natively, so project
+    // code never gains a numeric-fd close route to this protected descriptor.
+    var closeOwnedIpc = processIpcBootstrap.close;
+    var ipcFdClosed = false;
     var ipcBuffer = '';
     var pendingRecvFd = -1;
     var pollTimer = 0;
@@ -31,8 +62,7 @@
     var readPending = false;
     var pollInterval = 2;
     var pollReadSize = 262144;
-    var serializationMode =
-      process.env.EXACT_IPC_SERIALIZATION === 'advanced' ? 'advanced' : 'json';
+    var serializationMode = processIpcBootstrap.serialization;
     var ipcStreamDecoder = null;
     function chunkToString(chunk) {
       if (chunk == null) return '';
@@ -599,13 +629,23 @@
       if (process.channel) {
         try { process.channel.connected = false; } catch (_) {}
       }
-      var channelHandleKey = globalThis.__exactKChannelHandleKey;
-      if (channelHandleKey === undefined) {
-        channelHandleKey = '__exactKChannelHandle';
-        globalThis.__exactKChannelHandleKey = channelHandleKey;
-      }
+      var channelHandleKey = '__exactKChannelHandle';
       process[channelHandleKey] = null;
       defineOwnProcessProperty('channel', null, true);
+      // A disconnect transfers no continuing ownership to the runtime. Give a
+      // queued packet one final synchronous flush attempt, fail any remainder,
+      // then close through the identity-bound fd registry. Native runtime
+      // teardown is the fallback when this hook is unavailable or startup
+      // fails before JavaScript owns the channel.
+      // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+      try { flushPendingWrites(); } catch (_) {}
+      failPendingWrites();
+      if (!ipcFdClosed) {
+        ipcFdClosed = true;
+        if (closeOwnedIpc) {
+          try { closeOwnedIpc(); } catch (_) {}
+        }
+      }
       setTimeout(function() {
         process.emit('disconnect');
       }, 0);
@@ -853,11 +893,7 @@
         }
       }
     }
-    var channelHandleKey = globalThis.__exactKChannelHandleKey;
-    if (channelHandleKey === undefined) {
-      channelHandleKey = '__exactKChannelHandle';
-      globalThis.__exactKChannelHandleKey = channelHandleKey;
-    }
+    var channelHandleKey = '__exactKChannelHandle';
     ensureStdioRefUnref();
     process[channelHandleKey] = {
       readStop: function() {

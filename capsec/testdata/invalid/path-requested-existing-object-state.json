@@ -1,0 +1,20 @@
+{
+  "cap": "fs:list",
+  "stage": "requested",
+  "actor": { "kind": "root", "identity": "project-root" },
+  "effectOwner": { "kind": "root", "identity": "project-root" },
+  "constrainedPrincipals": [
+    { "kind": "root", "identity": "project-root" }
+  ],
+  "resource": {
+    "kind": "path-occurrence",
+    "requested": {
+      "root": "project",
+      "components": [
+        { "encoding": "utf8", "value": "speculative.js" }
+      ]
+    },
+    "followMode": "follow-final",
+    "objectState": "existing"
+  }
+}

@@ -48,6 +48,11 @@ export const CONFORMANCE_PRODUCT_COMMANDS = Object.freeze([
     ["./scripts/test-android-java.sh"],
   ],
   ["hermes-transform-loader-corpora", "bun", ["run", "test:hermes-compat"]],
+  [
+    "runtime-environment-inventory-drift",
+    "bun",
+    ["run", "check:runtime-environment-inventory"],
+  ],
 ]);
 
 export const CONFORMANCE_COMMANDS = Object.freeze([

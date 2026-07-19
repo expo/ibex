@@ -2679,6 +2679,10 @@ try { _EventEmitter = require('events'); } catch(e) {
   _EventEmitter.prototype.removeListener = function(ev, fn) { if (!this._events) this._events = {}; var l = this._events[ev]; if (l) { var n = []; for (var i = 0; i < l.length; i++) { if (l[i] !== fn) n.push(l[i]); } this._events[ev] = n; } return this; };
   _EventEmitter.prototype.removeAllListeners = function(ev) { if (!this._events) this._events = {}; if (ev) delete this._events[ev]; else this._events = {}; return this; };
 }
+// ChildProcess methods retain the stream module value, not the builtin
+// wrapper's require closure, after synchronous manifest evaluation ends.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+var _ChildProcessStream = require('stream');
 
 function ChildProcess(handle, pid, stdioModes) {
   _EventEmitter.call(this);
@@ -2728,7 +2732,7 @@ function ChildProcess(handle, pid, stdioModes) {
   if (!modes) return;
 
   // Create stdout as a Readable stream
-  var Stream = require('stream');
+  var Stream = _ChildProcessStream;
   var self = this;
 
   if (modes.stdout === 'pipe') {
@@ -3242,7 +3246,7 @@ ChildProcess.prototype.spawn = function(options) {
   this.connected = this._ipcMode;
   this.channel = this._ipcMode ? { fd: 3, connected: true } : null;
 
-  var Stream = require('stream');
+  var Stream = _ChildProcessStream;
   var self2 = this;
   if (stdioCfg.stdout === 'pipe') {
     this.stdout = new Stream.Readable();
@@ -4302,6 +4306,15 @@ cp.spawn = function spawn(command, args, options) {
   return child;
 };
 
+// Capture fork's manifest-owned implementation dependencies while this
+// builtin body owns the loader's private internal-resolution window. The
+// exported function retains only module values, never a late trusted-require
+// closure. Terminal filesystem/cwd checks still run when the caller invokes
+// the captured exports.
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+var _forkFs = require('fs');
+var _forkPath = require('path');
+
 cp.fork = function fork(modulePath, args, options) {
   if (typeof modulePath !== 'string') {
     _throwInvalidArgType('modulePath', 'of type string', modulePath);
@@ -4325,23 +4338,35 @@ cp.fork = function fork(modulePath, args, options) {
 
   // Resolve module path - try adding .js extension like Node.js does
   var _resolvedModule = modulePath;
+  // Resolving the execution base is an authorization boundary. Any error from
+  // cwd observation or path resolution must propagate; falling back to the raw
+  // relative spelling would let fork proceed after its authenticated base was
+  // denied or became stale.
+  // @ref LLP 0023#53-cwd-visibility-is-an-explicit-information-grant
+  if (!_forkPath.isAbsolute(_resolvedModule)) {
+    // With no explicit cwd, let node:path consult its sealed native cwd bridge.
+    // A writable process.cwd facade must neither reveal nor redirect the
+    // authenticated resolution base.
+    // @ref LLP 0023#54-facades-cannot-subvert-it
+    _resolvedModule = options.cwd
+      ? _forkPath.resolve(options.cwd, _resolvedModule)
+      : _forkPath.resolve(_resolvedModule);
+  }
+  // Extension probing is compatibility-only. Once the absolute path above is
+  // fixed, a probe failure may be ignored, but it must not replace that path
+  // with the caller's unresolved input.
   try {
-    var _fs = require('fs');
-    var _pathMod = require('path');
-    if (!_pathMod.isAbsolute(_resolvedModule)) {
-      _resolvedModule = _pathMod.resolve(options.cwd || (typeof process !== 'undefined' && process.cwd()) || '.', _resolvedModule);
-    }
-    if (!_fs.existsSync(_resolvedModule)) {
+    if (!_forkFs.existsSync(_resolvedModule)) {
       var _exts = ['.js', '.mjs', '.json', '.node'];
       for (var _ei = 0; _ei < _exts.length; _ei++) {
-        if (_fs.existsSync(_resolvedModule + _exts[_ei])) {
+        if (_forkFs.existsSync(_resolvedModule + _exts[_ei])) {
           _resolvedModule = _resolvedModule + _exts[_ei];
           break;
         }
       }
     }
   } catch (e) {
-    _resolvedModule = modulePath;
+    // Best-effort extension detection only; retain `_resolvedModule` exactly.
   }
 
   var execPath = _fallbackSpawnCommand(options.execPath || (typeof process !== 'undefined' && process.execPath) || 'node');

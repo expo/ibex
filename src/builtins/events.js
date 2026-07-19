@@ -14,6 +14,11 @@ var eventTargetEventsSymbol = typeof Symbol === 'function' && typeof Symbol.for 
 var objectToString = Object.prototype.toString;
 var __AsyncResource;
 var _captureRejections = false;
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+// environment-backed debug configuration belongs to module initialization;
+// emitting an otherwise non-capability event must not perform an env read.
+var _exactDebugEmitListener = typeof process === 'object' && process &&
+  process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === '1';
 try {
   __AsyncResource = require('async_hooks').AsyncResource;
 } catch (e) {
@@ -233,25 +238,10 @@ function _emitUnhandledPromiseRejection(err, promise) {
         handled = g.__exactUnhandledRejectionHandler(err, promise) === true;
       } catch (_handlerErr) {}
     }
-    if (!handled && typeof console !== 'undefined' && console &&
-        typeof console.error === 'function') {
-      console.error('Unhandled promise rejection:', err);
-    }
-    if (!handled) {
-      // Fail loud: an unhandled rejection that no handler consumed must not
-      // let the process report success — Node exits nonzero here. A user-set
-      // nonzero exitCode is preserved. (ENG-23130)
-      var proc = g && g.process;
-      if (proc && typeof proc === 'object' &&
-          (typeof proc.exitCode !== 'number' || proc.exitCode === 0)) {
-        try {
-          proc.exitCode = 1;
-        } catch (_exitCodeErr) {
-          // A frozen/getter-only process.exitCode cannot be set; the loud
-          // console.error above already surfaced the rejection.
-        }
-      }
-    }
+    // The armed engine's poll-checkpoint tracker publishes the original
+    // rejection through the structured async-failure queue. This compatibility
+    // helper may give admitted listeners precedence, but it must not log the
+    // raw value or decide process fatality. @ref LLP 0024#9-asynchronous-failures
   });
 }
 
@@ -613,15 +603,14 @@ EventEmitter.prototype.emit = function emit(eventName) {
   }
 
   if (typeof handler === 'function') {
-    if (process && process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === '1' &&
-      typeof handler !== 'function') {
+    if (_exactDebugEmitListener && typeof handler !== 'function') {
       console.error('[stream-debug] emit non-function handler', eventName, typeof handler, handler);
       console.error(new Error().stack);
     }
     _maybeCaptureRejection(this, _invokeListener(handler, this, args), eventName, args);
   } else {
     var current = handler.slice();
-    if (process && process.env && process.env.EXACT_DEBUG_EMIT_LISTENER === '1') {
+    if (_exactDebugEmitListener) {
       for (var i = 0; i < current.length; i++) {
         if (typeof current[i] !== 'function') {
           console.error('[stream-debug] emit list non-function handler', eventName, i, typeof current[i], current[i]);

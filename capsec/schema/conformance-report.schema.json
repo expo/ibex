@@ -81,6 +81,9 @@
         },
         "publicSurfaceExecutionDigest": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "outputDispositionEvidenceRawContentDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
         }
       },
       "additionalProperties": false
@@ -242,6 +245,27 @@
       "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "conformant" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "bindings": {
+            "type": "object",
+            "properties": {
+              "outputDispositionEvidenceRawContentDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              }
+            },
+            "required": ["outputDispositionEvidenceRawContentDigest"]
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": false,
   "$defs": {
     "executionBinding": {

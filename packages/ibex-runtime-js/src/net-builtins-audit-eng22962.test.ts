@@ -384,6 +384,26 @@ describe('ws incoming/outgoing framing (ENG-22962 #4)', () => {
       if (server._listening) server.close();
     }
   });
+
+  test('server close before deferred start cancels the native listener bind', async () => {
+    let listenCalls = 0;
+    let closeCalls = 0;
+    g.__exactTcpListen = () => {
+      listenCalls++;
+      return 2;
+    };
+    g.__exactTcpClose = () => { closeCalls++; };
+
+    const server = new WS.Server({ host: '127.0.0.1', port: 0 });
+    const closed = new Promise<void>((resolve) => server.once('close', resolve));
+    server.close();
+    await closed;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(listenCalls).toBe(0);
+    expect(closeCalls).toBe(0);
+    expect(server._listening).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

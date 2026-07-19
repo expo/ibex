@@ -57,10 +57,6 @@ const EXACT_PILOT_SURFACES = new Map([
     ["non-capability", "exact-artifact-prepare-round-trip"],
   ],
   [
-    "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts",
-    ["non-capability", "exact-gpu-artifact-prepare-round-trip"],
-  ],
-  [
     "host-abi:ex_host_prepare_armed_embedder_artifacts",
     ["non-capability", "exact-artifact-prepare-round-trip"],
   ],
@@ -110,7 +106,7 @@ export function exactFixtureEvidenceRecipes(recipeCatalog) {
       EXACT_PILOT_SURFACES.size
   ) {
     throw new Error(
-      `Exact fixture-evidence pilot requires exactly ${EXACT_PILOT_SURFACES.size} source-bound recipes`,
+      "Exact fixture-evidence pilot requires exactly nine source-bound recipes",
     );
   }
   return recipes;

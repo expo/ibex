@@ -9,6 +9,8 @@
 **Revised:** 2026-07-19 (adds the staged construction-private `GPUDevice.createComputePipeline` post-WebIDL payload-codegen input for the exact seven-call TypeGPU 0.11.9 cohort, preserving full reference lineage, the constants `{}` default, and optional entry-point presence without adding a prototype, service route, native decoder/executor, issuer, installation, or support claim; also repairs observable constants-record trap order, USVString conversion, special keys, and BigInt rejection)
 **Revised:** 2026-07-18 (adds the dormant authenticated `GPUQueue.submit` sealed-program payload-codegen program, complete 15-record carrier corpus, and exact pending-timeline/error preservation contract without installing native execution or making a support claim); 2026-07-18 (repairs private `GPUDevice.createRenderPipeline` post-WebIDL conversion, exact optional-field presence, authenticated layout references, and bounded depth-stencil transport without adding a native codec or support claim); 2026-07-18 (adds the dormant authenticated `GPUQueue.writeBuffer` owned-snapshot payload-codegen program); 2026-07-18 (derives all 101 `GPUTextureFormat` values from pinned `@webgpu/types@0.1.71`, preserves them through bind-group-layout structural transport, and adds the zero-resource semantic-boundary corpus witness); 2026-07-18 (repairs observable `GPUDevice.createBindGroupLayout` Web IDL ordering, Get-once sequence conversion and EnforceRange behavior, and carries canonical WebIDL-valid descriptor variants through the bounded transport so the pinned TypeGPU predicate runs after decode); 2026-07-18 (adds the authenticated `GPUDevice.createBindGroupLayout` payload-codegen program for the exact pinned TypeGPU descriptor closure, wrapper-allocated target joins, and positive/adversarial corpus without installing a native codec or provider); 2026-07-17 (adds the authenticated `GPUDevice.createShaderModule` payload-codegen program, exact converted descriptor, wrapper-allocated target joins, and semantic-terminal mapping without installing a native codec or provider); 2026-07-17 (adds the authenticated `GPUDevice.destroy` payload-codegen program, authoritative sealed-record shape, and exact semantic-terminal/device-error mapping without installing a native codec or provider); 2026-07-17 (adds the requestDevice payload-codegen prerequisite, native-owned descriptor/result derivations, and ASSIGNED_DETACHED without installing a native codec or provider); 2026-07-17 (adds the authenticated requestAdapter payload-codegen program and carrier-projected positive interoperability vectors without installing a native payload codec); 2026-07-17 (authenticates the injection-only IBGQ/IBGR/IBGL codec layout in the C-vocabulary projection, generates a language-neutral manifest/corpus from the executable converter, and preserves unknown post-WebIDL adapter feature levels for the local-null semantic branch); 2026-07-17 (records the pinned TypeGPU workload closure as private staging metadata while keeping its 30 operations beyond the reviewed triangle unroutable and absent from prototypes); 2026-07-16 (makes ASSIGNED + NOT_ADMITTED requestDevice results self-contained detached-loss operation terminals without lifecycle tombstones); 2026-07-16 (ENG-25087 adds the production-private 25-operation wrapper factory and executable-codec install gate; the embedded codec authority remains absent, so no public WebGPU surface is installed); 2026-07-16 (adds the additive Exact GPU ABI V2 typed carrier, authenticated runtime-routing digest, any-thread typed lifecycle mailbox, service-entry/realm-close linearization, and construction-private V2 bridge; V1 remains unchanged); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded receipt mailbox/drain, and cancellation/retirement lifecycle without publishing `navigator.gpu` or claiming WebGPU support); 2026-07-16 (adds the target-local Exact GPU artifact builder, the optional versioned GPU service registration seam, and an additive multi-capability construction transaction); 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-16 (defines synchronous GPU callback followed by provider rejection as a quarantining protocol contradiction); 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
+**Revised:** 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-15 (structured throw metadata now carries a closed, trap-free native Error class derived from the JSError's internal direct-prototype identity); 2026-07-15 (the independent C11 consumer now executes the adversarial structured-value and cancellation ABI cases at runtime in the conformance profile); 2026-07-14 (named aggregate/member output schemas and direction-exact nested callback contracts close ABI output membership); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment); 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, ownership, Java/JNI declaration reconciliation, and opaque input-handle accounting); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-14 (source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
 
 ## Summary
@@ -76,6 +78,278 @@ debugger surface (`include/exact_runtime.h:216-249`), and GC/heap introspection
 These are part of the embedding API but are convenience/optional layers, not the
 minimal contract `[inferred]`.
 
+### Structured evaluation result ABI v2 (normative amendment)
+
+`EX_HERMES_STRUCTURED_EVAL_ABI_VERSION` is `2`. Structured evaluators receive a
+caller-owned `ExHermesEvaluationResult` initialized by
+`ex_hermes_evaluation_result_init`. They return `-1` only when that caller-owned
+result has an incompatible `abi_version` or `struct_size`; otherwise they return
+`0` and write a typed outcome, including an engine-fault outcome. JavaScript
+values are never converted to the legacy `char **out_value` representation and
+thenables are never assimilated.
+
+The normative C field sequence is the declaration in
+`include/exact_runtime.h`, using ordinary platform C alignment and no packed
+layout:
+
+| Structure | Fields in order |
+| --- | --- |
+| `ExHermesOwnedBytes` | `uint8_t *data`; `size_t length` |
+| `ExHermesSourcePosition` | `ExHermesOwnedBytes source_label`; `uint32_t line`; `uint32_t column` |
+| `ExHermesValueHandle` | `uint64_t runtime_nonce`; `uint64_t handle_id` |
+| `ExHermesEvaluationResult` | `uint32_t abi_version`; `uint32_t struct_size`; `uint32_t outcome_tag`; `uint32_t fault`; `uint64_t work_target_id`; `ExHermesValueHandle value`; `uint32_t throw_metadata_status`; `uint32_t throw_metadata_fields`; `uint32_t throw_error_class`; `int32_t lifecycle_exit_code`; `uint32_t capability_flags`; `ExHermesOwnedBytes message`; `ExHermesOwnedBytes stack`; `ExHermesSourcePosition *positions`; `size_t position_count` |
+
+On the supported 64-bit ABI this gives result offsets `0, 4, 8, 12, 16, 24,
+40, 44, 48, 52, 56, 64, 80, 96, 104` respectively and
+`sizeof(ExHermesEvaluationResult) == 112`; `ExHermesValueHandle` is 16 bytes,
+each `ExHermesOwnedBytes` is 16 bytes, and `ExHermesSourcePosition` is 24 bytes
+with its line and column at offsets 16 and 20. A target with a different pointer
+width uses its ordinary C ABI layout and must pass its own exact `sizeof` in
+`struct_size`; it may not copy the 64-bit offsets.
+
+`outcome_tag` has six explicit discriminants: `1 Empty`, `2 Value`, `3
+Throw`, `4 Cancelled`, `5 Lifecycle`, and `6 EngineFault`. The first five are
+the language/session outcomes required by LLP 0024; the sixth is the separate
+engine-fault branch that makes a native failure distinguishable from a thrown
+JavaScript value. `fault` is zero except for `EngineFault`, where values `1`
+through `17` are the named `EX_HERMES_EVAL_FAULT_*` reasons in the header.
+Unknown tags, fault codes, capability bits, metadata bits, or illegal payload
+combinations are protocol errors and must not be treated as a best-effort
+result.
+
+Payload and ownership rules are:
+
+- `work_target_id` is nonzero for an admitted/evaluated submission, including
+  its recoverable throw or later engine fault; zero means no work target was
+  admitted. It is also the exact identity accepted by the any-thread
+  cancellation API.
+- `Value` and `Throw` carry a nonzero `(runtime_nonce, handle_id)` rooted in the
+  producing runtime. A handle never crosses a process boundary, becomes stale
+  when its runtime is destroyed, and is rejected on a wrong owner thread or
+  runtime. The owner releases it exactly once with `ex_hermes_value_release`,
+  or settles a pending display receipt with `ex_hermes_session_display_ack`.
+- `message` and `stack` are independently length-bearing byte buffers, each
+  capped at `EX_HERMES_SAFE_TEXT_MAX_BYTES` (16 KiB) of valid UTF-8 including
+  the static `EX_HERMES_SAFE_TEXT_TRUNCATION_MARKER`. Embedded NUL is data, not
+  a terminator. A present buffer is allocated by the native side and freed by
+  `ex_hermes_evaluation_result_dispose`; an absent buffer is `{NULL, 0}`.
+  Disposing does not release a value handle.
+- `positions` is either `{NULL, 0}` or a native-allocated array whose every
+  record owns its explicit-length UTF-8 `source_label`; `line` and `column` are
+  one-based and nonzero. Result disposal frees every nested label and then the
+  array. The third `throw_metadata_fields` bit is present only for a nonempty
+  position array.
+- `throw_metadata_status == Captured` permits message/stack/positions presence
+  bits 0–2 plus independent message/stack truncation bits 3–4 in
+  `throw_metadata_fields`; a truncation bit requires its presence bit and the
+  exact trusted marker suffix. `Unavailable` carries no bits or owned payload.
+  Throw metadata supplements the raw thrown handle and never replaces or
+  coerces it.
+- `throw_error_class` is the closed `ExHermesErrorClass` discriminant. Hermes
+  derives it by comparing an internally branded JSError's **direct** prototype
+  pointer with the pinned intrinsic Error prototypes. It never reads
+  `.name`/`.constructor`, invokes a trap, or walks a mutable prototype chain;
+  arbitrary values and subclass prototypes are `Unclassified`. Unknown values
+  are protocol errors, and `Unavailable` metadata must carry `Unclassified`.
+- `Lifecycle` alone carries `lifecycle_exit_code`. `capability_flags` advertises
+  the exact supported stratum (`Base`, safe throw capture, source positions,
+  rich inspection); a consumer must require the strata it uses.
+- Allocation failure before an outcome value is rooted produces the named
+  out-of-memory engine fault with no fabricated payload. Once a Throw handle
+  is rooted, failure while capturing or copying optional safe metadata keeps
+  the Throw and returns empty `Captured`/`Unclassified` metadata when
+  `SafeThrow` was advertised; that no-throw fallback cannot cross the C ABI or
+  rewrite the language outcome. Cancellation racing a normal return has one
+  terminal typed outcome for the exact work target; stale-target cancellation
+  cannot land on a successor.
+
+The pinned Hermes patch stack exposes both trap-free raw thrown-value capture
+and engine-owned Error metadata extraction. The latter reads only an actual
+Hermes `JSError`'s own plain message slot, internal stack records, and direct
+prototype pointer; it never consults JavaScript `.stack`, `.name`,
+`.constructor`, accessors, proxies, `prepareStackTrace`, a mutable prototype
+chain, or string coercion. The evaluator therefore advertises `Base |
+SafeThrow`: an ordinary Error carries its closed class plus captured
+message/stack fields, while an arbitrary thrown value is still the original
+rooted handle with `Captured`, `Unclassified`, and no fabricated fields.
+Lowered session source maps are supplied to Hermes' source-map-aware evaluator,
+but the independent owned source-position records remain unimplemented, so
+`SourcePositions` stays off.
+
+`ex_hermes_value_stage1_text` returns an additional exact `0`/`1`
+`out_truncated` scalar. String, Symbol, and BigInt text is produced directly
+from bounded engine storage and is never larger than 16 KiB including the
+trusted marker. `ex_hermes_value_safe_throw_metadata` likewise returns
+`metadata_fields` alongside the closed error class and owned buffers, so direct
+throws and asynchronous failures carry identical independent truncation facts.
+All outputs, including these scalars, are zeroed before wrong-thread,
+stale-handle, unavailable-profile, allocation-failure, and engine-fault exits.
+
+The source buffers consumed by structured diagnostic/session evaluators are
+borrowed, explicit-length UTF-8. Empty source is valid and embedded NUL in
+source is preserved as a source byte; source labels are explicit length but
+reject NUL. The diagnostic evaluator refuses armed runtimes. Production armed
+source instead binds an opaque session token, admits a linear credential, and
+continues through `ex_hermes_eval_lowered_session`; it never falls back to the
+legacy evaluator or diagnostic route.
+
+**Migration.** Existing diagnostic embedders may continue using the unchanged
+five-function legacy surface, including `ex_hermes_eval`'s malloc'd string
+result. An embedder adopting or migrating armed sessions must initialize a v2
+structured result, branch on `outcome_tag` rather than the function status,
+preserve and release runtime-scoped handles, dispose all owned metadata
+payloads, and use the exact work target for cancellation/display settlement. It
+must not cast a structured
+result to the legacy `char **out_value`, infer throw-vs-fault from text, or retry
+an armed request through `ex_hermes_eval`. LLP 0000 records this explicit
+semver-major migration surface while retaining the five legacy declarations.
+
+**Independent C evidence.** The C11 consumer in
+`src/engine/exact_runtime_c_abi_check.c` owns both its public-ABI calls and its
+behavioral assertions. In the conformance-observer profile it executes the
+embedded-NUL output, typed allocation-failure/no-payload, stale, wrong-runtime,
+wrong-thread, exact-once release, runtime-destruction cleanup, and
+normal-return cancellation-race cases. Rust supplies only the foreign thread
+and runtime-driving orchestration. The deterministic allocation and destruction
+controls are conformance-only symbols: they are neither declared by this public
+header nor compiled into production artifacts `[observed]`
+(`src/engine/exact_runtime_c_abi_check.c`; `src/engine/hermes_runtime.cc`;
+`src/engine/mod.rs`; `src/bin/ibex/engine/hermes.rs`).
+
+### Native work-unit publication ABI v1
+
+Authenticated session controllers consume engine work boundaries through
+`ex_hermes_take_work_unit_event`, an any-thread, non-waiting operation. Its
+caller-owned `ExHermesWorkUnitEvent` has this normative field order under the
+ordinary C ABI: `uint32_t abi_version`, `uint32_t struct_size`, `uint32_t kind`,
+`uint32_t phase`, `uint64_t target_id`, `uint64_t scheduling_id`. On the
+supported 64-bit ABI the offsets are `0, 4, 8, 12, 16, 24` and the size is 32.
+`EX_HERMES_WORK_UNIT_EVENT_ABI_VERSION` is `1`.
+
+Kinds are `1 Evaluation`, `2 Callback`, `3 Timer`, `4 MicrotaskDrain`, and `5
+CompletionQuery`. Phases are `1 Due`, `2 Undue`, `3 Begin`, `4 Suspended`, and
+`5 End`. A Begin/Suspended/End transition carries a nonzero, runtime-monotonic
+`target_id`. Timer Due/Undue instead carries `target_id == 0` and a nonzero
+native scheduling identity in `scheduling_id`; this distinguishes two ready
+timers before either has a cancellation target. An evaluation uses its
+authenticated submission ordinal as `scheduling_id`; other non-timer units may
+use zero.
+
+The take result is `Empty`, `Available`, `Overflow`, or `Failed`. The native
+queue has a fixed bound and never waits for consumer progress or queue space.
+Overflow is sticky and fail-loud: the consumer must dispose the worker rather
+than reconstruct a live-unit set from an active-target poll. The queue owns no
+JSI values or caller memory. The existing any-thread active-target and
+cancellation calls now name only the currently executing published unit;
+suspended evaluations and due-but-not-begun timers return no active target, and
+the target mutex prevents a stale request from landing on a successor
+`[observed]` (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`;
+`src/bin/ibex/engine/hermes.rs`; [LLP 0024](./0024-structured-evaluation-and-session.spec.md#6-evaluation-outcomes-and-the-abi);
+[LLP 0025](./0025-terminal-session-ownership.spec.md#6-interruption-and-cancellation)).
+
+### Native asynchronous-failure publication ABI v1
+
+Authenticated engines report an uncaught background JavaScript throw through
+`ex_hermes_take_async_failure_event`; they do not turn it into a poll error,
+write its raw message to stderr, or set an exit code. The take is non-waiting
+and owner-thread-only because an Available record transfers a live JSI value
+handle. Its caller-owned `ExHermesAsyncFailureEvent` has this normative field
+order under the ordinary C ABI: `uint32_t abi_version`, `uint32_t struct_size`,
+`uint32_t kind`, `uint32_t principal_status`, `ExHermesValueHandle value`,
+`uint64_t host_context_id`, `uint64_t owning_principal_id`, `uint64_t event_id`,
+`uint64_t associated_evaluation`, `uint64_t dropped_count`. On the supported
+64-bit ABI the offsets are `0, 4, 8, 12, 16, 32, 40, 48, 56, 64` and the size
+is 72. `EX_HERMES_ASYNC_FAILURE_EVENT_ABI_VERSION` is `1`.
+
+Kinds are `1 Timer`, `2 NextTick`, `3 Microtask`, `4 NativeCompletion`, and `5
+NativeTask`. Principal status is a closed discriminator: `1 Authenticated`, `2
+Unavailable`, or `3 Ambiguous`. An authenticated owner is the principal
+captured by the scheduling source, validated on the Rust side against the
+exact `host_context_id` and value-handle runtime generation. Missing or
+ambiguous attribution remains explicit; a consumer must never substitute the
+root principal. `event_id` names the timer, next-tick, microtask-drain, or
+native scheduling source where one is available. `associated_evaluation` is
+the authenticated submission ordinal inherited from the scheduling chain, or
+zero when no association is available. The runtime generation plus its
+claimed Host context and per-session worker channel bind the record to its
+session; bearer session credentials do not enter the event.
+
+The take result is `Empty`, `Available`, `Dropped`, or `Failed`. Available
+transfers exactly one nonzero value handle to the caller, which must render and
+release it on the live runtime owner thread before any process boundary. Only
+the bounded, trap-free inspection result crosses to the supervisor, where the
+session layer assigns a sequence number at receipt. The native queue has a
+fixed bound and never waits. Once it fills, later failures coalesce into one
+sticky pre-receipt loss window until the owner takes a `Dropped` marker carrying
+its nonzero `dropped_count`; values in that window are never rooted, and a
+handle whose queue insertion fails is released immediately. This prevents a
+newer event from overtaking an older loss marker and makes loss visible without
+inventing a worker-side session sequence.
+
+The native reporter covers uncaught throws escaping timers,
+`process.nextTick`, guarded Promise/microtask jobs, and native task/completion
+callbacks. The patched Hermes job queue captures scheduler principal, a
+monotonic job identity, and the associated evaluation when each job is enqueued;
+the host consumes the exact failed-job context after an escaping reaction rather
+than inferring an owner at report time. Hermes' Promise rejection hooks retain
+the exact Promise and reason in a bounded owner-thread queue until the end of the
+poll iteration, cancel by Promise identity when a handler attaches first, and
+consult admitted JavaScript/process listeners before publishing. The private
+top-level-await settlement rejection handler attaches to that same Promise, so
+its evaluation `Throw` outcome cancels the pending rejection record and is never
+duplicated as a background event. `ex_hermes_value_safe_throw_metadata` returns
+the rejection-time engine metadata before the consumer renders and releases the
+rooted value. No path in the authenticated reporter writes the raw value, returns
+a fatal poll status, or sets an exit code `[observed]`
+(`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`;
+`src/engine/hermes_structured.rs`; `src/bin/ibex/engine/hermes.rs`;
+[LLP 0024](./0024-structured-evaluation-and-session.spec.md#9-asynchronous-failures)).
+
+### The structured lowered-session extension
+
+Authenticated session execution uses an explicitly versioned extension to the
+embedding surface rather than widening the five-function semver-major
+contract. `ex_hermes_eval_lowered_session` accepts caller-borrowed,
+explicit-length UTF-8 buffers for the lowered wrapper, composed source map, and
+source label, a checked declaration inventory, and an
+`ExHermesSessionImportPlan`. The outer import plan and every nested static-import
+and binding row carry both `abi_version` and `struct_size`. Native validation
+requires the current exact layout, contiguous binding ranges, valid
+kind/name combinations, and one-to-one agreement between published import
+bindings and import declarations before it compiles or mutates session state
+`[observed]` (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+
+The static-import plan contains the authenticated entry's canonical VFS
+SourceId and file arguments plus logical referrer, specifier, binding kind, and
+imported/local-name data produced by checked AST lowering. It contains no host
+path, loader function, or caller-selected resolver. Before materializing an
+edge, native code reserves the direct entry under that SourceId in the
+bootstrap-captured private module cache. Self-import, relative imports,
+`import.meta`, `require.main`, and the direct entry therefore share one typed
+identity without treating the private host path as a cache key. Native code
+then resolves every edge through the armed Host, passes the authenticated full
+module record to the private loader, and roots the returned binding values. All
+resolution, module evaluation, and default/named/namespace property reads
+complete before the declaration transaction starts. Native then repeats
+declaration feasibility, begins the transaction, and initializes the checked
+read-only import cells. A resolution, authorization, module-evaluation, or
+binding-read failure therefore publishes no declaration `[observed]`
+(`src/engine/hermes_runtime.cc`; `src/engine/bootstrap/module-loader.js`;
+`src/host/abi.rs`).
+
+`EX_HERMES_SESSION_IMPORT_PLAN_ABI_VERSION` is currently `4`. Version 2
+introduced the borrowed, explicit-length SourceId used for the direct-entry
+cache reservation; the current v4 tail also carries the generated-entry
+provenance record and closed structured-source kind. Native validation requires
+the exact v4 size and rejects older or partially initialized layouts. The independent
+C11 consumer `src/engine/exact_runtime_c_abi_check.c` compile-checks the version,
+field layout, and exact function-pointer type in addition to the Rust/C++
+consumers. Input pointers remain borrowed for the call; structured result-owned
+byte buffers retain the ownership rules described below. This extension is
+versioned and fail-closed but is not added to LLP 0000's narrow five-function
+consumer contract; promoting it to that semver-major list would require an LLP
+0000 amendment.
+
 ### Runtime-driving thread contract
 
 Every entry point that drives one Hermes runtime — including creation,
@@ -84,7 +358,16 @@ ingresses, and destruction — is owner-thread-only and serialized per runtime.
 An off-owner or concurrent drive refuses with a stable error before touching
 JSI, graph state, or event-loop state. Same-thread nesting into a *different*
 runtime remains permitted and restores the outer runtime's attribution context
-on unwind; recursive or overlapping drive of the same runtime is not.
+on unwind; recursive or overlapping drive of the same runtime is not. A nested
+runtime begins with its own root/no-native principal boundary: the guard saves,
+clears, and restores the outer legacy module id, native callback principal, and
+typed-filesystem principal stack as well as the VM attribution pointer and Host
+context. Bare numeric principal ids are never translated between runtime/Host
+generations; an intentional cross-runtime delegation requires an explicit
+authenticated capability. The same dynamic boundary wraps construction before
+trusted bootstrap and registered teardown/cleanup; worker scopes select no VM
+pointer off-owner and install only their explicitly captured typed principal
+stack.
 
 This is the normative contract adopted with LLP 0026. ENG-25060 applies one
 registry-backed refusal guard to eval, poll, module-runner operations, and
@@ -94,6 +377,15 @@ drive. Same-thread nested different-runtime entry remains valid because active
 drive state is per registry generation. The remaining public JSI-mutating
 setter inventory must either use this gate or retain an equivalent explicit
 owner check; the generated ABI inventory prevents an unreviewed new route.
+Construction and the cleanup phase after the teardown refusal check use the
+same runtime/Host/principal dynamic-boundary semantics even though an
+unregistered or Closing runtime cannot enter the registry-backed drive guard.
+Pre-registration bootstrap evaluation uses a private construction-only helper;
+the public `ex_hermes_eval` symbol has no bootstrap exception and therefore
+never inspects a caller-supplied runtime pointer after gate refusal. The
+any-thread callback-backlog observation is not a runtime drive: it instead
+holds the runtime registry's live-generation pin across both queue reads so a
+concurrent teardown cannot free their mutexes between validation and access.
 
 ### Native module-runner ABI
 
@@ -141,9 +433,10 @@ The CapSec registry classifies graph/context construction and link setup as
 authority-control-plane operations, release as authority release, factory
 compile/instantiate/declare/execute, CommonJS evaluation, and CommonJS adapter
 creation as closed `vm:evaluate`, and diagnostic namespace serialization as
-closed `runtime:inspect`. The experimental runner
-cannot silently acquire evaluator or inspection authority before ENG-25062
-lands its exact graph authorization profile.
+closed `runtime:inspect`. The runner can acquire evaluator or inspection
+authority only through the exact graph authorization profile registered by
+ENG-25062; an absent or mismatched profile refuses rather than falling back to
+a generic host bridge.
 
 This family is a provisional extension, not an addition to LLP 0000's five-
 function semver-major minimum. `ex_hermes_try_destroy(runtime, nonce)` is the
@@ -201,13 +494,46 @@ semver-major contract.
 LLP 0021 adds a source-derived security inventory across the public ABI
 families: the Rust/native `ex_host_*` callbacks, the `ex_hermes_*` embedding
 surface, the `ex_worklet_*` surface, and the Android Java/JNI bridge. The
-current generator finds 126, 55, and 15 symbols in the first three families,
-plus one `ex_android_*`, 39 Java, and 8 JNI routes (244 total). It groups source
+current generator finds 143 `ex_host_*`, 70 `ex_hermes_*`, 15 `ex_worklet_*`,
+one `ex_android_*`, 39 Java, and 8 JNI surfaces before the additive private GPU
+ABI is included. Generated inventory artifacts, rather than this prose count,
+are the authority for the merged surface total. The generator groups source
 definitions by target variant, including weak/default stubs, rather than
 maintaining a copied symbol list `[observed]`
-(`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`). Those rows
-are classification and fixture obligations, not a conformance claim; every WP1
-target cell remains unsupported.
+(`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
+
+Each inventory row also carries the exact source-derived return and parameter
+contract for every definition. A non-void return creates the real
+`[[return]]` output slot; a void return does not create a synthetic slot.
+Const pointers are borrowed inputs, scalar parameters are inputs, and mutable
+pointers remain unknown unless their signature or a strict `@abi-output`
+annotation proves an output/inout role and ownership. Nominal runtime/file
+handles and callback-context pointers are borrowed inputs (destroy/free/close
+entries are callee-consuming inputs), while the Java declaration is the source
+of output membership and must agree with any bound JNI descriptor.
+Buffer/length pairs, callback payloads, output selectors, and release functions
+are explicit. Named C aggregate layouts expand only source-annotated members
+actually written by a definition; nested owned bytes, value handles, and source
+position arrays retain distinct member aliases and release/length metadata.
+The result init/dispose helpers expose only the direct members they clear and
+do not fabricate element payloads for the reset `positions` collection.
+Callback registrations bind their complete nested signatures, including the
+native-to-embedder payload direction and the embedder-to-native return/out
+direction. Only native-to-embedder payloads are catalog outputs. The deprecated
+raw-pointer watchdog registration remains structural because its implementation
+provably never invokes the callback.
+
+This produces 226 membership-complete output-bearing surface accounts and 50
+structural-only accounts, with no unresolved membership accounts. The 226
+output-bearing accounts expand to 417 catalog selectors (208 returns, 150 out
+members, and 59 callback payloads). Fifty-one output-bearing accounts have
+membership-complete pointer slots whose ownership still blocks safe execution.
+Runtime observations of a pointer or aggregate value do not promote such a row
+while ownership remains unbound. Executor fixture
+coverage is evidence for a selected row, never the authority for whether the
+row exists `[observed]` (`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
+Those rows are classification and fixture obligations, not a conformance claim;
+every WP1 target cell remains unsupported.
 
 ### The `__hostCall` bridge — the generic host channel
 
@@ -277,6 +603,10 @@ Because installation creates and publishes JSI values, the setter is an
 owner-runtime-thread operation. An off-owner call returns `-7` before reading
 or mutating JSI or publishing any endowment `[observed]`
 (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+The common generation-backed drive gate also returns `-9` for a stale runtime
+or same-runtime reentrant installation attempt, before endowment authorization
+or baseline publication. This setter-specific code preserves the established
+`-7` consumer contract instead of leaking the generic drive-status numbering.
 The source inventory nevertheless classifies the JS invocation as closed
 `ipc:channel` until the native set and its app/agent context are authenticated
 by the armed artifact; the existence of a caller-selected allowlist is not
@@ -965,6 +1295,15 @@ getrandom: filesystem ops (`ex_host_fs_*`, `src/host/abi.rs:601-1262`), SQLite
 plus the metadata-only `ex_host_module_resolve_meta` that backs `require.resolve`
 without reading/transpiling the body, ENG-23007,
 `src/host/abi.rs:730-779` — see [LLP 0004](./0004-module-loading-and-builtins.explainer.md)).
+Structured static imports use the C-only
+`ex_host_session_static_import_resolve(logical_referrer, specifier,
+resolution_kind)` seam. It
+strictly parses the canonical logical referrer, derives its host directory only
+through an authenticated root binding, validates the closed typed resolution
+kind, and returns the same full source record used by the captured loader. No
+caller-controlled host pathname or public
+`require` function participates in this route `[observed]` (`src/host/abi.rs`;
+`src/host/mod.rs`).
 Strings returned to C are malloc'd via `CString::into_raw` and freed by
 `ex_host_free_string`/`ex_host_free_buffer` `[observed]`
 (`src/host/abi.rs:781-789, 650-659`).
@@ -1013,6 +1352,10 @@ allow-all production runtime.
    raw-pointer-only watchdog symbol remains ABI-compatible but fails closed;
    it cannot safely infer which generation an address once named `[observed]`
    (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+   Authenticated terminal sessions instead admit an exact credential and drive
+   checked source through `ex_hermes_eval_lowered_session`; its versioned
+   import plan is validated and materialized through the armed Host before the
+   persistent declaration transaction begins.
 5. `ex_hermes_destroy()` must run on the runtime's owner thread. It marks the
    pointer-plus-nonce registry identity closing, unregisters/cancels native
    callback sources, drains generation-scoped producer pins, and destroys

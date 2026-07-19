@@ -5,7 +5,23 @@
 **Systems:** CLI Runtime, REPL, Runtime, Module Loader, Security
 **Author:** Charlie Cheever / Codex / Claude
 **Date:** 2026-07-11
-**Revised:** 2026-07-15 (ENG-25066 switched file-module execution to the authenticated runner while preserving this document's script/prompt goals and session semantics)
+**Revised:** 2026-07-15 (ENG-25066 switched file-module execution to the
+authenticated runner while preserving this document's script/prompt goals and
+session semantics.)
+**Revised:** 2026-07-15 (implementation sync: Unix completion now runs from an
+authority-free static snapshot on a capacity-one producer while raw input stays
+live; interrupt prose cites LLP 0025's generated typed-promise machine directly;
+authenticated adapter-level PTY evidence exists without overclaiming the still-
+blocked public-binary target or Windows ConPTY.)
+**Revised:** 2026-07-14 (implementation sync: the armed session environment is
+an explicitly empty snapshot base plus independent per-principal overlays;
+bootstrap compatibility modes are launcher-captured, digest-bound fixed inputs,
+and `Bun === Exact` only when the snapshot opts into the Bun facade; diagnostic
+POSIX child IPC uses a private one-shot bootstrap socket while armed IPC remains
+closed and unadvertised.)
+**Revised:** 2026-07-13 (implementation sync: LLP 0025's v1 constants and IBDX
+wire annex now exists at `session/session-constants.v1.json`; `OBL-BOUNDS` cites
+the checked artifact instead of the superseded “open in both” status.)
 **Revised:** 2026-07-12 (round-8 revision, on dual-model round-7 review plus two
 independent Codex runs of round 6: names the rule the whole document turns on —
 *never tell the operator something untrue* — and applies it reflexively to §11,
@@ -63,8 +79,8 @@ assumed.
 A REPL is where a security model gets tested by a human in a hurry. Every
 convenience the prompt offers — display a value, complete a property, load a
 file, print the environment, accept an import attribute — is an opportunity to
-do something the armed runtime would otherwise refuse. Review of the current
-implementation found that this had already happened, repeatedly:
+do something the armed runtime would otherwise refuse. The original
+implementation review found that this had already happened, repeatedly:
 
 - `.env` enumerates the raw host environment through the Rust process, around
   the armed environment gate entirely.
@@ -471,7 +487,9 @@ cannot redirect a later root-relative read, import, or `.load`.
 
 Habitual host spellings (`/etc/passwd`, `/home/you/x`, `/README.md`) produce a
 clear **outside-mount error** — not `ENOENT`, not a host access — from every
-**effectful** operation: `fs`, module resolution, `.load`, watches, file URLs.
+path-classifying **effectful** operation: `fs`, module resolution, `.load`, and
+file URLs. Watch operations are closed earlier with `EPERM`, before path
+classification, as LLP 0023 §4.1/§7.2 requires.
 `node:path` itself never errors and never touches the host: `path.resolve` and
 `path.relative` *read session state* (the virtual cwd) and the rest are purely
 lexical, but none of them is a containment gate and none takes a filesystem
@@ -505,11 +523,14 @@ Language and evaluation obey LLP 0024 in full. The REPL-visible consequences:
   uses it fails with the stable unsupported error (LLP 0024 §3) — v1 has no
   asynchronous module graph, and this document will not imply one.
 - **`$_`** holds the last successfully displayed value; it begins `undefined`;
-  an error does not replace it — and neither does a *failed display*. The shipping
-  REPL assigns `globalThis.$_` **before** it renders, so a value whose display
-  throws already replaces `$_` today; that is a live contradiction of this rule,
-  and AC 6 gates it. Any user mutation of `$_` permanently disables
-  auto-update, with one notice. (Node spells this `_`. Ibex spells it `$_` and
+  an error does not replace it — and neither does a *failed display*. The evaluator
+  commits the update only after the broker's display acknowledgement. User
+  mutation or takeover disables auto-update according to LLP 0024 §7.8's fate
+  table, with one notice; an uninitialized lexical takeover that rolls back also
+  rolls back its disable, while committed mutations and declarations retain it.
+  Detection is deliberately bounded: restoration of the runtime's exact saved
+  accessor descriptor is indistinguishable without the native generation counter
+  LLP 0024 records. (Node spells this `_`. Ibex spells it `$_` and
   accepts the divergence under compatibility priority 5, because `_` is too
   valuable an identifier to reserve at a prompt where lodash is one import away.)
 - The `repl:<n>` ordinal advances once per **submitted evaluation** (LLP 0024
@@ -724,23 +745,34 @@ file reads are unreachable from session commands. The read is subject to every
 ceiling, guard, protected object, and denial stratum above, and is never a bypass:
 `.load /etc/passwd` gets the outside-mount error; `.load` of a policy-denied file
 gets the denial, with evidence. The credential and the typed read route are
-obligations on LLP 0024 §1 and LLP 0021 (`OBL-SUBMIT-CREDENTIAL`, `OBL-TYPED-READ`);
-neither carries them today, and LLP 0024 still uses the retired "decision evidence"
-terminology, which `OBL-SUBMIT-CREDENTIAL` records as outstanding.
+obligations shared with LLP 0024 §1 and LLP 0021
+(`OBL-SUBMIT-CREDENTIAL`, `OBL-TYPED-READ`). LLP 0024 uses the same linear
+`SubmissionCredential` vocabulary and the implementation consumes it through the
+typed pre-read route; neither sibling treats post-decision evidence as an input
+credential.
 
 **Raw native bridges are sealed or converted.** A guarantee stated over
 `process`, `fs`, and the module facade is worthless if the same capability sits
 one identifier away on the root global.
 
-The honest statement of today's risk is narrower than an earlier revision of this
-document claimed, and the correction matters: `__exactGetEnv` and
-`__exactGetAllEnv` do read and enumerate the *host* environment, but they consult
-the legacy capability oracle first, and under an armed host that check **fails
-closed** — so they are not, at this moment, a live bypass of `process.env`'s armed
-classification. They must still be sealed or converted, because a guarantee that
-holds only while a *legacy oracle* keeps refusing is not a guarantee; it is a
-coincidence with a shelf life. Overstating a hazard is its own kind of dishonesty,
-and this document would rather be exactly right about what is broken.
+The armed environment route is now **converted**, not merely protected by a
+legacy-oracle denial. Bootstrap captures `__exactGetEnv`, `__exactGetAllEnv`, and
+the armed-only setter as private mediators, while the root spellings are governed
+by the disposition seal. In an armed runtime scalar reads and non-empty
+enumeration consult only the current authenticated principal's overlay, after
+the exact requested and commit decisions; neither route reads the host process
+environment. The unarmed diagnostic route remains a separate compatibility
+behavior. This distinction is load-bearing: the armed guarantee no longer
+depends on a legacy oracle continuing to fail by coincidence.
+
+Diagnostic child-process IPC follows the same separation. An unarmed POSIX
+child may consume one privately captured process-channel socket so compatibility
+fixtures can implement `process.send`, but neither `EXACT_IPC_FD` nor its
+serialization control is projected through `process.env`, and the temporary
+root carrier is gone before project source runs. Armed construction never
+adopts that environment-carried channel; `ipc:channel` remains closed and
+unadvertised pending a typed, attributed construction credential and complete
+target evidence (LLP 0021 §WP7).
 
 The implementation maintains a **generated root-global disposition manifest**.
 This is deliberately *not* framed as a projection of the capsec registry alone,
@@ -783,6 +815,24 @@ printed to the terminal is closed state exfiltrated**. Accordingly `.env` is
 follows the armed classification: an empty base with per-principal overlays as
 the registry admits, never the host environment, and never the REPL's
 presentation variables.
+
+That base is the required literal `environmentBase: []` in the authenticated
+snapshot, not an empty-looking facade over a hidden host fallback. Every armed
+read, write, deletion, and non-empty enumeration member operates on the current
+authenticated principal's runtime-scoped overlay, with exact-name requested and
+commit decisions; read and write authority are independent. A principal cannot
+observe or mutate another principal's overlay, and a new runtime inherits no
+overlay from an earlier one.
+
+Bootstrap compatibility shape uses a different channel. The launcher captures
+the admitted fixed controls before arming and binds the normalized
+`bootstrapCompatibilityModes` set into the snapshot digest. Trusted bootstrap
+may consume that fixed projection, but no post-arming environment read may
+change it and the temporary carrier is sealed before project code. `Bun` is
+therefore absent by default; when the authenticated set includes `bun`, it is
+the same object as `Exact`, and `Bun.env`, `Exact.env`, and `process.env` project
+the same principal overlay. The mode itself is not an environment entry and
+grants no effect authority.
 
 The one exception is **terminal-operator state** — the history file, prompt and
 color configuration, the CLI's private TTY determination — which the CLI owns for
@@ -860,9 +910,21 @@ accessor or a Proxy, member completion yields **no candidates** — it never fal
 back to evaluating the base expression. Syntactic screening (rejecting calls,
 indexing, operators) is necessary but not sufficient.
 
-Queries are bounded by a documented budget; a query that misses it yields no
-candidates, leaves the session usable, and does not corrupt in-progress
-evaluation. Completion *insertion* is specified separately from display: a
+On Unix the production producer receives an immutable snapshot containing only
+those parser-tracked names; generated command and builtin manifests remain
+static inputs. It owns no evaluator, `Host`, loader, filesystem, or mutable
+session handle. One producer thread has a capacity-one job lane and a
+capacity-one result lane, while an independent bounded raw reader continues to
+consume interrupt bytes. Request id, executing target id, and buffer generation
+must all match before a result is adopted. Queue occupancy is therefore bounded
+and stale work is advisory-only. The separate elapsed completion budget remains
+an explicitly unbound constant in LLP 0025 §12; this paragraph does not invent
+one.
+
+Before public target advertisement, the remaining contract requires a
+documented elapsed query budget; a query that misses it must yield no candidates,
+leave the session usable, and not corrupt in-progress evaluation. Completion
+*insertion* is specified separately from display: a
 non-identifier property name is either omitted or inserted as correctly escaped
 bracket notation, never as a broken identifier. Hints follow the same rules.
 Completion of import specifiers may use the static builtin list but must not
@@ -884,26 +946,23 @@ history work to do.
 
 **Interruption is target-based, and the operator-facing promise is that every
 notice is true.** `Ctrl+C` cancels an input, a continuation, or an evaluation. The
-state machine, the latch rules, and the trajectories are **LLP 0025 §6's, and this
+state machine, the typed-promise/credit rules, and the trajectories are **LLP 0025 §6's, and this
 document cites them rather than paraphrasing them** — paraphrase is how every
 cross-document claim in this corpus has gone stale, this one included: a previous
 revision inherited the word "unwind" for the exit mechanism, which LLP 0025 shows is
 not what happens.
 
-The REPL-visible guarantees are these, stated in LLP 0025 §6's own terms — over work
-**class and epoch**, never over target identity. The distinction is not pedantry:
-under a `setInterval` storm the callback being interrupted is a *different object*
-each time, so a guarantee phrased over target identity would be **vacuous in exactly
-the case a stuck operator needs it**. An epoch opens when work becomes in-flight from
-quiescence and closes only on quiescence plus a republished prompt.
-
-**Two interrupts within one work epoch** end the session — terminal restored, exit
-**130** — without depending on the engine, the worker, or JavaScript cooperating. The
-worst case from any reachable editor state is **three**, because an interrupt aimed at
-a non-empty edit buffer spends itself discarding the buffer. A second interrupt at an
-**idle** prompt ends the session by *orderly shutdown*, honoring root-set
-`process.exitCode`, not by 130. Modes with **no editor** — transcript, program,
-one-shot, and interactive-without-a-terminal — terminate on a **single** interrupt.
+The REPL-visible guarantee is the one generated and model-checked in LLP 0025
+§6, not a local epoch paraphrase: the typed promise makes the next interrupt
+terminal after any notice that says “press Ctrl+C again,” with that promise's
+status class unless a cause has since latched; the escape credit makes the third
+consecutive interrupt terminal from every reachable editor state. A first press
+that only discards a non-empty buffer prints no promise, which is why that path
+can require three. An idle-prompt promise is *orderly* and reads root-set
+`process.exitCode` at exit, rather than manufacturing 130. Modes with **no
+editor** — transcript, program, one-shot, and interactive-without-a-terminal —
+terminate on a **single** interrupt. Exact targets still matter for cancellation,
+but target turnover cannot weaken either arithmetic escape property.
 
 **The bound is not the property that matters; the honesty of the notice is.** The
 guarantee worth making is that *every notice becomes true*: each press either ends
@@ -976,7 +1035,7 @@ inside a compound row.
 | `OBL-ENTRY` | Armed snapshot carries a synthetic entry (closed enum `file`/`stdin`/`repl`/`eval` + identity) | LLP 0021 schema | AC 3 |
 | `OBL-ROOT-IMPORTS` | A **versioned artifact** records the exact root-import surface; artifacts predating it are refused with an upgrade diagnostic (§2) | LLP 0014 generator | AC 3 |
 | `OBL-ROOT-BUILTINS` | The exact root builtin set for a synthetic-entry session, authored rather than inferred | LLP 0014 / LLP 0021 | AC 3 |
-| `OBL-ENV-BASE` | An explicitly empty session environment base plus admitted overlays, bound in the snapshot | LLP 0021 schema | AC 10 |
+| `OBL-ENV-BASE` | Required `environmentBase: []`; runtime-scoped, per-principal exact-name overlays with no host fallback; and a separate digest-bound fixed `bootstrapCompatibilityModes` set that is never projected as environment data | LLP 0021 schema + arming | AC 10 |
 | `OBL-INGRESS-ROWS` | An `authenticated-code-ingress` rationale on the canonical **dispatch route**, with its obligations carried as target-cell fixtures or a checked dataset — a non-capability edge carries only `{id, surface, rationaleId, rationale}` and cannot express them | capsec registry | AC 1 |
 | `OBL-LOADER-CLOSED` | `require.main`/`require.cache`/`process.mainModule` unreachable in every mode | registry + LLP 0024 | AC 1 |
 | `OBL-IBEX-SEAL` | The end-of-bootstrap seal removes `Ibex.permissions`/`Ibex.authority` session-wide (§6) | LLP 0013 bootstrap seal | AC 7 |
@@ -988,12 +1047,12 @@ inside a compound row.
 | `OBL-RESERVED-KEYS` | A cross-language generated reserved-key artifact, and a refusal enforced at the **loader's native boundary** so an aliased or shadowed loader cannot evade it | LLP 0014 | AC 7 |
 | `OBL-FILE-GRANTS` | Reserved-key disposition for unbundled direct file execution | LLP 0014 | — |
 | `OBL-UTF8` | Strict UTF-8 decoding with a named refusal, **and a defined transcript resynchronization boundary** — absent one, malformed bytes are fatal in transcript mode | LLP 0024 §1 | AC 4 |
-| `OBL-BOUNDS` | Pinned renderer grammar and numeric bounds, without which transcript byte-fixtures cannot be pinned | LLP 0024, LLP 0025 (open in both) | AC 4, AC 13 |
-| `OBL-INTERRUPT-CLASS` | An obligation LLP 0025 places on **this** document: state the escape guarantee over work **class and epoch**, never target identity, which a turnover storm falsifies. *Discharged in §10 against 0025 `7b89315f8ad7`* | this document (§10) | AC 15 |
+| `OBL-BOUNDS` | Pinned renderer grammar and numeric bounds, without which transcript byte-fixtures cannot be pinned | `session/session-constants.v1.json` (LLP 0025 §12); the completion and async-storm-window values remain explicitly unbound there | AC 4, AC 13 |
+| `OBL-INTERRUPT-CLASS` | An obligation LLP 0025 places on **this** document: cite its generated typed-promise and escape-credit properties directly, without recreating a work-epoch alias or making target turnover part of the bound | this document (§10) | AC 15 |
 | `OBL-ESCAPE` | Escape from an uninterruptible synchronous loop (supervisor/worker) | LLP 0025 §7 | AC 15 |
-| `OBL-STARTUP-DIAG` | One owner for whether a startup diagnostic may name a host path. Three documents hold three positions today: §4 exempts pre-evaluation CLI diagnostics; LLP 0023 §1.2 mandates a **symbolic** package locator and attributes that rule to LLP 0025; LLP 0025 §9 disclaims having imposed it | LLP 0023 ↔ LLP 0025 ↔ this document | AC 5 |
+| `OBL-STARTUP-DIAG` | The aligned startup-diagnostic rule: JavaScript-visible surfaces never expose host paths, while a pre-JavaScript arming refusal may name the authenticated offending package root so the operator can repair the layout. LLP 0023 owns the concrete outside-project-mount diagnostic; LLP 0025 imposes no contrary symbolic-only rule | LLP 0023 ↔ this document | AC 5 |
 | `OBL-PLAN` | A companion Plan sequencing the ABI, engine patches, supervisor, schemas, and harness, and naming a minimal conformant v1 | this corpus | — |
-| `OBL-LEDGER-CHECK` | The obligation data file, owner-side attestations, and the `./ref-check` join that would let this table claim anything at all | LLP 0000 (process tooling) | — |
+| `OBL-LEDGER-CHECK` | The obligation data file, owner-side attestations, and the `./ref-check` join that would let this table claim anything at all; **open as ENG-25052**, so this prose is not itself the control | LLP 0000 (process tooling) | — |
 
 ## Compatibility priorities
 
@@ -1064,9 +1123,9 @@ escape them; source and vendored-generated builtins run the same fixtures.
    `const x = await f()`; assigning to a prior-input `const` throws while
    redeclaring succeeds; an imported module using top-level `await` fails with the
    stable unsupported error; an input whose value is an instrumented thenable is
-   displayed without `then` being called; **a value whose display throws does not
-   replace `$_`** — the shipping REPL assigns `$_` before rendering, so this fails
-   today; a declaration displays nothing while
+   displayed without `then` being called; **a value whose display falls back or
+   fails does not replace `$_`** — the shipping acknowledgement commits `$_` only
+   after the broker reports `Displayed`; a declaration displays nothing while
    `void 0` displays `undefined`; `export` and `import.meta` are syntax errors at
    the prompt while `import.meta.main` holds in program mode; an error on line 3
    of a multiline input reports `repl:<n>` at line 3.
@@ -1102,8 +1161,15 @@ escape them; source and vendored-generated builtins run the same fixtures.
    an unsealed new bridge.
 10. **Affordance parity (§7):** a host-only marker environment variable set for
     the test never appears in any command output, banner, error, hint, or
-    completion; `.env` is absent; `process.env` shows the armed base plus admitted
-    overlays only.
+    completion; `.env` is absent; and `process.env` starts empty rather than
+    revealing the host environment. Two authenticated principals can write the
+    same admitted name and each reads/enumerates only its own value; write-only
+    authority does not disclose the value, mutation never changes the host
+    process environment, and a fresh runtime has no inherited overlay. Without
+    the snapshot mode `typeof Bun` is `"undefined"`; with authenticated `bun`,
+    `Bun === Exact` and `Bun.env === Exact.env === process.env`. Changing a
+    compatibility-named host variable or overlay entry after arming changes
+    neither facade presence nor compatibility behavior.
 11. **`.load` (§8):** `.load` of an outside-mount path gives the outside-mount
     error; `.load` of a policy-denied file gives the denial with decision
     evidence, **and the denial is taken before the bytes are read** — an
@@ -1129,12 +1195,15 @@ escape them; source and vendored-generated builtins run the same fixtures.
     correct; a non-identifier property inserts as escaped bracket notation.
 14. **WP7 closures (§7):** spawn, inspector, VM, workers, WASI, and native-addon
     surfaces exercised from the prompt are denied exactly as in file execution.
-15. **Terminal, interrupt, and exit (§10):** a PTY suite exercised **through the
-    product surface**, importing LLP 0025's interruption, restoration, and lifecycle
-    criteria by reference. Two interrupts **within one work epoch** end a runaway
-    evaluation with exit 130 and a restored terminal — **including under a
-    `setInterval` turnover storm**, where a target-identity rule would fail; at most
-    three from any editor state; a single interrupt terminates the editorless modes;
+15. **Terminal, interrupt, and exit (§10):** LLP 0025's interruption,
+    restoration, and lifecycle criteria are imported by reference. An authenticated
+    Unix adapter-level PTY now proves the production raw editor consumes `Ctrl+C`
+    during a deliberately wedged completion, preserves and redraws the buffer,
+    exits 130 on the promised second byte, and restores termios. The public-binary
+    PTY suite remains gated by ENG-24933, and Windows still needs ConPTY evidence.
+    The next interrupt after an `Interrupt(130)` promise exits 130 — **including
+    under a `setInterval` turnover storm**, where a target-identity rule would fail;
+    the credit bounds every editor state at three; a single interrupt terminates the editorless modes;
     **every notice is true** (each press either ends the session or prints a further
     notice that is itself honored within the bound); root `process.exit(7)` exits 7
     with the terminal restored and no code after the call running; a package-attributed
@@ -1178,9 +1247,11 @@ escape them; source and vendored-generated builtins run the same fixtures.
 - Display is inert (type tags) until the native trap-free primitive lands —
   visibly worse output, in exchange for a prompt that cannot be made to execute a
   hostile object's getter by looking at it.
-- A PTY, transcript, and registry-generated conformance harness must be built;
-  the REPL today has only unit tests, and nearly every criterion above is
-  uncovered.
+- Transcript and registry-generated conformance harnesses now cover substantial
+  portions of the contract, and the Unix production editor has authenticated
+  adapter-level PTY evidence for the completion/interrupt release gate. The
+  honest remaining terminal gap is narrower: ENG-24933 blocks the advertised
+  public-binary PTY route, and Windows still lacks equivalent ConPTY evidence.
 
 ## Open questions
 

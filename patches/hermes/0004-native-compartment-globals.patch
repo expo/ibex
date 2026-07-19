@@ -30,7 +30,7 @@
 # eval/Function-produced code to the caller's compartment, and a native lockdown
 # freeze primitive.
 diff --git a/include/hermes/VM/Domain.h b/include/hermes/VM/Domain.h
-index 9a37c7c5c..7d4b8fede 100644
+index 9a37c7c5c6278a6958e93879b4c72f01df6f998d..f93f07d7910769583dce18dd0885282b3c3159dc 100644
 --- a/include/hermes/VM/Domain.h
 +++ b/include/hermes/VM/Domain.h
 @@ -113,6 +113,22 @@ class Domain final : public GCCell {
@@ -85,7 +85,7 @@ index 9a37c7c5c..7d4b8fede 100644
    static PseudoHandle<Domain> create(Runtime &runtime);
  
 diff --git a/lib/VM/Domain.cpp b/lib/VM/Domain.cpp
-index e1b819ac9..24aecafee 100644
+index e1b819ac9fdffb3ed4b09498e3d6e9c3dbb33fa8..59b29ea979f980c8a70fbc8618cb64b161c614cc 100644
 --- a/lib/VM/Domain.cpp
 +++ b/lib/VM/Domain.cpp
 @@ -38,6 +38,8 @@ void DomainBuildMeta(const GCCell *cell, Metadata::Builder &mb) {
@@ -98,7 +98,7 @@ index e1b819ac9..24aecafee 100644
  
  PseudoHandle<Domain> Domain::create(Runtime &runtime) {
 diff --git a/lib/VM/Interpreter.cpp b/lib/VM/Interpreter.cpp
-index 63126c23f..7f8769c6c 100644
+index 63126c23f691c41ec098f2133ab3c647cdcdab69..3b33460b22813959c77ca512f0829da2b8bc7c9f 100644
 --- a/lib/VM/Interpreter.cpp
 +++ b/lib/VM/Interpreter.cpp
 @@ -30,6 +30,7 @@
@@ -160,7 +160,7 @@ index 63126c23f..7f8769c6c 100644
          DISPATCH;
        }
 diff --git a/lib/VM/Interpreter-slowpaths.cpp b/lib/VM/Interpreter-slowpaths.cpp
-index fa585f1..a5d6992 100644
+index fa585f16fcf24f1aa2954b930ebc44ab3e2bcd09..b30b1a94ef85beea9664765132405495ad3a6df2 100644
 --- a/lib/VM/Interpreter-slowpaths.cpp
 +++ b/lib/VM/Interpreter-slowpaths.cpp
 @@ -12,6 +12,7 @@
@@ -215,10 +215,10 @@ index fa585f1..a5d6992 100644
              ID(ip->iDeclareGlobalVar.op1),
              desc)) {
 diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
-index ce55c5401..665ecc0a6 100644
+index ce55c5401747a3e4a50c840c75065c530af3fde1..89ad087c4394ac341c0699ae6485b204e5982c41 100644
 --- a/lib/VM/JSLib/GlobalObject.cpp
 +++ b/lib/VM/JSLib/GlobalObject.cpp
-@@ -25,9 +25,35 @@
+@@ -25,9 +25,36 @@
  
  #include "JSLibInternal.h"
  
@@ -234,8 +234,8 @@ index ce55c5401..665ecc0a6 100644
 +/// loader compiles a package's module body (`new Function(...)`), it calls this
 +/// to set that Domain's compartment global, so bare-global references in the
 +/// package's code (and any function it defines, which shares the Domain) resolve
-+/// through `obj` instead of the real global. A no-op for native callees (no
-+/// CodeBlock) — the loader only ever passes a freshly compiled JSFunction.
++/// through `obj` instead of the real global. Returns true only after a Domain
++/// was bound; the loader refuses false rather than executing against root.
 +CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime) {
 +  NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
 +  JSFunction *fn = dyn_vmcast<JSFunction>(args.getArg(0));
@@ -245,16 +245,17 @@ index ce55c5401..665ecc0a6 100644
 +    if (rm) {
 +      if (Domain *domain = rm->getDomainUnsafe(runtime)) {
 +        domain->setCompartmentGlobal(runtime, obj);
++        return HermesValue::encodeBoolValue(true);
 +      }
 +    }
 +  }
-+  return HermesValue::encodeUndefinedValue();
++  return HermesValue::encodeBoolValue(false);
 +}
 +
  /// ES5.1 15.1.2.4
  CallResult<HermesValue> isNaN(void *, Runtime &runtime) {
    NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
-@@ -733,6 +759,13 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
+@@ -733,6 +760,13 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
    // Define the 'print' function.
    defineGlobalFunc(Predefined::getSymbolID(Predefined::print), print, 1);
  

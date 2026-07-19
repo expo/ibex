@@ -12,7 +12,7 @@ use serde_json::to_value;
 use crate::canonical::to_jcs_bytes;
 use crate::containment::validate_occurrence_stage_facts;
 use crate::model::{
-    ActionId, Digest, EffectOccurrence, Generation, NonEmptyString, StableId, Stage,
+    ActionId, Digest, EffectOccurrence, Generation, NonEmptyString, Principal, StableId, Stage,
 };
 use crate::{Error, Result};
 
@@ -43,12 +43,25 @@ pub struct GenerationSet {
     pub handle: Generation,
 }
 
+struct CacheBindingIdentity {
+    vocab_digest: Digest,
+    registry_digest: Digest,
+    policy_digest: Digest,
+    armed_snapshot_digest: Digest,
+    generations: GenerationSet,
+}
+
 /// The complete minimum cache identity frozen by LLP 0021, plus exact
 /// positive-source identity to close handle-possession collisions.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct DecisionCacheKey {
     pub action: ActionId,
     pub resource_canonical_bytes: Vec<u8>,
+    /// The principal whose binding-relative projection produced `resource`.
+    /// The complete constrained set alone is insufficient: two package
+    /// principals can have identical Package-relative bytes while naming
+    /// separate authorization namespaces.
+    pub projected_principal_canonical_bytes: Vec<u8>,
     pub principal_set_canonical_bytes: Vec<u8>,
     pub effect_owner_canonical_bytes: Vec<u8>,
     pub stage: Stage,
@@ -61,20 +74,56 @@ pub struct DecisionCacheKey {
 }
 
 impl DecisionCacheKey {
+    /// Construct a cache key through the armed context's bound-volume
+    /// canonicalizer. `occurrence` must already be projected for `principal`;
+    /// the context then guarantees that cache resource bytes use the exact
+    /// post-canonicalization coordinate used by authority matching.
     pub fn new(
+        context: &crate::decision::VerifiedDecisionContext,
         occurrence: &EffectOccurrence,
-        vocab_digest: Digest,
-        registry_digest: Digest,
-        policy_digest: Digest,
-        armed_snapshot_digest: Digest,
-        generations: GenerationSet,
+        principal: &Principal,
+        positive_authority: PositiveAuthorityContext,
+    ) -> Result<Self> {
+        let occurrence = context.canonicalize_occurrence_for_cache(occurrence, principal)?;
+        let identity = context.identity();
+        Self::from_canonical_occurrence(
+            &occurrence,
+            principal,
+            CacheBindingIdentity {
+                vocab_digest: identity.vocab_digest.clone(),
+                registry_digest: identity.registry_digest.clone(),
+                policy_digest: identity.policy_digest.clone(),
+                armed_snapshot_digest: identity.armed_snapshot_digest.clone(),
+                generations: context.authority().generations,
+            },
+            positive_authority,
+        )
+    }
+
+    fn from_canonical_occurrence(
+        occurrence: &EffectOccurrence,
+        projected_principal: &Principal,
+        identity: CacheBindingIdentity,
         positive_authority: PositiveAuthorityContext,
     ) -> Result<Self> {
         if !occurrence.principal_context_is_valid() {
             return invalid("decision cache occurrence has invalid principal context");
         }
+        if !occurrence
+            .constrained_principals
+            .contains(projected_principal)
+        {
+            return invalid("decision cache projection principal is not constrained");
+        }
         validate_occurrence_stage_facts(occurrence)?;
         positive_authority.validate()?;
+        let CacheBindingIdentity {
+            vocab_digest,
+            registry_digest,
+            policy_digest,
+            armed_snapshot_digest,
+            generations,
+        } = identity;
         Ok(Self {
             action: occurrence.action.clone(),
             resource_canonical_bytes: to_jcs_bytes(&to_value(&occurrence.resource).map_err(
@@ -83,6 +132,12 @@ impl DecisionCacheKey {
                     message: error.to_string(),
                 },
             )?)?,
+            projected_principal_canonical_bytes: to_jcs_bytes(
+                &to_value(projected_principal).map_err(|error| Error::InvalidCanonicalData {
+                    path: "projectedPrincipal".into(),
+                    message: error.to_string(),
+                })?,
+            )?,
             principal_set_canonical_bytes: to_jcs_bytes(
                 &to_value(&occurrence.constrained_principals).map_err(|error| {
                     Error::InvalidCanonicalData {
@@ -107,6 +162,30 @@ impl DecisionCacheKey {
             generations,
             positive_authority,
         })
+    }
+
+    #[cfg(test)]
+    fn new_unchecked_for_test(
+        occurrence: &EffectOccurrence,
+        vocab_digest: Digest,
+        registry_digest: Digest,
+        policy_digest: Digest,
+        armed_snapshot_digest: Digest,
+        generations: GenerationSet,
+        positive_authority: PositiveAuthorityContext,
+    ) -> Result<Self> {
+        Self::from_canonical_occurrence(
+            occurrence,
+            &occurrence.actor,
+            CacheBindingIdentity {
+                vocab_digest,
+                registry_digest,
+                policy_digest,
+                armed_snapshot_digest,
+                generations,
+            },
+            positive_authority,
+        )
     }
 
     /// Repeat and cleanup stages require a live gate and must never be served
@@ -258,6 +337,16 @@ mod tests {
         serde_json::from_value(json!({ "kind": "root", "identity": name })).unwrap()
     }
 
+    fn package(name: &str) -> Principal {
+        serde_json::from_value(json!({
+            "kind": "package",
+            "name": name,
+            "integrity": digest(9),
+            "locator": format!("{name}@1.0.0")
+        }))
+        .unwrap()
+    }
+
     fn occurrence(stage: Stage) -> EffectOccurrence {
         let examples: Occurrences = serde_json::from_slice(include_bytes!(
             "../../../capsec/examples/effect-occurrences.canonical.json"
@@ -273,7 +362,7 @@ mod tests {
     }
 
     fn key(stage: Stage, generations: GenerationSet) -> DecisionCacheKey {
-        DecisionCacheKey::new(
+        DecisionCacheKey::new_unchecked_for_test(
             &occurrence(stage),
             digest(1),
             digest(2),
@@ -349,13 +438,59 @@ mod tests {
     }
 
     #[test]
+    fn binding_relative_projection_principal_is_part_of_the_exact_key() {
+        let mut occurrence = occurrence(Stage::Requested);
+        let package_a = package("a");
+        let package_b = package("b");
+        occurrence.actor = package_a.clone();
+        occurrence.effect_owner = package_a.clone();
+        occurrence.constrained_principals =
+            crate::model::canonicalize_principal_set([package_a.clone(), package_b.clone()])
+                .unwrap();
+        let positive = || PositiveAuthorityContext {
+            coverage_edge_id: StableId::new("edge.same-package-relative-bytes").unwrap(),
+            handle_ids: vec![],
+            dynamic_grant_ids: vec![],
+            operation_lease_ids: vec![],
+        };
+        let build = |principal: &Principal| {
+            DecisionCacheKey::from_canonical_occurrence(
+                &occurrence,
+                principal,
+                CacheBindingIdentity {
+                    vocab_digest: digest(1),
+                    registry_digest: digest(2),
+                    policy_digest: digest(3),
+                    armed_snapshot_digest: digest(4),
+                    generations: GenerationSet {
+                        negative: SafeUint::ZERO,
+                        dynamic: SafeUint::ZERO,
+                        handle: SafeUint::ZERO,
+                    },
+                },
+                positive(),
+            )
+            .unwrap()
+        };
+
+        let a = build(&package_a);
+        let b = build(&package_b);
+        assert_eq!(a.resource_canonical_bytes, b.resource_canonical_bytes);
+        assert_ne!(
+            a.projected_principal_canonical_bytes,
+            b.projected_principal_canonical_bytes
+        );
+        assert_ne!(a, b);
+    }
+
+    #[test]
     fn cache_key_rejects_unsorted_principals_and_authority_ids() {
         let generations = GenerationSet {
             negative: SafeUint::ZERO,
             dynamic: SafeUint::ZERO,
             handle: SafeUint::ZERO,
         };
-        let result = DecisionCacheKey::new(
+        let result = DecisionCacheKey::new_unchecked_for_test(
             &{
                 let mut occurrence = occurrence(Stage::Requested);
                 occurrence.actor = root("a");

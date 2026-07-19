@@ -33,6 +33,10 @@
       "type": "string",
       "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
     },
+    "packageLocator": {
+      "type": "string",
+      "pattern": "^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9._-]+)@[^@\\s\\u0000-\\u001F\\u007F-\\u009F]+$"
+    },
     "component": {
       "type": "object",
       "additionalProperties": false,
@@ -61,31 +65,44 @@
             "kind": { "const": "package" },
             "name": { "type": "string", "minLength": 1 },
             "integrity": { "$ref": "#/$defs/digest" },
-            "locator": { "type": "string", "minLength": 1 }
+            "locator": { "$ref": "#/$defs/packageLocator" }
           }
         }
       ]
     },
     "sourceId": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "principal", "path"],
-      "properties": {
-        "kind": { "const": "file" },
-        "principal": { "$ref": "#/$defs/principal" },
-        "path": {
-          "type": "array",
-          "minItems": 1,
-          "items": { "$ref": "#/$defs/component" }
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "principal", "path"],
+          "properties": {
+            "kind": { "const": "file" },
+            "principal": { "$ref": "#/$defs/principal" },
+            "path": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/component" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "domain", "sourceKey"],
+          "properties": {
+            "kind": { "const": "builtin" },
+            "domain": { "type": "string", "minLength": 1 },
+            "sourceKey": { "type": "string", "minLength": 1 }
+          }
         }
-      }
+      ]
     },
     "record": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "sourceId",
-        "path",
         "bindings",
         "artifact",
         "carrierIndex",
@@ -93,7 +110,6 @@
       ],
       "properties": {
         "sourceId": { "$ref": "#/$defs/sourceId" },
-        "path": { "type": "string", "minLength": 1 },
         "bindings": {
           "type": "array",
           "items": { "$ref": "#/$defs/binding" }

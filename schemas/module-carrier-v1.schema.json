@@ -34,6 +34,10 @@
       "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
     },
     "nonEmpty": { "type": "string", "minLength": 1 },
+    "packageLocator": {
+      "type": "string",
+      "pattern": "^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9._-]+)@[^@\\s\\u0000-\\u001F\\u007F-\\u009F]+$"
+    },
     "encoding": {
       "oneOf": [
         {
@@ -64,7 +68,7 @@
             "kind": { "const": "package" },
             "name": { "$ref": "#/$defs/nonEmpty" },
             "integrity": { "$ref": "#/$defs/digest" },
-            "locator": { "$ref": "#/$defs/nonEmpty" }
+            "locator": { "$ref": "#/$defs/packageLocator" }
           }
         },
         {

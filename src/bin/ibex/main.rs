@@ -7,12 +7,22 @@ mod agent_logs;
 mod cdp;
 mod cli;
 mod compat;
+#[cfg(unix)]
+mod direct_execution_interrupt;
 mod engine;
+mod history;
 mod host;
 mod repl;
+mod repl_surface;
 mod runtime;
 mod runtime_tests;
+#[cfg(all(test, feature = "capsec-conformance-observer"))]
+mod session_semantics_conformance;
+mod session_worker;
+#[cfg(unix)]
+mod session_worker_runtime;
 mod subprocess;
+mod terminal_session;
 
 // Re-export module_loader from the shared runtime crate
 pub use ibex_runtime::module_loader;
@@ -85,9 +95,12 @@ pub(crate) fn env_flag_enabled(name: &str) -> bool {
 }
 
 fn trace_startup() -> bool {
-    runtime_env("IBEX_STARTUP_TRACE", "EX_STARTUP_TRACE")
-        .map(|v| v.starts_with('1') || v.starts_with('y') || v.starts_with('Y'))
-        .unwrap_or(false)
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        runtime_env("IBEX_STARTUP_TRACE", "EX_STARTUP_TRACE")
+            .map(|v| v.starts_with('1') || v.starts_with('y') || v.starts_with('Y'))
+            .unwrap_or(false)
+    })
 }
 
 fn watch_shutdown_timeout_from_env(value: Option<&str>) -> std::time::Duration {
@@ -136,6 +149,194 @@ impl std::fmt::Display for PackageScriptExit {
 
 impl std::error::Error for PackageScriptExit {}
 
+/// A lifecycle request produced by evaluated code after the runtime has
+/// unwound back into Rust. Carrying the code through `Result` lets execution
+/// adapters restore descriptors and finish broker barriers before `main`
+/// performs the process-level exit.
+// @ref LLP 0024#6-evaluation-outcomes-and-the-abi — lifecycle is a structured
+// evaluation outcome, not an in-engine hard process exit.
+#[derive(Debug)]
+struct ProgramRequestedExit {
+    code: i32,
+}
+
+impl std::fmt::Display for ProgramRequestedExit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "program requested exit code {}", self.code)
+    }
+}
+
+impl std::error::Error for ProgramRequestedExit {}
+
+/// A completed authenticated program whose primary cause requires a fixed
+/// non-success status and a user-facing diagnostic. Keeping the status typed
+/// lets the file execution adapter restore descriptors and finish its broker
+/// barrier before `main` reports the failure and exits.
+#[derive(Debug)]
+struct ProgramExecutionFailure {
+    code: i32,
+    diagnostic: String,
+}
+
+impl std::fmt::Display for ProgramExecutionFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.diagnostic)
+    }
+}
+
+impl std::error::Error for ProgramExecutionFailure {}
+
+fn is_program_requested_exit(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.downcast_ref::<ProgramRequestedExit>().is_some())
+}
+
+/// Preserve an already-latched program cause across inspector disposal.
+/// Inspector cleanup is diagnostic-only even after orderly zero: it is not
+/// output loss and therefore cannot modify the completed program disposition.
+/// @ref LLP 0025#8-exit-and-lifecycle
+fn preserve_file_settlement_after_inspector_cleanup(
+    settlement: Result<()>,
+    cleanup: Result<()>,
+) -> Result<()> {
+    if let Err(error) = cleanup {
+        emit_pre_session_diagnostic(
+            "error: file-program inspector cleanup failed after settlement: ",
+            &format!("{error:#}"),
+        );
+    }
+    settlement
+}
+
+/// Apply LLP 0025's sole cleanup-loss modifier after the caller has attempted
+/// to report the loss on a structurally unaffected destination. Numeric status
+/// is deliberately irrelevant: `ProgramRequestedExit` represents an orderly
+/// or cooperative successful cause, while every other error is a fixed cause.
+/// @ref LLP 0025#8-exit-and-lifecycle
+fn apply_file_broker_loss_disposition(
+    execution: Result<()>,
+    loss_detail: Option<String>,
+    reported: bool,
+) -> Result<()> {
+    let Some(loss_detail) = loss_detail else {
+        return execution;
+    };
+    if reported {
+        return execution;
+    }
+    let successful = execution.is_ok()
+        || execution
+            .as_ref()
+            .err()
+            .is_some_and(is_program_requested_exit);
+    if successful {
+        return Err(anyhow::Error::new(ProgramExecutionFailure {
+            code: ibex_runtime::session_constants::EXIT_STATUS_BROKEN_PIPE,
+            diagnostic: loss_detail,
+        }));
+    }
+    execution.map_err(|error| error.context(loss_detail))
+}
+
+fn apply_file_broker_loss(
+    execution: Result<()>,
+    loss_detail: Option<String>,
+    report_destinations: [Option<terminal_session::NativeOutputDestination>; 2],
+) -> Result<()> {
+    let reported = loss_detail.as_ref().is_some_and(|detail| {
+        report_destinations
+            .into_iter()
+            .flatten()
+            .any(|destination| emit_bounded_diagnostic(destination, "error: ", detail))
+    });
+    apply_file_broker_loss_disposition(execution, loss_detail, reported)
+}
+
+fn file_program_loss_detail(
+    report: &terminal_session::FileProgramExecutionReport,
+) -> Option<String> {
+    if !report.has_loss() {
+        return None;
+    }
+    let relay_count = report
+        .loss()
+        .relays
+        .iter()
+        .filter(|relay| {
+            relay.program_bytes != 0
+                || relay.session_bytes != 0
+                || relay.program_frames != 0
+                || relay.session_frames != 0
+                || relay.control_frames != 0
+        })
+        .count();
+    let finish_error = report
+        .finish_error()
+        .map(|error| format!(", final flush failed: {error}"))
+        .unwrap_or_default();
+    let open_inputs = match report.input_streams_open() {
+        (true, true) => ", stdout and stderr inputs still open",
+        (true, false) => ", stdout input still open",
+        (false, true) => ", stderr input still open",
+        (false, false) => "",
+    };
+    let diagnostic_failure_count = report.broker_owned_diagnostic_failures();
+    let diagnostic_failures = if diagnostic_failure_count == 0 {
+        String::new()
+    } else {
+        format!(", {diagnostic_failure_count} broker-owned diagnostic(s) refused")
+    };
+    Some(format!(
+        "secure output broker closed with loss (forced-close sequence {}, {} affected relay(s), {} unaccepted stdout byte(s), {} unaccepted stderr byte(s){open_inputs}{diagnostic_failures}{finish_error})",
+        report.loss().forced_close_sequence,
+        relay_count,
+        report.unaccepted_stdout_bytes(),
+        report.unaccepted_stderr_bytes(),
+    ))
+}
+
+/// Preserve the completed program cause when adapter cleanup itself cannot
+/// produce a report. Relay failures imply unaccounted output and therefore use
+/// the successful-cause 141 upgrade; descriptor-restoration failures are later
+/// diagnostics and do not replace either a successful or fixed primary cause.
+/// @ref LLP 0025#8-exit-and-lifecycle
+fn apply_file_adapter_finish_error(
+    execution: Result<()>,
+    error: terminal_session::FileProgramAdapterError,
+) -> Result<()> {
+    let detail = format!("secure file execution adapter cleanup failed: {error}");
+    match error {
+        terminal_session::FileProgramAdapterError::Broker(_)
+        | terminal_session::FileProgramAdapterError::RelayThreadPanicked => apply_file_broker_loss(
+            execution,
+            Some(detail),
+            [
+                Some(terminal_session::NativeOutputDestination::Stderr),
+                Some(terminal_session::NativeOutputDestination::Stdout),
+            ],
+        ),
+        terminal_session::FileProgramAdapterError::NativeWithReport { report, .. } => {
+            match file_program_loss_detail(&report) {
+                Some(loss) => apply_file_broker_loss(
+                    execution,
+                    Some(format!("{detail}; {loss}")),
+                    report.loss_report_destinations(),
+                ),
+                None => {
+                    emit_pre_session_diagnostic("error: ", &detail);
+                    execution
+                }
+            }
+        }
+        terminal_session::FileProgramAdapterError::Gate(_)
+        | terminal_session::FileProgramAdapterError::Native(_) => {
+            emit_pre_session_diagnostic("error: ", &detail);
+            execution
+        }
+    }
+}
+
 /// Resolve a finished child's exit code the way a shell would: the explicit
 /// code when present, else `128 + signal` on Unix. Never returns 0 for a
 /// non-success status (so a propagated code always signals failure).
@@ -155,7 +356,419 @@ fn package_script_exit_code(status: &std::process::ExitStatus) -> i32 {
     1
 }
 
+/// Install the launcher SIGINT disposition before a child is spawned. A
+/// terminal-generated SIGINT still reaches the child through the foreground
+/// process group, while the Ibex launcher remains alive long enough to reap it
+/// and turn the signal into the shell-style `128 + signal` status. The bridge is
+/// deliberately one-shot per CLI process: teardown restores the inherited
+/// disposition but retains its pipe descriptors so an already-entered handler
+/// can never write to a reused descriptor or a later launcher scope.
+/// @ref LLP 0025#1-modes-descriptors-and-topology
+#[cfg(unix)]
+const LAUNCHER_SIGNAL_INTERRUPT: u8 = 1 << 0;
+#[cfg(unix)]
+const LAUNCHER_SIGNAL_SHUTDOWN: u8 = 1 << 1;
+#[cfg(unix)]
+static LAUNCHER_SIGNAL_PENDING: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+#[cfg(unix)]
+static LAUNCHER_SIGNAL_WRITE_FD: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(-1);
+
+#[cfg(unix)]
+struct LauncherSignalFd(libc::c_int);
+
+#[cfg(unix)]
+impl LauncherSignalFd {
+    const fn raw(&self) -> libc::c_int {
+        self.0
+    }
+
+    fn close(&mut self) {
+        if self.0 < 0 {
+            return;
+        }
+        // SAFETY: this value uniquely owns the descriptor and marks it closed
+        // before the number can be reused.
+        unsafe {
+            libc::close(self.0);
+        }
+        self.0 = -1;
+    }
+}
+
+#[cfg(unix)]
+impl Drop for LauncherSignalFd {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+#[cfg(unix)]
+fn launcher_descriptor_flag(
+    descriptor: libc::c_int,
+    operation: libc::c_int,
+) -> std::io::Result<i32> {
+    loop {
+        // SAFETY: fcntl performs a descriptor query with no third argument.
+        let result = unsafe { libc::fcntl(descriptor, operation) };
+        if result >= 0 {
+            return Ok(result);
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn set_launcher_descriptor_flag(
+    descriptor: libc::c_int,
+    operation: libc::c_int,
+    value: libc::c_int,
+) -> std::io::Result<()> {
+    loop {
+        // SAFETY: fcntl updates flags on one live descriptor.
+        let result = unsafe { libc::fcntl(descriptor, operation, value) };
+        if result >= 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn launcher_signal_pipe() -> std::io::Result<(LauncherSignalFd, LauncherSignalFd, LauncherSignalFd)>
+{
+    let mut descriptors = [-1; 2];
+    // SAFETY: pipe initializes both descriptor slots on success.
+    if unsafe { libc::pipe(descriptors.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let reader = LauncherSignalFd(descriptors[0]);
+    let writer = LauncherSignalFd(descriptors[1]);
+    for descriptor in [reader.raw(), writer.raw()] {
+        let flags = launcher_descriptor_flag(descriptor, libc::F_GETFD)?;
+        set_launcher_descriptor_flag(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC)?;
+    }
+    let writer_flags = launcher_descriptor_flag(writer.raw(), libc::F_GETFL)?;
+    set_launcher_descriptor_flag(writer.raw(), libc::F_SETFL, writer_flags | libc::O_NONBLOCK)?;
+
+    // Retain a second read descriptor through teardown. It prevents an
+    // already-entered handler from receiving SIGPIPE after the coordinator
+    // thread has observed shutdown but before the writer is closed.
+    let keepalive_raw = unsafe { libc::dup(reader.raw()) };
+    if keepalive_raw < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let keepalive = LauncherSignalFd(keepalive_raw);
+    let keepalive_flags = launcher_descriptor_flag(keepalive.raw(), libc::F_GETFD)?;
+    set_launcher_descriptor_flag(
+        keepalive.raw(),
+        libc::F_SETFD,
+        keepalive_flags | libc::FD_CLOEXEC,
+    )?;
+    Ok((reader, writer, keepalive))
+}
+
+#[cfg(unix)]
+fn write_launcher_signal_byte(descriptor: libc::c_int, byte: u8) {
+    let bytes = [byte];
+    loop {
+        // SAFETY: descriptor is the retained nonblocking pipe writer and bytes
+        // names initialized fixed-size storage.
+        if unsafe { libc::write(descriptor, bytes.as_ptr().cast(), bytes.len()) } >= 0 {
+            return;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return;
+        }
+    }
+}
+
+#[cfg(unix)]
+unsafe extern "C" fn launcher_signal_handler(_: libc::c_int) {
+    use std::sync::atomic::Ordering;
+
+    LAUNCHER_SIGNAL_PENDING.fetch_or(LAUNCHER_SIGNAL_INTERRUPT, Ordering::AcqRel);
+    let descriptor = LAUNCHER_SIGNAL_WRITE_FD.load(Ordering::Acquire);
+    if descriptor >= 0 {
+        let byte = [LAUNCHER_SIGNAL_INTERRUPT];
+        // SAFETY: the active guard publishes a retained nonblocking descriptor;
+        // pipe fullness is harmless because the pending bit is authoritative.
+        unsafe {
+            libc::write(descriptor, byte.as_ptr().cast(), byte.len());
+        }
+    }
+}
+
+#[cfg(unix)]
+fn launcher_signal_loop(reader: LauncherSignalFd, sender: tokio::sync::mpsc::Sender<()>) {
+    use std::sync::atomic::Ordering;
+
+    loop {
+        let mut poll_descriptor = libc::pollfd {
+            fd: reader.raw(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll receives one initialized descriptor record.
+        let ready = unsafe { libc::poll(&mut poll_descriptor, 1, -1) };
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return;
+        }
+
+        let mut bytes = [0_u8; 64];
+        // SAFETY: reader remains owned by this thread and bytes is writable.
+        let amount = unsafe { libc::read(reader.raw(), bytes.as_mut_ptr().cast(), bytes.len()) };
+        if amount == 0 {
+            return;
+        }
+        if amount < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return;
+        }
+
+        let pending = LAUNCHER_SIGNAL_PENDING.swap(0, Ordering::AcqRel);
+        let observed = &bytes[..amount as usize];
+        if pending & LAUNCHER_SIGNAL_INTERRUPT != 0 || observed.contains(&LAUNCHER_SIGNAL_INTERRUPT)
+        {
+            // Capacity one deliberately coalesces a signal burst while the
+            // launcher is already inside its bounded child-cleanup grace.
+            let _ = sender.try_send(());
+        }
+        if pending & LAUNCHER_SIGNAL_SHUTDOWN != 0 || observed.contains(&LAUNCHER_SIGNAL_SHUTDOWN) {
+            return;
+        }
+    }
+}
+
+struct LauncherInterrupt {
+    #[cfg(unix)]
+    receiver: tokio::sync::mpsc::Receiver<()>,
+    #[cfg(unix)]
+    writer: Option<LauncherSignalFd>,
+    #[cfg(unix)]
+    reader_keepalive: Option<LauncherSignalFd>,
+    #[cfg(unix)]
+    signal_number: libc::c_int,
+    #[cfg(unix)]
+    previous: Option<libc::sigaction>,
+    #[cfg(unix)]
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl LauncherInterrupt {
+    fn install() -> Result<Self> {
+        #[cfg(unix)]
+        {
+            Self::install_for_signal(libc::SIGINT)
+                .context("failed to install launcher SIGINT mediation")
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self {})
+        }
+    }
+
+    #[cfg(unix)]
+    fn install_for_signal(signal_number: libc::c_int) -> std::io::Result<Self> {
+        use std::sync::atomic::Ordering;
+
+        let (reader, writer, reader_keepalive) = launcher_signal_pipe()?;
+        LAUNCHER_SIGNAL_WRITE_FD
+            .compare_exchange(-1, writer.raw(), Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "another launcher signal bridge is already active",
+                )
+            })?;
+        LAUNCHER_SIGNAL_PENDING.store(0, Ordering::Release);
+
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let thread = match std::thread::Builder::new()
+            .name("ibex-launcher-signal".to_owned())
+            .spawn(move || launcher_signal_loop(reader, sender))
+        {
+            Ok(thread) => thread,
+            Err(error) => {
+                LAUNCHER_SIGNAL_WRITE_FD.store(-1, Ordering::Release);
+                return Err(error);
+            }
+        };
+
+        // The consumer exists before the handler is installed, so every
+        // successfully mediated signal has an ordinary async notification lane.
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = launcher_signal_handler as *const () as usize;
+        action.sa_flags = libc::SA_RESTART;
+        if unsafe { libc::sigemptyset(&mut action.sa_mask) } != 0 {
+            let error = std::io::Error::last_os_error();
+            LAUNCHER_SIGNAL_PENDING.fetch_or(LAUNCHER_SIGNAL_SHUTDOWN, Ordering::AcqRel);
+            write_launcher_signal_byte(writer.raw(), LAUNCHER_SIGNAL_SHUTDOWN);
+            let _ = thread.join();
+            LAUNCHER_SIGNAL_PENDING.store(0, Ordering::Release);
+            LAUNCHER_SIGNAL_WRITE_FD.store(-1, Ordering::Release);
+            return Err(error);
+        }
+        let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
+        if unsafe { libc::sigaction(signal_number, &action, &mut previous) } != 0 {
+            let error = std::io::Error::last_os_error();
+            LAUNCHER_SIGNAL_PENDING.fetch_or(LAUNCHER_SIGNAL_SHUTDOWN, Ordering::AcqRel);
+            write_launcher_signal_byte(writer.raw(), LAUNCHER_SIGNAL_SHUTDOWN);
+            let _ = thread.join();
+            LAUNCHER_SIGNAL_PENDING.store(0, Ordering::Release);
+            LAUNCHER_SIGNAL_WRITE_FD.store(-1, Ordering::Release);
+            return Err(error);
+        }
+
+        Ok(Self {
+            receiver,
+            writer: Some(writer),
+            reader_keepalive: Some(reader_keepalive),
+            signal_number,
+            previous: Some(previous),
+            thread: Some(thread),
+        })
+    }
+
+    async fn recv(&mut self) -> bool {
+        #[cfg(unix)]
+        {
+            self.receiver.recv().await.is_some()
+        }
+        #[cfg(not(unix))]
+        {
+            std::future::pending::<bool>().await
+        }
+    }
+}
+
+impl Drop for LauncherInterrupt {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::sync::atomic::Ordering;
+
+            if let Some(previous) = self.previous.take() {
+                // SAFETY: previous was returned by the successful installation
+                // for this exact signal number.
+                unsafe {
+                    libc::sigaction(self.signal_number, &previous, std::ptr::null_mut());
+                }
+            }
+
+            let writer = self
+                .writer
+                .as_ref()
+                .expect("installed launcher bridge retains its writer");
+            // Stop the ordinary consumer, but retain the pipe and its extra
+            // reader for process lifetime. Restoring sigaction does not join a
+            // handler already entered on another runtime thread; that handler
+            // may have loaded this fd and resume arbitrarily later. Keeping the
+            // global slot claimed also rejects a sequential scope, so the stale
+            // handler cannot notify a new launcher.
+            LAUNCHER_SIGNAL_PENDING.fetch_or(LAUNCHER_SIGNAL_SHUTDOWN, Ordering::AcqRel);
+            write_launcher_signal_byte(writer.raw(), LAUNCHER_SIGNAL_SHUTDOWN);
+            if let Some(thread) = self.thread.take() {
+                let _ = thread.join();
+            }
+            LAUNCHER_SIGNAL_PENDING.store(0, Ordering::Release);
+            std::mem::forget(
+                self.writer
+                    .take()
+                    .expect("installed launcher bridge retains its writer"),
+            );
+            std::mem::forget(
+                self.reader_keepalive
+                    .take()
+                    .expect("installed launcher bridge retains its read keepalive"),
+            );
+        }
+    }
+}
+
+#[derive(Debug)]
+enum LauncherChildOutcome {
+    Exited(std::process::ExitStatus),
+    Interrupted,
+}
+
+async fn wait_for_launcher_child(
+    child: &mut tokio::process::Child,
+    interrupt: &mut LauncherInterrupt,
+) -> Result<LauncherChildOutcome> {
+    let outcome = tokio::select! {
+        status = child.wait() => status
+            .map(LauncherChildOutcome::Exited)
+            .map_err(anyhow::Error::from),
+        listener_open = interrupt.recv() => {
+            if !listener_open {
+                anyhow::bail!("launcher SIGINT mediation disconnected while a child was live");
+            }
+
+            // The terminal has already delivered this SIGINT to every
+            // process in the foreground group. Sending it to the child a
+            // second time is observably wrong for programs that distinguish
+            // a first graceful interrupt from a second forced one. Give the
+            // child a bounded grace period to publish its real status. If
+            // the signal landed in the install-before-spawn window (or the
+            // child deliberately stayed alive), reap it without fabricating
+            // another SIGINT and report the controller's interrupt cause.
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                child.wait(),
+            )
+            .await
+            {
+                Ok(status) => status
+                    .map(LauncherChildOutcome::Exited)
+                    .map_err(anyhow::Error::from),
+                Err(_) => {
+                    stop_launcher_child_after_interrupt(
+                        child,
+                        std::time::Duration::from_secs(2),
+                    )
+                    .await?;
+                    Ok(LauncherChildOutcome::Interrupted)
+                }
+            }
+        }
+    };
+    if outcome.is_err() {
+        // A wait-driver error or a disconnected signal bridge must not turn a
+        // still-live package script into an unowned process. Cleanup is
+        // best-effort here so the original controller failure remains the
+        // reported cause; `kill_on_drop` is the final backstop.
+        // @ref LLP 0025#8-exit-and-lifecycle — the launcher owns its child until reap.
+        let _ = stop_launcher_child_after_interrupt(child, std::time::Duration::from_secs(2)).await;
+    }
+    outcome
+}
+
 fn exit_code_for_error(error: &anyhow::Error) -> i32 {
+    if let Some(program_exit) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ProgramRequestedExit>())
+    {
+        return program_exit.code;
+    }
+    if let Some(program_failure) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<ProgramExecutionFailure>())
+    {
+        return program_failure.code;
+    }
     // A failing package script propagates its own exit code (e.g. eslint's 2),
     // matching npm/bun, rather than collapsing to the generic 1. (ENG-22958)
     if let Some(script_exit) = error
@@ -211,6 +824,58 @@ fn request_watch_child_shutdown(child: &tokio::process::Child) -> Result<bool> {
 #[cfg(not(unix))]
 fn request_watch_child_shutdown(_child: &tokio::process::Child) -> Result<bool> {
     Ok(false)
+}
+
+async fn stop_launcher_child_after_interrupt(
+    child: &mut tokio::process::Child,
+    timeout: std::time::Duration,
+) -> Result<()> {
+    if child.try_wait().ok().flatten().is_some() {
+        return Ok(());
+    }
+
+    if request_watch_child_shutdown(child).unwrap_or(false) {
+        if let Ok(status) = tokio::time::timeout(timeout, child.wait()).await {
+            let _ = status?;
+            return Ok(());
+        }
+    }
+
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+    Ok(())
+}
+
+/// A foreground-group SIGINT has already reached the watch child. Give its
+/// direct-execution adapter the same two-second grace as a package child so it
+/// can restore descriptors and finish its bounded broker close. Only then may
+/// the controller fall back to TERM/kill; it never sends a duplicate SIGINT.
+#[derive(Debug)]
+enum WatchInterruptCleanup {
+    Reaped(std::process::ExitStatus),
+    Fallback,
+}
+
+async fn stop_watch_child_after_interrupt(
+    child: &mut tokio::process::Child,
+    fallback_timeout: std::time::Duration,
+) -> Result<WatchInterruptCleanup> {
+    if let Some(status) = child.try_wait()? {
+        return Ok(WatchInterruptCleanup::Reaped(status));
+    }
+
+    if let Ok(status) = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait()).await
+    {
+        return status
+            .map(WatchInterruptCleanup::Reaped)
+            .map_err(anyhow::Error::from);
+    }
+
+    eprintln!(
+        "\x1b[33m[watch]\x1b[0m child did not finish SIGINT cleanup within 2000ms; terminating..."
+    );
+    stop_launcher_child_after_interrupt(child, fallback_timeout).await?;
+    Ok(WatchInterruptCleanup::Fallback)
 }
 
 async fn stop_watch_child(
@@ -293,15 +958,87 @@ fn expand_combined_eval_shorthand(argv: &mut [std::ffi::OsString]) {
     }
 }
 
+/// Render an untrusted diagnostic payload as one terminal-safe logical line.
+/// Startup has no broker yet, so it applies the broker's payload escaping
+/// locally before the bounded native-destination writer adds the sole literal
+/// line boundary.
+// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker
+#[cfg(test)]
+fn escape_pre_session_diagnostic(text: &str) -> String {
+    let mut escaped = String::new();
+    for ch in text.chars() {
+        let code = ch as u32;
+        if ch == '\x1b'
+            || ch.is_control()
+            || (0x80..=0x9f).contains(&code)
+            || matches!(code, 0x2028 | 0x2029 | 0x202a..=0x202e | 0x2066..=0x2069)
+        {
+            use std::fmt::Write as _;
+            let _ = write!(escaped, "\\u{{{code:04x}}}");
+        } else {
+            escaped.push(ch);
+        }
+    }
+    escaped
+}
+
+/// Best-effort diagnostic delivery for paths on which the program cause is
+/// already latched. The caller waits only for the broker cleanup budget; a
+/// blocked standard stream cannot panic, hang, or replace that cause.
+/// @ref LLP 0025#5-terminal-presentation-and-restoration
+/// @ref LLP 0025#8-exit-and-lifecycle
+fn emit_bounded_diagnostic(
+    destination: terminal_session::NativeOutputDestination,
+    prefix: &str,
+    detail: &str,
+) -> bool {
+    terminal_session::emit_bounded_native_diagnostic(destination, prefix, detail)
+}
+
+fn emit_pre_session_diagnostic(prefix: &str, detail: &str) {
+    let _ = emit_bounded_diagnostic(
+        terminal_session::NativeOutputDestination::Stderr,
+        prefix,
+        detail,
+    );
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let t0 = std::time::Instant::now();
+    // Freeze launcher tracing before any worker, Host, or engine construction;
+    // later diagnostics consult only the process-lifetime capture.
+    // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+    let _ = trace_startup();
+    runtime::capture_bundler_runner_selection();
+    let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    match session_worker::pre_clap_worker_bootstrap(&argv) {
+        Ok(Some(bootstrap)) => {
+            let status = match run_session_worker(bootstrap).await {
+                Ok(status) => status,
+                Err(error) => {
+                    emit_pre_session_diagnostic(
+                        "session worker startup refused: ",
+                        &format!("{error:#}"),
+                    );
+                    ibex_runtime::session_constants::EXIT_STATUS_STARTUP_FAILURE
+                }
+            };
+            std::process::exit(status);
+        }
+        Ok(None) => {}
+        Err(error) => {
+            emit_pre_session_diagnostic("session worker bootstrap refused: ", &error.to_string());
+            std::process::exit(ibex_runtime::session_constants::EXIT_STATUS_STARTUP_FAILURE);
+        }
+    }
     if legacy_project_dispatch() {
         return;
     }
-    let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     expand_combined_eval_shorthand(&mut argv);
-    let cli = Cli::parse_from(argv);
+    let history_was_explicit = cli::history_option_was_explicit(&argv);
+    let mut cli = Cli::parse_from(argv);
+    cli.history_was_explicit = history_was_explicit;
     if trace_startup() {
         eprintln!(
             "[startup] {:<30} {:>6} us ({:>5.1} ms)",
@@ -311,8 +1048,74 @@ async fn main() {
         );
     }
     if let Err(e) = run(cli).await {
-        eprintln!("error: {:#}", e);
+        let is_program_exit = is_program_requested_exit(&e);
+        if !is_program_exit {
+            emit_pre_session_diagnostic("error: ", &format!("{e:#}"));
+        }
         std::process::exit(exit_code_for_error(&e));
+    }
+}
+
+#[cfg(unix)]
+async fn run_session_worker(bootstrap: session_worker::WorkerBootstrapContext) -> Result<i32> {
+    // The protected descriptor class is installed before Host or Hermes is
+    // constructed and is retained by the verified endpoint for the entire
+    // worker lifetime.
+    // @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
+    let protected = bootstrap
+        .protect_session_io()
+        .context("failed to install the session-worker descriptor policy")?;
+    session_worker_runtime::run_authenticated_runtime_worker(protected)
+}
+
+#[cfg(not(unix))]
+async fn run_session_worker(_bootstrap: session_worker::WorkerBootstrapContext) -> Result<i32> {
+    anyhow::bail!("session workers are unavailable on this platform")
+}
+
+/// The product adapter selected for an already-captured authenticated route.
+/// Keeping this as one decision table lets the CLI dispatcher, each concrete
+/// ingress, and executable conformance evidence agree on the same owner.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AuthenticatedProductIngress {
+    FileProgram,
+    InlineOneShot,
+    WorkerProgram,
+    WorkerRepl,
+}
+
+impl AuthenticatedProductIngress {
+    #[allow(dead_code)]
+    pub(crate) fn label(self) -> String {
+        match self {
+            Self::FileProgram => "file-program".to_owned(),
+            Self::InlineOneShot => "inline-one-shot".to_owned(),
+            Self::WorkerProgram => "worker-program".to_owned(),
+            Self::WorkerRepl => "worker-repl".to_owned(),
+        }
+    }
+}
+
+pub(crate) const fn authenticated_product_ingress(
+    route: terminal_session::SelectedExecutionRoute,
+) -> Option<AuthenticatedProductIngress> {
+    use capsec_semantics::arming::{ArmedEntryKind, ArmedExecutionMode};
+    match (route.entry_kind, route.mode) {
+        (ArmedEntryKind::File, ArmedExecutionMode::Program) => {
+            Some(AuthenticatedProductIngress::FileProgram)
+        }
+        (ArmedEntryKind::Eval, ArmedExecutionMode::OneShot) => {
+            Some(AuthenticatedProductIngress::InlineOneShot)
+        }
+        (ArmedEntryKind::Stdin, ArmedExecutionMode::Program) => {
+            Some(AuthenticatedProductIngress::WorkerProgram)
+        }
+        (
+            ArmedEntryKind::Repl,
+            ArmedExecutionMode::Interactive | ArmedExecutionMode::Transcript,
+        ) => Some(AuthenticatedProductIngress::WorkerRepl),
+        _ => None,
     }
 }
 
@@ -325,6 +1128,13 @@ async fn run(cli: Cli) -> Result<()> {
         print_completions(clap_complete::Shell::Bash);
         return Ok(());
     }
+
+    // Capture route, descriptor topology, and presentation facts exactly once
+    // before production validation can inspect a project path or arming input.
+    // Every execution branch passes this same value through snapshot arming and
+    // terminal supervision.
+    // @ref LLP 0025#1-modes-descriptors-and-topology
+    let session_io = terminal_session::SessionIoPlan::capture_for_cli(&cli);
 
     // Validate production controls before dispatch can inspect a prospective
     // project path, read arming artifacts, allocate Hermes, or evaluate input.
@@ -344,12 +1154,23 @@ async fn run(cli: Cli) -> Result<()> {
     {
         runtime::validate_production_inputs(&cli)?;
     }
-
     if let Some(code) = &cli.eval_code {
-        return eval_code(&cli, code, false).await;
+        return eval_code(
+            &cli,
+            code,
+            false,
+            session_io.context("eval route has no terminal session plan")?,
+        )
+        .await;
     }
     if let Some(code) = &cli.print_eval {
-        return eval_code(&cli, code, true).await;
+        return eval_code(
+            &cli,
+            code,
+            true,
+            session_io.context("print-eval route has no terminal session plan")?,
+        )
+        .await;
     }
 
     match &cli.command {
@@ -370,7 +1191,7 @@ async fn run(cli: Cli) -> Result<()> {
             } else if *watch || cli.watch {
                 run_watch(&cli, file, args).await
             } else {
-                run_file(
+                run_file_with_execution_adapter(
                     &cli,
                     file,
                     args,
@@ -383,12 +1204,27 @@ async fn run(cli: Cli) -> Result<()> {
                         inspect_port: *inspect_port,
                         inspect_host: inspect_host.as_deref(),
                     },
+                    session_io.context("file route has no terminal session plan")?,
                 )
                 .await
             }
         }
-        Some(Commands::Eval { code }) => eval_code(&cli, code, false).await,
-        Some(Commands::Repl) => start_repl(&cli).await,
+        Some(Commands::Eval { code }) => {
+            eval_code(
+                &cli,
+                code,
+                false,
+                session_io.context("eval route has no terminal session plan")?,
+            )
+            .await
+        }
+        Some(Commands::Repl) => {
+            start_repl(
+                &cli,
+                session_io.context("REPL route has no terminal session plan")?,
+            )
+            .await
+        }
         Some(Commands::Build { file, outdir }) => {
             build_bytecode(&cli, file, outdir.as_deref()).await
         }
@@ -454,7 +1290,7 @@ async fn run(cli: Cli) -> Result<()> {
                 } else if cli.watch {
                     run_watch(&cli, file, &cli.args).await
                 } else {
-                    run_file(
+                    run_file_with_execution_adapter(
                         &cli,
                         file,
                         &cli.args,
@@ -467,12 +1303,27 @@ async fn run(cli: Cli) -> Result<()> {
                             inspect_port: cli.inspect_port,
                             inspect_host: cli.inspect_host.as_deref(),
                         },
+                        session_io.context("file route has no terminal session plan")?,
                     )
                     .await
                 }
             } else {
-                // No command and no file - start REPL
-                start_repl(&cli).await
+                // With no command or file, the pre-arming TTY observation is
+                // semantic: a TTY selects the interactive REPL while a pipe
+                // is one ESM-shaped program-stdin submission. Never re-probe
+                // fd 0 after snapshot construction.
+                // @ref LLP 0022#3-input-modes
+                let plan =
+                    session_io.context("implicit session route has no terminal session plan")?;
+                match authenticated_product_ingress(plan.route) {
+                    Some(AuthenticatedProductIngress::WorkerProgram) => {
+                        run_stdin_program(&cli, plan).await
+                    }
+                    Some(AuthenticatedProductIngress::WorkerRepl) => start_repl(&cli, plan).await,
+                    _ => anyhow::bail!(
+                        "implicit session route did not select an authenticated product ingress"
+                    ),
+                }
             }
         }
     }
@@ -483,14 +1334,14 @@ async fn run_capsec_audit(cli: &Cli, file: &str, args: &[String]) -> Result<()> 
     suppress_runtime_banner(&runtime).await?;
     runtime.load_runtime().await?;
     runtime.run_file_with_args(file, args).await?;
-    let exit_code = read_process_exit_code(&runtime).await;
+    let exit_code = read_diagnostic_process_exit_code(&runtime).await;
     if let Some(report) = crate::host::abi::current_audit_report() {
         if !report.is_empty() {
             eprintln!("{report}");
         }
     }
     if let Some(code) = exit_code {
-        std::process::exit(code);
+        return Err(ProgramRequestedExit { code }.into());
     }
     Ok(())
 }
@@ -592,13 +1443,33 @@ async fn run_package_script(script: &str, args: &[String]) -> Result<()> {
     cmd.stdin(std::process::Stdio::inherit());
     cmd.stdout(std::process::Stdio::inherit());
     cmd.stderr(std::process::Stdio::inherit());
+    // Error returns from the async wait path still unwind through this owner;
+    // ensure Tokio terminates the child even if explicit bounded cleanup also
+    // encounters an OS error.
+    // @ref LLP 0025#8-exit-and-lifecycle — no launcher child outlives ownership.
+    cmd.kill_on_drop(true);
 
     eprintln!("running package script `{}` ({})", script, scripts);
 
-    let status = cmd
-        .status()
-        .await
+    // Register before spawning: installing the handler only after `spawn`
+    // leaves a race in which a terminal Ctrl+C can still kill this launcher.
+    let mut interrupt = LauncherInterrupt::install()?;
+    let mut child = cmd
+        .spawn()
         .with_context(|| format!("Failed to run package script `{script}`"))?;
+    let outcome = wait_for_launcher_child(&mut child, &mut interrupt)
+        .await
+        .with_context(|| format!("Failed to wait for package script `{script}`"))?;
+    let status = match outcome {
+        LauncherChildOutcome::Exited(status) => status,
+        LauncherChildOutcome::Interrupted => {
+            return Err(PackageScriptExit {
+                script: script.to_string(),
+                code: 128 + libc::SIGINT,
+            }
+            .into());
+        }
+    };
     if !status.success() {
         // Propagate the child's own exit code so `ibex check` mirrors npm/bun
         // (e.g. an eslint script exiting 2 makes `ibex` exit 2, not 1). (ENG-22958)
@@ -700,6 +1571,30 @@ struct RunFileOptions<'a> {
     inspect_host: Option<&'a str>,
 }
 
+/// Runtime ownership crosses the file adapter's restore/broker barrier so no
+/// inspector shutdown or runtime destructor can run while fd 1/fd 2 are still
+/// captured. The program cause is already settled and travels independently.
+/// @ref LLP 0025#5-terminal-presentation-and-restoration
+struct CapturedFileProgramExecution {
+    runtime: runtime::Runtime,
+    settlement: Result<()>,
+    deferred_diagnostics: Vec<String>,
+}
+
+fn emit_file_program_diagnostic(
+    port: &terminal_session::FileProgramDiagnosticPort,
+    deferred: &mut Vec<String>,
+    prefix: &str,
+    detail: &str,
+) {
+    if matches!(
+        port.diagnostic(prefix, detail),
+        terminal_session::FileProgramDiagnosticDisposition::Deferred
+    ) {
+        deferred.push(format!("{prefix}{detail}"));
+    }
+}
+
 fn effective_run_cli(cli: &Cli, options: RunFileOptions<'_>) -> Cli {
     let mut effective = cli.clone();
     effective.inspect |= options.inspect;
@@ -720,110 +1615,283 @@ async fn run_file(
     file: &str,
     args: &[String],
     options: RunFileOptions<'_>,
-) -> Result<()> {
+    session_io: terminal_session::SessionIoPlan,
+    diagnostics: terminal_session::FileProgramDiagnosticPort,
+    interrupt_cancellation: terminal_session::DirectExecutionCancellationRegistration,
+) -> Result<CapturedFileProgramExecution> {
     let t0 = std::time::Instant::now();
     // `run` owns a second set of inspector flags for Node-compatible argument
     // placement. Fold those into the configuration authenticated by armed
     // startup so subcommand spelling cannot bypass the closed inspector route.
     // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
     let effective_cli = effective_run_cli(cli, options);
-    let runtime = runtime::Runtime::from_cli(&effective_cli)?;
-    if trace_startup() {
-        eprintln!(
-            "[startup] {:<30} {:>6} us ({:>5.1} ms)",
-            "runtime_from_cli",
-            t0.elapsed().as_micros(),
-            t0.elapsed().as_micros() as f64 / 1000.0
-        );
-    }
-
-    suppress_runtime_banner(&runtime).await?;
-
-    // Load the runtime bundle first
-    let t1 = std::time::Instant::now();
-    runtime.load_runtime().await?;
-    if trace_startup() {
-        eprintln!(
-            "[startup] {:<30} {:>6} us ({:>5.1} ms)",
-            "load_runtime",
-            t1.elapsed().as_micros(),
-            t1.elapsed().as_micros() as f64 / 1000.0
-        );
-    }
-
-    // Set up inspector if requested
-    let inspect_enabled = options.inspect
-        || options.inspect_wait
-        || options.inspect_open
-        || options.inspect_pause
-        || cli.inspect
-        || cli.inspect_wait
-        || cli.inspect_open
-        || cli.inspect_pause;
-    let open_devtools = options.inspect_open || cli.inspect_open;
-    // Wait for debugger if explicitly requested, or if we opened DevTools
-    // (since opening DevTools implies wanting to debug before code runs)
-    let wait_for_debugger = options.inspect_wait
-        || cli.inspect_wait
-        || options.inspect_pause
-        || cli.inspect_pause
-        || open_devtools;
-    if inspect_enabled {
-        let host = options
-            .inspect_host
-            .or(cli.inspect_host.as_deref())
-            .unwrap_or("127.0.0.1");
-        let port = options.inspect_port.or(cli.inspect_port).unwrap_or(9229);
-        runtime.start_inspector(host, port).await?;
-        eprintln!("Debugger listening on ws://{}:{}", host, port);
-        eprintln!("For help, see: https://nodejs.org/en/guides/debugging-getting-started");
-        eprintln!("DevTools URL: {}", devtools_url(host, port));
-        if open_devtools {
-            open_devtools_for_port(port);
+    let runtime = runtime::Runtime::from_cli_with_session(&effective_cli, session_io)?;
+    interrupt_cancellation
+        .register(runtime.engine())
+        .map_err(|_| anyhow::anyhow!("file execution interrupt engine was already registered"))?;
+    let mut deferred_diagnostics = Vec::new();
+    let settlement = async {
+        if trace_startup() {
+            emit_file_program_diagnostic(
+                &diagnostics,
+                &mut deferred_diagnostics,
+                "",
+                &format!(
+                    "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+                    "runtime_from_cli",
+                    t0.elapsed().as_micros(),
+                    t0.elapsed().as_micros() as f64 / 1000.0
+                ),
+            );
         }
-        if wait_for_debugger {
-            eprintln!("Waiting for debugger to attach...");
-            runtime.wait_for_inspector().await?;
-            eprintln!("Debugger attached.");
-            // Also wait for the Debugger domain to be enabled
-            runtime.wait_for_debugger().await?;
+
+        suppress_runtime_banner(&runtime).await?;
+
+        // Load the runtime bundle first
+        let t1 = std::time::Instant::now();
+        runtime.load_runtime().await?;
+        if trace_startup() {
+            emit_file_program_diagnostic(
+                &diagnostics,
+                &mut deferred_diagnostics,
+                "",
+                &format!(
+                    "[startup] {:<30} {:>6} us ({:>5.1} ms)",
+                    "load_runtime",
+                    t1.elapsed().as_micros(),
+                    t1.elapsed().as_micros() as f64 / 1000.0
+                ),
+            );
+        }
+
+        // Set up inspector if requested.
+        let inspect_enabled = options.inspect
+            || options.inspect_wait
+            || options.inspect_open
+            || options.inspect_pause
+            || cli.inspect
+            || cli.inspect_wait
+            || cli.inspect_open
+            || cli.inspect_pause;
+        let open_devtools = options.inspect_open || cli.inspect_open;
+        // Wait for debugger if explicitly requested, or if we opened DevTools
+        // (since opening DevTools implies wanting to debug before code runs).
+        let wait_for_debugger = options.inspect_wait
+            || cli.inspect_wait
+            || options.inspect_pause
+            || cli.inspect_pause
+            || open_devtools;
+        if inspect_enabled {
+            let host = options
+                .inspect_host
+                .or(cli.inspect_host.as_deref())
+                .unwrap_or("127.0.0.1");
+            let port = options.inspect_port.or(cli.inspect_port).unwrap_or(9229);
+            runtime.start_inspector(host, port).await?;
+            emit_file_program_diagnostic(
+                &diagnostics,
+                &mut deferred_diagnostics,
+                "",
+                &format!("Debugger listening on ws://{host}:{port}"),
+            );
+            emit_file_program_diagnostic(
+                &diagnostics,
+                &mut deferred_diagnostics,
+                "",
+                "For help, see: https://nodejs.org/en/guides/debugging-getting-started",
+            );
+            emit_file_program_diagnostic(
+                &diagnostics,
+                &mut deferred_diagnostics,
+                "",
+                &format!("DevTools URL: {}", devtools_url(host, port)),
+            );
+            if open_devtools {
+                open_devtools_for_port(port);
+            }
+            if wait_for_debugger {
+                emit_file_program_diagnostic(
+                    &diagnostics,
+                    &mut deferred_diagnostics,
+                    "",
+                    "Waiting for debugger to attach...",
+                );
+                runtime.wait_for_inspector().await?;
+                emit_file_program_diagnostic(
+                    &diagnostics,
+                    &mut deferred_diagnostics,
+                    "",
+                    "Debugger attached.",
+                );
+                // Also wait for the Debugger domain to be enabled.
+                runtime.wait_for_debugger().await?;
+            }
+        }
+
+        if options.inspect_pause || cli.inspect_pause {
+            runtime.pause_inspector().await?;
+        }
+
+        // Run the user's file through the authenticated settlement path. Its
+        // lifecycle and failure statuses remain distinct from orderly exitCode.
+        let _authenticated_at_construction = file;
+        let mut file_outcome = runtime.run_authenticated_file_program(args).await;
+
+        // @ref LLP 0013#phase-1 — surface would-deny decisions collected in
+        // audit mode so operators see exactly what to declare before enforcing.
+        if let Some(report) = crate::host::abi::current_audit_report() {
+            emit_file_program_diagnostic(
+                &diagnostics,
+                &mut deferred_diagnostics,
+                "capsec audit: ",
+                &report,
+            );
+        }
+
+        if matches!(
+            &file_outcome,
+            Ok(runtime::AuthenticatedFileProgramOutcome::Completed)
+        ) && (options.keep_alive || cli.keep_alive)
+        {
+            emit_file_program_diagnostic(
+                &diagnostics,
+                &mut deferred_diagnostics,
+                "",
+                "Press Ctrl+C to exit.",
+            );
+            if let Some(outcome) = run_debug_loop(&runtime).await {
+                file_outcome = Ok(outcome);
+            }
+        }
+
+        match file_outcome {
+            Err(error) => Err(error),
+            Ok(runtime::AuthenticatedFileProgramOutcome::Completed) => process_exit_code(&runtime)
+                .map_or(Ok(()), |code| {
+                    Err(anyhow::Error::new(ProgramRequestedExit { code }))
+                }),
+            Ok(runtime::AuthenticatedFileProgramOutcome::Lifecycle {
+                status,
+                secondary_diagnostics,
+            }) => {
+                for diagnostic in secondary_diagnostics {
+                    emit_file_program_diagnostic(
+                        &diagnostics,
+                        &mut deferred_diagnostics,
+                        "",
+                        &diagnostic,
+                    );
+                }
+                Err(anyhow::Error::new(ProgramRequestedExit { code: status }))
+            }
+            Ok(runtime::AuthenticatedFileProgramOutcome::Failed { status, diagnostic }) => {
+                Err(anyhow::Error::new(ProgramExecutionFailure {
+                    code: status,
+                    diagnostic,
+                }))
+            }
         }
     }
+    .await;
 
-    if options.inspect_pause || cli.inspect_pause {
-        let _ = runtime.eval("debugger;").await?;
+    Ok(CapturedFileProgramExecution {
+        runtime,
+        settlement,
+        deferred_diagnostics,
+    })
+}
+
+/// Keep the non-forgeable file-adapter readiness lease alive across runtime
+/// construction, user-code execution, descriptor restoration, and bounded
+/// broker completion. A file run is successful only if both the runtime and
+/// the broker complete without unaccounted output loss.
+// @ref LLP 0025#3-rendering-terminal-safety-and-the-output-broker — file
+// execution owns fd 1/fd 2 through one adapter lifetime and reports forced loss.
+async fn run_file_with_execution_adapter(
+    cli: &Cli,
+    file: &str,
+    args: &[String],
+    options: RunFileOptions<'_>,
+    session_io: terminal_session::SessionIoPlan,
+) -> Result<()> {
+    if authenticated_product_ingress(session_io.route)
+        != Some(AuthenticatedProductIngress::FileProgram)
+    {
+        anyhow::bail!("file route did not select the authenticated file ingress");
     }
+    let adapter = terminal_session::FileProgramExecutionAdapter::new(session_io)
+        .context("failed to activate the secure file execution adapter")?;
+    let (execution, finish) = adapter
+        .run_with_diagnostics_and_interrupt(|diagnostics, interrupt_cancellation| {
+            run_file(
+                cli,
+                file,
+                args,
+                options,
+                session_io,
+                diagnostics,
+                interrupt_cancellation,
+            )
+        })
+        .await
+        .context("secure file execution adapter failed")?;
+    let (runtime, mut execution, deferred_diagnostics) = match execution {
+        Ok(execution) => (
+            Some(execution.runtime),
+            execution.settlement,
+            execution.deferred_diagnostics,
+        ),
+        Err(error) => (None, Err(error), Vec::new()),
+    };
+    execution = match finish {
+        Ok(report) => apply_file_broker_loss(
+            execution,
+            file_program_loss_detail(&report),
+            report.loss_report_destinations(),
+        ),
+        Err(error) => apply_file_adapter_finish_error(execution, error),
+    };
+    execution = deferred_diagnostics
+        .into_iter()
+        .fold(execution, |execution, diagnostic| {
+            apply_file_broker_loss(
+                execution,
+                Some(format!(
+                    "active file output broker refused a session diagnostic: {diagnostic}"
+                )),
+                [
+                    Some(terminal_session::NativeOutputDestination::Stderr),
+                    Some(terminal_session::NativeOutputDestination::Stdout),
+                ],
+            )
+        });
 
-    // Run the user's file
-    runtime.run_file_with_args(file, args).await?;
-
-    // @ref LLP 0013#phase-1 — surface would-deny decisions collected in audit
-    // mode so operators see exactly what to declare before enforcing.
-    if let Some(report) = crate::host::abi::current_audit_report() {
-        eprintln!("\n{report}");
-    }
-
-    if options.keep_alive || cli.keep_alive {
-        eprintln!("Press Ctrl+C to exit.");
-        run_debug_loop(&runtime).await;
-    }
-
-    let exit_code = read_process_exit_code(&runtime).await;
-
-    // Stop the inspector before the runtime is dropped to avoid use-after-free.
-    // The CDP server thread holds a raw pointer to the runtime, so it must be
-    // shut down first.
-    runtime.stop_inspector().await?;
-
-    if let Some(code) = exit_code {
-        std::process::exit(code);
-    }
-
-    Ok(())
+    let Some(runtime) = runtime else {
+        return execution;
+    };
+    // The adapter has restored fd 1/fd 2 and finished its bounded broker
+    // barrier. Inspector shutdown may now block safely; it still cannot
+    // replace the program settlement or its output-loss disposition.
+    // The CDP thread holds a raw runtime pointer, so stop it before drop.
+    // @ref LLP 0025#5-terminal-presentation-and-restoration
+    let inspector_cleanup = runtime.stop_inspector().await;
+    preserve_file_settlement_after_inspector_cleanup(execution, inspector_cleanup)
 }
 
 /// A script that sets `process.exitCode` and returns must exit with that code.
-async fn read_process_exit_code(runtime: &runtime::Runtime) -> Option<i32> {
+/// The setter mirrors into the supervisor-owned lifecycle port synchronously,
+/// so the process never re-enters JavaScript to discover its final status.
+fn process_exit_code(runtime: &runtime::Runtime) -> Option<i32> {
+    let code = runtime.lifecycle_exit_code();
+    (code != 0).then_some(code)
+}
+
+/// The separately named `capsec audit` workflow is intentionally unarmed and
+/// retains the historical Node-shaped JavaScript exitCode accessor. It has no
+/// authenticated lifecycle setter to populate the Host mirror, so only this
+/// diagnostic compatibility route may read the local value after execution.
+/// Production callers use `process_exit_code` above and never re-enter JS.
+async fn read_diagnostic_process_exit_code(runtime: &runtime::Runtime) -> Option<i32> {
     let result = runtime
         .engine()
         .eval_immediate(
@@ -837,6 +1905,13 @@ async fn read_process_exit_code(runtime: &runtime::Runtime) -> Option<i32> {
 }
 
 /// Run a file in watch mode — re-run on file changes
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WatchTrigger {
+    Restart,
+    WatcherClosed,
+    Interrupt,
+}
+
 async fn run_watch(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
     use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
     use std::time::Duration;
@@ -848,6 +1923,10 @@ async fn run_watch(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
     let watch_dir = file_path
         .parent()
         .unwrap_or_else(|| std::path::Path::new("."));
+
+    // Install before publishing readiness: a test or operator that observes
+    // the banner can then rely on mediation already being active.
+    let mut interrupt = LauncherInterrupt::install()?;
 
     eprintln!(
         "\x1b[2m[watch]\x1b[0m watching for changes in {}",
@@ -891,11 +1970,39 @@ async fn run_watch(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
 
         let mut child = cmd.spawn().context("Failed to spawn child process")?;
 
-        let should_continue = await_restart_trigger(&mut child, &mut rx, debounce).await;
-        // Always stop the (possibly still-running) child before restarting.
+        let trigger = await_restart_trigger(&mut child, &mut rx, debounce, &mut interrupt).await;
+        // A group SIGINT already reached the direct-execution child. Preserve
+        // its own restoration/broker guarantee before the controller falls
+        // back to TERM/kill. Non-interrupt triggers retain normal watch-stop
+        // behavior.
+        if trigger == WatchTrigger::Interrupt {
+            match stop_watch_child_after_interrupt(&mut child, shutdown_timeout).await {
+                Ok(WatchInterruptCleanup::Reaped(status)) => {
+                    if status.code() != Some(128 + libc::SIGINT) {
+                        emit_pre_session_diagnostic(
+                            "watch child exited with an unexpected status during SIGINT grace: ",
+                            &status.to_string(),
+                        );
+                    }
+                }
+                Ok(WatchInterruptCleanup::Fallback) => {}
+                Err(error) => {
+                    emit_pre_session_diagnostic(
+                        "watch child cleanup after SIGINT failed: ",
+                        &format!("{error:#}"),
+                    );
+                }
+            }
+            return Err(anyhow::Error::new(ProgramRequestedExit {
+                code: 128 + libc::SIGINT,
+            }));
+        }
+
         stop_watch_child(&mut child, shutdown_timeout).await?;
-        if !should_continue {
-            break;
+        match trigger {
+            WatchTrigger::Restart => {}
+            WatchTrigger::WatcherClosed => break,
+            WatchTrigger::Interrupt => unreachable!("interrupt returned above"),
         }
     }
 
@@ -920,7 +2027,8 @@ async fn await_restart_trigger(
     child: &mut tokio::process::Child,
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<notify::Event>,
     debounce: std::time::Duration,
-) -> bool {
+    interrupt: &mut LauncherInterrupt,
+) -> WatchTrigger {
     use std::time::Instant;
 
     // Phase 1: wait for the first trigger — a relevant change or the child
@@ -945,15 +2053,22 @@ async fn await_restart_trigger(
                     }
                     Err(e) => {
                         eprintln!("\x1b[31m[watch]\x1b[0m error: {}", e);
-                        return true;
+                        return WatchTrigger::Restart;
                     }
                 }
             }
             maybe_event = rx.recv() => {
-                let Some(event) = maybe_event else { return false; };
+                let Some(event) = maybe_event else { return WatchTrigger::WatcherClosed; };
                 if is_relevant_change(&event) {
                     break;
                 }
+            }
+            listener_open = interrupt.recv() => {
+                return if listener_open {
+                    WatchTrigger::Interrupt
+                } else {
+                    WatchTrigger::WatcherClosed
+                };
             }
         }
     }
@@ -967,19 +2082,28 @@ async fn await_restart_trigger(
         let Some(remaining) = deadline.checked_duration_since(now) else {
             break;
         };
-        match tokio::time::timeout(remaining, rx.recv()).await {
-            Ok(Some(event)) => {
+        tokio::select! {
+            _ = tokio::time::sleep(remaining) => break,
+            maybe_event = rx.recv() => {
+                let Some(event) = maybe_event else {
+                    return WatchTrigger::WatcherClosed;
+                };
                 if is_relevant_change(&event) {
                     deadline = Instant::now() + debounce;
                 }
             }
-            Ok(None) => break, // channel closed; restart once with what we have
-            Err(_) => break,   // quiet window elapsed
+            listener_open = interrupt.recv() => {
+                return if listener_open {
+                    WatchTrigger::Interrupt
+                } else {
+                    WatchTrigger::WatcherClosed
+                };
+            }
         }
     }
 
     eprintln!("\x1b[33m[watch]\x1b[0m change detected, restarting...");
-    true
+    WatchTrigger::Restart
 }
 
 /// Reconstruct the global flag set for the watch child. The child previously
@@ -1092,11 +2216,11 @@ fn is_relevant_change(event: &notify::Event) -> bool {
 /// alive. It drives the runtime's event loop each tick so DevTools
 /// `Runtime.evaluate` and timers scheduled from DevTools actually run — the old
 /// loop only ticked a counter and never polled, so those hung. (ENG-22958)
-async fn run_debug_loop(runtime: &runtime::Runtime) {
+async fn run_debug_loop(
+    runtime: &runtime::Runtime,
+) -> Option<runtime::AuthenticatedFileProgramOutcome> {
     use tokio::sync::mpsc;
     use tokio::time::{interval, Duration, Instant};
-
-    let engine = runtime.engine();
 
     let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel::<()>();
 
@@ -1143,10 +2267,12 @@ async fn run_debug_loop(runtime: &runtime::Runtime) {
             _ = ticker.tick() => {
                 // Drive the runtime's event loop so DevTools evaluations and
                 // timers scheduled from DevTools run while we stay alive.
-                if let Err(err) = engine.drive_ready_tasks().await {
-                    eprintln!("error: keep-alive event loop failed: {err:#}");
+                if let Some(outcome) = runtime
+                    .settle_authenticated_file_keep_alive_tick()
+                    .await
+                {
                     stop_signal_watchers();
-                    break;
+                    return Some(outcome);
                 }
                 if shutdown_requests == 0 {
                     continue;
@@ -1192,15 +2318,23 @@ async fn run_debug_loop(runtime: &runtime::Runtime) {
             }
         }
     }
+    None
 }
 
 /// Evaluate a one-liner JavaScript expression
-async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
-    let runtime = runtime::Runtime::from_cli(cli)?;
-
+async fn eval_code(
+    cli: &Cli,
+    code: &str,
+    print_result: bool,
+    session_io: terminal_session::SessionIoPlan,
+) -> Result<()> {
+    if authenticated_product_ingress(session_io.route)
+        != Some(AuthenticatedProductIngress::InlineOneShot)
+    {
+        anyhow::bail!("eval route did not select the authenticated inline ingress");
+    }
+    let runtime = runtime::Runtime::from_cli_with_session(cli, session_io)?;
     suppress_runtime_banner(&runtime).await?;
-
-    // Load the runtime bundle
     if trace_startup() {
         eprintln!("[startup] eval_load_runtime_start");
     }
@@ -1208,177 +2342,146 @@ async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
     if trace_startup() {
         eprintln!("[startup] eval_load_runtime_end");
     }
+    configure_session_inspector(cli, &runtime).await?;
 
-    if cli.inspect || cli.inspect_wait || cli.inspect_open || cli.inspect_pause {
-        let host = cli.inspect_host.as_deref().unwrap_or("127.0.0.1");
-        let port = cli.inspect_port.unwrap_or(9229);
-        runtime.start_inspector(host, port).await?;
-        eprintln!("Debugger listening on ws://{}:{}", host, port);
-        eprintln!("For help, see: https://nodejs.org/en/guides/debugging-getting-started");
-        eprintln!("DevTools URL: {}", devtools_url(host, port));
-        if cli.inspect_open {
-            open_devtools_for_port(port);
-        }
-        // Wait for debugger if explicitly requested, or if we opened DevTools
-        // (since opening DevTools implies wanting to debug before code runs)
-        if cli.inspect_wait || cli.inspect_pause || cli.inspect_open {
-            eprintln!("Waiting for debugger to attach...");
-            runtime.wait_for_inspector().await?;
-            eprintln!("Debugger attached.");
-            // Also wait for the Debugger domain to be enabled
-            runtime.wait_for_debugger().await?;
-        }
-    }
-
-    if cli.inspect_pause {
-        let _ = runtime.eval("debugger;").await?;
-    }
-
-    // Set up process.argv0 from raw OS argv[0] (needed for argv0 option in spawn)
-    #[cfg(not(windows))]
-    {
-        let raw_argv0 = std::env::args().next().unwrap_or_default();
-        let argv0_json = serde_json::to_string(&raw_argv0).unwrap_or_else(|_| "\"\"".to_string());
-        let argv0_code = format!(
-            "if (typeof globalThis.process === 'object' && globalThis.process !== null) {{ \
-                if (globalThis.process.argv0 === undefined) {{ globalThis.process.argv0 = {}; }} \
-            }}",
-            argv0_json
-        );
-        let _ = runtime.eval(&argv0_code).await;
-    }
-
-    let mut eval_source = if !cfg!(windows)
-        && !print_result
-        && runtime::contains_top_level_await(code)
-    {
-        format!(
-            "Promise.resolve((async () => {{\n{}\n}})()).catch(err => {{ setTimeout(() => {{ throw err; }}, 0); }});",
-            code
-        )
-    } else {
-        code.to_string()
-    };
-
-    if print_result {
-        eval_source = format!(
-            r#"(function() {{
-  if (typeof globalThis.require !== 'function') return;
-  var moduleBuiltin;
-  try {{
-    moduleBuiltin = globalThis.require('module');
-  }} catch (_) {{
-    return;
-  }}
-  var builtins = moduleBuiltin && Array.isArray(moduleBuiltin.builtinModules)
-    ? moduleBuiltin.builtinModules
-    : [];
-  for (var i = 0; i < builtins.length; i++) {{
-    var name = builtins[i];
-    if (typeof name !== 'string') continue;
-    if (name.indexOf(':') !== -1 || name.indexOf('/') !== -1 || name.indexOf('-') !== -1) continue;
-    if (!/^[$A-Z_][0-9A-Z_$]*$/i.test(name)) continue;
-    if (Object.prototype.hasOwnProperty.call(globalThis, name)) continue;
-    (function(moduleName) {{
-      try {{
-        Object.defineProperty(globalThis, moduleName, {{
-          configurable: true,
-          enumerable: false,
-          get: function() {{
-            var value = globalThis.require(moduleName);
-            try {{
-              Object.defineProperty(globalThis, moduleName, {{
-                value: value,
-                writable: true,
-                configurable: true,
-                enumerable: false
-              }});
-            }} catch (_defineValueErr) {{}}
-            return value;
-          }},
-          set: function(value) {{
-            try {{
-              Object.defineProperty(globalThis, moduleName, {{
-                value: value,
-                writable: true,
-                configurable: true,
-                enumerable: true
-              }});
-            }} catch (_setErr) {{}}
-          }}
-        }});
-      }} catch (_defineErr) {{}}
-    }})(name);
-  }}
-}})();
-{}"#,
-            eval_source
-        );
-    }
-
-    // Evaluate the code
+    // The adapter owns descriptors 1/2 for the complete source/result
+    // transaction and obtains its request from AuthenticatedInlineIngress.
+    // Source bytes are the only caller-controlled request field; no wrapper,
+    // raw evaluator, mutable require alias, or caller-selected referrer crosses
+    // this boundary.
+    // @ref LLP 0024#1-the-in-memory-source-api
     if trace_startup() {
         eprintln!("[startup] eval_user_code_start");
     }
-    let result = runtime.eval(&eval_source).await?;
+    let presentation = if print_result {
+        terminal_session::InlineResultPresentation::Print
+    } else {
+        terminal_session::InlineResultPresentation::Suppress
+    };
+    let status = terminal_session::run_authenticated_inline_execution_adapter(
+        &runtime,
+        code.as_bytes().to_vec(),
+        presentation,
+    )
+    .await?;
     if trace_startup() {
         eprintln!("[startup] eval_user_code_end");
     }
+    status_result(status)
+}
 
-    // Print the result (only for -p, not -e)
-    if print_result {
-        if let Some(value) = result {
-            println!("{}", value);
-        }
+/// Consume at most one byte past the generated input bound. Passing that
+/// sentinel byte into the authenticated ingress produces the same typed
+/// `InputTooLarge` refusal as every other in-memory source without allocating
+/// an attacker-selected amount of memory or pre-decoding UTF-8.
+fn read_program_stdin_bounded() -> Result<Vec<u8>> {
+    read_program_source_bounded(std::io::stdin().lock())
+}
+
+fn read_program_source_bounded(mut reader: impl std::io::Read) -> Result<Vec<u8>> {
+    use std::io::Read;
+
+    let max = ibex_runtime::session_constants::MAX_INPUT_BYTES;
+    let limit = max
+        .checked_add(1)
+        .context("session input bound cannot represent its refusal sentinel")?;
+    let mut source = Vec::with_capacity(limit.min(64 * 1024));
+    reader
+        .by_ref()
+        .take(limit as u64)
+        .read_to_end(&mut source)
+        .context("failed to read program source from stdin")?;
+    Ok(source)
+}
+
+/// Execute implicit non-TTY stdin as one authenticated ESM program. The
+/// session plan was captured before arming, so this function neither re-probes
+/// TTY state nor lets JavaScript reopen the source descriptor.
+/// @ref LLP 0022#3-input-modes
+/// @ref LLP 0024#1-the-in-memory-source-api
+async fn run_stdin_program(cli: &Cli, session_io: terminal_session::SessionIoPlan) -> Result<()> {
+    if authenticated_product_ingress(session_io.route)
+        != Some(AuthenticatedProductIngress::WorkerProgram)
+    {
+        anyhow::bail!("program-stdin route did not select the authenticated worker ingress");
     }
-
-    if cli.keep_alive {
-        eprintln!("Press Ctrl+C to exit.");
-        run_debug_loop(&runtime).await;
+    let source = read_program_stdin_bounded()?;
+    #[cfg(unix)]
+    {
+        let spawned = session_worker_runtime::spawn_session_worker(cli, session_io)?;
+        let (program, relays) = spawned.into_remote_program();
+        let status = terminal_session::run_worker_program_execution_adapter(
+            session_io, program, relays, source,
+        )
+        .await?;
+        status_result(status)
     }
-
-    if let Some(code) = read_process_exit_code(&runtime).await {
-        std::process::exit(code);
+    #[cfg(not(unix))]
+    {
+        let _ = (cli, session_io, source);
+        anyhow::bail!(
+            "secure program-stdin workers are not yet available on this target; refusing an in-process fallback"
+        )
     }
+}
 
+fn status_result(status: i32) -> Result<()> {
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(ProgramRequestedExit { code: status }.into())
+    }
+}
+
+async fn configure_session_inspector(cli: &Cli, runtime: &runtime::Runtime) -> Result<()> {
+    if !(cli.inspect || cli.inspect_wait || cli.inspect_open || cli.inspect_pause) {
+        return Ok(());
+    }
+    let host = cli.inspect_host.as_deref().unwrap_or("127.0.0.1");
+    let port = cli.inspect_port.unwrap_or(9229);
+    runtime.start_inspector(host, port).await?;
+    eprintln!("Debugger listening on ws://{}:{}", host, port);
+    eprintln!("For help, see: https://nodejs.org/en/guides/debugging-getting-started");
+    eprintln!("DevTools URL: {}", devtools_url(host, port));
+    if cli.inspect_open {
+        open_devtools_for_port(port);
+    }
+    if cli.inspect_wait || cli.inspect_pause || cli.inspect_open {
+        eprintln!("Waiting for debugger to attach...");
+        runtime.wait_for_inspector().await?;
+        eprintln!("Debugger attached.");
+        runtime.wait_for_debugger().await?;
+    }
+    if cli.inspect_pause {
+        runtime.pause_inspector().await?;
+    }
     Ok(())
 }
 
 /// Start the interactive REPL
-async fn start_repl(cli: &Cli) -> Result<()> {
-    // REPL uses the same enforced, armed runtime posture as ordinary execution.
-    // User can override with --capsec capability or --capsec strict for security testing
-    let runtime = runtime::Runtime::from_cli(cli)?;
-    suppress_runtime_banner(&runtime).await?;
-
-    // Load the runtime bundle
-    runtime.load_runtime().await?;
-
-    if cli.inspect || cli.inspect_wait || cli.inspect_open || cli.inspect_pause {
-        let host = cli.inspect_host.as_deref().unwrap_or("127.0.0.1");
-        let port = cli.inspect_port.unwrap_or(9229);
-        runtime.start_inspector(host, port).await?;
-        eprintln!("Debugger listening on ws://{}:{}", host, port);
-        eprintln!("For help, see: https://nodejs.org/en/guides/debugging-getting-started");
-        eprintln!("DevTools URL: {}", devtools_url(host, port));
-        if cli.inspect_open {
-            open_devtools_for_port(port);
-        }
-        // Wait for debugger if explicitly requested, or if we opened DevTools
-        if cli.inspect_wait || cli.inspect_pause || cli.inspect_open {
-            eprintln!("Waiting for debugger to attach...");
-            runtime.wait_for_inspector().await?;
-            eprintln!("Debugger attached.");
-            runtime.wait_for_debugger().await?;
-        }
+async fn start_repl(cli: &Cli, session_io: terminal_session::SessionIoPlan) -> Result<()> {
+    if authenticated_product_ingress(session_io.route)
+        != Some(AuthenticatedProductIngress::WorkerRepl)
+    {
+        anyhow::bail!("REPL route did not select the authenticated worker ingress");
     }
-
-    if cli.inspect_pause {
-        let _ = runtime.eval("debugger;").await?;
+    // The supervisor owns stdin, terminal state, history, output, signals, and
+    // final disposition. Hermes exists only in the authenticated worker, so a
+    // stuck/native-exiting engine cannot bypass restoration or consume the
+    // operator's next command.
+    // @ref LLP 0025#7-architecture-the-session-layer-must-survive-its-worker
+    #[cfg(unix)]
+    {
+        let status = repl::start_worker(cli, session_io).await?;
+        status_result(status)
     }
-
-    // Start the REPL
-    repl::start(runtime.engine()).await
+    #[cfg(not(unix))]
+    {
+        let _ = (cli, session_io);
+        anyhow::bail!(
+            "secure REPL workers are not yet available on this target; refusing an in-process fallback"
+        )
+    }
 }
 
 /// Compile a file to Hermes bytecode
@@ -1530,11 +2633,127 @@ fn open_devtools_for_port(port: u16) {
 #[cfg(test)]
 mod tests {
     use super::{
-        cli, effective_run_cli, exit_code_for_error, watch_child_args,
-        watch_shutdown_timeout_from_env, RunFileOptions, DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS,
+        apply_file_adapter_finish_error, apply_file_broker_loss_disposition,
+        authenticated_product_ingress, cli, effective_run_cli, escape_pre_session_diagnostic,
+        exit_code_for_error, is_program_requested_exit,
+        preserve_file_settlement_after_inspector_cleanup, read_program_source_bounded,
+        stop_watch_child_after_interrupt, watch_child_args, watch_shutdown_timeout_from_env,
+        AuthenticatedProductIngress, LauncherInterrupt, ProgramExecutionFailure,
+        ProgramRequestedExit, RunFileOptions, DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS,
         EXACT_PROJECT_COMMANDS, RESERVED_RUNTIME_COMMANDS,
     };
     use clap::Parser;
+
+    #[cfg(unix)]
+    unsafe extern "C" fn launcher_signal_restore_sentinel(_: libc::c_int) {}
+
+    #[cfg(unix)]
+    fn query_signal_action(signal: libc::c_int) -> libc::sigaction {
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        // SAFETY: a null replacement queries the current action into action.
+        assert_eq!(
+            unsafe { libc::sigaction(signal, std::ptr::null(), &mut action) },
+            0
+        );
+        action
+    }
+
+    #[cfg(unix)]
+    struct SignalActionReset {
+        signal: libc::c_int,
+        action: libc::sigaction,
+    }
+
+    #[cfg(unix)]
+    impl Drop for SignalActionReset {
+        fn drop(&mut self) {
+            // SAFETY: action was returned by sigaction for this signal.
+            unsafe {
+                libc::sigaction(self.signal, &self.action, std::ptr::null_mut());
+            }
+        }
+    }
+
+    // @ref LLP 0025#1-modes-descriptors-and-topology
+    #[cfg(unix)]
+    #[test]
+    fn launcher_interrupt_drop_restores_prior_and_rejects_reinstallation() {
+        const CHILD: &str = "IBEX_TEST_LAUNCHER_ONE_SHOT_SIGNAL_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            // Use SIGUSR2 so this disposition test cannot interfere with the
+            // test harness's own SIGINT behavior. Production calls the same
+            // installer with SIGINT.
+            let signal = libc::SIGUSR2;
+            let mut sentinel: libc::sigaction = unsafe { std::mem::zeroed() };
+            sentinel.sa_sigaction = launcher_signal_restore_sentinel as *const () as usize;
+            sentinel.sa_flags = libc::SA_RESTART;
+            assert_eq!(unsafe { libc::sigemptyset(&mut sentinel.sa_mask) }, 0);
+            assert_eq!(
+                unsafe { libc::sigaddset(&mut sentinel.sa_mask, libc::SIGTERM) },
+                0
+            );
+            let mut original: libc::sigaction = unsafe { std::mem::zeroed() };
+            assert_eq!(
+                unsafe { libc::sigaction(signal, &sentinel, &mut original) },
+                0
+            );
+            let _reset = SignalActionReset {
+                signal,
+                action: original,
+            };
+            let expected = query_signal_action(signal);
+
+            let guard = LauncherInterrupt::install_for_signal(signal).unwrap();
+            assert_ne!(
+                query_signal_action(signal).sa_sigaction,
+                expected.sa_sigaction,
+                "launcher mediation did not replace the prior action"
+            );
+            drop(guard);
+
+            let restored = query_signal_action(signal);
+            assert_eq!(restored.sa_sigaction, expected.sa_sigaction);
+            assert_eq!(restored.sa_flags, expected.sa_flags);
+            assert_eq!(
+                unsafe { libc::sigismember(&restored.sa_mask, libc::SIGTERM) },
+                unsafe { libc::sigismember(&expected.sa_mask, libc::SIGTERM) }
+            );
+            let reinstall = LauncherInterrupt::install_for_signal(signal);
+            assert!(matches!(
+                reinstall,
+                Err(ref error) if error.kind() == std::io::ErrorKind::AlreadyExists
+            ));
+            std::process::exit(0);
+        }
+
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::launcher_interrupt_drop_restores_prior_and_rejects_reinstallation",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "one-shot launcher signal child failed\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn pre_session_diagnostic_payload_is_one_terminal_safe_line() {
+        let escaped = escape_pre_session_diagnostic(
+            "ordinary \x1b[31mred\nnext\r\t\u{0085}\u{2028}\u{202e}spoof\u{2066} text",
+        );
+        assert_eq!(
+            escaped,
+            "ordinary \\u{001b}[31mred\\u{000a}next\\u{000d}\\u{0009}\\u{0085}\\u{2028}\\u{202e}spoof\\u{2066} text"
+        );
+        assert!(!escaped.chars().any(char::is_control));
+    }
 
     #[test]
     fn run_subcommand_inspector_configuration_reaches_armed_validation() {
@@ -1609,6 +2828,35 @@ mod tests {
         let mut manifest_legacy = names("legacyProjectCommands");
         manifest_legacy.sort();
         assert_eq!(legacy, manifest_legacy, "legacy Exact project commands");
+    }
+
+    #[test]
+    fn product_ingress_table_owns_every_authenticated_cli_route() {
+        let route = |args: &[&str], stdin_is_tty| {
+            super::terminal_session::selected_execution_route(
+                &cli::Cli::parse_from(args),
+                stdin_is_tty,
+            )
+            .expect("CLI fixture selects an execution route")
+        };
+        assert_eq!(
+            authenticated_product_ingress(route(&["ibex", "-e", "void 0"], false)),
+            Some(AuthenticatedProductIngress::InlineOneShot)
+        );
+        assert_eq!(
+            authenticated_product_ingress(route(&["ibex"], false)),
+            Some(AuthenticatedProductIngress::WorkerProgram)
+        );
+        for args in [&["ibex"][..], &["ibex", "repl"][..]] {
+            assert_eq!(
+                authenticated_product_ingress(route(args, true)),
+                Some(AuthenticatedProductIngress::WorkerRepl)
+            );
+        }
+        assert_eq!(
+            authenticated_product_ingress(route(&["ibex", "app.ts"], false)),
+            Some(AuthenticatedProductIngress::FileProgram)
+        );
     }
 
     #[test]
@@ -1715,6 +2963,59 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn watch_group_interrupt_grace_does_not_preempt_child_cleanup_with_sigterm() {
+        let directory = tempfile::tempdir().expect("watch grace directory");
+        let ready = directory.path().join("ready");
+        let interrupted = directory.path().join("interrupted");
+        let cleaned = directory.path().join("cleaned");
+        let terminated = directory.path().join("terminated");
+        let script = r#"
+trap 'printf x > "$TERM_MARKER"; exit 143' TERM
+trap 'printf x > "$INT_MARKER"; sleep 0.2; printf x > "$CLEAN_MARKER"; exit 130' INT
+printf x > "$READY_MARKER"
+while :; do :; done
+"#;
+        let mut child = tokio::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(script)
+            .env("READY_MARKER", &ready)
+            .env("INT_MARKER", &interrupted)
+            .env("CLEAN_MARKER", &cleaned)
+            .env("TERM_MARKER", &terminated)
+            .spawn()
+            .expect("spawn watch grace child");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !ready.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "watch grace child did not become ready"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        let pid = child.id().expect("watch grace child pid") as i32;
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);
+        let cleanup =
+            stop_watch_child_after_interrupt(&mut child, std::time::Duration::from_millis(100))
+                .await
+                .expect("wait for watch child interrupt cleanup");
+
+        let status = child
+            .try_wait()
+            .expect("poll cleaned watch child")
+            .expect("watch grace child was not reaped");
+        assert_eq!(status.code(), Some(130));
+        assert!(matches!(cleanup, super::WatchInterruptCleanup::Reaped(_)));
+        assert!(interrupted.exists(), "child did not observe its SIGINT");
+        assert!(cleaned.exists(), "child cleanup was not allowed to finish");
+        assert!(
+            !terminated.exists(),
+            "controller preempted SIGINT cleanup with SIGTERM"
+        );
+    }
+
     #[test]
     fn watch_shutdown_timeout_falls_back_to_default() {
         assert_eq!(
@@ -1753,6 +3054,180 @@ mod tests {
         // The code survives extra context layered on top of the error.
         let wrapped = error.context("running package script `lint`");
         assert_eq!(exit_code_for_error(&wrapped), 2);
+    }
+
+    #[test]
+    fn exit_code_for_error_propagates_structured_program_status() {
+        let error = anyhow::Error::new(ProgramRequestedExit { code: 70 })
+            .context("descriptor restoration completed");
+        assert_eq!(exit_code_for_error(&error), 70);
+
+        let error = anyhow::Error::new(ProgramExecutionFailure {
+            code: 1,
+            diagnostic: "unhandled asynchronous file-program failure".to_owned(),
+        })
+        .context("descriptor restoration completed");
+        assert_eq!(exit_code_for_error(&error), 1);
+    }
+
+    #[test]
+    fn file_broker_loss_upgrades_only_successful_program_causes() {
+        let orderly =
+            apply_file_broker_loss_disposition(Ok(()), Some("orderly loss".to_owned()), false)
+                .expect_err("unreportable orderly output loss must become a typed failure");
+        assert_eq!(
+            exit_code_for_error(&orderly),
+            ibex_runtime::session_constants::EXIT_STATUS_BROKEN_PIPE
+        );
+        assert!(format!("{orderly:#}").contains("orderly loss"));
+
+        let lifecycle = apply_file_broker_loss_disposition(
+            Err(anyhow::Error::new(ProgramRequestedExit { code: 7 })),
+            Some("cooperative loss".to_owned()),
+            false,
+        )
+        .expect_err("unreportable cooperative output loss must become a typed failure");
+        assert_eq!(
+            exit_code_for_error(&lifecycle),
+            ibex_runtime::session_constants::EXIT_STATUS_BROKEN_PIPE
+        );
+        assert!(
+            !is_program_requested_exit(&lifecycle),
+            "the replacement failure must remain visible to main's diagnostic path"
+        );
+        assert!(format!("{lifecycle:#}").contains("cooperative loss"));
+
+        let reported_lifecycle = apply_file_broker_loss_disposition(
+            Err(anyhow::Error::new(ProgramRequestedExit { code: 9 })),
+            Some("reported cooperative loss".to_owned()),
+            true,
+        )
+        .expect_err("the original cooperative exit remains non-returning");
+        assert!(is_program_requested_exit(&reported_lifecycle));
+        assert_eq!(exit_code_for_error(&reported_lifecycle), 9);
+        assert!(!format!("{reported_lifecycle:#}").contains("reported cooperative loss"));
+
+        let reported_orderly = apply_file_broker_loss_disposition(
+            Ok(()),
+            Some("reported orderly loss".to_owned()),
+            true,
+        );
+        assert!(reported_orderly.is_ok());
+
+        let fixed = apply_file_broker_loss_disposition(
+            Err(anyhow::Error::new(ProgramExecutionFailure {
+                code: ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT,
+                diagnostic: "primary engine fault".to_owned(),
+            })),
+            Some("later broker loss".to_owned()),
+            false,
+        )
+        .expect_err("a fixed primary cause remains an error");
+        assert_eq!(
+            exit_code_for_error(&fixed),
+            ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT
+        );
+        let diagnostic = format!("{fixed:#}");
+        assert!(diagnostic.contains("primary engine fault"));
+        assert!(diagnostic.contains("later broker loss"));
+    }
+
+    #[test]
+    fn inspector_cleanup_cannot_replace_a_latched_file_settlement() {
+        let lifecycle = preserve_file_settlement_after_inspector_cleanup(
+            Err(anyhow::Error::new(ProgramRequestedExit { code: 7 })),
+            Err(anyhow::anyhow!("inspector stop failed")),
+        )
+        .expect_err("the lifecycle settlement remains non-returning");
+        assert!(is_program_requested_exit(&lifecycle));
+        assert_eq!(exit_code_for_error(&lifecycle), 7);
+
+        let orderly = preserve_file_settlement_after_inspector_cleanup(
+            Ok(()),
+            Err(anyhow::anyhow!("inspector stop failed")),
+        );
+        assert!(orderly.is_ok(), "cleanup cannot replace orderly completion");
+    }
+
+    #[test]
+    fn adapter_finish_errors_retain_the_program_cause_class() {
+        let relay_loss = apply_file_adapter_finish_error(
+            Err(anyhow::Error::new(ProgramRequestedExit { code: 7 })),
+            crate::terminal_session::FileProgramAdapterError::Broker(
+                "relay disconnected".to_owned(),
+            ),
+        )
+        .expect_err("a directly reportable relay failure preserves the cooperative cause");
+        assert_eq!(exit_code_for_error(&relay_loss), 7);
+        assert!(is_program_requested_exit(&relay_loss));
+
+        let fixed = apply_file_adapter_finish_error(
+            Err(anyhow::Error::new(ProgramExecutionFailure {
+                code: ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT,
+                diagnostic: "primary engine fault".to_owned(),
+            })),
+            crate::terminal_session::FileProgramAdapterError::RelayThreadPanicked,
+        )
+        .expect_err("relay loss cannot replace a fixed cause");
+        assert_eq!(
+            exit_code_for_error(&fixed),
+            ibex_runtime::session_constants::EXIT_STATUS_ENGINE_FAULT
+        );
+        assert!(format!("{fixed:#}").contains("primary engine fault"));
+
+        let restoration = apply_file_adapter_finish_error(
+            Err(anyhow::Error::new(ProgramRequestedExit { code: 9 })),
+            crate::terminal_session::FileProgramAdapterError::Native(std::io::Error::other(
+                "descriptor restore failed",
+            )),
+        )
+        .expect_err("restoration diagnostics cannot replace a lifecycle cause");
+        assert!(is_program_requested_exit(&restoration));
+        assert_eq!(exit_code_for_error(&restoration), 9);
+
+        let restoration_with_loss = apply_file_adapter_finish_error(
+            Err(anyhow::Error::new(ProgramRequestedExit { code: 11 })),
+            crate::terminal_session::FileProgramAdapterError::NativeWithReport {
+                error: std::io::Error::other("descriptor restore failed"),
+                report: Box::new(
+                    crate::terminal_session::FileProgramExecutionReport::with_unaccepted_stdout_byte_for_test(),
+                ),
+            },
+        )
+        .expect_err("reported output loss still upgrades a successful cause");
+        assert_eq!(
+            exit_code_for_error(&restoration_with_loss),
+            ibex_runtime::session_constants::EXIT_STATUS_BROKEN_PIPE
+        );
+        assert!(!is_program_requested_exit(&restoration_with_loss));
+
+        let reportable_restoration_with_loss = apply_file_adapter_finish_error(
+            Err(anyhow::Error::new(ProgramRequestedExit { code: 12 })),
+            crate::terminal_session::FileProgramAdapterError::NativeWithReport {
+                error: std::io::Error::other("descriptor restore failed"),
+                report: Box::new(
+                    crate::terminal_session::FileProgramExecutionReport::with_reportable_unaccepted_stdout_byte_for_test(),
+                ),
+            },
+        )
+        .expect_err("a reportable cleanup loss preserves the cooperative cause");
+        assert!(is_program_requested_exit(&reportable_restoration_with_loss));
+        assert_eq!(exit_code_for_error(&reportable_restoration_with_loss), 12);
+    }
+
+    #[test]
+    fn program_stdin_reader_preserves_bytes_and_stops_at_refusal_sentinel() {
+        let max = ibex_runtime::session_constants::MAX_INPUT_BYTES;
+        let invalid_utf8 = vec![0xff, 0xfe, 0x00];
+        assert_eq!(
+            read_program_source_bounded(invalid_utf8.as_slice()).unwrap(),
+            invalid_utf8
+        );
+
+        let oversized = vec![b'x'; max + 257];
+        let bounded = read_program_source_bounded(oversized.as_slice()).unwrap();
+        assert_eq!(bounded.len(), max + 1);
+        assert!(bounded.iter().all(|byte| *byte == b'x'));
     }
 
     #[test]

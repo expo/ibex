@@ -21,6 +21,9 @@ use crate::model::{
     ActionId, AuthoritySelector, Digest, Generation, LogicalPath, LogicalRoot, NonEmptyString,
     ObjectIdentity, PathComponent, Principal, SafeUint, SelectorResource,
 };
+use crate::path_alias::{
+    BoundVolumePathCanonicalizer, PathAliasCanonicalizers, PathCanonicalizerRootBinding,
+};
 use crate::registry::DefinitionSet;
 use crate::strict_json::parse_strict;
 use crate::{Error, Result};
@@ -38,10 +41,159 @@ pub struct ExpectedArmingIdentity {
     pub engine_binary_digest: Digest,
     pub features: Vec<String>,
     pub package_graph_digest: Digest,
+    /// Launcher-observed execution entry. This is compared exactly with the
+    /// digest-bound snapshot so a file, stdin program, REPL, or one-shot route
+    /// cannot borrow another route's source identity or execution semantics.
+    pub entry: ArmedEntry,
+    /// Launcher-observed project-root discovery evidence. The record is
+    /// compared exactly with the digest-bound snapshot before either one can
+    /// establish the runtime's authority boundary.
+    pub project_root_discovery: ArmedProjectRootDiscovery,
+    /// Launcher-observed bound-volume canonicalizer identities. The exact
+    /// sorted table is compared with the digest-bound snapshot before any
+    /// authored selector is interpreted.
+    pub path_canonicalizers: Vec<BoundVolumePathCanonicalizer>,
     /// Independently authenticated artifact paths, object identities, and
     /// content hashes. The snapshot's role labels are accepted only when they
     /// exactly match this launcher-supplied set.
     pub protected_artifacts: Vec<ExpectedProtectedArtifact>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArmedEntryKind {
+    File,
+    Stdin,
+    Repl,
+    Eval,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArmedExecutionMode {
+    Interactive,
+    Transcript,
+    Program,
+    OneShot,
+}
+
+/// Digest-bound entry facts for one armed execution.
+///
+/// This is intentionally a closed tuple. In particular, the identity is not a
+/// caller-selected source label: synthetic identities have exact spellings and
+/// a file identity is confined to the virtual project namespace.
+/// @ref LLP 0022#2-startup-project-identity-and-session-arming
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ArmedEntry {
+    pub kind: ArmedEntryKind,
+    pub identity: NonEmptyString,
+    pub mode: ArmedExecutionMode,
+}
+
+impl ArmedEntry {
+    pub fn validate(&self) -> Result<()> {
+        let identity = self.identity.as_str();
+        let valid = match (self.kind, self.mode) {
+            (ArmedEntryKind::File, ArmedExecutionMode::Program) => {
+                valid_virtual_file_entry_identity(identity)
+            }
+            (ArmedEntryKind::Stdin, ArmedExecutionMode::Program) => identity == "ibex:stdin",
+            (ArmedEntryKind::Repl, ArmedExecutionMode::Interactive)
+            | (ArmedEntryKind::Repl, ArmedExecutionMode::Transcript) => identity == "ibex:repl",
+            (ArmedEntryKind::Eval, ArmedExecutionMode::OneShot) => identity == "ibex:eval",
+            _ => false,
+        };
+        if !valid {
+            return refused("armed entry kind, identity, and mode are inconsistent");
+        }
+        Ok(())
+    }
+}
+
+pub const PROJECT_ROOT_MARKER_SET_VERSION: &str = "ibex/project-root-markers/1";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArmedProjectRootMarkerKind {
+    ExplicitProject,
+    PnpmWorkspace,
+    PackageWorkspace,
+    Lockfile,
+    PackageManifest,
+    OriginFallback,
+}
+
+/// Digest-bound evidence explaining how the authenticated project binding was
+/// selected. Host paths use the same lossless component encoding as root
+/// bindings; no display-string round trip participates in identity.
+/// @ref LLP 0023#11-project-root-discovery — discovery is part of armed identity
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ArmedProjectRootDiscovery {
+    pub origin: LogicalPath,
+    pub selected_root: LogicalPath,
+    pub marker_kind: ArmedProjectRootMarkerKind,
+    pub marker_path: Option<LogicalPath>,
+    pub marker_set_version: String,
+}
+
+fn valid_virtual_file_entry_identity(identity: &str) -> bool {
+    let Some(path) = identity.strip_prefix("file:///project/") else {
+        return false;
+    };
+    if path.is_empty() || path.ends_with('/') || identity.contains(['\0', '\\', '?', '#']) {
+        return false;
+    }
+    path.split('/').all(|component| {
+        !component.is_empty()
+            && component != "."
+            && component != ".."
+            && valid_percent_encoding(component.as_bytes())
+    })
+}
+
+fn valid_percent_encoding(component: &[u8]) -> bool {
+    let mut index = 0;
+    while index < component.len() {
+        let byte = component[index];
+        if byte < 0x20 || byte == 0x7f {
+            return false;
+        }
+        if byte != b'%' {
+            index += 1;
+            continue;
+        }
+        if index + 2 >= component.len() {
+            return false;
+        }
+        let Some(high) = uppercase_hex(component[index + 1]) else {
+            return false;
+        };
+        let Some(low) = uppercase_hex(component[index + 2]) else {
+            return false;
+        };
+        let decoded = high << 4 | low;
+        // Encoded path separators are ambiguous across platforms. Percent
+        // escapes of RFC 3986 unreserved bytes are non-canonical spellings,
+        // so they cannot manufacture a second authenticated entry identity.
+        if decoded == b'/'
+            || decoded.is_ascii_alphanumeric()
+            || matches!(decoded, b'-' | b'.' | b'_' | b'~')
+        {
+            return false;
+        }
+        index += 3;
+    }
+    true
+}
+
+fn uppercase_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -128,9 +280,13 @@ pub struct ArmedRootBinding {
 #[derive(Clone, Debug)]
 pub struct ArmedSnapshot {
     document: Arc<Value>,
+    entry: ArmedEntry,
+    project_root_discovery: ArmedProjectRootDiscovery,
     root_bindings: Arc<[ArmedRootBinding]>,
+    path_canonicalizers: PathAliasCanonicalizers,
     module_edges: Arc<[SnapshotImportEdge]>,
     protected_artifacts: Arc<[ExpectedProtectedArtifact]>,
+    bootstrap_compatibility_modes: Arc<[String]>,
     armed_snapshot_digest: Digest,
     generations: SnapshotGenerations,
 }
@@ -190,6 +346,46 @@ impl ArmedSnapshot {
                 return refused("required structural posture is not active");
             }
         }
+        let environment_base = value_at(&document, &["environmentBase"])?
+            .as_array()
+            .ok_or_else(|| invalid("environmentBase must be an array"))?;
+        if !environment_base.is_empty() {
+            return refused(
+                "armed session environmentBase must be explicitly empty; values belong in principal overlays",
+            );
+        }
+        let bootstrap_compatibility_modes = value_at(&document, &["bootstrapCompatibilityModes"])?
+            .as_array()
+            .ok_or_else(|| invalid("bootstrapCompatibilityModes must be an array"))?
+            .iter()
+            .map(|value| {
+                let mode = value
+                    .as_str()
+                    .ok_or_else(|| invalid("bootstrap compatibility mode must be a string"))?;
+                if !matches!(mode, "bun" | "fixture" | "fixture:bun") {
+                    return Err(invalid(format!(
+                        "unsupported bootstrap compatibility mode {mode}"
+                    )));
+                }
+                Ok(mode.to_owned())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if bootstrap_compatibility_modes.len() > 3
+            || bootstrap_compatibility_modes
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
+        {
+            return refused("bootstrapCompatibilityModes must be a sorted unique set");
+        }
+        if bootstrap_compatibility_modes
+            .iter()
+            .any(|mode| mode == "fixture:bun")
+            && !bootstrap_compatibility_modes
+                .iter()
+                .any(|mode| mode == "fixture")
+        {
+            return refused("fixture:bun requires fixture compatibility mode");
+        }
         let claimed = Digest::new(required_str(&document, "armedSnapshotDigest")?)
             .map_err(Error::InvalidModel)?;
         if claimed != expected.armed_snapshot_digest {
@@ -205,19 +401,46 @@ impl ArmedSnapshot {
             dynamic: generation(&document, "dynamic")?,
             handle: generation(&document, "handle")?,
         };
-        validate_snapshot_invariants(&document)?;
+        let entry: ArmedEntry = serde_json::from_value(value_at(&document, &["entry"])?.clone())
+            .map_err(|error| invalid(format!("invalid armed entry: {error}")))?;
+        entry.validate()?;
+        if entry != expected.entry {
+            return refused("execution entry differs from the trusted arming identity");
+        }
+        let project_root_discovery: ArmedProjectRootDiscovery =
+            serde_json::from_value(value_at(&document, &["projectRootDiscovery"])?.clone())
+                .map_err(|error| {
+                    invalid(format!("invalid project-root discovery record: {error}"))
+                })?;
+        if project_root_discovery != expected.project_root_discovery {
+            return refused("project-root discovery differs from the trusted arming identity");
+        }
+        validate_snapshot_invariants(&document, &project_root_discovery)?;
         validate_expected_protected_artifacts(&document, expected)?;
         let root_bindings: Vec<ArmedRootBinding> =
             serde_json::from_value(value_at(&document, &["rootBindings"])?.clone())
                 .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))?;
+        let path_canonicalizer_rows: Vec<BoundVolumePathCanonicalizer> = serde_json::from_value(
+            value_at(&document, &["pathCanonicalizers"])?.clone(),
+        )
+        .map_err(|error| invalid(format!("invalid bound-volume canonicalizers: {error}")))?;
+        if path_canonicalizer_rows != expected.path_canonicalizers {
+            return refused("bound-volume canonicalizers differ from the trusted arming identity");
+        }
+        let path_canonicalizers =
+            bind_path_canonicalizers(path_canonicalizer_rows, &root_bindings)?;
         let graph: SnapshotPackageGraph =
             serde_json::from_value(value_at(&document, &["packageGraph"])?.clone())
                 .map_err(|error| invalid(format!("invalid package graph: {error}")))?;
         Ok(Self {
             document: Arc::new(document),
+            entry,
+            project_root_discovery,
             root_bindings: root_bindings.into(),
+            path_canonicalizers,
             module_edges: graph.import_edges.into(),
             protected_artifacts: expected.protected_artifacts.clone().into(),
+            bootstrap_compatibility_modes: bootstrap_compatibility_modes.into(),
             armed_snapshot_digest: claimed,
             generations,
         })
@@ -233,6 +456,20 @@ impl ArmedSnapshot {
 
     pub fn document(&self) -> &Value {
         &self.document
+    }
+
+    /// Digest-bound, authority-neutral controls consumed only during trusted
+    /// bootstrap. They are never projected into the principal environment.
+    pub fn bootstrap_compatibility_modes(&self) -> &[String] {
+        &self.bootstrap_compatibility_modes
+    }
+
+    pub fn entry(&self) -> &ArmedEntry {
+        &self.entry
+    }
+
+    pub fn project_root_discovery(&self) -> &ArmedProjectRootDiscovery {
+        &self.project_root_discovery
     }
 
     pub fn engine_target(&self) -> Result<String> {
@@ -293,6 +530,21 @@ impl ArmedSnapshot {
         Ok(&self.root_bindings)
     }
 
+    pub fn path_canonicalizers(&self) -> &PathAliasCanonicalizers {
+        &self.path_canonicalizers
+    }
+
+    /// Convert a lexical logical path into its authorization coordinate. The
+    /// lexical value remains available to VFS display and SourceId consumers.
+    pub fn canonicalize_authorization_path(
+        &self,
+        principal: &Principal,
+        path: &LogicalPath,
+    ) -> Result<LogicalPath> {
+        self.path_canonicalizers
+            .canonicalize_path(path, principal.is_package().then_some(principal))
+    }
+
     /// Exact launcher-authenticated artifact identities backing the snapshot's
     /// mandatory protected-object guards. The Host reopens these paths and
     /// checks both object identity and content digest before runtime creation.
@@ -336,7 +588,12 @@ impl ArmedSnapshot {
         principal: &Principal,
         host_components: &[PathComponent],
     ) -> Result<LogicalPath> {
-        logical_path_for_host_components_in(self.root_bindings()?, principal, host_components)
+        logical_path_for_host_components_in(
+            self.root_bindings()?,
+            principal,
+            host_components,
+            &self.path_canonicalizers,
+        )
     }
 
     /// Project one authenticated host path through every constrained
@@ -348,7 +605,7 @@ impl ArmedSnapshot {
         host_components: &[PathComponent],
     ) -> Result<BTreeMap<Principal, LogicalPath>> {
         let bindings = self.root_bindings()?;
-        validate_package_binding_host_paths(bindings)?;
+        validate_package_binding_host_paths(bindings, &self.path_canonicalizers)?;
         principals
             .iter()
             .map(|principal| {
@@ -358,6 +615,7 @@ impl ArmedSnapshot {
                         bindings,
                         principal,
                         host_components,
+                        &self.path_canonicalizers,
                     )?,
                 ))
             })
@@ -372,7 +630,12 @@ impl ArmedSnapshot {
         principal: &Principal,
         host_components: &[PathComponent],
     ) -> Result<ArmedRootBinding> {
-        root_binding_for_host_components_in(self.root_bindings()?, principal, host_components)
+        root_binding_for_host_components_in(
+            self.root_bindings()?,
+            principal,
+            host_components,
+            &self.path_canonicalizers,
+        )
     }
 
     /// Resolve the owner of the most-specific root binding without trusting a
@@ -382,11 +645,12 @@ impl ArmedSnapshot {
         &self,
         host_components: &[PathComponent],
     ) -> Result<Option<Principal>> {
-        let mut candidates = self
-            .root_bindings()?
-            .iter()
-            .filter(|binding| host_binding_matches(binding, host_components))
-            .collect::<Vec<_>>();
+        let mut candidates = Vec::new();
+        for binding in self.root_bindings()? {
+            if host_binding_matches(binding, host_components, &self.path_canonicalizers)? {
+                candidates.push(binding);
+            }
+        }
         candidates.sort_by(|left, right| {
             right
                 .host_path
@@ -437,6 +701,7 @@ impl ArmedSnapshot {
                 "floor",
                 self.digest(),
                 package_owner.as_ref(),
+                &self.path_canonicalizers,
             )?;
             let denials = bind_authorities(
                 row.denials,
@@ -444,6 +709,7 @@ impl ArmedSnapshot {
                 "denial",
                 self.digest(),
                 package_owner.as_ref(),
+                &self.path_canonicalizers,
             )?;
             let escalation_ceiling = AuthorityCeiling::Bounded(bind_authorities(
                 row.escalation_ceiling,
@@ -451,6 +717,7 @@ impl ArmedSnapshot {
                 "ceiling",
                 self.digest(),
                 package_owner.as_ref(),
+                &self.path_canonicalizers,
             )?);
             if principal_policies
                 .insert(
@@ -479,6 +746,7 @@ impl ArmedSnapshot {
                     .map(move |action| ProtectedObjectGuard {
                         action,
                         object: row.object.clone(),
+                        verification_generation: None,
                     })
             })
             .collect::<Vec<_>>();
@@ -486,8 +754,12 @@ impl ArmedSnapshot {
         if protected_objects.windows(2).any(|pair| pair[0] == pair[1]) {
             return refused("armed snapshot contains a duplicate protected-object guard");
         }
-        let protected_resources =
-            derive_package_write_guards(self.root_bindings()?, &principals, self.digest())?;
+        let protected_resources = derive_package_write_guards(
+            self.root_bindings()?,
+            &principals,
+            self.digest(),
+            &self.path_canonicalizers,
+        )?;
 
         let process_ceiling = match value_at(&self.document, &["processAuthorityCeiling"])?
             .get("kind")
@@ -503,6 +775,7 @@ impl ArmedSnapshot {
                     selectors,
                     self.digest(),
                     &package_principals,
+                    &self.path_canonicalizers,
                 )?)
             }
             _ => return Err(invalid("processAuthorityCeiling.kind is invalid")),
@@ -575,18 +848,57 @@ impl ArmedSnapshot {
     }
 
     /// Arm the neutral decision evaluator directly from the authenticated
-    /// snapshot and a validated product definition set.
-    pub fn decision_context(&self, definitions: DefinitionSet) -> Result<VerifiedDecisionContext> {
+    /// snapshot, a validated product definition set, and the caller's checked
+    /// target-advertisement result. Snapshot authentication alone does not
+    /// prove that the exact engine/feature cell is complete.
+    pub fn decision_context(
+        &self,
+        definitions: DefinitionSet,
+        target: TargetArmState,
+    ) -> Result<VerifiedDecisionContext> {
+        self.decision_context_with_package_objects(definitions, target, Vec::new())
+    }
+
+    /// Arm the neutral evaluator with the exact package objects authenticated
+    /// by the launcher's integrity walk. These rows are immutable for the Host
+    /// lifetime and are appended before the decision context is sealed.
+    ///
+    /// The snapshot supplies the package principals, roots, and integrity
+    /// digests; the host-side walk supplies object/generation evidence that
+    /// cannot safely be authored as a portable policy value.
+    /// @ref LLP 0023#42-authenticated-package-source-is-immutable
+    pub fn decision_context_with_package_objects(
+        &self,
+        definitions: DefinitionSet,
+        target: TargetArmState,
+        package_objects: Vec<ProtectedObjectGuard>,
+    ) -> Result<VerifiedDecisionContext> {
         let identity = self.semantic_identity()?;
-        VerifiedDecisionContext::arm(
+        let mut authority = self.authority_state()?;
+        let mut protected_objects = (*authority.protected_objects).clone();
+        for guard in &package_objects {
+            if guard.action.as_str() != "fs:write" || guard.verification_generation.is_none() {
+                return refused(
+                    "authenticated package object guard must deny fs:write with a generation",
+                );
+            }
+        }
+        protected_objects.extend(package_objects);
+        protected_objects.sort();
+        if protected_objects.windows(2).any(|pair| pair[0] == pair[1]) {
+            return refused("authenticated package object guards are not unique");
+        }
+        authority.protected_objects = protected_objects.into();
+        VerifiedDecisionContext::arm_with_path_canonicalizers(
             ArmInputs {
                 expected_identity: identity.clone(),
                 loaded_identity: identity,
-                target: TargetArmState::CompleteAdvertised,
+                target,
                 structure_valid: true,
             },
             definitions,
-            self.authority_state()?,
+            authority,
+            self.path_canonicalizers.clone(),
         )
     }
 }
@@ -680,7 +992,10 @@ impl SnapshotResolutionKind {
     }
 }
 
-fn validate_snapshot_invariants(document: &Value) -> Result<()> {
+fn validate_snapshot_invariants(
+    document: &Value,
+    project_root_discovery: &ArmedProjectRootDiscovery,
+) -> Result<()> {
     validate_protected_object_rows(document)?;
 
     if let Some(value) = document.get("exactEmbedder") {
@@ -865,6 +1180,85 @@ fn validate_snapshot_invariants(document: &Value) -> Result<()> {
         serde_json::from_value(value_at(document, &["rootBindings"])?.clone())
             .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))?;
     validate_root_bindings(&bindings, &graph_nodes, &graph_locations, production_graph)?;
+    validate_project_root_discovery(project_root_discovery, &bindings)?;
+    Ok(())
+}
+
+fn validate_project_root_discovery(
+    discovery: &ArmedProjectRootDiscovery,
+    bindings: &[ArmedRootBinding],
+) -> Result<()> {
+    let valid_host_path = |path: &LogicalPath| {
+        path.root == LogicalRoot::Absolute
+            && path.host_bound == Some(true)
+            && !path.components.is_empty()
+            && path.is_canonical()
+    };
+    if !valid_host_path(&discovery.origin)
+        || !valid_host_path(&discovery.selected_root)
+        || discovery
+            .marker_path
+            .as_ref()
+            .is_some_and(|path| !valid_host_path(path))
+    {
+        return refused("project-root discovery paths must be non-empty absolute host-bound paths");
+    }
+    if discovery.marker_set_version != PROJECT_ROOT_MARKER_SET_VERSION {
+        return refused("project-root discovery marker-set version is unsupported");
+    }
+
+    let project_binding = bindings
+        .iter()
+        .find(|binding| binding.logical_root == LogicalRoot::Project)
+        .expect("validated root bindings have exactly one project binding");
+    if discovery.selected_root != project_binding.host_path {
+        return refused("project-root discovery selection differs from the project binding");
+    }
+
+    let marker_parent_and_name = discovery.marker_path.as_ref().and_then(|path| {
+        let (name, parent) = path.components.split_last()?;
+        Some((parent, name.bytes()))
+    });
+    let selected_components = discovery.selected_root.components.as_slice();
+    let origin_is_within_selection = discovery.origin.components.starts_with(selected_components);
+    let valid = match discovery.marker_kind {
+        ArmedProjectRootMarkerKind::ExplicitProject => {
+            discovery.marker_path.as_ref() == Some(&discovery.selected_root)
+        }
+        ArmedProjectRootMarkerKind::OriginFallback => {
+            discovery.marker_path.is_none() && discovery.selected_root == discovery.origin
+        }
+        ArmedProjectRootMarkerKind::PnpmWorkspace => {
+            origin_is_within_selection
+                && marker_parent_and_name.is_some_and(|(parent, name)| {
+                    parent == selected_components && name == b"pnpm-workspace.yaml"
+                })
+        }
+        ArmedProjectRootMarkerKind::PackageWorkspace
+        | ArmedProjectRootMarkerKind::PackageManifest => {
+            origin_is_within_selection
+                && marker_parent_and_name.is_some_and(|(parent, name)| {
+                    parent == selected_components && name == b"package.json"
+                })
+        }
+        ArmedProjectRootMarkerKind::Lockfile => {
+            origin_is_within_selection
+                && marker_parent_and_name.is_some_and(|(parent, name)| {
+                    parent == selected_components
+                        && matches!(
+                            name,
+                            b"package-lock.json"
+                                | b"pnpm-lock.yaml"
+                                | b"yarn.lock"
+                                | b"bun.lockb"
+                                | b"bun.lock"
+                        )
+                })
+        }
+    };
+    if !valid {
+        return refused("project-root discovery record is internally inconsistent");
+    }
     Ok(())
 }
 
@@ -883,6 +1277,8 @@ fn validate_root_bindings(
     let mut package_binding_counts = BTreeMap::<Principal, usize>::new();
     let mut package_host_paths = BTreeMap::<Principal, Vec<PathComponent>>::new();
     let mut project_bindings = 0usize;
+    let mut project_components = None;
+    let mut private_home_components = None;
     let mut project_host_path = None;
     for binding in bindings {
         if binding.host_path.root != LogicalRoot::Absolute
@@ -952,7 +1348,14 @@ fn validate_root_bindings(
                     return refused("project root binding has invalid owner or logical path");
                 }
                 project_bindings += 1;
+                project_components = Some(&binding.host_path.components);
                 project_host_path = Some(binding.host_path.components.clone());
+            }
+            LogicalRoot::Home => {
+                if binding.owner.is_some() || binding.logical_path.is_some() {
+                    return refused("private home binding has invalid owner or logical path");
+                }
+                private_home_components = Some(&binding.host_path.components);
             }
             _ => {
                 if binding.owner.is_some() || binding.logical_path.is_some() {
@@ -963,6 +1366,16 @@ fn validate_root_bindings(
     }
     if project_bindings != 1 {
         return refused("armed snapshot must contain exactly one project root binding");
+    }
+    // `home` is a private coordinate, not a VFS mount, and external snapshots
+    // may omit it. When declared, reject the obvious canonical-component
+    // overlap as defense in depth; launch-time checks against the actual cache
+    // object ancestry remain authoritative across aliases and mount points.
+    // @ref LLP 0023#1-the-mount-table-the-project-root-and-package-bindings
+    if let (Some(project), Some(home)) = (project_components, private_home_components) {
+        if project.starts_with(home) || home.starts_with(project) {
+            return refused("private home binding overlaps the project root binding");
+        }
     }
     if graph_nodes
         .iter()
@@ -1226,8 +1639,10 @@ fn logical_path_for_host_components_in(
     bindings: &[ArmedRootBinding],
     principal: &Principal,
     host_components: &[PathComponent],
+    canonicalizers: &PathAliasCanonicalizers,
 ) -> Result<LogicalPath> {
-    let binding = root_binding_for_host_components_in(bindings, principal, host_components)?;
+    let binding =
+        root_binding_for_host_components_in(bindings, principal, host_components, canonicalizers)?;
     logical_path_from_binding(&binding, host_components)
 }
 
@@ -1235,9 +1650,14 @@ fn logical_path_for_host_components_in_validated(
     bindings: &[ArmedRootBinding],
     principal: &Principal,
     host_components: &[PathComponent],
+    canonicalizers: &PathAliasCanonicalizers,
 ) -> Result<LogicalPath> {
-    let binding =
-        root_binding_for_host_components_in_validated(bindings, principal, host_components)?;
+    let binding = root_binding_for_host_components_in_validated(
+        bindings,
+        principal,
+        host_components,
+        canonicalizers,
+    )?;
     logical_path_from_binding(binding, host_components)
 }
 
@@ -1261,43 +1681,56 @@ fn root_binding_for_host_components_in(
     bindings: &[ArmedRootBinding],
     principal: &Principal,
     host_components: &[PathComponent],
+    canonicalizers: &PathAliasCanonicalizers,
 ) -> Result<ArmedRootBinding> {
-    validate_package_binding_host_paths(bindings)?;
-    root_binding_for_host_components_in_validated(bindings, principal, host_components).cloned()
+    validate_package_binding_host_paths(bindings, canonicalizers)?;
+    root_binding_for_host_components_in_validated(
+        bindings,
+        principal,
+        host_components,
+        canonicalizers,
+    )
+    .cloned()
 }
 
 fn root_binding_for_host_components_in_validated<'a>(
     bindings: &'a [ArmedRootBinding],
     principal: &Principal,
     host_components: &[PathComponent],
+    canonicalizers: &PathAliasCanonicalizers,
 ) -> Result<&'a ArmedRootBinding> {
     // @ref LLP 0021#decision-staging-and-principal-semantics — package roots
     // are principal-relative mount boundaries: a foreign nested root must not
     // fall through to an owned package ancestor.
-    let matching_package_bindings = bindings
+    let mut matching_package_bindings = Vec::new();
+    for binding in bindings
         .iter()
-        .filter(|binding| {
-            binding.logical_root == LogicalRoot::Package
-                && host_binding_matches(binding, host_components)
-        })
-        .collect::<Vec<_>>();
-    let mut candidates = bindings
-        .iter()
-        .filter(|binding| {
-            host_binding_matches(binding, host_components)
-                && match binding.logical_root {
-                    LogicalRoot::Package => {
-                        binding.owner.as_ref() == Some(principal)
-                            && !matching_package_bindings.iter().any(|foreign| {
-                                foreign.owner.as_ref() != Some(principal)
-                                    && foreign.host_path.components.len()
-                                        > binding.host_path.components.len()
-                            })
-                    }
-                    _ => binding.owner.is_none(),
-                }
-        })
-        .collect::<Vec<_>>();
+        .filter(|binding| binding.logical_root == LogicalRoot::Package)
+    {
+        if host_binding_matches(binding, host_components, canonicalizers)? {
+            matching_package_bindings.push(binding);
+        }
+    }
+    let mut candidates = Vec::new();
+    for binding in bindings {
+        if !host_binding_matches(binding, host_components, canonicalizers)? {
+            continue;
+        }
+        let admitted = match binding.logical_root {
+            LogicalRoot::Package => {
+                binding.owner.as_ref() == Some(principal)
+                    && !matching_package_bindings.iter().any(|foreign| {
+                        foreign.owner.as_ref() != Some(principal)
+                            && foreign.host_path.components.len()
+                                > binding.host_path.components.len()
+                    })
+            }
+            _ => binding.owner.is_none(),
+        };
+        if admitted {
+            candidates.push(binding);
+        }
+    }
     candidates.sort_by(|left, right| {
         right
             .host_path
@@ -1310,26 +1743,66 @@ fn root_binding_for_host_components_in_validated<'a>(
     })
 }
 
-fn host_binding_matches(binding: &ArmedRootBinding, host_components: &[PathComponent]) -> bool {
-    binding.host_path.root == LogicalRoot::Absolute
-        && binding.host_path.host_bound == Some(true)
-        && host_components.starts_with(&binding.host_path.components)
-        && (binding.logical_root != LogicalRoot::Absolute
-            || host_components.len() == binding.host_path.components.len())
+fn host_binding_matches(
+    binding: &ArmedRootBinding,
+    host_components: &[PathComponent],
+    canonicalizers: &PathAliasCanonicalizers,
+) -> Result<bool> {
+    if binding.host_path.root != LogicalRoot::Absolute
+        || binding.host_path.host_bound != Some(true)
+        || host_components.len() < binding.host_path.components.len()
+        || (binding.logical_root == LogicalRoot::Absolute
+            && host_components.len() != binding.host_path.components.len())
+    {
+        return Ok(false);
+    }
+    let candidate_prefix = LogicalPath {
+        root: LogicalRoot::Absolute,
+        components: host_components[..binding.host_path.components.len()].to_vec(),
+        host_bound: Some(true),
+    };
+    Ok(canonicalizers.canonicalize_volume_path(
+        binding.object.platform,
+        &binding.object.volume,
+        &candidate_prefix,
+    )? == canonicalizers.canonicalize_volume_path(
+        binding.object.platform,
+        &binding.object.volume,
+        &binding.host_path,
+    )?)
 }
 
-fn validate_package_binding_host_paths(bindings: &[ArmedRootBinding]) -> Result<()> {
+fn validate_package_binding_host_paths(
+    bindings: &[ArmedRootBinding],
+    canonicalizers: &PathAliasCanonicalizers,
+) -> Result<()> {
     for (index, binding) in bindings
         .iter()
         .enumerate()
         .filter(|(_, binding)| binding.logical_root == LogicalRoot::Package)
     {
-        if bindings.iter().enumerate().any(|(other_index, other)| {
-            other_index != index && other.host_path == binding.host_path
-        }) {
-            return refused(
-                "package root binding and another root binding share an authenticated host path",
-            );
+        for (other_index, other) in bindings.iter().enumerate() {
+            if other_index == index
+                || binding.object.platform != other.object.platform
+                || binding.object.volume != other.object.volume
+            {
+                continue;
+            }
+            let binding_path = canonicalizers.canonicalize_volume_path(
+                binding.object.platform,
+                &binding.object.volume,
+                &binding.host_path,
+            )?;
+            let other_path = canonicalizers.canonicalize_volume_path(
+                other.object.platform,
+                &other.object.volume,
+                &other.host_path,
+            )?;
+            if binding_path == other_path {
+                return refused(
+                    "package root binding and another root binding share an authenticated host path",
+                );
+            }
         }
     }
     Ok(())
@@ -1343,8 +1816,9 @@ fn derive_package_write_guards(
     bindings: &[ArmedRootBinding],
     principals: &[Principal],
     snapshot_digest: &Digest,
+    canonicalizers: &PathAliasCanonicalizers,
 ) -> Result<Vec<BoundAuthority>> {
-    validate_package_binding_host_paths(bindings)?;
+    validate_package_binding_host_paths(bindings, canonicalizers)?;
     for principal in principals.iter().filter(|principal| principal.is_package()) {
         if !bindings.iter().any(|binding| {
             binding.logical_root == LogicalRoot::Package
@@ -1372,6 +1846,7 @@ fn derive_package_write_guards(
             bindings,
             owner,
             &binding.host_path.components,
+            canonicalizers,
         )?;
         if owner_view.root != LogicalRoot::Package || !owner_view.components.is_empty() {
             return refused("package root binding does not project to its owner's package root");
@@ -1382,10 +1857,12 @@ fn derive_package_write_guards(
                 bindings,
                 principal,
                 &binding.host_path.components,
+                canonicalizers,
             ) else {
                 continue;
             };
             let package_root_owner = (path.root == LogicalRoot::Package).then(|| principal.clone());
+            let path = canonicalizers.canonicalize_path(&path, package_root_owner.as_ref())?;
             guards.insert((
                 AuthoritySelector {
                     action: action.clone(),
@@ -1417,11 +1894,12 @@ fn bind_authorities(
     channel: &str,
     snapshot_digest: &Digest,
     package_owner: Option<&Principal>,
+    canonicalizers: &PathAliasCanonicalizers,
 ) -> Result<Vec<BoundAuthority>> {
     selectors
         .into_iter()
         .enumerate()
-        .map(|(authority_index, selector)| {
+        .map(|(authority_index, mut selector)| {
             let source_id = NonEmptyString::new(format!(
                 "principal.{principal_index:06}.{channel}.{authority_index:06}"
             ))
@@ -1431,6 +1909,8 @@ fn bind_authorities(
                 .contains_package_logical_root()
                 .then(|| package_owner.cloned())
                 .flatten();
+            selector.resource = canonicalizers
+                .canonicalize_selector(&selector.resource, package_root_owner.as_ref())?;
             Ok(BoundAuthority {
                 source_id,
                 selector,
@@ -1445,22 +1925,28 @@ fn bind_process_ceiling(
     selectors: Vec<AuthoritySelector>,
     snapshot_digest: &Digest,
     package_principals: &[Principal],
+    canonicalizers: &PathAliasCanonicalizers,
 ) -> Result<Vec<BoundAuthority>> {
     let mut bound = Vec::new();
     for (selector_index, selector) in selectors.into_iter().enumerate() {
         if selector.resource.contains_package_logical_root() {
             for (owner_index, owner) in package_principals.iter().enumerate() {
+                let mut selector = selector.clone();
+                selector.resource =
+                    canonicalizers.canonicalize_selector(&selector.resource, Some(owner))?;
                 bound.push(BoundAuthority {
                     source_id: NonEmptyString::new(format!(
                         "process-ceiling.{selector_index:06}.{owner_index:06}"
                     ))
                     .map_err(Error::InvalidModel)?,
-                    selector: selector.clone(),
+                    selector,
                     armed_snapshot_digest: snapshot_digest.clone(),
                     package_root_owner: Some(owner.clone()),
                 });
             }
         } else {
+            let mut selector = selector;
+            selector.resource = canonicalizers.canonicalize_selector(&selector.resource, None)?;
             bound.push(BoundAuthority {
                 source_id: NonEmptyString::new(format!(
                     "process-ceiling.{selector_index:06}.global"
@@ -1473,6 +1959,25 @@ fn bind_process_ceiling(
         }
     }
     Ok(bound)
+}
+
+fn bind_path_canonicalizers(
+    rows: Vec<BoundVolumePathCanonicalizer>,
+    root_bindings: &[ArmedRootBinding],
+) -> Result<PathAliasCanonicalizers> {
+    PathAliasCanonicalizers::bind(
+        rows,
+        root_bindings
+            .iter()
+            .map(|binding| PathCanonicalizerRootBinding {
+                logical_root: binding.logical_root,
+                owner: binding.owner.clone(),
+                logical_path: binding.logical_path.clone(),
+                host_path: binding.host_path.clone(),
+                platform: binding.object.platform,
+                volume: binding.object.volume.clone(),
+            }),
+    )
 }
 
 fn digest_field(value: &Value, field: &str) -> Result<Digest> {
@@ -1652,6 +2157,11 @@ mod tests {
                 .map(|item| item.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            entry: serde_json::from_value(value["entry"].clone()).unwrap(),
+            project_root_discovery: serde_json::from_value(value["projectRootDiscovery"].clone())
+                .unwrap(),
+            path_canonicalizers: serde_json::from_value(value["pathCanonicalizers"].clone())
+                .unwrap(),
             protected_artifacts,
         };
         (serde_json::to_vec_pretty(&value).unwrap(), expected)
@@ -1672,6 +2182,315 @@ mod tests {
         bytes.fill(b'x');
         assert_eq!(armed.digest(), &loaded_digest);
         assert_eq!(armed.document()["capsVocab"], expected.profile);
+        assert_eq!(armed.entry(), &expected.entry);
+        assert_eq!(
+            armed.project_root_discovery(),
+            &expected.project_root_discovery
+        );
+    }
+
+    #[test]
+    fn arms_transitive_package_graph_without_promoting_the_leaf_to_root() {
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let root: Principal =
+            serde_json::from_value(value["principals"][0]["principal"].clone()).unwrap();
+        let package_a_value = value["principals"][1]["principal"].clone();
+        let package_a: Principal = serde_json::from_value(package_a_value.clone()).unwrap();
+        let package_b_value = serde_json::json!({
+            "kind": "package",
+            "name": "transitive-lib",
+            "integrity": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA",
+            "locator": "transitive-lib@1.0.0",
+        });
+        let package_b: Principal = serde_json::from_value(package_b_value.clone()).unwrap();
+
+        value["principals"][1]["imports"]["packages"] = serde_json::json!(["transitive-lib@1.0.0"]);
+        let mut package_b_row = value["principals"][1].clone();
+        package_b_row["principal"] = package_b_value.clone();
+        package_b_row["imports"]["packages"] = serde_json::json!([]);
+        value["principals"]
+            .as_array_mut()
+            .unwrap()
+            .push(package_b_row);
+
+        let mut package_b_node = value["packageGraph"]["nodes"][0].clone();
+        package_b_node["principal"] = package_b_value.clone();
+        package_b_node["resolvingSpecifier"] = Value::String("transitive-lib".into());
+        package_b_node["rootObject"]["file"] = Value::String("file-201".into());
+        package_b_node["virtualAliases"][0]["components"][1]["value"] =
+            Value::String("transitive-lib".into());
+        value["packageGraph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(package_b_node);
+
+        let package_b_edges = value["packageGraph"]["importEdges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| {
+                let mut edge = edge.clone();
+                edge["importer"] = package_a_value.clone();
+                edge["imported"] = package_b_value.clone();
+                edge["requestSpecifier"] = Value::String("transitive-lib".into());
+                edge
+            })
+            .collect::<Vec<_>>();
+        value["packageGraph"]["importEdges"]
+            .as_array_mut()
+            .unwrap()
+            .extend(package_b_edges);
+
+        let mut package_b_binding = value["rootBindings"][0].clone();
+        package_b_binding["owner"] = package_b_value.clone();
+        package_b_binding["hostPath"]["components"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap()["value"] = Value::String("transitive-lib".into());
+        package_b_binding["object"]["file"] = Value::String("file-201".into());
+        value["rootBindings"]
+            .as_array_mut()
+            .unwrap()
+            .push(package_b_binding);
+
+        let package_graph_digest = crate::digest::compute_domain_digest(
+            "ibex:capsec:package-graph:1",
+            &value["packageGraph"],
+            &["digest".to_owned()],
+        )
+        .unwrap();
+        value["packageGraph"]["digest"] = Value::String(package_graph_digest.clone());
+        expected.package_graph_digest = Digest::new(package_graph_digest).unwrap();
+        expected
+            .protected_artifacts
+            .iter_mut()
+            .find(|artifact| artifact.role == ProtectedArtifactRole::PackageGraph)
+            .unwrap()
+            .content_digest = expected.package_graph_digest.clone();
+        let bytes = redigest(&mut value);
+        expected.armed_snapshot_digest =
+            Digest::new(value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+
+        let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let conditions = ["import".to_owned(), "node".to_owned()];
+        let attributes = BTreeMap::new();
+        assert!(armed.authenticates_module_edge(
+            &root,
+            "image-lib",
+            &package_a,
+            "esm-static",
+            &conditions,
+            &attributes,
+        ));
+        assert!(armed.authenticates_module_edge(
+            &package_a,
+            "transitive-lib",
+            &package_b,
+            "esm-static",
+            &conditions,
+            &attributes,
+        ));
+        assert!(!armed.authenticates_module_edge(
+            &root,
+            "transitive-lib",
+            &package_b,
+            "esm-static",
+            &conditions,
+            &attributes,
+        ));
+    }
+
+    #[test]
+    fn requires_an_explicitly_empty_digest_bound_environment_base() {
+        let (bytes, expected) = fixture();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["environmentBase"], serde_json::json!([]));
+
+        let mut missing = value.clone();
+        missing.as_object_mut().unwrap().remove("environmentBase");
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&missing).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("missing environmentBase")
+        );
+
+        let mut nonempty = value.clone();
+        nonempty["environmentBase"] = serde_json::json!([{
+            "name": "HOST_SECRET",
+            "value": "must-not-enter-the-snapshot"
+        }]);
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&nonempty).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("must be explicitly empty")
+        );
+
+        let mut wrong_type = value;
+        wrong_type["environmentBase"] = serde_json::json!({});
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&wrong_type).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("environmentBase must be an array")
+        );
+    }
+
+    #[test]
+    fn validates_digest_bound_bootstrap_compatibility_modes() {
+        let (bytes, expected) = fixture();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["bootstrapCompatibilityModes"], serde_json::json!([]));
+
+        let mut missing = value.clone();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("bootstrapCompatibilityModes");
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&missing).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("missing bootstrapCompatibilityModes")
+        );
+
+        let mut unsupported = value.clone();
+        unsupported["bootstrapCompatibilityModes"] = serde_json::json!(["node"]);
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&unsupported).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported bootstrap compatibility mode")
+        );
+
+        let mut incomplete = value;
+        incomplete["bootstrapCompatibilityModes"] = serde_json::json!(["fixture:bun"]);
+        assert!(
+            ArmedSnapshot::load(&serde_json::to_vec(&incomplete).unwrap(), &expected)
+                .unwrap_err()
+                .to_string()
+                .contains("fixture:bun requires fixture")
+        );
+    }
+
+    #[test]
+    fn refuses_entry_route_substitution_and_inconsistent_entry_tuples() {
+        let (bytes, mut expected) = fixture();
+        expected.entry = ArmedEntry {
+            kind: ArmedEntryKind::Eval,
+            identity: NonEmptyString::new("ibex:eval").unwrap(),
+            mode: ArmedExecutionMode::OneShot,
+        };
+        let error = ArmedSnapshot::load(&bytes, &expected).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("execution entry differs from the trusted arming identity"));
+
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["entry"] = serde_json::json!({
+            "kind": "repl",
+            "identity": "ibex:repl",
+            "mode": "program"
+        });
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+        expected.entry = serde_json::from_value(value["entry"].clone()).unwrap();
+        let error =
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("armed entry kind, identity, and mode are inconsistent"));
+
+        for identity in [
+            "file:///project/../private.js",
+            "file:///project/%2Fetc/passwd",
+            "file:///project/%2fetc/passwd",
+            "file:///project/%2Ehidden.js",
+            "file:///project/trailing/",
+            "file:///private/app.js",
+        ] {
+            let entry = ArmedEntry {
+                kind: ArmedEntryKind::File,
+                identity: NonEmptyString::new(identity).unwrap(),
+                mode: ArmedExecutionMode::Program,
+            };
+            assert!(entry.validate().is_err(), "accepted {identity}");
+        }
+        for identity in [
+            "file:///project/src/app.js",
+            "file:///project/a%20b.js",
+            "file:///project/%C3%A9.js",
+        ] {
+            let entry = ArmedEntry {
+                kind: ArmedEntryKind::File,
+                identity: NonEmptyString::new(identity).unwrap(),
+                mode: ArmedExecutionMode::Program,
+            };
+            entry
+                .validate()
+                .unwrap_or_else(|_| panic!("refused {identity}"));
+        }
+    }
+
+    #[test]
+    fn refuses_project_root_discovery_substitution_and_binding_mismatch() {
+        let (bytes, mut expected) = fixture();
+        expected.project_root_discovery.marker_kind = ArmedProjectRootMarkerKind::ExplicitProject;
+        let error = ArmedSnapshot::load(&bytes, &expected).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("project-root discovery differs from the trusted arming identity"));
+
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["projectRootDiscovery"]["selectedRoot"]["components"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"encoding": "utf8", "value": "other"}));
+        expected.project_root_discovery =
+            serde_json::from_value(value["projectRootDiscovery"].clone()).unwrap();
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+        let error =
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("selection differs from the project binding"));
+
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["projectRootDiscovery"]["markerSetVersion"] =
+            Value::String("ibex/project-root-markers/2".into());
+        expected.project_root_discovery =
+            serde_json::from_value(value["projectRootDiscovery"].clone()).unwrap();
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+        let error =
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("marker-set version is unsupported"));
+
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["projectRootDiscovery"]["markerKind"] = Value::String("lockfile".into());
+        expected.project_root_discovery =
+            serde_json::from_value(value["projectRootDiscovery"].clone()).unwrap();
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+        let error =
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("project-root discovery record is internally inconsistent"));
     }
 
     #[test]
@@ -1800,6 +2619,55 @@ mod tests {
     }
 
     #[test]
+    fn package_binding_prefix_is_selected_in_its_volume_alias_coordinate() {
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["rootBindings"][0]["hostPath"]["components"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap()["value"] = Value::String("Caf\u{e9}-lib".into());
+        value["packageGraph"]["nodes"][0]["virtualAliases"][0]["components"][1]["value"] =
+            Value::String("Caf\u{e9}-lib".into());
+        let package_graph_digest = crate::digest::compute_domain_digest(
+            "ibex:capsec:package-graph:1",
+            &value["packageGraph"],
+            &["digest".to_owned()],
+        )
+        .unwrap();
+        value["packageGraph"]["digest"] = Value::String(package_graph_digest.clone());
+        expected.package_graph_digest = Digest::new(package_graph_digest).unwrap();
+        expected
+            .protected_artifacts
+            .iter_mut()
+            .find(|artifact| artifact.role == ProtectedArtifactRole::PackageGraph)
+            .unwrap()
+            .content_digest = expected.package_graph_digest.clone();
+        let bytes = redigest(&mut value);
+        expected.armed_snapshot_digest =
+            Digest::new(value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let package: Principal =
+            serde_json::from_value(value["principals"][1]["principal"].clone()).unwrap();
+        let component = |value: &str| PathComponent::utf8(value).unwrap();
+        let mapped = armed
+            .logical_path_for_host_components(
+                &package,
+                &[
+                    component("Users"),
+                    component("example"),
+                    component("project"),
+                    component("node_modules"),
+                    component("CAFE\u{301}-LIB"),
+                    component("photo.jpg"),
+                ],
+            )
+            .unwrap();
+        assert_eq!(mapped.root, LogicalRoot::Package);
+        assert_eq!(mapped.components, vec![component("photo.jpg")]);
+    }
+
+    #[test]
     fn decodes_typed_authority_without_reconstructing_legacy_strings() {
         let (bytes, expected) = fixture();
         let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
@@ -1844,8 +2712,175 @@ mod tests {
             )),
         )
         .unwrap();
-        let context = armed.decision_context(profile.definitions).unwrap();
+        let refused = armed
+            .decision_context(profile.definitions.clone(), TargetArmState::Incomplete)
+            .unwrap_err();
+        assert!(matches!(refused, Error::ArmRefused(_)));
+        let context = armed
+            .decision_context(profile.definitions, TargetArmState::CompleteAdvertised)
+            .unwrap();
         assert_eq!(context.identity(), &identity);
+    }
+
+    #[test]
+    fn authored_denial_and_grant_share_case_and_nfd_occurrence_identity() {
+        use crate::cache::{DecisionCacheKey, PositiveAuthorityContext};
+        use crate::decision::{
+            evaluate_decision_set, DecisionOutcome, DecisionReason, EffectGate,
+            TargetCellDisposition, Workflow,
+        };
+        use crate::model::{
+            DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination, FollowMode,
+            ObjectState, OccurrenceResource, StableId, Stage,
+        };
+
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let authored = serde_json::json!({
+            "resource": {
+                "kind": "path-exact",
+                "path": {
+                    "root": "project",
+                    "components": [{"encoding": "utf8", "value": "Caf\u{00e9}"}]
+                }
+            }
+        });
+        let mut grant = authored.clone();
+        grant["cap"] = Value::String("fs:read".into());
+        let mut denial = authored;
+        denial["cap"] = Value::String("fs:write".into());
+        value["principals"][1]["floor"] = serde_json::json!([grant]);
+        value["principals"][1]["denials"] = serde_json::json!([denial]);
+        let bytes = redigest(&mut value);
+        expected.armed_snapshot_digest =
+            Digest::new(value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let profile = crate::registry::ValidatedProfile::from_json(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../capsec/registry/capability-definitions.json"
+            )),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../capsec/registry/policy-rules.json"
+            )),
+        )
+        .unwrap();
+        let context = armed
+            .decision_context(profile.definitions, TargetArmState::CompleteAdvertised)
+            .unwrap();
+        let principal: Principal =
+            serde_json::from_value(value["principals"][1]["principal"].clone()).unwrap();
+
+        let decide = |action: &str, spelling: &str| {
+            let occurrence = OccurrenceResource::PathOccurrence {
+                requested: LogicalPath {
+                    root: LogicalRoot::Project,
+                    components: vec![PathComponent::utf8(spelling).unwrap()],
+                    host_bound: None,
+                },
+                follow_mode: FollowMode::FollowFinal,
+                object_state: ObjectState::Unknown,
+                parent_object: None,
+                final_object: None,
+                final_object_generation: None,
+                retained_handle: None,
+            };
+            let set = DecisionSet {
+                decision_set_schema: DecisionSetSchema::V1,
+                operation_id: NonEmptyString::new(format!("alias-{action}-{spelling}")).unwrap(),
+                atomicity_group: StableId::new("alias-canonicalization-test").unwrap(),
+                combination: EffectCombination::Conjunction,
+                context: DecisionContext {
+                    stage: Stage::Requested,
+                    actor: principal.clone(),
+                    constrained_principals: vec![principal.clone()],
+                    presented_handle_ids: vec![],
+                },
+                effects: vec![Effect {
+                    action: ActionId::new(action).unwrap(),
+                    effect_owner: principal.clone(),
+                    resource: occurrence,
+                }],
+            };
+            let decision = evaluate_decision_set(
+                &context,
+                &set,
+                &[EffectGate {
+                    coverage_edge_id: StableId::new("alias-canonicalization-edge").unwrap(),
+                    target_cell: TargetCellDisposition::Complete,
+                    definition_and_edge_predicates_satisfied: true,
+                }],
+                Workflow::ProductionEnforce,
+                &|_| Some(crate::model::PeerClass::Public),
+            )
+            .unwrap();
+            (set, decision)
+        };
+
+        for spelling in ["CAF\u{c9}", "Cafe\u{301}"] {
+            let (_, grant) = decide("fs:read", spelling);
+            assert_eq!(grant.outcome, DecisionOutcome::Allow);
+            assert_eq!(grant.evidence[0].reason, DecisionReason::StaticFloor);
+
+            let (_, denial) = decide("fs:write", spelling);
+            assert_eq!(denial.outcome, DecisionOutcome::Deny);
+            assert_eq!(denial.evidence[0].reason, DecisionReason::PrincipalDenial);
+        }
+
+        // The cache consumes the same post-canonicalization resource bytes as
+        // the matcher, even though the two display spellings remain distinct.
+        let (composed, _) = decide("fs:read", "CAF\u{c9}");
+        let (decomposed, _) = decide("fs:read", "Cafe\u{301}");
+        let cache_context = || PositiveAuthorityContext {
+            coverage_edge_id: StableId::new("alias-canonicalization-edge").unwrap(),
+            handle_ids: vec![],
+            dynamic_grant_ids: vec![],
+            operation_lease_ids: vec![],
+        };
+        let composed = DecisionCacheKey::new(
+            &context,
+            &composed.occurrences()[0],
+            &principal,
+            cache_context(),
+        )
+        .unwrap();
+        let decomposed = DecisionCacheKey::new(
+            &context,
+            &decomposed.occurrences()[0],
+            &principal,
+            cache_context(),
+        )
+        .unwrap();
+        assert_eq!(
+            composed.resource_canonical_bytes,
+            decomposed.resource_canonical_bytes
+        );
+    }
+
+    #[test]
+    fn canonicalizer_identity_is_trusted_and_changes_snapshot_identity() {
+        let (bytes, expected) = fixture();
+        let original = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["pathCanonicalizers"][0]["identity"] =
+            Value::String("apple-apfs-unicode9-nfd-v1".into());
+        let changed_bytes = redigest(&mut value);
+
+        let stale = ArmedSnapshot::load(&changed_bytes, &expected).unwrap_err();
+        assert!(stale.to_string().contains("armed snapshot digest differs"));
+
+        let mut changed_expected = expected;
+        changed_expected.armed_snapshot_digest =
+            Digest::new(value["armedSnapshotDigest"].as_str().unwrap()).unwrap();
+        changed_expected.path_canonicalizers =
+            serde_json::from_value(value["pathCanonicalizers"].clone()).unwrap();
+        let changed = ArmedSnapshot::load(&changed_bytes, &changed_expected).unwrap();
+        assert_ne!(original.digest(), changed.digest());
+        assert_ne!(
+            original.path_canonicalizers().rows(),
+            changed.path_canonicalizers().rows()
+        );
     }
 
     #[test]
@@ -2233,6 +3268,46 @@ mod tests {
         wrong_package_owner["rootBindings"][0]["owner"] =
             wrong_package_owner["rootIdentity"].clone();
         assert!(ArmedSnapshot::load(&redigest(&mut wrong_package_owner), &expected).is_err());
+    }
+
+    #[test]
+    fn optional_private_home_binding_must_be_disjoint_from_project() {
+        let assert_overlap_refused = |home_components: Value| {
+            let (bytes, mut expected) = fixture();
+            let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+            let mut home = value["rootBindings"][1].clone();
+            home["logicalRoot"] = Value::String("home".into());
+            home["hostPath"]["components"] = home_components;
+            home["object"]["file"] = Value::String("file-private-home".into());
+            value["rootBindings"].as_array_mut().unwrap().push(home);
+            let digest =
+                compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+            value["armedSnapshotDigest"] = Value::String(digest.clone());
+            expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+            let error =
+                ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("private home binding overlaps the project root binding"),
+                "unexpected refusal: {error}"
+            );
+        };
+
+        let (bytes, expected) = fixture();
+        ArmedSnapshot::load(&bytes, &expected)
+            .expect("external canonical snapshot may omit a private home binding");
+
+        assert_overlap_refused(serde_json::json!([
+            {"encoding": "utf8", "value": "Users"},
+            {"encoding": "utf8", "value": "example"},
+            {"encoding": "utf8", "value": "project"},
+            {"encoding": "utf8", "value": "cache"}
+        ]));
+        assert_overlap_refused(serde_json::json!([
+            {"encoding": "utf8", "value": "Users"},
+            {"encoding": "utf8", "value": "example"}
+        ]));
     }
 
     #[test]

@@ -66,7 +66,9 @@ async-trait = "0.1"
 
 # Base64 for source maps
 base64 = "0.22"
+hmac = "0.12"
 sha2 = "0.10"
+fs2 = "0.4"
 # Pure-Rust host for the pinned cjs-module-lexer 2.1.0 WASM detector. Disable
 # WAT parsing because the checked-in authority is already compiled WASM.
 wasmi = { version = "0.46.0", default-features = false, features = ["std"] }
@@ -80,10 +82,9 @@ futures-util = "0.3"
 socket2 = "0.6.2"
 tokio-tungstenite = "0.21"
 
-# File watching and REPL support for the `ibex` binary.
+# File watching support for the `ibex` binary. The REPL editor is owned by the
+# terminal-session adapter and deliberately does not use synchronous rustyline.
 notify = "6.1"
-rustyline = "14.0"
-colored = "2.1"
 
 # Path handling
 dirs = "5.0"
@@ -107,7 +108,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "0.26"
 rustls-pki-types = { version = "1", features = ["std"] }
 
-swc_common = "23.0.1"
+swc_common = { version = "23.0.1", features = ["sourcemap"] }
 swc_ecma_ast = "25.0.0"
 swc_ecma_parser = "41.0.1"
 swc_ecma_codegen = "28.0.1"
@@ -172,6 +173,8 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Stora
 [build-dependencies]
 cc = "1.0"
 ibex-windows-dll-staging = { path = "crates/windows-dll-staging" }
+serde_json = "1.0"
+sha2 = "0.10"
 
 [dev-dependencies]
 libc = "0.2"

@@ -8,6 +8,11 @@
 
 extern "C" void ex_host_free_string(char* value);
 extern "C" uint64_t ex_host_sqlite_open(const char* path, const char* options_json);
+extern "C" uint64_t ex_host_sqlite_open_checked_fd(
+    int32_t fd,
+    const char* options_json);
+extern "C" uint64_t ex_host_sqlite_open_isolated_memory(
+    const char* options_json);
 extern "C" int32_t ex_host_sqlite_close(uint64_t handle);
 extern "C" char* ex_host_sqlite_prepare(uint64_t db_handle, const char* sql);
 extern "C" int32_t ex_host_sqlite_finalize(uint64_t statement_handle);
@@ -26,11 +31,21 @@ namespace {
 constexpr uint64_t SQLITE_OPEN_READONLY = 0x00000001;
 constexpr uint64_t SQLITE_OPEN_READWRITE = 0x00000002;
 constexpr uint64_t SQLITE_OPEN_CREATE = 0x00000004;
+constexpr uint32_t kSqliteSurfaceOpen = 18;
+constexpr uint32_t kSqliteSurfacePrepare = 19;
+constexpr uint32_t kSqliteSurfaceAll = 20;
+constexpr uint32_t kSqliteSurfaceGet = 21;
+constexpr uint32_t kSqliteSurfaceRun = 22;
+constexpr uint32_t kSqliteSurfaceValues = 23;
+constexpr uint32_t kSqliteSurfaceExec = 24;
 
 struct SqliteHandleEntry {
   uint64_t runtimeNonce;
   uint64_t owner;
   std::vector<std::string> capabilities;
+  bool armedFile = false;
+  ExactArmedSqliteFile file;
+  bool readOnly = true;
   uint64_t authorizationGeneration = 0;
   std::vector<uint64_t> authorizedPrincipalStack;
 };
@@ -40,6 +55,9 @@ struct SqliteStatementEntry {
   uint64_t owner;
   uint64_t dbHandle;
   std::vector<std::string> capabilities;
+  bool armedFile = false;
+  ExactArmedSqliteFile file;
+  bool readOnly = true;
   uint64_t authorizationGeneration = 0;
   std::vector<uint64_t> authorizedPrincipalStack;
 };
@@ -74,33 +92,44 @@ bool sqliteFlagsNeedWrite(uint64_t flags) {
   return true;
 }
 
-bool sqliteOpenNeedsWrite(
+struct SqliteOpenAccess {
+  bool needsWrite;
+  bool mayCreate;
+};
+
+SqliteOpenAccess sqliteFlagsAccess(uint64_t flags) {
+  return SqliteOpenAccess{
+      sqliteFlagsNeedWrite(flags),
+      (flags & SQLITE_OPEN_CREATE) != 0};
+}
+
+SqliteOpenAccess sqliteOpenAccess(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::Value* args,
     size_t count) {
   if (count <= 1 || args[1].isUndefined() || args[1].isNull()) {
-    return true;
+    return SqliteOpenAccess{true, true};
   }
   if (args[1].isNumber()) {
-    return sqliteFlagsNeedWrite(static_cast<uint64_t>(args[1].asNumber()));
+    return sqliteFlagsAccess(static_cast<uint64_t>(args[1].asNumber()));
   }
   if (!args[1].isObject()) {
-    return true;
+    return SqliteOpenAccess{true, true};
   }
 
   auto object = args[1].asObject(runtime);
   auto flags = object.getProperty(runtime, "flags");
   if (flags.isNumber()) {
-    return sqliteFlagsNeedWrite(static_cast<uint64_t>(flags.asNumber()));
+    return sqliteFlagsAccess(static_cast<uint64_t>(flags.asNumber()));
   }
 
   bool readonly = objectBoolProperty(runtime, object, "readonly", false);
   if (readonly) {
-    return false;
+    return SqliteOpenAccess{false, false};
   }
   bool create = objectBoolProperty(runtime, object, "create", true);
   bool readwrite = objectBoolProperty(runtime, object, "readwrite", true);
-  return create || readwrite;
+  return SqliteOpenAccess{create || readwrite, create};
 }
 
 std::vector<std::string> sqliteOpenCapabilities(
@@ -138,11 +167,26 @@ template <typename Entry>
 void requireSqliteAuthorization(
     facebook::jsi::Runtime& runtime,
     Entry& entry,
-    const char* syscall) {
+    const char* syscall,
+    uint32_t surface,
+    bool needsRead,
+    bool needsWrite) {
   auto principals = exactCollectTypedPrincipalStack();
   if (principals.empty() || principals.front() != entry.owner) {
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": sqlite handle belongs to a different principal");
+  }
+
+  if (entry.armedFile) {
+    exactRequireArmedSqliteFile(
+        runtime, entry.file, syscall, surface, needsRead, needsWrite);
+    return;
+  }
+  // The exact :memory: branch has no positive effect. Its Host connection is
+  // configured so temp state cannot spill and ATTACH/load_extension remain
+  // denied, therefore ownership is the only retained-handle check.
+  if (ex_host_is_armed() == 1) {
+    return;
   }
 
   if (ex_host_legacy_authorization_cacheable() != 1) {
@@ -215,7 +259,8 @@ void unregisterSqliteDb(
 void registerSqliteStatement(
     uint64_t statementHandle,
     uint64_t dbHandle,
-    const SqliteHandleEntry& expected) {
+    const SqliteHandleEntry& expected,
+    bool readOnly) {
   if (statementHandle == 0) {
     return;
   }
@@ -228,14 +273,17 @@ void registerSqliteStatement(
       expected.owner != currentPrincipalId()) {
     return;
   }
-  g_sqlite_statements[statementHandle] = SqliteStatementEntry{
-      db->second.runtimeNonce,
-      db->second.owner,
-      dbHandle,
-      db->second.capabilities,
-      db->second.authorizationGeneration,
-      db->second.authorizedPrincipalStack,
-  };
+  SqliteStatementEntry statement;
+  statement.runtimeNonce = db->second.runtimeNonce;
+  statement.owner = db->second.owner;
+  statement.dbHandle = dbHandle;
+  statement.capabilities = db->second.capabilities;
+  statement.armedFile = db->second.armedFile;
+  statement.file = db->second.file;
+  statement.readOnly = readOnly;
+  statement.authorizationGeneration = db->second.authorizationGeneration;
+  statement.authorizedPrincipalStack = db->second.authorizedPrincipalStack;
+  g_sqlite_statements[statementHandle] = std::move(statement);
 }
 
 void unregisterSqliteStatement(
@@ -256,7 +304,10 @@ SqliteHandleEntry requireSqliteDb(
     facebook::jsi::Runtime& runtime,
     uint64_t dbHandle,
     const char* syscall,
-    bool requireLiveAuthority = true) {
+    bool requireLiveAuthority,
+    uint32_t surface,
+    bool needsRead,
+    bool needsWrite) {
   SqliteHandleEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
@@ -278,7 +329,8 @@ SqliteHandleEntry requireSqliteDb(
         runtime, std::string(syscall) + ": sqlite handle belongs to a different principal");
   }
   if (requireLiveAuthority && !isAllowAll()) {
-    requireSqliteAuthorization(runtime, entry, syscall);
+    requireSqliteAuthorization(
+        runtime, entry, syscall, surface, needsRead, needsWrite);
     std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
     auto current = g_sqlite_dbs.find(dbHandle);
     if (current != g_sqlite_dbs.end() &&
@@ -295,7 +347,10 @@ SqliteStatementEntry requireSqliteStatement(
     facebook::jsi::Runtime& runtime,
     uint64_t statementHandle,
     const char* syscall,
-    bool requireLiveAuthority = true) {
+    bool requireLiveAuthority,
+    uint32_t surface,
+    bool needsRead,
+    bool needsWrite) {
   SqliteStatementEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
@@ -317,7 +372,9 @@ SqliteStatementEntry requireSqliteStatement(
         std::string(syscall) + ": sqlite statement belongs to a different principal");
   }
   if (requireLiveAuthority && !isAllowAll()) {
-    requireSqliteAuthorization(runtime, entry, syscall);
+    requireSqliteAuthorization(
+        runtime, entry, syscall, surface, needsRead,
+        needsWrite && !entry.readOnly);
     std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
     auto current = g_sqlite_statements.find(statementHandle);
     if (current != g_sqlite_statements.end() &&
@@ -687,22 +744,39 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteOpen: path required");
         }
         std::string path = args[0].toString(runtime).utf8(runtime);
-        bool needsWrite = sqliteOpenNeedsWrite(runtime, args, count);
-        auto capabilities = sqliteOpenCapabilities(path, needsWrite);
-        // @ref LLP 0021#typed-resources-and-initial-vocabulary — file-backed
-        // SQLite decomposes into filesystem effects; exact in-memory SQLite is
-        // computation and intentionally retains no positive authority.
-        SqliteHandleEntry authorization{
-            exactCurrentRuntimeNonce(), currentPrincipalId(),
-            std::move(capabilities), 0, {}};
-        requireSqliteAuthorization(runtime, authorization, "__exactSqliteOpen");
+        auto access = sqliteOpenAccess(runtime, args, count);
         std::string optionsJson;
         const char* options = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
           optionsJson = stringifyValue(runtime, args[1]);
           options = optionsJson.c_str();
         }
-        uint64_t handle = ex_host_sqlite_open(path.c_str(), options);
+        SqliteHandleEntry authorization;
+        authorization.runtimeNonce = exactCurrentRuntimeNonce();
+        authorization.owner = currentPrincipalId();
+        uint64_t handle = 0;
+        if (ex_host_is_armed() == 1) {
+          // @ref LLP 0021#typed-resources-and-initial-vocabulary — file-backed
+          // SQLite decomposes into typed filesystem effects while exact
+          // in-memory SQLite remains a zero-effect computation branch.
+          if (sqliteMemoryPath(path)) {
+            handle = ex_host_sqlite_open_isolated_memory(options);
+          } else {
+            auto resolved = exactResolveVfsPath(runtime, path);
+            authorization.file = exactOpenArmedSqliteFile(
+                runtime, resolved, access.needsWrite, access.mayCreate);
+            authorization.armedFile = true;
+            handle = ex_host_sqlite_open_checked_fd(
+                *authorization.file.target, options);
+          }
+        } else {
+          authorization.capabilities =
+              sqliteOpenCapabilities(path, access.needsWrite);
+          requireSqliteAuthorization(
+              runtime, authorization, "__exactSqliteOpen", kSqliteSurfaceOpen,
+              true, access.needsWrite);
+          handle = ex_host_sqlite_open(path.c_str(), options);
+        }
         if (handle == 0) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteOpen failed");
         }
@@ -727,7 +801,9 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         // @ref LLP 0021#handles-dynamic-authority-and-generations — release
         // validates owner identity but does not require a still-live grant.
         auto entry =
-            requireSqliteDb(runtime, handle, "__exactSqliteClose", false);
+            requireSqliteDb(
+                runtime, handle, "__exactSqliteClose", false,
+                kSqliteSurfaceOpen, false, false);
         if (ex_host_sqlite_close(handle) == 0) {
           unregisterSqliteDb(handle, entry);
         }
@@ -750,18 +826,26 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
               "__exactSqlitePrepare: db handle and sql required");
         }
         auto handle = static_cast<uint64_t>(args[0].asNumber());
-        auto entry = requireSqliteDb(runtime, handle, "__exactSqlitePrepare");
+        auto entry = requireSqliteDb(
+            runtime, handle, "__exactSqlitePrepare", true,
+            kSqliteSurfacePrepare, true, false);
         auto sql = args[1].toString(runtime).utf8(runtime);
         char* json = ex_host_sqlite_prepare(handle, sql.c_str());
         if (!json) {
           throw facebook::jsi::JSError(runtime, "__exactSqlitePrepare failed");
         }
         uint64_t statementHandle = extractJsonHandle(json);
-        if (statementHandle != 0) {
-          registerSqliteStatement(statementHandle, handle, entry);
-        }
         auto value = parseJsonValue(runtime, json);
         ex_host_free_string(json);
+        if (statementHandle != 0) {
+          bool readOnly = true;
+          if (value.isObject()) {
+            auto object = value.asObject(runtime);
+            auto flag = object.getProperty(runtime, "readOnly");
+            if (flag.isBool()) readOnly = flag.getBool();
+          }
+          registerSqliteStatement(statementHandle, handle, entry, readOnly);
+        }
         return value;
       });
   rt.global().setProperty(rt, "__exactSqlitePrepare", std::move(sqlitePrepareFn));
@@ -782,7 +866,8 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         // @ref LLP 0021#handles-dynamic-authority-and-generations — finalizing
         // an owned statement remains possible after its grant is revoked.
         auto entry = requireSqliteStatement(
-            runtime, handle, "__exactSqliteFinalize", false);
+            runtime, handle, "__exactSqliteFinalize", false,
+            kSqliteSurfacePrepare, false, false);
         if (ex_host_sqlite_finalize(handle) == 0) {
           unregisterSqliteStatement(handle, entry);
         }
@@ -803,7 +888,9 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteExpandedSql: statement handle required");
         }
         auto handle = static_cast<uint64_t>(args[0].asNumber());
-        requireSqliteStatement(runtime, handle, "__exactSqliteExpandedSql");
+        requireSqliteStatement(
+            runtime, handle, "__exactSqliteExpandedSql", false,
+            kSqliteSurfacePrepare, false, false);
         char* expanded = ex_host_sqlite_expanded_sql(handle);
         if (!expanded) {
           return facebook::jsi::Value::null();
@@ -827,7 +914,9 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteInTransaction: handle required");
         }
         auto handle = static_cast<uint64_t>(args[0].asNumber());
-        requireSqliteDb(runtime, handle, "__exactSqliteInTransaction");
+        requireSqliteDb(
+            runtime, handle, "__exactSqliteInTransaction", false,
+            kSqliteSurfaceOpen, false, false);
         auto in_tx = ex_host_sqlite_in_transaction(handle);
         return facebook::jsi::Value(in_tx != 0);
       });
@@ -862,7 +951,13 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteAll: statement handle required");
         }
         auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
-        requireSqliteStatement(runtime, statementHandle, "__exactSqliteAll");
+        auto entry = requireSqliteStatement(
+            runtime, statementHandle, "__exactSqliteAll", true,
+            kSqliteSurfaceAll, true, false);
+        if (!entry.readOnly) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactSqliteAll requires a read-only statement");
+        }
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
@@ -887,7 +982,13 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteGet: statement handle required");
         }
         auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
-        requireSqliteStatement(runtime, statementHandle, "__exactSqliteGet");
+        auto entry = requireSqliteStatement(
+            runtime, statementHandle, "__exactSqliteGet", true,
+            kSqliteSurfaceGet, true, false);
+        if (!entry.readOnly) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactSqliteGet requires a read-only statement");
+        }
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
@@ -912,7 +1013,9 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteRun: statement handle required");
         }
         auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
-        requireSqliteStatement(runtime, statementHandle, "__exactSqliteRun");
+        requireSqliteStatement(
+            runtime, statementHandle, "__exactSqliteRun", true,
+            kSqliteSurfaceRun, true, true);
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
@@ -937,7 +1040,13 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteValues: statement handle required");
         }
         auto statementHandle = static_cast<uint64_t>(args[0].asNumber());
-        requireSqliteStatement(runtime, statementHandle, "__exactSqliteValues");
+        auto entry = requireSqliteStatement(
+            runtime, statementHandle, "__exactSqliteValues", true,
+            kSqliteSurfaceValues, true, false);
+        if (!entry.readOnly) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactSqliteValues requires a read-only statement");
+        }
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
@@ -962,7 +1071,9 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteExec: db handle and sql required");
         }
         auto handle = static_cast<uint64_t>(args[0].asNumber());
-        requireSqliteDb(runtime, handle, "__exactSqliteExec");
+        requireSqliteDb(
+            runtime, handle, "__exactSqliteExec", true,
+            kSqliteSurfaceExec, true, true);
         auto sql = args[1].toString(runtime).utf8(runtime);
         std::string bindingsJson;
         const char* bindings = nullptr;

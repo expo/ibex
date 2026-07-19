@@ -130,14 +130,14 @@ const EXPECTED_SOURCES: [ExpectedSource; 3] = [
         source_ref: "src/builtins/http.js#process.env:NODE_DEBUG:read",
         mechanism: "builtin-module-load",
         module_specifier: Some("node:http"),
-        preload_module_specifiers: &["node:util"],
+        preload_module_specifiers: &["node:events", "node:stream", "node:util"],
     },
     ExpectedSource {
         environment_name: "EXACT_DEBUG_EMIT_LISTENER",
         source_ref: "src/builtins/events.js#process.env:EXACT_DEBUG_EMIT_LISTENER:read",
         mechanism: "event-emitter-emit",
         module_specifier: Some("node:events"),
-        preload_module_specifiers: &["node:events"],
+        preload_module_specifiers: &[],
     },
     ExpectedSource {
         environment_name: "TZ",
@@ -227,13 +227,14 @@ fn startup_environment_probe(recipe: &Recipe) -> Option<PublicSurfaceProbe> {
 }
 
 fn environment_selector(name: &str) -> serde_json::Value {
-    // @ref LLP 0021#typed-resources-and-initial-vocabulary — bind each
-    // startup source to one exact broker-base name, never an env wildcard.
+    // @ref LLP 0022#7-capabilities-principals-and-affordance-parity — armed
+    // process.env reads only the current principal's exact-name overlay;
+    // startup-source classification does not reopen the broker base.
     serde_json::json!({
         "cap": "env:read",
         "resource": {
             "kind": "environment-name",
-            "target": "broker-base",
+            "target": "principal-overlay",
             "name": name,
         },
     })
@@ -565,10 +566,10 @@ fn validate_typed_decisions(
                 "kind": "environment-occurrence",
                 "requested": {
                     "kind": "environment-name",
-                    "target": "broker-base",
+                    "target": "principal-overlay",
                     "name": environment_name,
                 },
-                "valueOrigin": "broker-base",
+                "valueOrigin": "principal-overlay",
             })
         );
         assert_eq!(decision["gates"].as_array().unwrap().len(), 1);
@@ -591,10 +592,12 @@ fn validate_typed_decisions(
 
 async fn invoke_source(
     engine: &HermesEngine,
+    host: &crate::host::Host,
     invocation: &StartupEnvironmentInvocation,
     package: Option<&PackageFixture>,
     session_id: &str,
 ) -> (serde_json::Value, usize, Vec<serde_json::Value>) {
+    let mut evaluator = AuthenticatedStartupEvaluator::new(host);
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
     // preloads are outside the observer; only the curated source operation is
     // allowed to contribute the promotion decision.
@@ -607,8 +610,8 @@ async fn invoke_source(
             serde_json::to_string(module_specifier).unwrap()
         );
         assert_eq!(
-            engine
-                .eval_immediate(&script)
+            evaluator
+                .eval_string(engine, &script)
                 .await
                 .expect("preload distinct startup environment dependency")
                 .as_deref(),
@@ -617,8 +620,8 @@ async fn invoke_source(
     }
     if package.is_some() {
         assert_eq!(
-            engine
-                .eval_immediate("require('image-lib'); 'ready'")
+            evaluator
+                .eval_string(engine, "require('image-lib'); 'ready'")
                 .await
                 .expect("preload startup environment package")
                 .as_deref(),
@@ -664,8 +667,8 @@ async fn invoke_source(
     let script = format!(
         "JSON.stringify((function(projectMarker){{try{{var value={expression};return {{kind:'return',value:value===true,projectMarker:projectMarker}};}}catch(error){{return {{kind:'throw',errorName:String(error&&error.name||'Error'),errorMessage:String(error&&error.message||error),projectMarker:projectMarker}};}}}})({project_marker}))"
     );
-    let encoded = engine
-        .eval_immediate(&script)
+    let encoded = evaluator
+        .eval_string(engine, &script)
         .await
         .expect("execute startup environment public source")
         .expect("startup environment public source returned no result");
@@ -687,6 +690,9 @@ async fn invoke_source(
         }
         other => panic!("unsupported startup environment result {other}"),
     }
+    evaluator
+        .finish(engine, "startup environment public source")
+        .expect("finish authenticated startup environment publications");
     (result, legacy.len(), typed)
 }
 
@@ -721,7 +727,7 @@ async fn execute_recipe(
         &invocation.operation,
         &invocation.operation.environment.name,
     );
-    assert_ne!(crate::host::abi::install_host(host), 0);
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
     let _reset = HostResetGuard;
     let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
         .expect("create exact startup environment probe engine");
@@ -732,6 +738,7 @@ async fn execute_recipe(
     let session_id = format!("startup-environment-observation:{}", recipe.plan_digest);
     let (source_result, legacy_count, typed_decisions) = invoke_source(
         &engine,
+        &host,
         invocation,
         package.as_ref(),
         &session_id,
@@ -887,4 +894,828 @@ async fn capsec_public_startup_environment_batch() {
     output
         .sync_all()
         .expect("sync startup environment public evidence artifact");
+}
+
+const OVERLAY_SHARED_NAME: &str = "IBEX_CAPSEC_OVERLAY_SHARED";
+const OVERLAY_WRITE_ONLY_NAME: &str = "IBEX_CAPSEC_OVERLAY_WRITE_ONLY";
+const OVERLAY_READ_ONLY_NAME: &str = "IBEX_CAPSEC_OVERLAY_READ_ONLY";
+const OVERLAY_ASYNC_NAME: &str = "IBEX_CAPSEC_OVERLAY_ASYNC";
+
+struct OverlayPackage {
+    root: std::path::PathBuf,
+    principal_value: serde_json::Value,
+    principal: capsec_semantics::model::Principal,
+}
+
+struct TwoPackageOverlayFixture {
+    _directory: tempfile::TempDir,
+    root: std::path::PathBuf,
+    alpha: OverlayPackage,
+    beta: OverlayPackage,
+}
+
+fn prepare_overlay_package(
+    project_root: &std::path::Path,
+    name: &str,
+    version: &str,
+    label: &str,
+) -> OverlayPackage {
+    let root = project_root.join("node_modules").join(name);
+    std::fs::create_dir_all(&root).expect("create principal-overlay package root");
+    std::fs::write(
+        root.join("package.json"),
+        serde_json::json!({
+            "name": name,
+            "version": version,
+            "main": "index.js",
+        })
+        .to_string(),
+    )
+    .expect("write principal-overlay package manifest");
+    let source = r#"var requiredProcess = require('process');
+
+function capture(thunk) {
+  try { return { ok: true, value: thunk() }; }
+  catch (error) {
+    return { ok: false, error: String(error && error.message || error) };
+  }
+}
+
+function read(name) {
+  var value = process.env[name];
+  return { present: value !== undefined, value: value === undefined ? null : value };
+}
+
+module.exports = {
+  metadata: function() {
+    return {
+      label: '__PACKAGE_LABEL__',
+      processType: typeof process,
+      requiredProcessEnvIdentity: requiredProcess.env === process.env,
+      rawSetterType: typeof __exactSetEnv,
+      globalRawSetterType: typeof globalThis.__exactSetEnv,
+      rawSetterInGlobal: '__exactSetEnv' in globalThis,
+      rawSetterOwnGlobal: Object.prototype.hasOwnProperty.call(globalThis, '__exactSetEnv')
+    };
+  },
+  read: read,
+  keys: function() { return Object.keys(process.env).sort(); },
+  set: function(name, value) {
+    return capture(function() { process.env[name] = value; return true; });
+  },
+  remove: function(name) {
+    return capture(function() { return delete process.env[name]; });
+  },
+  scheduleAsync: function(name, value, sink) {
+    Promise.resolve().then(function() {
+      process.env[name] = value;
+      return read(name);
+    }).then(function(result) {
+      sink({ ok: true, result: result, keys: Object.keys(process.env).sort() });
+    }, function(error) {
+      sink({ ok: false, error: String(error && error.message || error) });
+    });
+    return true;
+  }
+};
+"#
+    .replace("__PACKAGE_LABEL__", label);
+    std::fs::write(root.join("index.js"), source).expect("write principal-overlay package source");
+    let integrity = crate::module_loader::package_tree_integrity(&root)
+        .expect("digest principal-overlay package tree");
+    let locator = format!("{name}@{version}");
+    let principal_value = serde_json::json!({
+        "kind": "package",
+        "name": name,
+        "integrity": integrity,
+        "locator": locator,
+    });
+    let principal = serde_json::from_value(principal_value.clone())
+        .expect("principal-overlay package principal must be valid");
+    OverlayPackage {
+        root,
+        principal_value,
+        principal,
+    }
+}
+
+fn prepare_two_package_overlay_fixture() -> TwoPackageOverlayFixture {
+    let directory = tempfile::tempdir().expect("create principal-overlay fixture");
+    let root = std::fs::canonicalize(directory.path())
+        .expect("canonicalize principal-overlay fixture root");
+    std::fs::create_dir_all(root.join("node_modules"))
+        .expect("create principal-overlay node_modules");
+    let alpha = prepare_overlay_package(&root, "env-alpha", "1.0.0", "alpha");
+    let beta = prepare_overlay_package(&root, "env-beta", "1.0.0", "beta");
+    TwoPackageOverlayFixture {
+        _directory: directory,
+        root,
+        alpha,
+        beta,
+    }
+}
+
+fn overlay_selector(action: &str, name: &str) -> serde_json::Value {
+    serde_json::json!({
+        "cap": action,
+        "resource": {
+            "kind": "environment-name",
+            "target": "principal-overlay",
+            "name": name,
+        },
+    })
+}
+
+fn sorted_overlay_selectors(
+    selectors: impl IntoIterator<Item = serde_json::Value>,
+) -> serde_json::Value {
+    let mut selectors = selectors.into_iter().collect::<Vec<_>>();
+    selectors.sort_by(|left, right| {
+        capsec_semantics::canonical::to_jcs_bytes(left)
+            .unwrap()
+            .cmp(&capsec_semantics::canonical::to_jcs_bytes(right).unwrap())
+    });
+    selectors.dedup();
+    serde_json::Value::Array(selectors)
+}
+
+fn build_two_package_overlay_host(
+    fixture: &TwoPackageOverlayFixture,
+) -> (crate::host::Host, String) {
+    let all_names = [
+        OVERLAY_SHARED_NAME,
+        OVERLAY_WRITE_ONLY_NAME,
+        OVERLAY_READ_ONLY_NAME,
+        OVERLAY_ASYNC_NAME,
+    ];
+    let root_floor = all_names.into_iter().flat_map(|name| {
+        [
+            overlay_selector("env:read", name),
+            overlay_selector("env:write", name),
+        ]
+    });
+    build_armed_test_host_control(
+        Some(&fixture.root),
+        false,
+        false,
+        false,
+        root_floor.collect(),
+        Vec::new(),
+        false,
+        0,
+        None,
+        |snapshot| {
+            // Calls enter package Domains from root-authored test code, so the
+            // root deputy receives the union while each package row remains
+            // independently least-authority.
+            // @ref LLP 0013#mechanism-2
+            let alpha_locator = fixture.alpha.principal_value["locator"].clone();
+            let beta_locator = fixture.beta.principal_value["locator"].clone();
+            snapshot["principals"][0]["imports"]["packages"] =
+                serde_json::json!([alpha_locator, beta_locator]);
+
+            let mut alpha_row = snapshot["principals"][1].clone();
+            alpha_row["principal"] = fixture.alpha.principal_value.clone();
+            alpha_row["floor"] = sorted_overlay_selectors([
+                overlay_selector("env:read", OVERLAY_SHARED_NAME),
+                overlay_selector("env:write", OVERLAY_SHARED_NAME),
+                overlay_selector("env:write", OVERLAY_WRITE_ONLY_NAME),
+                overlay_selector("env:read", OVERLAY_READ_ONLY_NAME),
+                overlay_selector("env:read", OVERLAY_ASYNC_NAME),
+                overlay_selector("env:write", OVERLAY_ASYNC_NAME),
+            ]);
+            alpha_row["denials"] = serde_json::json!([]);
+            alpha_row["escalationCeiling"] = serde_json::json!([]);
+            alpha_row["imports"] = serde_json::json!({
+                "builtins": ["process"],
+                "packages": [],
+            });
+            alpha_row["endowments"] = serde_json::json!(["process"]);
+
+            let mut beta_row = alpha_row.clone();
+            beta_row["principal"] = fixture.beta.principal_value.clone();
+            beta_row["floor"] = sorted_overlay_selectors([
+                overlay_selector("env:read", OVERLAY_SHARED_NAME),
+                overlay_selector("env:write", OVERLAY_SHARED_NAME),
+                overlay_selector("env:read", OVERLAY_ASYNC_NAME),
+            ]);
+            snapshot["principals"][1] = alpha_row;
+            snapshot["principals"]
+                .as_array_mut()
+                .unwrap()
+                .push(beta_row);
+
+            snapshot["rootBindings"][0]["owner"] = fixture.alpha.principal_value.clone();
+            snapshot["rootBindings"][0]["hostPath"] = serde_json::json!({
+                "root": "absolute",
+                "components": package_components(&fixture.alpha.root),
+                "hostBound": true,
+            });
+            snapshot["rootBindings"][0]["object"] = object_identity(&fixture.alpha.root);
+            let mut beta_binding = snapshot["rootBindings"][0].clone();
+            beta_binding["owner"] = fixture.beta.principal_value.clone();
+            beta_binding["hostPath"] = serde_json::json!({
+                "root": "absolute",
+                "components": package_components(&fixture.beta.root),
+                "hostBound": true,
+            });
+            beta_binding["object"] = object_identity(&fixture.beta.root);
+            snapshot["rootBindings"]
+                .as_array_mut()
+                .unwrap()
+                .push(beta_binding);
+
+            let root = snapshot["rootIdentity"].clone();
+            snapshot["packageGraph"]["nodes"] = serde_json::json!([
+                {"principal": fixture.alpha.principal_value},
+                {"principal": fixture.beta.principal_value},
+            ]);
+            snapshot["packageGraph"]["importEdges"] = serde_json::json!([
+                {"importer": root, "imported": fixture.alpha.principal_value},
+                {"importer": snapshot["rootIdentity"], "imported": fixture.beta.principal_value},
+            ]);
+            snapshot["packageGraph"]["digest"] =
+                serde_json::json!(capsec_semantics::digest::compute_domain_digest(
+                    "ibex:capsec:package-graph:1",
+                    &snapshot["packageGraph"],
+                    &["digest".to_owned()],
+                )
+                .expect("digest principal-overlay package graph"));
+        },
+    )
+}
+
+/// Test-only authenticated source stream shared by the curated startup-source
+/// and principal-overlay probes. Armed project code enters through the same
+/// closed submission adapter as production REPL source; the test never
+/// reopens Hermes' sealed bare evaluator.
+/// @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+/// @ref LLP 0025#11-delegated-obligations — the harness consumes every
+/// authenticated work-unit, timer, and cancellation publication before the
+/// supervised engine is discarded.
+struct AuthenticatedStartupEvaluator {
+    session: ibex_runtime::engine::evaluation::ArmedSessionToken,
+    sequence: ibex_runtime::engine::evaluation::SubmissionSequence,
+    publications: AuthenticatedPublicationTracker,
+}
+
+impl AuthenticatedStartupEvaluator {
+    fn new(host: &crate::host::Host) -> Self {
+        let session = host
+            .mint_armed_session_token()
+            .expect("mint authenticated startup session");
+        let sequence = ibex_runtime::engine::evaluation::SubmissionSequence::new(session.clone())
+            .expect("create authenticated startup submission sequence");
+        Self {
+            session,
+            sequence,
+            publications: AuthenticatedPublicationTracker::default(),
+        }
+    }
+
+    async fn eval_string(
+        &mut self,
+        engine: &HermesEngine,
+        source: &str,
+    ) -> anyhow::Result<Option<String>> {
+        use capsec_semantics::model::{LogicalPath, LogicalRoot};
+
+        let context = "authenticated startup source";
+        self.publications.drain(engine, context)?;
+        let request = self
+            .sequence
+            .mint_repl(LogicalPath {
+                root: LogicalRoot::Project,
+                components: Vec::new(),
+                host_bound: None,
+            })?
+            .authorize_inline()
+            .bind_bytes(source.as_bytes().to_vec())
+            .into_request()?;
+        let ordinal = request.submission_ordinal();
+        let evaluation = engine
+            .evaluate_authenticated(&self.session, request)
+            .await
+            .with_context(|| {
+                format!(
+                    "evaluate authenticated startup submission {ordinal} ({})",
+                    source.chars().take(80).collect::<String>()
+                )
+            });
+        let publications = self.publications.drain(engine, context);
+        let evaluation = evaluation?;
+        publications?;
+        match evaluation {
+            AuthenticatedEvaluation::Empty => Ok(None),
+            AuthenticatedEvaluation::Value { display, receipt } => {
+                let release = engine
+                    .release_undisplayed_value(
+                        receipt.expect("startup value must retain a receipt"),
+                    )
+                    .await
+                    .context("release authenticated startup value");
+                let publications = self
+                    .publications
+                    .drain(engine, "authenticated startup value release");
+                release?;
+                publications?;
+                anyhow::ensure!(
+                    display.kind == AuthenticatedDisplayKind::String,
+                    "authenticated startup evaluation returned {:?}, expected a string",
+                    display.kind
+                );
+                Ok(Some(serde_json::from_str(&display.text)?))
+            }
+            AuthenticatedEvaluation::Throw(thrown) => {
+                anyhow::bail!("authenticated startup source threw: {thrown:?}")
+            }
+            AuthenticatedEvaluation::Cancelled => {
+                anyhow::bail!("authenticated startup source was cancelled")
+            }
+            AuthenticatedEvaluation::Lifecycle(code) => {
+                anyhow::bail!(
+                    "authenticated startup source exited with lifecycle code {code}"
+                )
+            }
+        }
+    }
+
+    async fn drive_event_loop(
+        &mut self,
+        engine: &HermesEngine,
+        context: &str,
+    ) -> anyhow::Result<()> {
+        self.publications.drain(engine, context)?;
+        let drive = engine
+            .drive_event_loop()
+            .await
+            .with_context(|| format!("drive {context} to quiescence"));
+        let publications = self.publications.drain(engine, context);
+        drive?;
+        publications?;
+        Ok(())
+    }
+
+    fn finish(&mut self, engine: &HermesEngine, context: &str) -> anyhow::Result<()> {
+        self.publications.drain(engine, context)?;
+        self.publications.require_no_due_schedules(context)
+    }
+}
+
+async fn eval_overlay_json(
+    evaluator: &mut AuthenticatedStartupEvaluator,
+    engine: &HermesEngine,
+    expression: &str,
+) -> serde_json::Value {
+    let encoded = evaluator
+        .eval_string(engine, &format!("JSON.stringify({expression})"))
+        .await
+        .expect("execute authenticated principal-overlay expression")
+        .expect("principal-overlay expression returned no value");
+    serde_json::from_str(&encoded).expect("principal-overlay expression returned invalid JSON")
+}
+
+fn assert_overlay_decision_stages(
+    decisions: &[serde_json::Value],
+    actor: &capsec_semantics::model::Principal,
+    variant: &str,
+    action: &str,
+    name: &str,
+    outcome: &str,
+    expected_stages: &[&str],
+) {
+    let actor = serde_json::to_value(actor).expect("serialize overlay decision actor");
+    let prefix = format!("environment-{variant}:");
+    let expected_stage_set = expected_stages.iter().copied().collect::<BTreeSet<_>>();
+    let mut stages = decisions
+        .iter()
+        .filter(|decision| {
+            decision["decisionSet"]["context"]["actor"] == actor
+                && decision["decisionSet"]["operationId"]
+                    .as_str()
+                    .is_some_and(|operation| operation.starts_with(&prefix))
+                && decision["decisionSet"]["effects"][0]["cap"] == action
+                && decision["decisionSet"]["effects"][0]["resource"]["requested"]["name"] == name
+        })
+        .map(|decision| {
+            assert_eq!(
+                decision["evidence"]["outcome"], outcome,
+                "matching overlay operation carried an opposite outcome: {decision}"
+            );
+            assert_eq!(
+                decision["decisionSet"]["effects"][0]["resource"]["requested"]["target"],
+                "principal-overlay"
+            );
+            assert_eq!(
+                decision["decisionSet"]["effects"][0]["resource"]["valueOrigin"],
+                "principal-overlay"
+            );
+            assert!(decision["decisionSet"]["context"]["constrainedPrincipals"]
+                .as_array()
+                .is_some_and(|principals| principals.contains(&actor)));
+            let stage = decision["decisionSet"]["context"]["stage"]
+                .as_str()
+                .expect("overlay decision stage must be a string");
+            assert!(
+                expected_stage_set.contains(stage),
+                "matching overlay operation carried unexpected stage {stage}: {decision}"
+            );
+            stage.to_owned()
+        })
+        .collect::<Vec<_>>();
+    stages.sort();
+    stages.dedup();
+    let mut expected = expected_stages
+        .iter()
+        .map(|stage| (*stage).to_owned())
+        .collect::<Vec<_>>();
+    expected.sort();
+    expected.dedup();
+    assert_eq!(
+        stages, expected,
+        "unexpected {outcome} stages for {actor:?} {variant} {action} {name}: {decisions:#?}"
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn loaded_hermes_isolates_principal_environment_overlays() {
+    let _lock = hermes_engine_test_lock().lock().await;
+    let fixture = prepare_two_package_overlay_fixture();
+    let (host, snapshot_digest) = build_two_package_overlay_host(&fixture);
+    // One Host owns one authenticated session token and monotonic submission
+    // sequence, so a fresh runtime needs a fresh Host whose first ordinal is 1.
+    // Reuse the exact immutable snapshot object to hold every policy, graph,
+    // and run-nonce input constant while proving that native overlay state does
+    // not survive the runtime boundary.
+    // @ref LLP 0024#1-the-in-memory-source-api — each runtime receives one
+    // serialized authenticated submission stream.
+    let second_engine_host = unsafe {
+        crate::host::Host::new_armed_for_test(
+            crate::host::HostConfig {
+                mode: crate::host::SecurityMode::Enforce,
+                ..Default::default()
+            },
+            host.armed_snapshot()
+                .expect("principal-overlay Host must retain its armed snapshot")
+                .clone(),
+        )
+    }
+    .expect("create a fresh Host over the same principal-overlay snapshot");
+    assert_ne!(crate::host::abi::install_host(host.clone()), 0);
+    let _reset = HostResetGuard;
+
+    let identity_before = HermesEngine::loaded_engine_identity()
+        .expect("attest loaded Hermes before principal-overlay test");
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create armed principal-overlay engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load armed principal-overlay runtime");
+    let mut overlay = AuthenticatedStartupEvaluator::new(&host);
+    assert_eq!(
+        overlay
+            .eval_string(
+                &engine,
+                "(function(){require('env-alpha');require('env-beta');return 'ready';})()",
+            )
+            .await
+            .expect("preload principal-overlay packages")
+            .as_deref(),
+        Some("ready")
+    );
+
+    let observation = "loaded-hermes-principal-environment-overlays";
+    assert!(
+        ibex_runtime::host::abi::begin_installed_conformance_observation(observation),
+        "install principal-overlay observation"
+    );
+    let sync = eval_overlay_json(
+        &mut overlay,
+        &engine,
+        &format!(
+            r#"(function() {{
+  var alpha = require('env-alpha');
+  var beta = require('env-beta');
+  var result = {{
+    alphaMetadata: alpha.metadata(),
+    betaMetadata: beta.metadata(),
+    betaBefore: beta.read({shared:?}),
+    alphaSetShared: alpha.set({shared:?}, 'alpha-value'),
+    alphaAfterAlpha: alpha.read({shared:?}),
+    betaAfterAlpha: beta.read({shared:?}),
+    betaSetShared: beta.set({shared:?}, 'beta-value'),
+    alphaAfterBeta: alpha.read({shared:?}),
+    betaAfterBeta: beta.read({shared:?}),
+    alphaSetWriteOnly: alpha.set({write_only:?}, 'write-only-value'),
+    alphaReadWriteOnly: alpha.read({write_only:?}),
+    alphaKeysAfterWriteOnly: alpha.keys(),
+    alphaReadOnlyBefore: alpha.read({read_only:?}),
+    alphaSetReadOnly: alpha.set({read_only:?}, 'forbidden-value'),
+    alphaDeleteReadOnly: alpha.remove({read_only:?}),
+    alphaReadOnlyAfter: alpha.read({read_only:?})
+  }};
+  return result;
+}})()"#,
+            shared = OVERLAY_SHARED_NAME,
+            write_only = OVERLAY_WRITE_ONLY_NAME,
+            read_only = OVERLAY_READ_ONLY_NAME,
+        ),
+    )
+    .await;
+
+    for metadata in [&sync["alphaMetadata"], &sync["betaMetadata"]] {
+        assert_eq!(metadata["processType"], "object", "{metadata}");
+        assert_eq!(metadata["requiredProcessEnvIdentity"], true, "{metadata}");
+        assert_eq!(metadata["rawSetterType"], "undefined", "{metadata}");
+        assert_eq!(metadata["globalRawSetterType"], "undefined", "{metadata}");
+        assert_eq!(metadata["rawSetterInGlobal"], false, "{metadata}");
+        assert_eq!(metadata["rawSetterOwnGlobal"], false, "{metadata}");
+    }
+    assert_eq!(sync["alphaMetadata"]["label"], "alpha");
+    assert_eq!(sync["betaMetadata"]["label"], "beta");
+    assert_eq!(
+        sync["betaBefore"],
+        serde_json::json!({"present": false, "value": null})
+    );
+    assert_eq!(
+        sync["alphaSetShared"],
+        serde_json::json!({"ok": true, "value": true})
+    );
+    assert_eq!(
+        sync["alphaAfterAlpha"],
+        serde_json::json!({"present": true, "value": "alpha-value"})
+    );
+    assert_eq!(
+        sync["betaAfterAlpha"],
+        serde_json::json!({"present": false, "value": null})
+    );
+    assert_eq!(
+        sync["betaSetShared"],
+        serde_json::json!({"ok": true, "value": true})
+    );
+    assert_eq!(
+        sync["alphaAfterBeta"],
+        serde_json::json!({"present": true, "value": "alpha-value"})
+    );
+    assert_eq!(
+        sync["betaAfterBeta"],
+        serde_json::json!({"present": true, "value": "beta-value"})
+    );
+    assert_eq!(
+        sync["alphaSetWriteOnly"],
+        serde_json::json!({"ok": true, "value": true})
+    );
+    assert_eq!(
+        sync["alphaReadWriteOnly"],
+        serde_json::json!({"present": false, "value": null})
+    );
+    assert_eq!(
+        sync["alphaKeysAfterWriteOnly"],
+        serde_json::json!([OVERLAY_SHARED_NAME])
+    );
+    assert_eq!(
+        sync["alphaReadOnlyBefore"],
+        serde_json::json!({"present": false, "value": null})
+    );
+    assert_eq!(sync["alphaSetReadOnly"]["ok"], false, "{sync}");
+    assert!(sync["alphaSetReadOnly"]["error"]
+        .as_str()
+        .is_some_and(|error| error.contains("env:write authority required")));
+    assert_eq!(sync["alphaDeleteReadOnly"]["ok"], false, "{sync}");
+    assert!(sync["alphaDeleteReadOnly"]["error"]
+        .as_str()
+        .is_some_and(|error| error.contains("env:write authority required")));
+    assert_eq!(
+        sync["alphaReadOnlyAfter"],
+        serde_json::json!({"present": false, "value": null})
+    );
+
+    assert_eq!(
+        overlay
+            .eval_string(
+                &engine,
+                &format!(
+                r#"globalThis.__overlayAsyncResult = null;
+require('env-alpha').scheduleAsync({:?}, 'async-alpha', function(result) {{
+  globalThis.__overlayAsyncResult = result;
+}});
+'scheduled'"#,
+                OVERLAY_ASYNC_NAME,
+                ),
+            )
+            .await
+            .expect("schedule package-owned environment mutation")
+            .as_deref(),
+        Some("scheduled")
+    );
+    overlay
+        .drive_event_loop(&engine, "package-owned environment mutation")
+        .await
+        .expect("drive package-owned environment mutation");
+    let async_result = eval_overlay_json(
+        &mut overlay,
+        &engine,
+        "globalThis.__overlayAsyncResult",
+    )
+    .await;
+    assert_eq!(
+        async_result,
+        serde_json::json!({
+            "ok": true,
+            "result": {"present": true, "value": "async-alpha"},
+            "keys": [OVERLAY_ASYNC_NAME, OVERLAY_SHARED_NAME],
+        })
+    );
+    let after_async = eval_overlay_json(
+        &mut overlay,
+        &engine,
+        &format!(
+            r#"(function() {{
+  var alpha = require('env-alpha');
+  var beta = require('env-beta');
+  return {{
+    alphaAsync: alpha.read({async_name:?}),
+    betaAsync: beta.read({async_name:?}),
+    alphaKeys: alpha.keys(),
+    betaKeys: beta.keys()
+  }};
+}})()"#,
+            async_name = OVERLAY_ASYNC_NAME,
+        ),
+    )
+    .await;
+    assert_eq!(
+        after_async["alphaAsync"],
+        serde_json::json!({"present": true, "value": "async-alpha"})
+    );
+    assert_eq!(
+        after_async["betaAsync"],
+        serde_json::json!({"present": false, "value": null})
+    );
+    assert_eq!(
+        after_async["alphaKeys"],
+        serde_json::json!([OVERLAY_ASYNC_NAME, OVERLAY_SHARED_NAME])
+    );
+    assert_eq!(
+        after_async["betaKeys"],
+        serde_json::json!([OVERLAY_SHARED_NAME])
+    );
+
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(
+        legacy.is_empty(),
+        "principal-overlay path consulted legacy policy"
+    );
+    let decisions = typed_decision_values(observation, typed);
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "write",
+        "env:write",
+        OVERLAY_SHARED_NAME,
+        "allow",
+        &["requested", "commit"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.beta.principal,
+        "write",
+        "env:write",
+        OVERLAY_SHARED_NAME,
+        "allow",
+        &["requested", "commit"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "write",
+        "env:write",
+        OVERLAY_WRITE_ONLY_NAME,
+        "allow",
+        &["requested", "commit"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "read",
+        "env:read",
+        OVERLAY_WRITE_ONLY_NAME,
+        "deny",
+        &["requested"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "read",
+        "env:read",
+        OVERLAY_READ_ONLY_NAME,
+        "allow",
+        &["requested", "commit"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "write",
+        "env:write",
+        OVERLAY_READ_ONLY_NAME,
+        "deny",
+        &["requested"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "enumerate",
+        "env:read",
+        OVERLAY_SHARED_NAME,
+        "allow",
+        &["requested", "commit"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "enumerate",
+        "env:read",
+        OVERLAY_WRITE_ONLY_NAME,
+        "deny",
+        &["requested"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "write",
+        "env:write",
+        OVERLAY_ASYNC_NAME,
+        "allow",
+        &["requested", "commit"],
+    );
+    assert_overlay_decision_stages(
+        &decisions,
+        &fixture.alpha.principal,
+        "read",
+        "env:read",
+        OVERLAY_ASYNC_NAME,
+        "allow",
+        &["requested", "commit"],
+    );
+
+    overlay
+        .finish(&engine, "principal-overlay first runtime")
+        .expect("finish first principal-overlay runtime publications");
+    drop(overlay);
+    drop(engine);
+    assert_ne!(
+        crate::host::abi::install_host(second_engine_host.clone()),
+        0,
+        "install the fresh Host over the same immutable snapshot"
+    );
+    let fresh = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create second armed principal-overlay engine");
+    fresh
+        .load_runtime()
+        .await
+        .expect("load second armed principal-overlay runtime");
+    let mut fresh_overlay = AuthenticatedStartupEvaluator::new(&second_engine_host);
+    let cleared = eval_overlay_json(
+        &mut fresh_overlay,
+        &fresh,
+        &format!(
+            r#"(function() {{
+  var alpha = require('env-alpha');
+  var beta = require('env-beta');
+  return {{
+    alphaShared: alpha.read({shared:?}),
+    betaShared: beta.read({shared:?}),
+    alphaAsync: alpha.read({async_name:?}),
+    betaAsync: beta.read({async_name:?}),
+    alphaKeys: alpha.keys(),
+    betaKeys: beta.keys(),
+    identity: alpha.metadata().requiredProcessEnvIdentity,
+    rawSetterType: alpha.metadata().rawSetterType
+  }};
+}})()"#,
+            shared = OVERLAY_SHARED_NAME,
+            async_name = OVERLAY_ASYNC_NAME,
+        ),
+    )
+    .await;
+    for field in ["alphaShared", "betaShared", "alphaAsync", "betaAsync"] {
+        assert_eq!(
+            cleared[field],
+            serde_json::json!({"present": false, "value": null})
+        );
+    }
+    assert_eq!(cleared["alphaKeys"], serde_json::json!([]));
+    assert_eq!(cleared["betaKeys"], serde_json::json!([]));
+    assert_eq!(cleared["identity"], true);
+    assert_eq!(cleared["rawSetterType"], "undefined");
+    fresh_overlay
+        .finish(&fresh, "principal-overlay fresh runtime")
+        .expect("finish fresh principal-overlay runtime publications");
+
+    let identity_after = HermesEngine::loaded_engine_identity()
+        .expect("attest loaded Hermes after principal-overlay test");
+    assert_eq!(identity_after, identity_before);
+    ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
+        .expect("re-verify loaded Hermes after principal-overlay test");
 }

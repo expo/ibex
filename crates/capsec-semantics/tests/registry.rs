@@ -1,7 +1,10 @@
 use std::collections::BTreeSet;
 
 use capsec_semantics::model::AuthoritySelector;
-use capsec_semantics::registry::{CapabilityDefinitionsDocument, DefinitionSet, ValidatedProfile};
+use capsec_semantics::registry::{
+    CapabilityDefinitionsDocument, DefinitionSet, PrincipalConstraint, ResourceKind,
+    ValidatedProfile,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -23,7 +26,6 @@ fn escape_and_shared_process_surfaces_remain_deny_only_with_closed_channels() {
         "ffi:load",
         "inspector:activate",
         "ipc:channel",
-        "process:cwd",
         "process:identity",
         "process:limit",
         "process:priority",
@@ -82,9 +84,30 @@ fn committed_definition_registry_is_complete_and_valid() {
 
     let definitions = DefinitionSet::validate(definitions, &profiles)
         .expect("committed capability definitions satisfy the semantic core");
-    assert_eq!(definitions.len(), 38);
+    assert_eq!(definitions.len(), 40);
     assert!(definitions.contains("fs:read"));
     assert!(definitions.contains("network:fetch"));
+    let lifecycle = definitions.get("lifecycle:exit").unwrap();
+    assert_eq!(
+        lifecycle.principal_constraint,
+        Some(PrincipalConstraint::RootOnly)
+    );
+    assert_eq!(
+        lifecycle.resource_kinds,
+        vec![ResourceKind::SessionLifecycle]
+    );
+    assert!(!lifecycle.channels.dynamic);
+    assert!(!lifecycle.channels.handle);
+    let cwd_mutate = definitions.get("path:cwd-mutate").unwrap();
+    assert_eq!(
+        cwd_mutate.principal_constraint,
+        Some(PrincipalConstraint::RootOnly)
+    );
+    assert_eq!(cwd_mutate.resource_kinds, vec![ResourceKind::PathExact]);
+    let cwd_observe = definitions.get("path:cwd-observe").unwrap();
+    assert_eq!(cwd_observe.resource_kinds, vec![ResourceKind::SessionState]);
+    assert!(cwd_observe.static_only);
+    assert!(!definitions.contains("process:cwd"));
     assert!(!definitions.contains("fs:*"));
     assert!(!definitions.contains("network"));
 }
@@ -102,8 +125,8 @@ fn committed_profile_jointly_validates_through_strict_json() {
         )),
     )
     .expect("committed profile satisfies the neutral semantic core");
-    assert_eq!(profile.definitions.len(), 38);
-    assert_eq!(profile.normalization_profiles.len(), 15);
+    assert_eq!(profile.definitions.len(), 40);
+    assert_eq!(profile.normalization_profiles.len(), 17);
 }
 
 #[test]
@@ -195,8 +218,8 @@ fn action_specific_selector_constraints_are_executable() {
             "resource": {"kind":"stdio","stream":"stdin","source":{"kind":"pipe","identity":"pipe-1"}}
         }),
         serde_json::json!({
-            "cap": "process:cwd",
-            "resource": {"kind":"closed-surface","surfaceClass":"process-identity"}
+            "cap": "process:identity",
+            "resource": {"kind":"closed-surface","surfaceClass":"process-cwd"}
         }),
         serde_json::json!({
             "cap": "storage:persist",
@@ -218,8 +241,8 @@ fn action_specific_selector_constraints_are_executable() {
             "resource": {"kind":"stdio","stream":"stdout","source":{"kind":"pipe","identity":"pipe-1"}}
         }),
         serde_json::json!({
-            "cap": "process:cwd",
-            "resource": {"kind":"closed-surface","surfaceClass":"process-cwd"}
+            "cap": "process:identity",
+            "resource": {"kind":"closed-surface","surfaceClass":"process-identity"}
         }),
         serde_json::json!({
             "cap": "fs:read",

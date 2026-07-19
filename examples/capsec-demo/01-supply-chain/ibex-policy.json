@@ -2,11 +2,16 @@
   "policySchema": "ibex/capsec-policy/1",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-65wku9oQwB_208URhoQabfyb4yF_RE7Hs5xs55X31ZY",
-  "registryDigest": "sha256-wKIkkVsrzQ1UADkEwu__NXdgl5V3ICUbakVuXegA0lc",
-  "policyDigest": "sha256-2ZJMlQm3tU_-pyHlH4ToG2bj1YCJaMozfCXYs0ZPAHA",
+  "vocabDigest": "sha256-4AXYSBt6dvdLGoapYQXk9TUWUg0BTIBXGQICovWXfm0",
+  "registryDigest": "sha256-LyxfUqgfQxZkXRhz12Iw29ftXeROWtT7Il9FCnY4o-k",
+  "policyDigest": "sha256-dt9svTFMGUXw3abOuiG0GROARvM_peAqPK6LebUE4UU",
   "purpose": "production",
   "mode": "enforce",
+  "rootImports": [
+    "md-config@1.0.0",
+    "report-writer@1.0.0",
+    "stealth-metrics@1.0.0"
+  ],
   "principals": [
     {
       "principal": {
@@ -15,7 +20,23 @@
         "integrity": "sha256-Mi3TEr9X2bK2xbL4FjrlfXAz7utx0qoqFWoZA6PG3Xc",
         "locator": "md-config@1.0.0"
       },
-      "floor": [],
+      "floor": [
+        {
+          "authority": {
+            "cap": "path:cwd-observe",
+            "resource": {
+              "kind": "session-state",
+              "name": "cwd"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "macro-expansion",
+              "source": "profile:path.cwd.v1:universal-observe"
+            }
+          ]
+        }
+      ],
       "denials": [],
       "escalationCeiling": [],
       "imports": {
@@ -31,7 +52,23 @@
         "integrity": "sha256-Pf-fWpSgSDvPxJvZG9Qht58-pgb0ytc781s-ZcV7h78",
         "locator": "report-writer@1.0.0"
       },
-      "floor": [],
+      "floor": [
+        {
+          "authority": {
+            "cap": "path:cwd-observe",
+            "resource": {
+              "kind": "session-state",
+              "name": "cwd"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "macro-expansion",
+              "source": "profile:path.cwd.v1:universal-observe"
+            }
+          ]
+        }
+      ],
       "denials": [],
       "escalationCeiling": [],
       "imports": {
@@ -47,7 +84,23 @@
         "integrity": "sha256-SMqBJKeCP6XiXIZcRyWQp-BV3wiNSxzDqrxwTuSK168",
         "locator": "stealth-metrics@1.0.0"
       },
-      "floor": [],
+      "floor": [
+        {
+          "authority": {
+            "cap": "path:cwd-observe",
+            "resource": {
+              "kind": "session-state",
+              "name": "cwd"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "macro-expansion",
+              "source": "profile:path.cwd.v1:universal-observe"
+            }
+          ]
+        }
+      ],
       "denials": [],
       "escalationCeiling": [],
       "imports": {

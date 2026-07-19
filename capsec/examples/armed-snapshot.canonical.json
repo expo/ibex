@@ -2,10 +2,10 @@
   "snapshotSchema": "ibex/capsec-armed/1",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-2-47BW3iqP8AVWvjevEuzFeI2LGxdowbmM50aKFrVYw",
-  "registryDigest": "sha256-i0sucHN4cwN-vh9gMmzVKk28sKyBv90JtHLtXPhCS7o",
-  "policyDigest": "sha256-HK3ycQWUqGhioOc3xL5KA2hDvHoTsihRj9LWZim38nE",
-  "armedSnapshotDigest": "sha256-hmKESNI99eQPZ1SrebFcTlEcgL5fapakuvgZYtO-7Ow",
+  "vocabDigest": "sha256-ocP-IvmHY7TUYh6EDn1gBxFMxoNbaHHcEapeZUBtqgU",
+  "registryDigest": "sha256-Y-z7sdFEFxsbPgAfyz7u_CSNkgcMJ5eQZmH50vG42_Y",
+  "policyDigest": "sha256-bQf96GezMSbfVxTRyDuWN9_66ATC0aqYg17RkJQsmkw",
+  "armedSnapshotDigest": "sha256-PItQDVdLBSTdzUl09_A5Q6deWLLYHKNSzJoc8msbKXY",
   "workflow": "contract-fixture",
   "effectiveMode": "enforce",
   "engine": {
@@ -22,6 +22,73 @@
   "rootIdentity": {
     "kind": "root",
     "identity": "project-root"
+  },
+  "entry": {
+    "kind": "repl",
+    "identity": "ibex:repl",
+    "mode": "transcript"
+  },
+  "projectRootDiscovery": {
+    "origin": {
+      "root": "absolute",
+      "components": [
+        {
+          "encoding": "utf8",
+          "value": "Users"
+        },
+        {
+          "encoding": "utf8",
+          "value": "example"
+        },
+        {
+          "encoding": "utf8",
+          "value": "project"
+        }
+      ],
+      "hostBound": true
+    },
+    "selectedRoot": {
+      "root": "absolute",
+      "components": [
+        {
+          "encoding": "utf8",
+          "value": "Users"
+        },
+        {
+          "encoding": "utf8",
+          "value": "example"
+        },
+        {
+          "encoding": "utf8",
+          "value": "project"
+        }
+      ],
+      "hostBound": true
+    },
+    "markerKind": "package-manifest",
+    "markerPath": {
+      "root": "absolute",
+      "components": [
+        {
+          "encoding": "utf8",
+          "value": "Users"
+        },
+        {
+          "encoding": "utf8",
+          "value": "example"
+        },
+        {
+          "encoding": "utf8",
+          "value": "project"
+        },
+        {
+          "encoding": "utf8",
+          "value": "package.json"
+        }
+      ],
+      "hostBound": true
+    },
+    "markerSetVersion": "ibex/project-root-markers/1"
   },
   "packageGraph": {
     "digest": "sha256-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGA",
@@ -162,6 +229,18 @@
       }
     }
   ],
+  "pathCanonicalizers": [
+    {
+      "platform": "apple",
+      "volume": "volume-1",
+      "identity": "apple-apfs-unicode9-safe-casefold-nfd-v1"
+    },
+    {
+      "platform": "unix",
+      "volume": "dev-1",
+      "identity": "byte-identity-v1"
+    }
+  ],
   "principals": [
     {
       "principal": {
@@ -250,6 +329,8 @@
       "endowments": []
     }
   ],
+  "environmentBase": [],
+  "bootstrapCompatibilityModes": [],
   "processAuthorityCeiling": {
     "kind": "unbounded"
   },

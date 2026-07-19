@@ -25,6 +25,10 @@ import {
 } from "../arraybuffer-detach";
 import { structuredClone, type StructuredSerializeOptions } from "../clone";
 import { trackPromiseRejectionHandled } from "../promise-rejection-tracking";
+import {
+  isBootstrapCompatibilityControlFixed,
+  readBootstrapCompatibilityControl,
+} from '../core/host-inputs.js';
 
 // ============================================================================
 // Types
@@ -220,6 +224,11 @@ function isBunCompatReadableStreamTest(): boolean {
 }
 
 function readRuntimeEnv(key: string): string | undefined {
+  const bootstrapValue = readBootstrapCompatibilityControl(key);
+  if (
+    bootstrapValue !== undefined ||
+    isBootstrapCompatibilityControlFixed(key)
+  ) return bootstrapValue;
   const hostEnv = (globalThis as { __exactHostEnv?: Record<string, string | undefined> })
     .__exactHostEnv;
   if (hostEnv && typeof hostEnv[key] === 'string') {

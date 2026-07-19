@@ -116,6 +116,15 @@ function makeHarness() {
   };
 }
 
+function thrownError(callback: () => unknown) {
+  try {
+    callback();
+  } catch (error) {
+    return error as Error & { code?: string };
+  }
+  throw new Error('expected callback to throw');
+}
+
 test('manifest builtin initialization can load its authored private dependency', () => {
   const harness = makeHarness();
   const outer = harness.require('node:outer');
@@ -141,7 +150,15 @@ test('a package cannot spell the dependency or reuse leaked builtin require clos
   const harness = makeHarness();
   const outer = harness.require('node:outer');
 
-  expect(() => harness.require('node:util')).toThrow('Import denied');
+  const directError = thrownError(() => harness.require('node:util'));
+  expect(directError.message).toContain('Import denied');
+  expect(directError.code).toBe('ERR_IBEX_IMPORT_DENIED');
+  expect(Object.getOwnPropertyDescriptor(directError, 'code')).toEqual({
+    value: 'ERR_IBEX_IMPORT_DENIED',
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
   expect(() => outer.leakedRequire('node:util')).toThrow('Import denied');
   expect(() => outer.leakedModuleRequire('node:secret')).toThrow(
     'Import denied',

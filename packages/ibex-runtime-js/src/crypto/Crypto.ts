@@ -1770,9 +1770,6 @@ export class Crypto {
    * Fill array with cryptographically secure random bytes
    */
   getRandomValues<T extends ArrayBufferView>(array: T): T {
-    // Check capability before proceeding
-    requireCapability(Capabilities.CRYPTO_RANDOM);
-
     if (!ArrayBuffer.isView(array)) {
       throw new TypeError("Argument must be an integer-typed TypedArray");
     }
@@ -1846,9 +1843,6 @@ export class Crypto {
    * Generate a random UUID v4
    */
   randomUUID(): `${string}-${string}-${string}-${string}-${string}` {
-    // Check capability before proceeding
-    requireCapability(Capabilities.CRYPTO_RANDOM);
-
     const native = getNativeCryptoModule();
     if (native) {
       return native.randomUUID() as `${string}-${string}-${string}-${string}-${string}`;

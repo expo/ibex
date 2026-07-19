@@ -18,7 +18,7 @@ const FIXTURE_COMMAND: [&str; 10] = [
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — this
 // is the reviewed Exact fixture pilot, not every scenario later promoted on
 // the same surfaces. Keep it aligned with the independent JS binding builder.
-const EXACT_PILOT_EXPECTATIONS: [(&str, &str, &str); 10] = [
+const EXACT_PILOT_EXPECTATIONS: [(&str, &str, &str); 9] = [
     (
         "callback:exact-host-call-async-resolve",
         "non-capability",
@@ -48,11 +48,6 @@ const EXACT_PILOT_EXPECTATIONS: [(&str, &str, &str); 10] = [
         "host-abi:ex_host_build_exact_armed_embedder_artifacts",
         "non-capability",
         "exact-artifact-prepare-round-trip",
-    ),
-    (
-        "host-abi:ex_host_build_exact_gpu_armed_embedder_artifacts",
-        "non-capability",
-        "exact-gpu-artifact-prepare-round-trip",
     ),
     (
         "host-abi:ex_host_prepare_armed_embedder_artifacts",
@@ -143,9 +138,7 @@ fn compiled_target_triple() -> String {
 fn recipe_mechanism(recipe: &serde_json::Value) -> Option<&str> {
     recipe["publicSurfaceProbe"]["invocation"]["sourceDescriptor"]["executionMechanism"]
         .as_str()
-        .or_else(|| {
-            recipe["publicSurfaceProbe"]["invocation"]["operation"]["kind"].as_str()
-        })
+        .or_else(|| recipe["publicSurfaceProbe"]["invocation"]["operation"]["kind"].as_str())
 }
 
 fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
@@ -167,12 +160,14 @@ fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
         .expect("recipe catalog has no recipes")
         .iter()
         .filter(|recipe| {
-            EXACT_PILOT_EXPECTATIONS.iter().any(|(terminal, scenario, mechanism)| {
-                recipe["terminalObservedKey"].as_str() == Some(*terminal)
-                    && recipe["scenario"].as_str() == Some(*scenario)
-                    && recipe["status"] == "fully-executable"
-                    && recipe_mechanism(recipe) == Some(*mechanism)
-            })
+            EXACT_PILOT_EXPECTATIONS
+                .iter()
+                .any(|(terminal, scenario, mechanism)| {
+                    recipe["terminalObservedKey"].as_str() == Some(*terminal)
+                        && recipe["scenario"].as_str() == Some(*scenario)
+                        && recipe["status"] == "fully-executable"
+                        && recipe_mechanism(recipe) == Some(*mechanism)
+                })
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -184,13 +179,13 @@ fn exact_recipes(catalog: &serde_json::Value) -> Vec<serde_json::Value> {
     );
     for recipe in &recipes {
         assert_eq!(recipe["status"], "fully-executable");
-        assert!(EXACT_PILOT_EXPECTATIONS.iter().any(
-            |(terminal, scenario, mechanism)| {
+        assert!(EXACT_PILOT_EXPECTATIONS
+            .iter()
+            .any(|(terminal, scenario, mechanism)| {
                 recipe["terminalObservedKey"].as_str() == Some(*terminal)
                     && recipe["scenario"].as_str() == Some(*scenario)
                     && recipe_mechanism(recipe) == Some(*mechanism)
-            }
-        ));
+            }));
     }
     recipes
 }
@@ -234,8 +229,7 @@ fn exact_recipe_selection_excludes_promoted_sibling_scenarios() {
         "recipeCatalogSchema": "ibex/capsec-executable-recipes/1",
         "recipes": recipes,
     });
-    catalog["recipeCatalogDigest"] =
-        serde_json::Value::String(tagged_jcs_digest(&catalog));
+    catalog["recipeCatalogDigest"] = serde_json::Value::String(tagged_jcs_digest(&catalog));
 
     let selected = exact_recipes(&catalog);
 
@@ -326,6 +320,22 @@ fn validate_binding(
         .clone();
     assert_eq!(plans.len(), EXACT_PILOT_EXPECTATIONS.len());
     (execution_binding, binding_digest, plans)
+}
+
+#[test]
+fn exact_fixture_pilot_terminal_contract_includes_both_exact_artifact_abis() {
+    assert_eq!(EXACT_PILOT_EXPECTATIONS.len(), 9);
+    for terminal in [
+        "host-abi:ex_host_build_exact_armed_embedder_artifacts",
+        "host-abi:ex_host_prepare_exact_armed_embedder_artifacts",
+    ] {
+        let (_, scenario, mechanism) = EXACT_PILOT_EXPECTATIONS
+            .iter()
+            .find(|(candidate, _, _)| *candidate == terminal)
+            .expect("reviewed Exact artifact ABI must remain in the pilot");
+        assert_eq!(*scenario, "non-capability");
+        assert_eq!(*mechanism, "exact-artifact-prepare-round-trip");
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]

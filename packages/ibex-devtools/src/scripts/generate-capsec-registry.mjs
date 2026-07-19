@@ -1,7 +1,7 @@
 /**
  * Generate the LLP 0021 WP1 implementation inventory and language bindings.
  *
- * The four semantic datasets under capsec/registry are the authority. Source
+ * The semantic datasets under capsec/registry are the authority. Source
  * discovery proves that every live observed surface joins exactly one
  * semantic edge; generated bindings never become a second matcher.
  *
@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import {
   canonicalJson,
   capsecRoot,
+  parseJsonStrict,
   readJsonStrict,
   repoRoot,
 } from "./capsec-contract.mjs";
@@ -42,6 +43,14 @@ import {
   assertPublicSurfaceExecutionComplete,
   validatePublicFixtureRuntimeObservation,
 } from "./capsec-public-surface-evidence.mjs";
+import {
+  buildOutputDispositionDataset,
+  buildOutputShapeCatalog,
+  renderOutputDispositionMarkdown,
+  validateTrackedOutputDispositionEvidenceSentinel,
+} from "./capsec-output-dispositions.mjs";
+import { validatePromotableOutputDispositionEvidence } from "./capsec-output-shape-sweep.mjs";
+import { validateIngressObligationDataset } from "./capsec-ingress-obligations.mjs";
 import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
@@ -77,6 +86,21 @@ export const generatedRegistryPaths = Object.freeze({
   ),
   surfaceDocs: path.join(capsecRoot, "generated", "surface-inventory.md"),
   targetDocs: path.join(capsecRoot, "generated", "target-matrix.md"),
+  outputShapeCatalog: path.join(
+    capsecRoot,
+    "generated",
+    "output-shape-catalog.json",
+  ),
+  outputDispositions: path.join(
+    capsecRoot,
+    "generated",
+    "output-dispositions.json",
+  ),
+  outputDispositionDocs: path.join(
+    capsecRoot,
+    "generated",
+    "output-dispositions.md",
+  ),
   rust: path.join(repoRoot, "src", "capsec_registry_generated.rs"),
   cxx: path.join(repoRoot, "src", "engine", "capsec_registry_generated.h"),
   javascript: path.join(
@@ -98,7 +122,7 @@ export const generatedRegistryPaths = Object.freeze({
 
 // This catalog is deliberately closed and independent of the order in which
 // renderCapsecRegistry constructs its Map. The implementation manifest cannot
-// digest itself; the aggregate registry digest binds that tenth artifact.
+// digest itself; the aggregate registry digest binds that excluded artifact.
 export const generatedRegistryOutputCatalog = Object.freeze([
   Object.freeze({
     path: "capsec/generated/capsec-registry-ids.schema.json",
@@ -114,6 +138,21 @@ export const generatedRegistryOutputCatalog = Object.freeze([
     path: "capsec/generated/webgpu-private-operation-registry.json",
     kind: "webgpu-private-operation-registry",
     digestBound: false,
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-dispositions.json",
+    kind: "output-disposition-dataset",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-dispositions.md",
+    kind: "markdown",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "capsec/generated/output-shape-catalog.json",
+    kind: "output-shape-catalog",
+    digestBound: true,
   }),
   Object.freeze({
     path: "capsec/generated/surface-inventory.md",
@@ -173,6 +212,9 @@ function prettyJson(value) {
 function rawContentDigest(content) {
   return `sha256-${crypto.createHash("sha256").update(content, "utf8").digest("base64url")}`;
 }
+
+const ownedByCurrentUser = (metadata) =>
+  typeof process.getuid !== "function" || metadata.uid === process.getuid();
 
 function relativeOutputPath(filePath) {
   return path.relative(repoRoot, filePath).split(path.sep).join("/");
@@ -623,9 +665,21 @@ function buildSchemaValidator() {
   return ajv;
 }
 
+function validateSchemaDocument(ajv, schemaId, value, label) {
+  const validate = ajv.getSchema(schemaId);
+  if (!validate) throw new Error(`${label}: schema is not loaded: ${schemaId}`);
+  if (!validate(value)) {
+    const details = (validate.errors ?? [])
+      .map((error) => `${error.instancePath || "/"} ${error.message}`)
+      .join("; ");
+    throw new Error(`${label}: ${details}`);
+  }
+}
+
 function expectedDigest(digestVectors, id) {
   const matches = digestVectors.vectors.filter((vector) => vector.id === id);
-  if (matches.length !== 1) throw new Error(`missing exact ${id} digest vector`);
+  if (matches.length !== 1)
+    throw new Error(`missing exact ${id} digest vector`);
   return matches[0].expectedDigest;
 }
 
@@ -647,11 +701,18 @@ export function readImmutablePromotionArtifact(
   } catch {
     throw new Error(`${label} content-addressed artifact is missing`);
   }
-  if (!pathMetadata.isFile() || pathMetadata.isSymbolicLink()) {
-    throw new Error(`${label} is not an immutable regular file`);
+  if (
+    !pathMetadata.isFile() ||
+    pathMetadata.isSymbolicLink() ||
+    pathMetadata.nlink !== 1 ||
+    !ownedByCurrentUser(pathMetadata)
+  ) {
+    throw new Error(
+      `${label} is not an immutable regular file owned solely by the current user`,
+    );
   }
   let descriptor;
-  let text;
+  let bytes;
   try {
     descriptor = fs.openSync(
       artifactPath,
@@ -660,22 +721,35 @@ export function readImmutablePromotionArtifact(
     const openedMetadata = fs.fstatSync(descriptor);
     if (
       !openedMetadata.isFile() ||
+      openedMetadata.nlink !== 1 ||
+      !ownedByCurrentUser(openedMetadata) ||
       openedMetadata.dev !== pathMetadata.dev ||
       openedMetadata.ino !== pathMetadata.ino
     ) {
       throw new Error(`${label} changed while it was being opened`);
     }
-    text = fs.readFileSync(descriptor, "utf8");
+    bytes = fs.readFileSync(descriptor);
+    const currentMetadata = fs.lstatSync(artifactPath);
+    if (
+      !currentMetadata.isFile() ||
+      currentMetadata.isSymbolicLink() ||
+      currentMetadata.nlink !== 1 ||
+      !ownedByCurrentUser(currentMetadata) ||
+      currentMetadata.dev !== openedMetadata.dev ||
+      currentMetadata.ino !== openedMetadata.ino
+    ) {
+      throw new Error(`${label} changed while it was being read`);
+    }
   } catch (error) {
     if (error?.message?.startsWith(label)) throw error;
     throw new Error(`${label} could not be opened without following links`);
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
   }
-  if (rawContentDigest(text) !== digest) {
+  if (rawContentDigest(bytes) !== digest) {
     throw new Error(`${label} raw content digest differs`);
   }
-  return readJsonStrict(artifactPath);
+  return parseJsonStrict(bytes, label);
 }
 
 function verifyReportSourceRevision(attestation, allowedReportPaths) {
@@ -688,13 +762,17 @@ function verifyReportSourceRevision(attestation, allowedReportPaths) {
       { cwd: repoRoot, stdio: "ignore" },
     );
   } catch {
-    throw new Error("attested conformance source is not an ancestor of this checkout");
+    throw new Error(
+      "attested conformance source is not an ancestor of this checkout",
+    );
   }
   const sourceTreeDigest = rawContentDigest(
     git("rev-parse", `${attestation.sourceRevision}^{tree}`),
   );
   if (sourceTreeDigest !== attestation.sourceTreeDigest) {
-    throw new Error("attested source revision does not have the reported tree digest");
+    throw new Error(
+      "attested source revision does not have the reported tree digest",
+    );
   }
   const allowed = new Set([
     "capsec/conformance/target-attestations.json",
@@ -735,6 +813,8 @@ export function loadTargetPromotions({
   coverage,
   implementation,
   inventory,
+  outputShapeCatalog,
+  outputDispositionRows,
   rules,
 }) {
   const attestationPath = path.join(
@@ -755,15 +835,14 @@ export function loadTargetPromotions({
   const validateReport = ajv.getSchema(
     "https://ibex.dev/capsec/schema/conformance-report.schema.json",
   );
+  const validateOutputDispositionEvidence = ajv.getSchema(
+    "https://ibex.dev/capsec/schema/output-disposition-evidence.schema.json",
+  );
   const digestVectors = readJsonStrict(
     path.join(capsecRoot, "examples", "digest-vectors.canonical.json"),
   );
   const registryBundle = readJsonStrict(
-    path.join(
-      capsecRoot,
-      "examples",
-      "registry-digest-bundle.canonical.json",
-    ),
+    path.join(capsecRoot, "examples", "registry-digest-bundle.canonical.json"),
   );
   const vocabularyDigest = registryBundle.members.find(
     (member) => member.logicalName === "vocab-digest",
@@ -778,12 +857,16 @@ export function loadTargetPromotions({
   const seenReports = new Set();
   const seenRecipeCatalogs = new Set();
   const seenPublicExecutions = new Set();
+  const seenOutputDispositionEvidence = new Set();
   const promotions = [];
-  const allowedReportPaths = attestations.attestations.flatMap((attestation) => [
-    `capsec/conformance/reports/${attestation.reportRawContentDigest}.json`,
-    `capsec/conformance/recipe-catalogs/${attestation.recipeCatalogRawContentDigest}.json`,
-    `capsec/conformance/public-surface-executions/${attestation.publicSurfaceExecutionRawContentDigest}.json`,
-  ]);
+  const allowedReportPaths = attestations.attestations.flatMap(
+    (attestation) => [
+      `capsec/conformance/reports/${attestation.reportRawContentDigest}.json`,
+      `capsec/conformance/recipe-catalogs/${attestation.recipeCatalogRawContentDigest}.json`,
+      `capsec/conformance/public-surface-executions/${attestation.publicSurfaceExecutionRawContentDigest}.json`,
+      `capsec/conformance/output-disposition-evidence/${attestation.outputDispositionEvidenceRawContentDigest}.json`,
+    ],
+  );
   for (const attestation of attestations.attestations) {
     const targetKey = canonicalJson(attestation.target);
     if (!candidateTargets.has(targetKey)) {
@@ -793,7 +876,9 @@ export function loadTargetPromotions({
       throw new Error("target attestations contain a duplicate exact target");
     }
     if (seenReports.has(attestation.reportRawContentDigest)) {
-      throw new Error("target attestations reuse one report for multiple targets");
+      throw new Error(
+        "target attestations reuse one report for multiple targets",
+      );
     }
     if (seenRecipeCatalogs.has(attestation.recipeCatalogRawContentDigest)) {
       throw new Error(
@@ -809,11 +894,23 @@ export function loadTargetPromotions({
         "target attestations reuse one public execution artifact for multiple targets",
       );
     }
+    if (
+      seenOutputDispositionEvidence.has(
+        attestation.outputDispositionEvidenceRawContentDigest,
+      )
+    ) {
+      throw new Error(
+        "target attestations reuse one output-disposition evidence artifact for multiple targets",
+      );
+    }
     seenTargets.add(targetKey);
     seenReports.add(attestation.reportRawContentDigest);
     seenRecipeCatalogs.add(attestation.recipeCatalogRawContentDigest);
     seenPublicExecutions.add(
       attestation.publicSurfaceExecutionRawContentDigest,
+    );
+    seenOutputDispositionEvidence.add(
+      attestation.outputDispositionEvidenceRawContentDigest,
     );
     verifyReportSourceRevision(attestation, allowedReportPaths);
 
@@ -827,6 +924,27 @@ export function loadTargetPromotions({
         `invalid attested conformance report: ${ajv.errorsText(validateReport?.errors)}`,
       );
     }
+    const outputDispositionEvidence = readImmutablePromotionArtifact(
+      "output-disposition-evidence",
+      attestation.outputDispositionEvidenceRawContentDigest,
+      "attested output-disposition evidence",
+    );
+    if (!validateOutputDispositionEvidence?.(outputDispositionEvidence)) {
+      throw new Error(
+        `invalid attested output-disposition evidence: ${ajv.errorsText(validateOutputDispositionEvidence?.errors)}`,
+      );
+    }
+    const outputDispositionEvidenceState =
+      validatePromotableOutputDispositionEvidence({
+        catalog: outputShapeCatalog,
+        dispositionRows: outputDispositionRows,
+        evidence: outputDispositionEvidence,
+      });
+    assertOutputDispositionEvidenceMatchesReport(
+      outputDispositionEvidenceState,
+      report,
+      attestation.outputDispositionEvidenceRawContentDigest,
+    );
     const recipeCatalog = readImmutablePromotionArtifact(
       "recipe-catalogs",
       attestation.recipeCatalogRawContentDigest,
@@ -892,14 +1010,14 @@ export function loadTargetPromotions({
       canonicalJson(report.bindings.target) !== targetKey ||
       report.bindings.vocabularyDigest !== vocabularyDigest ||
       report.bindings.registryDigest !== registryDigest ||
-      report.bindings.recipeCatalogDigest !==
-        attestation.recipeCatalogDigest ||
-      recipeCatalog.recipeCatalogDigest !==
-        attestation.recipeCatalogDigest ||
+      report.bindings.recipeCatalogDigest !== attestation.recipeCatalogDigest ||
+      recipeCatalog.recipeCatalogDigest !== attestation.recipeCatalogDigest ||
       report.bindings.publicSurfaceExecutionDigest !==
         attestation.publicSurfaceExecutionDigest ||
       publicSurfaceExecutions.publicSurfaceExecutionDigest !==
-        attestation.publicSurfaceExecutionDigest
+        attestation.publicSurfaceExecutionDigest ||
+      report.bindings.outputDispositionEvidenceRawContentDigest !==
+        attestation.outputDispositionEvidenceRawContentDigest
     ) {
       throw new Error(
         "target attestation differs from the report or current semantic identities",
@@ -914,7 +1032,7 @@ export function loadTargetPromotions({
       validateRuntimeObservation: validatePublicFixtureRuntimeObservation,
     });
     assertReportMayAdvertise(report);
-    promotions.push({ attestation, report });
+    promotions.push({ attestation, report, outputDispositionEvidence });
   }
   promotions.sort((left, right) =>
     compareText(
@@ -923,6 +1041,26 @@ export function loadTargetPromotions({
     ),
   );
   return promotions;
+}
+
+export function assertOutputDispositionEvidenceMatchesReport(
+  evidenceState,
+  report,
+  rawContentDigest,
+) {
+  const bindings = report?.bindings;
+  if (
+    evidenceState?.status !== "verified" ||
+    bindings?.outputDispositionEvidenceRawContentDigest !== rawContentDigest ||
+    evidenceState?.sourceRevision !== bindings?.sourceRevision ||
+    evidenceState?.sourceTreeDigest !== bindings?.sourceTreeDigest ||
+    canonicalJson(evidenceState?.target) !== canonicalJson(bindings?.target) ||
+    canonicalJson(evidenceState?.engine) !== canonicalJson(bindings?.engine)
+  ) {
+    throw new Error(
+      "target promotion is closed because the output-disposition evidence raw digest or exact source, target, and loaded-engine binding differs from the report",
+    );
+  }
 }
 
 function buildTargetAdvertisements(promotions, targetCellsText) {
@@ -939,7 +1077,8 @@ function buildTargetAdvertisements(promotions, targetCellsText) {
       engine: structuredClone(report.bindings.engine),
       vocabularyDigest: report.bindings.vocabularyDigest,
       registryDigest: report.bindings.registryDigest,
-      implementationManifestDigest: report.bindings.implementationManifestDigest,
+      implementationManifestDigest:
+        report.bindings.implementationManifestDigest,
       fixtureCatalogDigest: report.bindings.fixtureCatalogDigest,
       recipeCatalogDigest: report.bindings.recipeCatalogDigest,
       recipeCatalogRawContentDigest: attestation.recipeCatalogRawContentDigest,
@@ -947,6 +1086,8 @@ function buildTargetAdvertisements(promotions, targetCellsText) {
         report.bindings.publicSurfaceExecutionDigest,
       publicSurfaceExecutionRawContentDigest:
         attestation.publicSurfaceExecutionRawContentDigest,
+      outputDispositionEvidenceRawContentDigest:
+        attestation.outputDispositionEvidenceRawContentDigest,
     })),
   };
 }
@@ -1053,6 +1194,65 @@ export async function renderCapsecRegistry() {
     implementationRows.map((row) => `${row.edgeId}\u0000${row.branchId}`),
     "implementation edge/branch ids",
   );
+
+  const outputDispositionPolicy = readJsonStrict(
+    path.join(capsecRoot, "registry", "output-disposition-policy.json"),
+  );
+  const outputDispositionEvidence = readJsonStrict(
+    path.join(capsecRoot, "registry", "output-disposition-evidence.json"),
+  );
+  const ingressObligations = readJsonStrict(
+    path.join(capsecRoot, "registry", "ingress-obligations.json"),
+  );
+  const schemaValidator = buildSchemaValidator();
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/ingress-obligations.schema.json",
+    ingressObligations,
+    "authenticated ingress obligations",
+  );
+  const ingressObligationCounts = validateIngressObligationDataset({
+    coverage,
+    dataset: ingressObligations,
+    repoRoot,
+  });
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/output-disposition-policy.schema.json",
+    outputDispositionPolicy,
+    "output disposition policy",
+  );
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/output-disposition-evidence.schema.json",
+    outputDispositionEvidence,
+    "output disposition evidence",
+  );
+  validateTrackedOutputDispositionEvidenceSentinel(outputDispositionEvidence);
+  const outputShapeCatalog = buildOutputShapeCatalog({
+    coverage,
+    implementationRows,
+    surfaces: flattened,
+    repoRoot,
+    liveEvidence: outputDispositionEvidence,
+  });
+  const outputDispositionDataset = buildOutputDispositionDataset({
+    catalog: outputShapeCatalog,
+    policy: outputDispositionPolicy,
+    evidence: outputDispositionEvidence,
+  });
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/output-shape-catalog.schema.json",
+    outputShapeCatalog,
+    "generated output shape catalog",
+  );
+  validateSchemaDocument(
+    schemaValidator,
+    "https://ibex.dev/capsec/schema/output-dispositions.schema.json",
+    outputDispositionDataset,
+    "generated output disposition dataset",
+  );
   const implementedEdgeIds = [
     ...new Set(implementationRows.map((row) => row.edgeId)),
   ].sort(compareText);
@@ -1084,6 +1284,18 @@ export async function renderCapsecRegistry() {
   const rendered = new Map();
   rendered.set(generatedRegistryPaths.coverage, prettyJson(coverage));
   rendered.set(generatedRegistryPaths.targetCells, prettyJson(targetCells));
+  rendered.set(
+    generatedRegistryPaths.outputShapeCatalog,
+    prettyJson(outputShapeCatalog),
+  );
+  rendered.set(
+    generatedRegistryPaths.outputDispositions,
+    prettyJson(outputDispositionDataset),
+  );
+  rendered.set(
+    generatedRegistryPaths.outputDispositionDocs,
+    renderOutputDispositionMarkdown(outputDispositionDataset),
+  );
   let targetAdvertisements = buildTargetAdvertisements(
     [],
     rendered.get(generatedRegistryPaths.targetCells),
@@ -1126,6 +1338,9 @@ export async function renderCapsecRegistry() {
     sourceDatasets: [
       "registry/capability-definitions.json",
       "registry/coverage-edges.json",
+      "registry/ingress-obligations.json",
+      "registry/output-disposition-evidence.json",
+      "registry/output-disposition-policy.json",
       "registry/policy-rules.json",
     ],
     candidateTargets,
@@ -1157,6 +1372,8 @@ export async function renderCapsecRegistry() {
     coverage,
     implementation: implementationManifest,
     inventory,
+    outputShapeCatalog,
+    outputDispositionRows: outputDispositionDataset.rows,
     rules,
   });
   targetCells = buildTargetCells(
@@ -1166,10 +1383,7 @@ export async function renderCapsecRegistry() {
     promotions,
   );
   const targetCellsText = prettyJson(targetCells);
-  targetAdvertisements = buildTargetAdvertisements(
-    promotions,
-    targetCellsText,
-  );
+  targetAdvertisements = buildTargetAdvertisements(promotions, targetCellsText);
   rendered.set(generatedRegistryPaths.targetCells, targetCellsText);
   rendered.set(
     generatedRegistryPaths.targetAdvertisements,
@@ -1209,6 +1423,10 @@ export async function renderCapsecRegistry() {
     promotions,
     binding,
     inventory,
+    outputShapeCatalog,
+    outputDispositionDataset,
+    ingressObligations,
+    ingressObligationCounts,
   };
 }
 
@@ -1253,6 +1471,8 @@ export async function runCapsecRegistryGenerator({ write = false } = {}) {
       result.implementationManifest.counts.enforcementBranches,
     observedReferences: result.implementationManifest.counts.observedReferences,
     outputs: result.rendered.size,
+    ingressObligations: result.ingressObligationCounts.obligations,
+    outputDispositionEvidence: result.outputDispositionDataset.evidence.status,
   };
 }
 
@@ -1266,7 +1486,7 @@ if (path.resolve(process.argv[1] ?? "") === __filename) {
   try {
     const counts = await runCapsecRegistryGenerator({ write });
     console.log(
-      `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.enforcementBranches} enforcement branches, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.outputs} outputs.`,
+      `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.enforcementBranches} enforcement branches, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.ingressObligations} authenticated-ingress obligations, ${counts.outputs} outputs; output-disposition evidence ${counts.outputDispositionEvidence}.`,
     );
   } catch (error) {
     console.error(`error: ${error.message}`);

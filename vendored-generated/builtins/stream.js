@@ -8,9 +8,15 @@ try {
 } catch (e) {
 	StringDecoder = null;
 }
+var _exactPipelineDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_DEBUG === "1" || !!(typeof process === "object" && process && process.__exactPipelineDebug);
+var _exactPipelineStateDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_STATE_DEBUG === "1";
 if (typeof Symbol !== "undefined") {
-	if (!Symbol.dispose) Symbol.dispose = Symbol.for("nodejs.dispose");
-	if (!Symbol.asyncDispose) Symbol.asyncDispose = Symbol.for("nodejs.asyncDispose");
+	if (!Symbol.dispose) try {
+		Symbol.dispose = Symbol.for("nodejs.dispose");
+	} catch (_err) {}
+	if (!Symbol.asyncDispose) try {
+		Symbol.asyncDispose = Symbol.for("nodejs.asyncDispose");
+	} catch (_err) {}
 }
 var defaultHighWaterMark = 65536;
 var defaultHighWaterMarkObjectMode = 16;
@@ -4407,6 +4413,7 @@ Object.getOwnPropertyNames(Writable.prototype).forEach(function(k) {
 	var desc = Object.getOwnPropertyDescriptor(Writable.prototype, k);
 	if (desc) Object.defineProperty(Duplex.prototype, k, desc);
 });
+Duplex.prototype._undestroy = Stream.prototype._undestroy;
 Duplex.prototype.constructor = Duplex;
 Duplex.prototype.pipe = function(dest, options) {
 	return Stream.prototype.pipe.call(this, dest, options);
@@ -4802,8 +4809,8 @@ Readable.prototype.wrap = function(stream) {
 	return this;
 };
 function pipeline() {
-	var __pipelineDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_DEBUG === "1" || !!(typeof process === "object" && process && process.__exactPipelineDebug);
-	var __pipelineStateDebug = typeof process === "object" && process && process.env && process.env.EXACT_PIPELINE_STATE_DEBUG === "1";
+	var __pipelineDebug = _exactPipelineDebug;
+	var __pipelineStateDebug = _exactPipelineStateDebug;
 	function __pipelineGetCallerLine() {
 		if (!__pipelineDebug) return "unknown";
 		var lines = ((/* @__PURE__ */ new Error()).stack || "").split("\n");

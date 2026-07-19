@@ -5,8 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity)
-**Revised:** 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
+**Revised:** 2026-07-17 (ENG-24933 adds patched Windows source/release bundles and a downloadable macOS no-debugger Release profile, each bound to exact build authority and binary identity); 2026-07-15 (ENG-25064 publishes directory-atomic prepared module graphs inside the existing deployment cache and admits them before execution); 2026-07-15 (ENG-25064 prepared module carriers bind HBC to loaded-engine identity and preserve the pre-execution-only fallback boundary); 2026-07-15 (Hermes source-cache/asset identity binds every source receipt authority and the Darwin/Linux builders share one kernel-backed build lock); 2026-07-14 (ENG-24851: `hermesc -output-source-map` is a boolean and the compiler-derived `<-out>.map` is published to the caller's requested path); 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -252,7 +251,7 @@ device/simulator frameworks, a macOS `hermesvm.framework`, headers) and
 `scripts/build-hermes-linux.sh` (Linux: `libhermesvm`, `hermesc`, headers), and
 `scripts/build-hermes-windows.ps1` (Windows: no-debugger Release
 `hermesvm.dll`, import library, matching host tools, headers, and a build
-manifest)
+manifest plus source-profile receipt)
 `[observed]` (`scripts/hermes-version.sh`; `scripts/download-hermes.sh`;
 `scripts/build-hermes.sh`; `scripts/build-hermes-linux.sh`;
 `scripts/build-hermes-windows.ps1`). `build.rs`
@@ -267,12 +266,20 @@ upstream toolchain breakage mid-bootstrap, the ENG-22565 failure class), so
 `download-hermes.sh` is download-first (ENG-23147): it derives the **artifact
 identity** `<hermes-commit-12>-<patch-digest-12>` — the pinned upstream commit
 plus a digest of the carried `patches/hermes/` stack, one shared derivation in
-`scripts/hermes-version.sh` (`ibex_hermes_patch_digest`), the same key
-`build-hermes.sh` uses for its local cache (ENG-23131) — and tries the GitHub
-Release `hermes-<identity>` on `ccheever/ibex` before building. Downloads are
-sha256-verified against the published `.sha256`, and a bundle is rejected
-unless it carries the patched `ex_hermes_vm_current_package_id` export and a
-runnable `hermesc` (an unpatched engine would make the LLP 0013
+`scripts/hermes-version.sh` (`ibex_hermes_patch_digest`) — and tries the GitHub
+Release `hermes-<identity>` on `ccheever/ibex` before building. Each
+Darwin/Linux asset and local source cache uses a stronger key derived from that
+identity plus the platform-builder and patch-application-authority digests;
+the Windows asset name binds patch-application and patch-identity authority
+prefixes plus the builder and installer Git blobs, while its manifest and
+source-profile receipt bind their full current checked-out digests.
+Downloads require GitHub build-provenance attestation from the reviewed
+`hermes-artifacts.yml` workflow on `main`, even when a mirror transports the
+release bytes, and are sha256-verified against the published `.sha256`. A
+bundle is rejected unless any applicable mapped-object source-profile receipt
+names the exact stronger key, it carries the patched
+`ex_hermes_vm_current_package_id` export, and it has a runnable
+`hermesc` (an unpatched engine would make the LLP 0013
 frame-attribution suite skip vacuously). On Darwin the bundle is unpacked into
 `build-hermes.sh`'s cache and installed through its cache-hit path, so
 downloaded and built installs share one codepath. Any miss, checksum mismatch,
@@ -295,16 +302,36 @@ Bundles are published by `.github/workflows/hermes-artifacts.yml` (manual
 dispatch, or push to `main` touching the pin, the patch stack, or the build
 scripts). It builds via the same `build-hermes*.sh` builders (so the patch
 stack is applied), asserts the patched export with `nm` before uploading, and
-uploads per-platform tarballs + checksums idempotently (`--clobber`) to a
+uploads authority-keyed Darwin/Linux tarballs, a manifest-bound Windows zip,
+checksums, and build-provenance attestations idempotently (`--clobber`) to a
 prerelease tagged `hermes-<identity>` — clearly an artifact cache, not a
 product release. Because the identity includes the patch digest, editing a
 patch or bumping the pin makes downloads miss (falling back to source builds)
-until the workflow publishes the new identity. The download path only serves
-the pinned-commit profiles actually published: debugger-on Darwin/Linux,
+until the workflow publishes the new identity. Editing either Darwin/Linux
+builder, the patch-application verifier, or the shared receipt/identity
+derivation selects a new asset within that release and a new local cache key;
+editing either Windows patch authority, builder, or installer likewise selects
+a new asset, while its manifest and receipt make any mismatched bundle fail
+validation and fall back to source.
+Darwin and Linux source builders hold one kernel advisory file lock across
+their complete checkout/patch/compile/cache/receipt mutation, and the downloader
+joins it while installing a prebuilt bundle. The lock's inherited descriptor
+survives while build descendants run and kernel close-on-exit recovers crashes
+without an unlink or stale-owner race. The prebuilt paths only serve the
+pinned-commit profiles actually published: debugger-on Darwin/Linux,
 no-debugger Darwin Release, and no-debugger Windows Release. Linux
 `HERMES_ENABLE_INTL=true`, other configurations, and
 `IBEX_HERMES_FORCE_BUILD=1` go straight to source `[observed]`
 (`.github/workflows/hermes-artifacts.yml`; `scripts/download-hermes.sh`).
+
+The Windows source builder and installer use a stable Windows file opened with
+exclusive sharing as their corresponding mutation/publication lock. The
+builder holds it across checkout, hard reset, ignored/untracked clean, patch,
+compile, receipt, and publication; the installer joins it for installed-state
+checks and publication, releasing it before source-build delegation to avoid a
+nested-lock deadlock. Process exit closes the handle without stale-owner or
+lock-file unlink races `[observed]` (`scripts/build-hermes-windows.ps1`;
+`scripts/install-windows-hermes.ps1`).
 
 Android remains a separate artifact channel. It consumes Maven/PREFAB artifacts
 through `scripts/install-android-hermes.sh`; Maven Central does not yet publish
@@ -328,12 +355,12 @@ availability to an OS name `[observed]` (`build.rs:1035-1048`;
 `src/engine/hermes_runtime_timers.cc:128-134`;
 `src/engine/hermes_runtime.cc:1396-1402, 1520-1542`).
 
-On Windows, the Hermes NuGet package separates import libraries under `lib/`
-from runtime DLLs under `bin/`. `build.rs` therefore resolves a Windows
+On Windows, the source-built Hermes bundle separates import libraries under
+`lib/` from runtime DLLs under `bin/`. `build.rs` therefore resolves a Windows
 `HERMES_BIN_DIR` (defaulting to `tools/hermes/windows-$arch/bin`), emits it as
 an additional native link-search path, and stages its DLLs into Cargo's profile
 directory plus `deps/` so `cargo test` and `cargo run` binaries can load
-`hermes.dll` and its companion DLLs at process start `[observed]`
+`hermesvm.dll` and its companion DLLs at process start `[observed]`
 (`build.rs`; `crates/windows-dll-staging`). Staging compares SHA-256 content,
 not length or timestamps. A bundle-wide interprocess lock prevents concurrent
 builds with different Hermes sources from interleaving the profile and `deps`

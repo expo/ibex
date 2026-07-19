@@ -9,6 +9,10 @@
 
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
+import {
+  reviewedArmedNativeAbsentSurface,
+  reviewedArmedSharedRuntimeSealedSurface,
+} from "./capsec-armed-root-closures.mjs";
 
 const CLOSED_BATCH_COMMAND = Object.freeze([
   "cargo",
@@ -63,7 +67,7 @@ const CLI_COMMAND_TEMPLATES = new Map([
 
 const REJECTION_FRAGMENTS = Object.freeze({
   evaluation: [
-    "closes ad-hoc evaluation, REPL, and debug commands",
+    "production capability enforcement closes debug commands",
   ],
   inspector: [
     "closes compatibility, inspector",
@@ -150,19 +154,6 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "__exactStreamWrapState",
   "__exactSyncTrackedIpcListenersAfterDispatch",
   "global:Bun.gc",
-  "global:BroadcastChannel",
-  "global:BroadcastChannel.[[Symbol.toStringTag]]",
-  "global:BroadcastChannel._deliverMessage",
-  "global:BroadcastChannel._getChannelCount",
-  "global:BroadcastChannel._getChannelNames",
-  "global:BroadcastChannel.addEventListener",
-  "global:BroadcastChannel.close",
-  "global:BroadcastChannel.dispatchEvent",
-  "global:BroadcastChannel.name",
-  "global:BroadcastChannel.onmessage",
-  "global:BroadcastChannel.onmessageerror",
-  "global:BroadcastChannel.postMessage",
-  "global:BroadcastChannel.removeEventListener",
   "global:Cache",
   "global:Cache.add",
   "global:Cache.addAll",
@@ -177,51 +168,7 @@ const SHARED_RUNTIME_ABSENT_GLOBALS = new Set([
   "global:CacheStorage.keys",
   "global:CacheStorage.match",
   "global:CacheStorage.open",
-  "global:Bun.accessibility",
-  "global:Bun.accessibility.addEventListener",
-  "global:Bun.accessibility.announce",
-  "global:Bun.accessibility.colorScheme",
-  "global:Bun.accessibility.dynamicTypeSize",
-  "global:Bun.accessibility.fontScale",
-  "global:Bun.accessibility.get",
-  "global:Bun.accessibility.isBoldTextEnabled",
-  "global:Bun.accessibility.isGrayscaleEnabled",
-  "global:Bun.accessibility.isInvertColorsEnabled",
-  "global:Bun.accessibility.isScreenReaderEnabled",
-  "global:Bun.accessibility.prefersHighContrast",
-  "global:Bun.accessibility.prefersReducedMotion",
-  "global:Bun.accessibility.prefersReducedTransparency",
-  "global:Exact.accessibility",
-  "global:Exact.accessibility.addEventListener",
-  "global:Exact.accessibility.announce",
-  "global:Exact.accessibility.colorScheme",
-  "global:Exact.accessibility.dynamicTypeSize",
-  "global:Exact.accessibility.fontScale",
-  "global:Exact.accessibility.get",
-  "global:Exact.accessibility.isBoldTextEnabled",
-  "global:Exact.accessibility.isGrayscaleEnabled",
-  "global:Exact.accessibility.isInvertColorsEnabled",
-  "global:Exact.accessibility.isScreenReaderEnabled",
-  "global:Exact.accessibility.prefersHighContrast",
-  "global:Exact.accessibility.prefersReducedMotion",
-  "global:Exact.accessibility.prefersReducedTransparency",
   "global:Exact.gc",
-  "global:MessageChannel",
-  "global:MessageChannel.[[Symbol.toStringTag]]",
-  "global:MessageChannel.port1",
-  "global:MessageChannel.port2",
-  "global:MessagePort",
-  "global:MessagePort.[[Symbol.toStringTag]]",
-  "global:MessagePort.[[symbol-binding:structuredCloneTransferSymbol]]",
-  "global:MessagePort._setRemotePort",
-  "global:MessagePort.addEventListener",
-  "global:MessagePort.close",
-  "global:MessagePort.dispatchEvent",
-  "global:MessagePort.onmessage",
-  "global:MessagePort.onmessageerror",
-  "global:MessagePort.postMessage",
-  "global:MessagePort.removeEventListener",
-  "global:MessagePort.start",
 ]);
 
 const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
@@ -229,44 +176,12 @@ const EXACT_RUNTIME_CANDIDATE_TRIPLES = new Set([
   "x86_64-pc-windows-msvc",
 ]);
 
-const CLOSED_SHARED_RUNTIME_ROOTS = new Set([
-  "BroadcastChannel",
-  "caches",
-  "IDBCursor",
-  "IDBCursorWithValue",
-  "IDBDatabase",
-  "IDBIndex",
-  "IDBKeyRange",
-  "IDBObjectStore",
-  "IDBOpenDBRequest",
-  "IDBRequest",
-  "IDBTransaction",
-  "indexedDB",
-  "localStorage",
-  "MessageChannel",
-  "MessagePort",
-  "sessionStorage",
-]);
-
 function reviewedSharedRuntimeAbsentSurface(surfaceName) {
-  if (SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName)) return true;
-  const globalPrefix = "global:";
-  if (!surfaceName.startsWith(globalPrefix)) return false;
-  const root = surfaceName.slice(globalPrefix.length).split(".", 1)[0];
-  return CLOSED_SHARED_RUNTIME_ROOTS.has(root);
+  return (
+    SHARED_RUNTIME_ABSENT_GLOBALS.has(surfaceName) ||
+    reviewedArmedSharedRuntimeSealedSurface(surfaceName)
+  );
 }
-
-const ARMED_NATIVE_ABSENT_GLOBALS = new Set([
-  "__exactExit",
-  "__exactGetGCStats",
-  "__exactGetHeapInfo",
-  "__exactGetSourceCacheStats",
-  "__exactIpcRecvMsg",
-  "__exactIpcSendMsg",
-  "__exactPollSignal",
-  "__exactResetSignal",
-  "__exactSetCwd",
-]);
 
 const APP_RUNTIME_ABSENT_WORKLET_GLOBALS = new Set([
   "global:measure",
@@ -788,79 +703,18 @@ function startupEnvironmentProbe({
 }
 
 function loaderExecutableKindProbe({
-  plan,
-  route,
-  liveByObservedKey,
-  coverageByObservedKey,
+  plan: _plan,
+  route: _route,
+  liveByObservedKey: _liveByObservedKey,
+  coverageByObservedKey: _coverageByObservedKey,
 }) {
-  if (
-    route.surfaceObservedKeys.length !== 1 ||
-    route.alternatives.length !== 1 ||
-    route.ambiguousCallees.length !== 0
-  ) {
-    return null;
-  }
-  const surfaceObservedKey = route.surfaceObservedKeys[0];
-  if (!surfaceObservedKey.startsWith("loader:")) return null;
-  const live = liveByObservedKey.get(surfaceObservedKey);
-  const edge = coverageByObservedKey.get(surfaceObservedKey);
-  // The filename guard returns before ModuleType::Addon/Wasm is inspected.
-  // Only the resolve_with_oxc facet is public-source executable; the later
-  // kind branches remain honest residuals.
+  // Armed project imports resolve through the authenticated VFS resolver, not
+  // the older `resolve_with_oxc` facet named by these inventory rows. Its
+  // public error is intentionally normalized, so a failed `.node`/`.wasm`
+  // import cannot prove which private branch rejected it. Leave both claims
+  // residual until an exact source-bound executor exists.
   // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
-  const fixedKind = live?.name?.endsWith("-module")
-    ? live.name.slice(0, -"-module".length)
-    : null;
-  const loaderKind = fixedKind;
-  if (
-    !new Set(["native-addon", "wasm"]).has(loaderKind) ||
-    live?.kind !== "loader" ||
-    live.metadata != null ||
-    !Array.isArray(live.sourceRefs) ||
-    canonicalJson(live.sourceRefs) !==
-      canonicalJson(["src/module_loader/mod.rs#resolve_with_oxc"]) ||
-    edge?.id !== plan.edgeIds[0] ||
-    edge.classification !== "closed" ||
-    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
-  ) {
-    return null;
-  }
-  const extension = loaderKind === "native-addon" ? ".node" : ".wasm";
-  const rejectionFragment =
-    loaderKind === "native-addon"
-      ? "Native addons are closed"
-      : "WebAssembly modules are closed";
-  const sourceDescriptor = {
-    kind: "closed-loader-executable-kind",
-    loaderKind,
-    extension,
-    sourceRefs: structuredClone(live.sourceRefs),
-    sourceMetadata: structuredClone(live.metadata ?? null),
-  };
-  return {
-    kind: "public-surface-invocation",
-    surfaceObservedKey,
-    command: [...CLOSED_BATCH_COMMAND],
-    invocation: {
-      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
-      kind: "closed-surface",
-      surfaceKind: "loader",
-      surfaceName: live.name,
-      sourceDescriptor,
-      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
-      operation: {
-        kind: "loader-executable-file",
-        loaderKind,
-        extension,
-        rejectionFragment,
-      },
-      expectedResult: "closed",
-      expectedTypedDecisionCount: 0,
-      expectedTypedStages: [],
-      allowedCoverageEdgeIds: [],
-      expectedActionIds: [],
-    },
-  };
+  return null;
 }
 
 function terminalBuiltinImportProbe({
@@ -1351,7 +1205,7 @@ function armedNativeGlobalAbsenceProbe({
   const prefix = "native-op:";
   if (!surfaceObservedKey.startsWith(prefix)) return null;
   const surfaceName = surfaceObservedKey.slice(prefix.length);
-  const directArmedGlobal = ARMED_NATIVE_ABSENT_GLOBALS.has(surfaceName);
+  const directArmedGlobal = reviewedArmedNativeAbsentSurface(surfaceName);
   const appRuntimeAbsentWorkletGlobal =
     APP_RUNTIME_ABSENT_WORKLET_GLOBALS.has(surfaceName);
   if (!directArmedGlobal && !appRuntimeAbsentWorkletGlobal) return null;
@@ -1449,9 +1303,7 @@ function armedNativeGlobalAbsenceProbe({
       operation: {
         kind: "armed-native-global-absence",
         globalName,
-        ...(metadata.memberName === null
-          ? {}
-          : { memberName: metadata.memberName }),
+        memberName: metadata.memberName,
         expectedError,
       },
       expectedResult: "closed",

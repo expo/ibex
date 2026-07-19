@@ -343,6 +343,14 @@ function deprecated(message) {
   };
 }
 
+// Manifest-authored builtin dependencies are resolvable only while this body
+// is synchronously evaluating. Capturing the assert module here keeps the
+// exported function from leaking a late trusted-require closure after that
+// window closes.
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity — trusted
+// builtin plumbing must not become an import-policy exemption callable later.
+var _assertModule = require("assert");
+
 var util = {
   inherits: inherits,
   promisify: promisify,
@@ -478,15 +486,14 @@ var util = {
     // lock-step with assert.deepStrictEqual instead of being a separate naive
     // copy that mishandled 0/-0, NaN, Dates, RegExps, Maps/Sets, prototypes and
     // cycles. (ENG-22968)
-    var assertMod = require("assert");
-    if (typeof assertMod._isDeepStrictEqual === "function") {
-      return assertMod._isDeepStrictEqual(a, b);
+    if (typeof _assertModule._isDeepStrictEqual === "function") {
+      return _assertModule._isDeepStrictEqual(a, b);
     }
     // Fallback when `require("assert")` resolves to a comparator without the
     // internal hook (e.g. a host runtime's own assert): use deepStrictEqual as
     // an oracle — it throws only on inequality.
     try {
-      assertMod.deepStrictEqual(a, b);
+      _assertModule.deepStrictEqual(a, b);
       return true;
     } catch (e) {
       if (e && e.code === "ERR_ASSERTION") return false;

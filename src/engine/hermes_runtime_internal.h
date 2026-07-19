@@ -31,6 +31,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -55,6 +56,7 @@
 #include <utility>
 #include <vector>
 
+
 struct TimerEntry {
   uint64_t id;
   uint64_t due_ms;
@@ -62,13 +64,16 @@ struct TimerEntry {
   bool repeat;
   bool referenced = true;
   uint64_t principal;
+  uint64_t associatedEvaluation;
   std::vector<uint64_t> principalStack;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
 
 struct NextTickEntry {
+  uint64_t id;
   uint64_t principal;
+  uint64_t associatedEvaluation;
   std::vector<uint64_t> principalStack;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
@@ -87,6 +92,92 @@ struct FetchCallbackEntry {
 struct HostCallAsyncEntry {
   std::shared_ptr<facebook::jsi::Function> resolve;
   std::shared_ptr<facebook::jsi::Function> reject;
+};
+
+enum class StructuredAsyncPrincipalStatus : uint32_t {
+  Authenticated = 1,
+  Unavailable = 2,
+  Ambiguous = 3,
+};
+
+struct StructuredAsyncFailureContext {
+  uint32_t kind{0};
+  StructuredAsyncPrincipalStatus principalStatus{
+      StructuredAsyncPrincipalStatus::Unavailable};
+  uint64_t principal{0};
+  uint64_t eventId{0};
+  uint64_t associatedEvaluation{0};
+};
+
+struct StructuredAsyncFailureEvent {
+  uint64_t runtimeNonce{0};
+  uint64_t handleId{0};
+  uint64_t hostContextId{0};
+  uint64_t principal{0};
+  uint64_t eventId{0};
+  uint64_t associatedEvaluation{0};
+  uint32_t kind{0};
+  StructuredAsyncPrincipalStatus principalStatus{
+      StructuredAsyncPrincipalStatus::Unavailable};
+};
+
+struct StructuredPendingPromiseRejection {
+  std::unique_ptr<facebook::jsi::Object> promise;
+  std::unique_ptr<facebook::jsi::Value> reason;
+  StructuredAsyncFailureContext failureContext{};
+  uint32_t safeMetadataFields{0};
+  uint32_t safeErrorClass{0};
+  std::string safeMessage;
+  std::string safeStack;
+};
+
+struct StructuredSafeThrowMetadata {
+  uint32_t fields{0};
+  uint32_t errorClass{0};
+  std::string message;
+  std::string stack;
+};
+
+// Native work-unit events cross to the authenticated session controller
+// through a bounded, any-thread queue. Keep this internal representation
+// independent of the public C layout so the queue never owns caller memory.
+// @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+struct StructuredWorkUnitEvent {
+  uint32_t kind{0};
+  uint32_t phase{0};
+  uint64_t targetId{0};
+  uint64_t schedulingId{0};
+};
+
+// Terminal cancellation publication is separate from the work-unit stream:
+// request delivery is nonterminal, while this record is emitted only after
+// the exact target has returned and the owner has checked runtime reuse.
+// @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+struct StructuredCancellationEvent {
+  uint32_t resolution{0};
+  uint64_t targetId{0};
+};
+
+enum class StructuredSessionCellKind : uint32_t {
+  Let = 3,
+  Const = 4,
+  Class = 5,
+  Import = 6,
+};
+
+struct StructuredSessionCell {
+  StructuredSessionCellKind kind{StructuredSessionCellKind::Let};
+  bool initialized{false};
+  std::unique_ptr<facebook::jsi::Value> value;
+};
+
+struct StructuredSessionJournalEntry {
+  std::string name;
+  bool initialized{false};
+  bool restoresLastValueAutoUpdate{false};
+  bool priorLastValueAutoUpdateEnabled{false};
+  uint64_t lastValueMutationGenerationAtInstantiation{0};
+  std::unique_ptr<StructuredSessionCell> displaced;
 };
 
 // Pending promise for the dedicated Exact embedder ingress.  This is kept
@@ -171,6 +262,7 @@ struct NativeModuleRecordEntry {
   // @ref LLP 0026#6-top-level-await-and-dynamic-import
   std::shared_ptr<facebook::jsi::Object> evaluation_promise;
   std::string error_message;
+  uint64_t error_token{0};
 };
 
 enum class NativeCommonJsRecordState : uint8_t {
@@ -191,6 +283,7 @@ struct NativeCommonJsRequireBinding {
 
 struct NativeCommonJsRecordEntry {
   uint64_t graph_generation{0};
+  uint8_t source_goal{0};
   std::string source_id;
   uint64_t context_handle_id{0};
   std::shared_ptr<facebook::jsi::Function> factory;
@@ -213,6 +306,7 @@ struct NativeCommonJsRecordEntry {
 struct RuntimeCallbackTarget {
   ExactHermesRuntime* runtime{nullptr};
   uint64_t nonce{0};
+  StructuredAsyncFailureContext failureContext{};
 
   explicit operator bool() const {
     return runtime != nullptr && nonce != 0;
@@ -235,9 +329,220 @@ struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
   uint64_t host_context_id{0};
   uint64_t runtime_nonce{0};
+  // Armed runtimes bind their authenticated `/project` namespace before any
+  // bootstrap code runs. This bit makes partial construction and normal
+  // teardown idempotently close the exact generation.
+  // @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+  bool vfs_runtime_bound{false};
+  // Structured-evaluation handles are owner-thread-only roots. IDs are
+  // monotonic and never reused within this runtime generation.
+  // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+  uint64_t next_structured_value_handle_id{1};
+  std::unordered_map<uint64_t, std::unique_ptr<facebook::jsi::Value>>
+      structured_value_handles;
+  std::unordered_map<uint64_t, StructuredSafeThrowMetadata>
+      structured_value_safe_throw_metadata;
+  uint64_t next_structured_async_event_id{1};
+  std::deque<StructuredAsyncFailureEvent> structured_async_failure_events;
+  std::deque<StructuredPendingPromiseRejection>
+      structured_pending_promise_rejections;
+  // Loss discovered while collecting the current checkpoint is held
+  // separately so the older retained records can publish before its marker.
+  uint64_t structured_pending_promise_rejection_dropped{0};
+  std::unique_ptr<facebook::jsi::Function>
+      structured_unhandled_rejection_handler;
+  std::unique_ptr<facebook::jsi::Function>
+      structured_rejection_handled_handler;
+  bool structured_promise_rejection_tracker_configured{false};
+  // Nonzero opens a sticky coalescing window: publication counts every later
+  // failure until the owner takes the marker, preserving pre-receipt order.
+  uint64_t structured_async_failure_dropped{0};
+  bool structured_async_failure_failed{false};
+  StructuredAsyncFailureContext structured_active_async_failure_context{};
+  bool structured_active_async_failure_context_set{false};
+  uint64_t structured_vm_job_associated_evaluation{0};
+  // Hermes' no-embedder-scheduler sentinel; kept equal to the runtime
+  // principal/no-job value used by the carried patch.
+  uint32_t structured_vm_job_scheduler_principal{0xFFFFFFFFu};
+  uint64_t next_structured_work_target_id{1};
+  uint64_t structured_pending_display_work_target_id{0};
+  uint64_t structured_pending_display_handle_id{0};
+  std::unique_ptr<facebook::jsi::Value> structured_last_displayed_value;
+  std::unique_ptr<facebook::jsi::Function> structured_last_value_getter;
+  std::unique_ptr<facebook::jsi::Function> structured_last_value_setter;
+  bool structured_last_value_auto_update_enabled{true};
+  uint64_t structured_last_value_mutation_generation{0};
+  // The authenticated session identity is native-only and bound exactly once
+  // to an armed runtime. Submission ordinals are consumed monotonically after
+  // every accepted request, including JavaScript throws.
+  // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+  std::array<uint8_t, 32> structured_session_token{};
+  bool structured_session_bound{false};
+  bool structured_evaluation_in_flight{false};
+  uint64_t next_structured_submission_ordinal{1};
+  // A submission is admitted before Rust syntax/lowering begins. Keeping its
+  // exact credential binding and work target native-side prevents either a
+  // skipped continuation or a different request from consuming the ticket.
+  // @ref LLP 0024#2-source-identity-and-reserved-schemes
+  uint64_t structured_admitted_submission_ordinal{0};
+  std::array<uint8_t, 32> structured_admitted_request_binding{};
+  uint64_t structured_admitted_work_target_id{0};
+  // The native module graph is orchestrated in Rust. Raw JS values are retained
+  // per failing runner operation and selected by an exact nonzero token; a
+  // handled or later failure can never overwrite the foreground outcome.
+  bool structured_module_graph_in_flight{false};
+  bool structured_module_graph_suspended{false};
+  uint64_t structured_module_graph_work_target_id{0};
+  uint64_t next_structured_module_error_token{1};
+  std::unordered_map<uint64_t, std::unique_ptr<facebook::jsi::Value>>
+      structured_module_error_values;
+  // Exact, any-thread cancellation is paired with the native-published unit
+  // that is executing now. The mutex closes the query -> cancel -> successor
+  // race: a cancellation can only arm the target that is still current while
+  // holding this lock, and the owner clears that target under the same lock
+  // before a successor may be published.
+  // @ref LLP 0025#6-interruption-and-cancellation
+  std::mutex structured_cancel_mutex;
+  uint64_t structured_active_work_target_id{0};
+  uint64_t structured_cancel_requested_work_target_id{0};
+  uint64_t structured_cancellation_critical_work_target_id{0};
+  bool structured_vm_work_active{false};
+  // Compiled before project code is admitted. Besides proving that a runtime
+  // which observed a break can execute again, this inert unit consumes a late
+  // Hermes timeout before any successor target is published.
+  std::shared_ptr<const facebook::jsi::PreparedJavaScript>
+      structured_cancellation_consistency_probe;
+  // Publication is enabled by the authenticated session bind. Events are
+  // bounded and loss is fail-loud: once overflowed, the any-thread consumer
+  // receives the overflow state instead of a silently incomplete live set.
+  std::mutex structured_work_event_mutex;
+  std::deque<StructuredWorkUnitEvent> structured_work_events;
+  std::deque<StructuredCancellationEvent> structured_cancellation_events;
+  bool structured_work_event_overflow{false};
+  bool structured_cancellation_event_overflow{false};
+  bool structured_work_event_failed{false};
+  std::unordered_set<uint64_t> structured_published_due_timers;
+  uint64_t structured_evaluation_scheduling_id{0};
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  // Test-only record of the four fixed native-freeze calls performed while
+  // their patched Hermes globals are still reachable, immediately before the
+  // production bootstrap deletes those globals. Four bits represent the
+  // identity/semantics checks and one proves the fixed observer completed; no
+  // callable authority is retained.
+  uint32_t capsec_native_freeze_observation{0};
+  // Deterministic conformance seam for the normal-return cancellation race.
+  // The queued native task never enters JS, so a delivered Hermes break must
+  // be drained by the consistency probe and resolve Defeated.
+  std::mutex structured_test_work_mutex;
+  std::condition_variable structured_test_work_cv;
+  bool structured_test_work_released{false};
+  // Deterministically inject the controller-cancel -> Begin-publication-fail
+  // interleaving so rollback proves it consumes the armed Hermes break.
+  bool structured_test_fail_next_begin_after_cancellation{false};
+#endif
+  // Persistent checked-cell session record. JSI roots are native-only and are
+  // destroyed on the owner thread before `runtime` (declared above) is torn
+  // down. The journal contains only declarative replacements because rollback
+  // never mutates the realm-global object record.
+  // @ref LLP 0024#71-the-environment-a-modified-globalenvironmentrecord
+  std::unordered_map<std::string, std::unique_ptr<StructuredSessionCell>>
+      structured_session_cells;
+  std::unordered_set<std::string> structured_session_var_declared_names;
+  std::unordered_set<std::string> structured_session_created_vars;
+  std::vector<StructuredSessionJournalEntry> structured_session_journal;
+  bool structured_session_transaction_active{false};
+  bool structured_session_completion_has_value{false};
+  std::unique_ptr<facebook::jsi::Value> structured_session_completion_value;
+  // A top-level-await wrapper may outlive the native call which started it.
+  // Keep both the driving Promise and its settlement payload rooted until the
+  // owner resumes the exact work target through the continuation ABI. The
+  // callback checks the target id before publishing, so a stale Promise can
+  // never settle a successor submission.
+  // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+  uint64_t structured_async_work_target_id{0};
+  uint32_t structured_async_capability_flags{0};
+  bool structured_async_settled{false};
+  bool structured_async_rejected{false};
+  std::unique_ptr<facebook::jsi::Value> structured_async_invocation;
+  std::unique_ptr<facebook::jsi::Value> structured_async_settlement_value;
+  // Captured before the bare bootstrap evaluator is sealed. Later user writes
+  // cannot redirect declaration feasibility, property definition, Promise
+  // settlement, or delete/assignment operations through mutable globals.
+  std::unique_ptr<facebook::jsi::Function> structured_object_get_own_descriptor;
+  std::unique_ptr<facebook::jsi::Function> structured_object_define_property;
+  std::unique_ptr<facebook::jsi::Function> structured_object_is_extensible;
+  std::unique_ptr<facebook::jsi::Function> structured_reflect_set;
+  std::unique_ptr<facebook::jsi::Function> structured_reflect_delete_property;
+  std::unique_ptr<facebook::jsi::Function> structured_promise_then;
+  std::unique_ptr<facebook::jsi::Function> structured_number;
+  std::unique_ptr<facebook::jsi::Object> structured_process;
+  // `process.env` is one shared facade, but its armed mutable state is not.
+  // Native frame attribution selects the exact principal bucket for every
+  // read, write, delete, and enumeration after the corresponding typed gate.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  std::unordered_map<
+      uint64_t,
+      std::unordered_map<std::string, std::string>>
+      environment_principal_overlays;
+  // Captured from pristine Hermes before any Ibex bootstrap script can replace
+  // Object's reflection intrinsics. The armed finalizer uses only these roots
+  // for its getter-free disposition sweep. Baseline keys distinguish engine
+  // primordials from globals installed by Ibex.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  std::unique_ptr<facebook::jsi::Function>
+      root_global_get_own_property_names;
+  std::unique_ptr<facebook::jsi::Function>
+      root_global_get_own_property_symbols;
+  std::unique_ptr<facebook::jsi::Function>
+      root_global_get_own_property_descriptor;
+  std::unique_ptr<facebook::jsi::Function> root_global_get_prototype_of;
+  std::unique_ptr<facebook::jsi::Function> root_global_reflect_delete_property;
+  std::vector<std::string> root_global_baseline_keys;
+  // Captured exactly once by the trusted loader bootstrap through a temporary
+  // host-only rendezvous global. Project code never receives the closure and
+  // cannot replace it after bootstrap deletes the rendezvous property.
+  // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+  std::unique_ptr<facebook::jsi::Function>
+      structured_session_import_materializer;
+  // A reserved entry spans top-level-await suspension. Cancellation must
+  // commit/abort this trusted cache state before it can publish Accepted;
+  // otherwise cleanup could fail after the terminal record is observable.
+  // @ref LLP 0024#6-evaluation-outcomes-and-the-abi
+  bool structured_module_cache_entry_pending{false};
+  // Cooperative lifecycle is recorded out of band before an uncatchable
+  // engine interrupt stops the currently executing unit.
+  bool structured_lifecycle_pending{false};
+  int32_t structured_lifecycle_exit_code{0};
+  bool structured_session_terminated{false};
+  // The historical bare evaluator is restricted to trusted bootstrap on an
+  // armed runtime and irreversibly sealed before project source is admitted.
+  // @ref LLP 0022#1-session-execution-ingress-and-the-capability-registry
+  bool armed_bootstrap_eval_open{true};
   // Immutable constructor-selected posture. Bootstrap must never consult
   // process-global environment toggles that other threads can observe/race.
   bool armed{false};
+  bool bootstrap_bun_compat{false};
+  bool bootstrap_fixture_compat{false};
+  bool bootstrap_bun_fixture{false};
+  // The legacy lazy-bootstrap callbacks can execute after diagnostic package
+  // code begins. Their source/HBC choices are therefore captured during the
+  // native bootstrap and never re-read from the process environment.
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  bool legacy_stream_enhance_source{false};
+  bool legacy_stream_enhance_hbc{true};
+  bool legacy_web_crypto_source{false};
+  bool legacy_web_crypto_hbc{true};
+  bool legacy_web_storage_source{false};
+  bool legacy_web_storage_hbc{true};
+  bool legacy_form_data_source{false};
+  bool legacy_form_data_hbc{true};
+  // One-shot, context-bound child-process bootstrap state captured by the Rust
+  // Host handoff before this engine exists.  It is projected only through the
+  // temporary trusted-bootstrap carrier, never through `process.env`.
+  // @ref LLP 0022#7-capabilities-principals-and-affordance-parity
+  // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+  int process_ipc_fd{-1};
+  bool process_ipc_advanced_serialization{false};
   bool structural_lockdown{false};
   // Multi-capability embedders opt into an explicit construction transaction.
   // Legacy Exact-only callers remain on the historical auto-finalize path.
@@ -252,6 +557,7 @@ struct ExactHermesRuntime {
   // later transaction cannot publish provisional capabilities into that realm.
   // Owner-thread only, like embedder_capability_state.
   bool user_execution_started{false};
+  bool shared_runtime_bundle_installed{false};
   // Strict JSON [{locator,endowments}] projection copied from the immutable
   // armed Host context. Locator punctuation is data, never bootstrap syntax.
   std::string snapshot_endowments_json;
@@ -271,6 +577,7 @@ struct ExactHermesRuntime {
   std::unordered_set<uint32_t> known_scripts;
   std::unordered_map<uint32_t, std::string> script_id_to_name;
   std::unordered_map<std::string, std::string> sources_by_name;
+  std::unordered_map<std::string, std::string> source_maps_by_name;
   std::thread::id runtime_thread;
   // Trusted bootstrap scripts execute before this handle is published in the
   // live runtime registry. Only the constructing owner thread may use that
@@ -307,9 +614,10 @@ struct ExactHermesRuntime {
   // counts as referenced work so the loop survives until the worker delivers
   // its completion via pushRuntimeCallback. (ENG-23497)
   std::atomic<int> pending_fs_ops{0};
-  // Pins held by native workers that may dereference this handle outside the
-  // runtime thread. Destroy enters Closing (refusing new pins), cancels source
-  // work, and keeps the exact registry generation until this reaches zero.
+  // Pins held by native workers and generation-bearing any-thread controls
+  // that may dereference this handle outside the runtime thread. Destroy enters
+  // Closing (refusing new pins), cancels source work, and keeps the exact
+  // registry generation until this reaches zero.
   std::atomic<uint32_t> native_worker_pins{0};
   std::mutex native_worker_mutex;
   std::condition_variable native_worker_cv;
@@ -321,34 +629,33 @@ struct ExactHermesRuntime {
   std::unordered_map<uint64_t, ExactHostCallAsyncEntry>
       exactHostCallAsyncCallbacks;
   std::mutex callbackMutex;
-  std::deque<std::function<void(facebook::jsi::Runtime&)>> callbackQueue;
+  struct QueuedRuntimeCallback {
+    StructuredAsyncFailureContext failureContext;
+    std::function<void(facebook::jsi::Runtime&)> callback;
+  };
+  std::deque<QueuedRuntimeCallback> callbackQueue;
   // Finalizers are admitted from native producer threads but always executed
   // by poll/destroy on the owning runtime thread. Unlike callbackQueue, these
   // run during teardown: they exist for native contexts whose final release
   // owns a JSI value (notably WebSocket callback contexts).
   std::mutex finalizerMutex;
   std::deque<std::function<void()>> finalizerQueue;
-  // Fail-loud marker for async callbacks (process.nextTick, cross-thread
-  // tasks/callbacks) that threw with no uncaughtException handler consuming
-  // the error: the poll that observes it returns -1 so the host loop surfaces
-  // the failure instead of letting the run complete with exit code 0. One-shot
-  // (consumed by that poll), mirroring the throwing-timer path's transient -1
-  // so a REPL survives it the same way it survives a throwing timer. Only
-  // touched on the runtime thread.
+  // Legacy-runtime fail-loud marker for async callbacks with no consuming
+  // uncaughtException handler. Authenticated runtimes publish the rooted
+  // structured event instead and never set this flag. One-shot and owner-
+  // thread-only for the legacy poll contract.
   // @ref LLP 0003#the-event-loop — async failures are fatal (ENG-23130)
+  // @ref LLP 0024#9-asynchronous-failures — structured engines report, not decide.
   bool fatal_async_error = false;
   bool typed_authority_generations_initialized = false;
   uint64_t typed_negative_generation = 0;
   uint64_t typed_dynamic_generation = 0;
   uint64_t typed_handle_generation = 0;
-  // Host policy for JS errors escaping drained async callbacks (timers,
-  // microtasks, nextTick, cross-thread tasks). CLI default (false): the
-  // fatal_async_error / poll -1 contract above. Embedded app hosts opt in
-  // via ex_hermes_set_keep_alive_on_async_error(): the error still reports
-  // through the __exactUncaughtExceptionHandler consult + raw console path,
-  // but the runtime keeps pumping — one bad app callback must not crash or
-  // zombify the host (ENG-23731; graceful degradation). Set by hosts during
-  // engine construction before the loop starts; read on the runtime thread.
+  // Legacy host policy for JS errors escaping drained async callbacks. The
+  // CLI default is the fatal_async_error / poll -1 contract above; embedded
+  // app hosts may retain raw reporting and keep pumping. Authenticated
+  // structured publication bypasses both legacy branches. Set during engine
+  // construction and read only on the runtime thread.
   bool keep_alive_on_async_error = false;
 
   void (*ios_dispatch_callback)(const uint8_t* data, size_t length, void* context) = nullptr;
@@ -417,9 +724,22 @@ struct ExactHermesRuntime {
   std::shared_ptr<ExactGpuRuntimeBindingV2> gpu_binding_v2;
 };
 
+// Replace the captured typed-filesystem principal constraint for the current
+// thread and return the previous scope. The implementation is platform-local
+// because the typed filesystem bridge owns this TLS on both POSIX and Windows.
+// Runtime-drive entry uses a null replacement to prevent an outer runtime's
+// captured principals from becoming authority in a nested different-runtime
+// drive; the returned pointer remains owned by the still-live outer scope.
+const std::vector<uint64_t>* exactSwapTypedPrincipalStackForRuntimeDrive(
+    const std::vector<uint64_t>* replacement);
+
 /// Common owner-thread, liveness, generation, and non-reentrancy gate for
-/// every entry point that drives JSI or module-runner state.
+/// every entry point that drives JSI or module-runner state. A successful
+/// guard also selects this runtime's exact Host/VFS and frame-attribution
+/// contexts for the complete drive, restoring any outer runtime on unwind.
 /// @ref LLP 0002#runtime-driving-thread-contract
+/// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+/// @ref LLP 0013#mechanism-3
 class ExactRuntimeDriveGuard {
  public:
   ExactRuntimeDriveGuard(ExactHermesRuntime* runtime, uint64_t expectedNonce = 0);
@@ -433,6 +753,16 @@ class ExactRuntimeDriveGuard {
  private:
   ExactHermesRuntime* runtime_{nullptr};
   uint64_t nonce_{0};
+  uint64_t previous_runtime_nonce_{0};
+  uint64_t previous_host_context_{UINT64_MAX};
+  uint64_t previous_module_id_{0};
+  uint64_t previous_native_principal_{UINT64_MAX};
+  const std::vector<uint64_t>* previous_typed_principal_stack_{nullptr};
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  void* previous_attribution_runtime_{nullptr};
+#endif
+  bool principal_scope_active_{false};
+  bool dynamic_scope_active_{false};
   int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
 
@@ -463,6 +793,18 @@ inline bool exactRuntimeEnterUserExecution(ExactHermesRuntime* runtime) {
   return true;
 }
 
+/// Construction-only evaluator used before registerRuntime publishes the
+/// generation. Public embedders must use ex_hermes_eval, whose drive guard can
+/// therefore reject every stale/off-owner/reentrant caller before dereference.
+/// @ref LLP 0002#runtime-driving-thread-contract
+int exactHermesBootstrapEval(
+    ExactHermesRuntime* runtime,
+    const uint8_t* data,
+    size_t len,
+    const char* sourceUrl,
+    int isBytecode,
+    char** outValue);
+
 struct NativeWebSocketCallbackContext {
   RuntimeCallbackTarget target;
   std::shared_ptr<facebook::jsi::Object> ws_instance;
@@ -483,6 +825,12 @@ struct NativeWebSocketCallbackContext {
 
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_is_armed(void);
+extern "C" uint32_t ex_host_armed_bootstrap_compatibility_flags(void);
+extern "C" int32_t ibex_private_take_process_ipc_bootstrap(
+    uint64_t host_context_id,
+    int32_t* out_fd,
+    uint32_t* out_serialization);
+extern "C" uint64_t ibex_private_claim_restricted_host_context();
 extern "C" uint64_t ex_hermes_current_runtime_nonce(void);
 extern "C" int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
                                                    uint64_t* out_inode);
@@ -500,14 +848,69 @@ extern thread_local uint64_t g_active_module_id;
 constexpr uint64_t kNoNativePrincipalOverride = std::numeric_limits<uint64_t>::max();
 extern thread_local uint64_t g_native_callback_principal_id;
 extern thread_local uint64_t g_active_runtime_nonce;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+extern thread_local void* g_vm_runtime;
+#endif
 
 extern "C" uint64_t ex_host_enter_context(uint64_t context_id);
 extern "C" void ex_host_restore_context(uint64_t previous);
+extern "C" void ex_host_release_context(uint64_t context_id);
+extern "C" uint32_t ex_host_vfs_bind_runtime(
+    uint64_t context_id, uint64_t runtime_nonce);
+extern "C" uint32_t ex_host_vfs_unbind_runtime(uint64_t runtime_nonce);
+extern "C" uint32_t ex_host_vfs_get_cwd(
+    uint64_t runtime_nonce,
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint8_t** out_virtual,
+    uint64_t* out_virtual_len,
+    int32_t* out_errno);
+extern "C" uint32_t ex_host_vfs_chdir(
+    uint64_t runtime_nonce,
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    const uint8_t* input,
+    uint64_t input_len,
+    uint8_t** out_virtual,
+    uint64_t* out_virtual_len,
+    int32_t* out_errno);
+extern "C" uint32_t ex_host_vfs_resolve_path(
+    uint64_t runtime_nonce,
+    const uint8_t* input,
+    uint64_t input_len,
+    uint8_t** out_backing,
+    uint64_t* out_backing_len,
+    uint8_t** out_virtual,
+    uint64_t* out_virtual_len,
+    int32_t* out_errno);
+// Private native adapter: project an already-authenticated canonical backing
+// identity through one exact runtime VFS session. Success returns only an
+// explicit-length virtual spelling; the caller frees it with
+// ex_host_free_buffer. This is intentionally not part of exact_runtime.h.
+extern "C" uint32_t ibex_private_vfs_project_realpath(
+    uint64_t runtime_nonce,
+    const uint8_t* requested_virtual,
+    uint64_t requested_virtual_len,
+    const uint8_t* canonical_backing,
+    uint64_t canonical_backing_len,
+    uint8_t** out_virtual,
+    uint64_t* out_virtual_len,
+    int32_t* out_errno);
+extern "C" void ex_host_free_buffer(uint8_t* buf, uint64_t len);
 
 inline uint64_t exactCurrentRuntimeNonce() {
   return g_active_runtime_nonce;
 }
 
+// Select one runtime's Host/generation boundary for internal work that cannot
+// use the registered drive guard (construction, Closing teardown, and pinned
+// worker operations). Crossing generations also isolates every principal TLS;
+// same-runtime helper nesting preserves the caller's active JS/callback scope.
+// Off-owner worker scopes deliberately leave g_vm_runtime null and must install
+// any captured typed-principal constraint explicitly after construction.
+// @ref LLP 0002#runtime-driving-thread-contract
 class ScopedRuntimeSecurityContext {
  public:
   explicit ScopedRuntimeSecurityContext(const ExactHermesRuntime* runtime)
@@ -515,9 +918,33 @@ class ScopedRuntimeSecurityContext {
     if (runtime != nullptr) {
       g_active_runtime_nonce = runtime->runtime_nonce;
       previousHost_ = ex_host_enter_context(runtime->host_context_id);
+      if (previousRuntime_ != runtime->runtime_nonce) {
+        previousModule_ = g_active_module_id;
+        previousNativePrincipal_ = g_native_callback_principal_id;
+        previousTypedPrincipalStack_ =
+            exactSwapTypedPrincipalStackForRuntimeDrive(nullptr);
+        g_active_module_id = 0;
+        g_native_callback_principal_id = kNoNativePrincipalOverride;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+        previousAttributionRuntime_ = g_vm_runtime;
+        g_vm_runtime = runtime->runtime_thread == std::this_thread::get_id()
+            ? runtime->attribution_runtime
+            : nullptr;
+#endif
+        principalBoundary_ = true;
+      }
     }
   }
   ~ScopedRuntimeSecurityContext() {
+    if (principalBoundary_) {
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+      g_vm_runtime = previousAttributionRuntime_;
+#endif
+      exactSwapTypedPrincipalStackForRuntimeDrive(
+          previousTypedPrincipalStack_);
+      g_native_callback_principal_id = previousNativePrincipal_;
+      g_active_module_id = previousModule_;
+    }
     if (previousHost_ != UINT64_MAX) ex_host_restore_context(previousHost_);
     g_active_runtime_nonce = previousRuntime_;
   }
@@ -527,7 +954,57 @@ class ScopedRuntimeSecurityContext {
  private:
   uint64_t previousRuntime_;
   uint64_t previousHost_;
+  uint64_t previousModule_{0};
+  uint64_t previousNativePrincipal_{kNoNativePrincipalOverride};
+  const std::vector<uint64_t>* previousTypedPrincipalStack_{nullptr};
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  void* previousAttributionRuntime_{nullptr};
+#endif
+  bool principalBoundary_{false};
 };
+
+struct ExactResolvedVfsPath {
+  std::string backing;
+  std::string virtualPath;
+};
+
+// File-backed SQLite shares the filesystem adapter's checked-object path. The
+// public spelling remains virtual while the retained descriptors and backing
+// spelling never cross into JavaScript. The descriptor is kept alive for the
+// whole SQLite handle lifetime so the Host opens the exact object authorized at
+// commit rather than re-resolving a pathname.
+// @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+// @ref LLP 0023#6-path-bearing-observables
+struct ExactArmedSqliteFile {
+  std::shared_ptr<int> parent;
+  std::shared_ptr<int> target;
+  std::string authorizationBackingPath;
+  std::string virtualPath;
+  uint64_t runtimeNonce = 0;
+  uint64_t owner = 0;
+  bool needsWrite = false;
+};
+
+// These helpers are private native adapters. In an armed runtime they accept
+// virtual UTF-8 bytes and keep the backing spelling entirely native; unarmed
+// diagnostic runtimes retain their historical host-path behavior.
+ExactResolvedVfsPath exactResolveVfsPath(
+    facebook::jsi::Runtime& runtime, const std::string& input);
+ExactArmedSqliteFile exactOpenArmedSqliteFile(
+    facebook::jsi::Runtime& runtime,
+    const ExactResolvedVfsPath& path,
+    bool needsWrite,
+    bool mayCreate);
+void exactRequireArmedSqliteFile(
+    facebook::jsi::Runtime& runtime,
+    const ExactArmedSqliteFile& file,
+    const char* syscall,
+    uint32_t surface,
+    bool needsRead,
+    bool needsWrite);
+std::string exactGetVfsCwd(facebook::jsi::Runtime& runtime);
+std::string exactSetVfsCwd(
+    facebook::jsi::Runtime& runtime, const std::string& input);
 
 extern "C" void ex_host_register_module_package(uint64_t module_id,
                                                 const char* package,
@@ -539,9 +1016,25 @@ extern "C" int32_t ex_host_check_capability_stack(const uint64_t* module_ids,
 extern "C" int32_t ex_host_check_capability_stack_no_follow_final(const uint64_t* module_ids,
                                                                   size_t len,
                                                                   const char* capability);
+extern "C" int32_t ex_host_authorize_typed_listen_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t operation_kind,
+    const char* host,
+    uint16_t port,
+    int32_t dual_stack,
+    uint32_t stage,
+    const char* bound_address,
+    uint16_t bound_port,
+    const char* listener_id,
+    const char* accepted_address,
+    uint16_t accepted_port);
 extern "C" int32_t ex_host_has_deputy_classes(void);
 extern "C" int32_t ex_host_check_import(uint64_t module_id,
-                                        const char* specifier);
+                                        const char* specifier,
+                                        const char* target_source_id,
+                                        uint32_t resolution_kind);
 // @ref LLP 0013#delegation-and-authority-flow — authority-bearing capability handles.
 extern "C" uint64_t ex_host_handle_create(const char* capability);
 extern "C" uint64_t ex_host_handle_scoped(uint64_t parent, const char* narrower);
@@ -552,6 +1045,14 @@ extern "C" int32_t ex_host_permission_request(const char* capability);
 extern "C" void ex_host_permission_revoke(const char* capability);
 extern "C" int32_t ex_host_permission_status(const char* capability);
 extern "C" int32_t ex_host_authorize_typed_environment_read_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t stage,
+    uint32_t read_surface,
+    const uint8_t* name,
+    size_t name_len);
+extern "C" int32_t ex_host_authorize_typed_environment_write_stack(
     uint64_t module_id,
     const uint64_t* module_ids,
     size_t module_ids_len,
@@ -585,12 +1086,31 @@ extern "C" size_t ex_hermes_vm_collect_package_ids(void* vm_runtime,
 // patches/hermes/0008; armed at boot iff deputy-class hardening is configured.
 extern "C" void ex_hermes_vm_set_job_scheduler_capture(void* vm_runtime,
                                                        int enabled);
+#ifdef EXACT_HAVE_STRUCTURED_ASYNC_PROVENANCE
+extern "C" uint32_t ex_hermes_vm_current_job_scheduler_principal(
+    void* vm_runtime);
+extern "C" uint64_t ex_hermes_vm_current_job_identity(void* vm_runtime);
+extern "C" uint64_t ex_hermes_vm_current_job_associated_evaluation(
+    void* vm_runtime);
+extern "C" void ex_hermes_vm_set_job_associated_evaluation(
+    void* vm_runtime,
+    uint64_t associated_evaluation);
+extern "C" void ex_hermes_vm_set_embedder_job_scheduler_principal(
+    void* vm_runtime,
+    uint32_t principal);
+extern "C" int ex_hermes_vm_take_failed_job_context(
+    void* vm_runtime,
+    uint32_t* principal,
+    uint64_t* identity,
+    uint64_t* associated_evaluation);
+#endif
 // The vm::Runtime pointer (HermesRuntime::getVMRuntimeUnsafe()), cached at
 // runtime creation. Null on unpatched engines and until the runtime is created.
 // THREAD-LOCAL: names the runtime the current thread created and drives, so
 // concurrent runtimes on other threads (unit-test harness, worklets) can't
-// clobber or free the pointer this thread's attribution walk reads. (ENG-23011)
-extern thread_local void* g_vm_runtime;
+// clobber or free the pointer this thread's attribution walk reads. The extern
+// is declared above with the other runtime-bound TLS so construction and
+// teardown scopes can select it too. (ENG-23011)
 // The reserved principal for runtime-internal code (bootstrap, module loader,
 // lockdown/compartment installers). Domains stamped with it are transparent to
 // frame attribution — the walk skips them so the nearest user frame is charged.
@@ -798,8 +1318,9 @@ inline bool checkCapabilityNoFollowFinal(const std::string& capability) {
 // transfer helpers remain POSIX-only except for the Windows IPC-registration
 // no-op.
 void exactRegisterTransferableFd(int fd, uint64_t owner);
-void exactRegisterProcessIpcFd(int fd);
-void exactRegisterReceivedFdForCurrentPrincipal(int fd);
+bool exactRegisterProcessIpcFd(int fd);
+bool exactCloseProcessIpcFd(uint64_t runtimeNonce, int fd);
+bool exactRegisterReceivedFdForCurrentPrincipal(int fd);
 bool exactConsumeTransferableFdForCurrentPrincipal(int fd);
 std::vector<uint64_t> exactCollectTypedPrincipalStack();
 
@@ -867,25 +1388,62 @@ inline void exactRequireTypedSystemInfo(
     }
   }
 }
-// @ref LLP 0021#typed-resources-and-initial-vocabulary — a broker-base
-// environment read authorizes its exact canonical name before disclosure.
-inline void authorizeTypedEnvironmentRead(
-    facebook::jsi::Runtime& runtime,
-    const std::string& name) {
-  if (ex_host_is_armed() != 1) return;
+enum class ExactEnvironmentOverlayAccess : uint32_t {
+  ScalarRead = 0,
+  EnumerationRead = 1,
+  Write = 2,
+};
+
+inline bool typedEnvironmentOverlayAccessAllowed(
+    const std::string& name,
+    ExactEnvironmentOverlayAccess access) {
+  if (ex_host_is_armed() != 1) return true;
   auto principal = currentPrincipalId();
   auto principals = exactCollectTypedPrincipalStack();
   for (uint32_t stage = 0; stage <= 1; ++stage) {
-    if (ex_host_authorize_typed_environment_read_stack(
-            principal,
-            principals.data(),
-            principals.size(),
-            stage,
-            reinterpret_cast<const uint8_t*>(name.data()),
-            name.size()) != 1) {
-      throw facebook::jsi::JSError(
-          runtime, "Permission denied: env:read authority required");
-    }
+    auto result = access == ExactEnvironmentOverlayAccess::Write
+        ? ex_host_authorize_typed_environment_write_stack(
+              principal,
+              principals.data(),
+              principals.size(),
+              stage,
+              reinterpret_cast<const uint8_t*>(name.data()),
+              name.size())
+        : ex_host_authorize_typed_environment_read_stack(
+              principal,
+              principals.data(),
+              principals.size(),
+              stage,
+              access == ExactEnvironmentOverlayAccess::EnumerationRead ? 1u : 0u,
+              reinterpret_cast<const uint8_t*>(name.data()),
+              name.size());
+    if (result != 1) return false;
+  }
+  return true;
+}
+
+// @ref LLP 0022#7-capabilities-principals-and-affordance-parity — an armed
+// environment read authorizes the current principal's exact overlay name and
+// never falls through to the host process environment.
+inline void authorizeTypedEnvironmentRead(
+    facebook::jsi::Runtime& runtime,
+    const std::string& name) {
+  if (!typedEnvironmentOverlayAccessAllowed(
+          name, ExactEnvironmentOverlayAccess::ScalarRead)) {
+    throw facebook::jsi::JSError(
+        runtime, "Permission denied: env:read authority required");
+  }
+}
+
+// @ref LLP 0021#typed-resources-and-initial-vocabulary — overlay mutation is
+// independently authorized by env:write at requested and commit.
+inline void authorizeTypedEnvironmentWrite(
+    facebook::jsi::Runtime& runtime,
+    const std::string& name) {
+  if (!typedEnvironmentOverlayAccessAllowed(
+          name, ExactEnvironmentOverlayAccess::Write)) {
+    throw facebook::jsi::JSError(
+        runtime, "Permission denied: env:write authority required");
   }
 }
 // @ref LLP 0021#decision-staging-and-principal-semantics — direct print
@@ -910,9 +1468,34 @@ bool disposeAsyncCallbackError(
     ExactHermesRuntime* runtime,
     const facebook::jsi::JSError& err);
 RuntimeCallbackTarget exactRuntimeCallbackTarget(ExactHermesRuntime* runtime);
+uint64_t exactAllocateAsyncEventIdentity(ExactHermesRuntime* runtime);
+uint64_t exactCurrentAsyncEvaluationAssociation(ExactHermesRuntime* runtime);
 uint64_t exactAllocateRuntimeNonce();
 bool exactPinRuntimeNativeWorker(RuntimeCallbackTarget target);
 void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target);
+// Remove only filesystem work that is still queued for this exact runtime
+// generation. A worker atomically commits its operation while holding the
+// pool mutex before it can run an effect, so teardown never reports a
+// committed effect as canceled.
+// @ref LLP 0023#71-identity-not-text--and-a-runtime-handle
+void exactCancelQueuedFsOperations(RuntimeCallbackTarget target);
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+// Private test controls for executable no-oracle and queue-cancellation
+// evidence. They are deliberately absent from exact_runtime.h and production
+// artifacts.
+extern "C" void ibex_private_test_reset_fs_conformance_observer();
+extern "C" void ibex_private_test_set_requested_fs_authorization_result(
+    int32_t result);
+extern "C" void
+ibex_private_test_set_requested_fs_authorization_result_for_path(
+    int32_t result,
+    const char* path);
+extern "C" uint64_t ibex_private_test_armed_path_lookup_count();
+extern "C" uint64_t
+ibex_private_test_armed_path_lookup_after_refusal_count();
+extern "C" uint64_t ibex_private_test_cancel_queued_fs_operations(
+    ExactHermesRuntime* runtime);
+#endif
 
 class ScopedTypedPrincipalStack {
  public:
@@ -1213,15 +1796,27 @@ inline std::vector<uint8_t> extractBytes(
 bool startup_trace_enabled();
 bool env_flag_enabled(const char* env_name);
 void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage);
+void requireDiagnosticStartupStage(ExactHermesRuntime* handle, const char* stage);
 void reportStartupFailure(ExactHermesRuntime* handle,
                           const char* stage,
                           const std::string& detail);
 std::string valueToString(facebook::jsi::Runtime& rt, const facebook::jsi::Value& value);
 uint64_t nowMs();
 double processUptimeSeconds();
-facebook::jsi::Function makeHardExitFn(facebook::jsi::Runtime& rt);
+facebook::jsi::Function makeProcessExitFn(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& rt);
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 void exactForgetNativeFetchTarget(uint32_t requestId, uint64_t runtimeNonce);
+
+// Retain one exact raw JavaScript failure value and return its graph-local
+// nonzero token. No property access or coercion is performed here.
+uint64_t exactRetainStructuredModuleGraphError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::JSError& error) noexcept;
+uint64_t exactRetainStructuredModuleGraphError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::Value& value) noexcept;
 
 bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            const char* source,
@@ -1232,6 +1827,7 @@ bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            bool allowHbc);
 
 bool installModuleLoader(ExactHermesRuntime* handle);
+void captureLegacyBootstrapEnvironment(ExactHermesRuntime* handle);
 void ensureStreamEnhance(ExactHermesRuntime* handle);
 void ensureWebCrypto(ExactHermesRuntime* handle);
 void ensureWebStorage(ExactHermesRuntime* handle);
@@ -1245,6 +1841,7 @@ void installWebStreamsPolyfill(ExactHermesRuntime* handle);
 void installDnsHostFunctions(ExactHermesRuntime* handle);
 void installCryptoHostFunctions(ExactHermesRuntime* handle);
 void unregisterSignalRuntime(ExactHermesRuntime* handle);
+void installFsMutationGuardHostFunction(ExactHermesRuntime* handle);
 void installFsHostFunctions(ExactHermesRuntime* handle);
 void installChildProcessHostFunctions(ExactHermesRuntime* handle);
 // Install only the runtime/principal-bound retained-wrapper owner primitive.
@@ -1273,6 +1870,10 @@ extern "C" void exactCleanupRuntimeWebSockets(uint64_t runtimeNonce);
 extern "C" void ibex_tls_cleanup_runtime(uint64_t runtimeNonce);
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
+extern "C" void ex_host_console_log_bytes(
+    int32_t level,
+    const uint8_t* message,
+    size_t length);
 extern "C" void native_ws_retain_context(void* context);
 extern "C" void native_ws_release_context(void* context);
 
@@ -1361,6 +1962,17 @@ void exactGpuV2BeginRuntimeTeardown(ExactHermesRuntime* runtime);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
+extern "C" int32_t ex_host_session_descriptor_is_protected(int32_t fd);
+extern "C" int32_t ex_host_session_descriptor_read_route(int32_t fd);
+extern "C" int32_t ex_host_session_descriptor_write_route(int32_t fd);
+extern "C" int32_t ex_host_session_descriptor_close_route(int32_t fd);
+extern "C" int32_t ex_host_session_descriptor_alias_source_route(int32_t fd);
+extern "C" int32_t ex_host_session_descriptor_alias_target_route(int32_t fd);
+extern "C" int32_t ex_host_terminal_session_stdio_query(
+    int32_t fd,
+    int32_t* out_is_tty,
+    uint16_t* out_columns,
+    uint16_t* out_rows);
 
 extern const char* g_streamEnhanceJS;
 extern const char* g_webCryptoJS;
