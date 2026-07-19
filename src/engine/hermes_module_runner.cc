@@ -1018,8 +1018,19 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     }
     auto trampoline = trampolineValue.asObject(rt).asFunction(rt);
     if (bindCompartment) {
-      runtime->module_compartment_binder->call(
-          rt, trampoline, targetCompartment);
+      // @ref LLP 0013#mechanism-3 — bind the authenticated principal and
+      // compartment as one invariant, and refuse before compiling package
+      // bytes if Hermes cannot read the exact principal back.
+      auto bound = runtime->module_compartment_binder->call(
+          rt,
+          trampoline,
+          targetCompartment,
+          facebook::jsi::Value(static_cast<double>(principal_id)));
+      if (!bound.isNumber() ||
+          bound.asNumber() != static_cast<double>(principal_id)) {
+        throw facebook::jsi::JSError(
+            rt, "module compiler trampoline Domain principal readback mismatch");
+      }
     }
 
     const std::string source(
@@ -1237,8 +1248,18 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     auto factory = factoryValue.asObject(rt).asFunction(rt);
     if (!compartment.empty()) {
       auto targetCompartment = compartmentFor(rt, compartment);
-      runtime->module_compartment_binder->call(
-          rt, factory, targetCompartment);
+      // @ref LLP 0013#mechanism-3 — prepared carriers use the same exact
+      // principal-plus-compartment invariant as source-compiled factories.
+      auto bound = runtime->module_compartment_binder->call(
+          rt,
+          factory,
+          targetCompartment,
+          facebook::jsi::Value(static_cast<double>(principal_id)));
+      if (!bound.isNumber() ||
+          bound.asNumber() != static_cast<double>(principal_id)) {
+        throw facebook::jsi::JSError(
+            rt, "prepared carrier Domain principal readback mismatch");
+      }
     }
 
     const uint64_t id = nextHandleId(runtime);
