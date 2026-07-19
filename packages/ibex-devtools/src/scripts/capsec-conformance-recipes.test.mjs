@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(23_116);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_015);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_101);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_010);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(18_106);
     const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
@@ -226,6 +226,29 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe?.invocation?.globalName ===
           "__exactFsOpenAsync",
+      ),
+    ).toHaveLength(0);
+    const unsupportedWindowsNetworkRecipes = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.actionIds.some((actionId) => actionId.startsWith("network:")) &&
+        recipe.residualReasons.includes(
+          "public-surface-network-not-typed-on-target",
+        ),
+    );
+    expect(unsupportedWindowsNetworkRecipes).toHaveLength(5);
+    expect(
+      unsupportedWindowsNetworkRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.terminalObservedKey === "native-op:__exactTcpConnect",
+      ),
+    ).toBe(true);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactTcpConnect",
       ),
     ).toHaveLength(0);
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(

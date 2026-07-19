@@ -3793,18 +3793,27 @@ function summarize(recipes) {
   };
 }
 
-function publicProbeIsUnsupportedWindowsFilesystemEffect({
+function unsupportedWindowsTypedPublicEffectReason({
   plan,
   publicSurfaceProbe,
   target,
 }) {
+  if (
+    target.triple !== "x86_64-pc-windows-msvc" ||
+    plan.classification !== "effects" ||
+    (publicSurfaceProbe?.invocation?.expectedTypedDecisionCount ?? 0) === 0
+  ) {
+    return null;
+  }
   // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Windows filesystem surfaces still use the legacy path oracle, so they cannot furnish typed public execution evidence.
-  return (
-    target.triple === "x86_64-pc-windows-msvc" &&
-    plan.classification === "effects" &&
-    plan.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
-    (publicSurfaceProbe?.invocation?.expectedTypedDecisionCount ?? 0) > 0
-  );
+  if (plan.actionIds.some((actionId) => actionId.startsWith("fs:"))) {
+    return "public-surface-filesystem-not-typed-on-target";
+  }
+  // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — Windows TCP surfaces still use the legacy string oracle, so candidate/commit recipes remain residual until the typed adapter is installed there.
+  if (plan.actionIds.some((actionId) => actionId.startsWith("network:"))) {
+    return "public-surface-network-not-typed-on-target";
+  }
+  return null;
 }
 
 export function buildConformanceRecipeCatalog({
@@ -3949,19 +3958,19 @@ export function buildConformanceRecipeCatalog({
       );
     }
     let publicSurfaceProbe = authoredPublicSurfaceProbes[0] ?? null;
-    const unsupportedWindowsFilesystemEffect =
-      publicProbeIsUnsupportedWindowsFilesystemEffect({
+    const unsupportedWindowsTypedEffectReason =
+      unsupportedWindowsTypedPublicEffectReason({
         plan,
         publicSurfaceProbe,
         target,
       });
-    if (unsupportedWindowsFilesystemEffect) {
+    if (unsupportedWindowsTypedEffectReason) {
       publicSurfaceProbe = null;
     }
     const publicSurfaceUnavailableReason = publicSurfaceProbe
       ? null
-      : unsupportedWindowsFilesystemEffect
-        ? "public-surface-filesystem-not-typed-on-target"
+      : unsupportedWindowsTypedEffectReason
+        ? unsupportedWindowsTypedEffectReason
         : (nonCapabilityBuiltinProbeResidualReason({
             route,
             liveByObservedKey,
