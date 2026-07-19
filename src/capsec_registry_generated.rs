@@ -14789,7 +14789,7 @@ pub const CAPSEC_ENFORCEMENT_BRANCH_IDS: &[&str] = &[
     "enforcement.etworking.java.java.dev.ibex.runtime.ibexnetworking.storagepaths.0a6yhpo",
     "enforcement.ev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0tmjec3",
     "enforcement.ex.runtime.js.src.bootstrap.ts.process.binding.flow.dynamic.read.11qo6vy",
-    "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51",
+    "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp",
     "enforcement.ex.runtime.js.src.core.locale.ts.createlocalenamespace.direction.05hlagp",
     "enforcement.ex.runtime.js.src.sqlite.module.js.exports.database.applychanges.0apxouh",
     "enforcement.ex.runtime.js.src.sqlite.module.js.exports.database.getdbversion.16xn4rc",

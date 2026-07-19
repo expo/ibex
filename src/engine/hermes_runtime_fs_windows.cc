@@ -1,5 +1,10 @@
 #include "hermes_runtime_internal.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <algorithm>
 #include <cerrno>
 #include <condition_variable>
@@ -66,6 +71,38 @@ std::unordered_map<int, FileEntry> g_files;
 int g_next_fd = 3;
 thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
 constexpr size_t kMaxTypedPrincipalStack = 256;
+
+bool principalMayUseProcessStdio(uint64_t principal) {
+  if (principal == 0) {
+    return true;
+  }
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (principal == static_cast<uint64_t>(kRuntimePrincipalId)) {
+    return true;
+  }
+#endif
+  return false;
+}
+
+facebook::jsi::Value writeProcessStdio(
+    facebook::jsi::Runtime& runtime,
+    int fd,
+    const std::vector<uint8_t>& bytes) {
+  if (!principalMayUseProcessStdio(currentPrincipalId()) && !isAllowAll()) {
+    throw facebook::jsi::JSError(runtime, "write: bad file descriptor");
+  }
+  HANDLE handle = GetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
+  if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
+    throw facebook::jsi::JSError(runtime, "write: bad file descriptor");
+  }
+  DWORD written = 0;
+  DWORD requested = static_cast<DWORD>(std::min<size_t>(
+      bytes.size(), static_cast<size_t>(std::numeric_limits<DWORD>::max())));
+  if (!WriteFile(handle, bytes.data(), requested, &written, nullptr)) {
+    throw facebook::jsi::JSError(runtime, "write: standard descriptor write failed");
+  }
+  return facebook::jsi::Value(static_cast<double>(written));
+}
 
 extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
@@ -1315,9 +1352,17 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsWrite: fd and data required");
         }
         auto fd = fdFromValue(runtime, args[0]);
+        auto bytes = extractBytes(runtime, args[1]);
+        // Windows file handles live in the opaque g_files table, but inherited
+        // stdout/stderr are process-owned OS handles rather than file-table
+        // entries. Mirror the POSIX standard-descriptor exception while
+        // retaining the same root/runtime-principal ownership check.
+        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+        if (fd == 1 || fd == 2) {
+          return writeProcessStdio(runtime, fd, bytes);
+        }
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryWrite(runtime, entry);
-        auto bytes = extractBytes(runtime, args[1]);
         if (bytes.empty()) {
           return facebook::jsi::Value(0.0);
         }

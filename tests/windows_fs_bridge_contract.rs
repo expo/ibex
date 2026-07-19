@@ -81,6 +81,14 @@ fn rollback_eligible_creates_are_exclusive_and_fd_entries_are_identity_checked()
 }
 
 #[test]
+fn windows_process_stdio_bypasses_only_the_opaque_file_table() {
+    assert!(WINDOWS_FS.contains("principalMayUseProcessStdio(currentPrincipalId())"));
+    assert!(WINDOWS_FS.contains("GetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE)"));
+    assert!(WINDOWS_FS.contains("if (fd == 1 || fd == 2)"));
+    assert!(WINDOWS_FS.contains("return writeProcessStdio(runtime, fd, bytes)"));
+}
+
+#[test]
 fn windows_path_worker_implements_node_metadata_and_exclusive_copy_ops() {
     for hook in [
         "ex_host_fs_mkdir_recursive_result",

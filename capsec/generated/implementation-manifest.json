@@ -256974,7 +256974,7 @@
       "edgeId": "surface.startup.env.exact.compat.bun.0fkz8pj",
       "observedKey": "startup:env:EXACT_COMPAT_BUN",
       "branchId": "surface.startup.env.exact.compat.bun.0fkz8pj.main",
-      "enforcementBranchId": "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51",
+      "enforcementBranchId": "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -256983,12 +256983,14 @@
         "proofSourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#process.env:EXACT_COMPAT_BUN:read",
           "packages/ibex-runtime-js/src/node/process.ts#process.env:EXACT_COMPAT_BUN:read",
-          "src/bin/ibex/runtime.rs#env::set_var:EXACT_COMPAT_BUN:write"
+          "src/bin/ibex/runtime.rs#env::set_var:EXACT_COMPAT_BUN:write",
+          "src/bin/ibex/runtime.rs#env_flag_enabled:EXACT_COMPAT_BUN:read"
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#process.env:EXACT_COMPAT_BUN:read",
           "packages/ibex-runtime-js/src/node/process.ts#process.env:EXACT_COMPAT_BUN:read",
-          "src/bin/ibex/runtime.rs#env::set_var:EXACT_COMPAT_BUN:write"
+          "src/bin/ibex/runtime.rs#env::set_var:EXACT_COMPAT_BUN:write",
+          "src/bin/ibex/runtime.rs#env_flag_enabled:EXACT_COMPAT_BUN:read"
         ],
         "terminalObservedKey": "startup:env:EXACT_COMPAT_BUN"
       },
@@ -257000,28 +257002,29 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#process.env:EXACT_COMPAT_BUN:read",
         "packages/ibex-runtime-js/src/node/process.ts#process.env:EXACT_COMPAT_BUN:read",
-        "src/bin/ibex/runtime.rs#env::set_var:EXACT_COMPAT_BUN:write"
+        "src/bin/ibex/runtime.rs#env::set_var:EXACT_COMPAT_BUN:write",
+        "src/bin/ibex/runtime.rs#env_flag_enabled:EXACT_COMPAT_BUN:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.absent.allow",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.absent.branch-selection",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.absent.deny",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.absent.malformed",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.absent.missing-attribution",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.absent.wrong-principal",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.present.allow",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.present.branch-selection",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.present.deny",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.present.malformed",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.present.missing-attribution",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.present.wrong-principal",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.propagated.allow",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.propagated.branch-selection",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.propagated.deny",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.propagated.malformed",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.propagated.missing-attribution",
-        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.0kbob51.logical.propagated.wrong-principal"
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.absent.allow",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.absent.branch-selection",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.absent.deny",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.absent.malformed",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.absent.missing-attribution",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.absent.wrong-principal",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.present.allow",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.present.branch-selection",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.present.deny",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.present.malformed",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.present.missing-attribution",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.present.wrong-principal",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.propagated.allow",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.propagated.branch-selection",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.propagated.deny",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.propagated.malformed",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.propagated.missing-attribution",
+        "enforcement.ex.runtime.js.src.bootstrap.ts.process.env.exact.compat.bun.read.1njctjp.logical.propagated.wrong-principal"
       ]
     },
     {
@@ -268481,12 +268484,12 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-A5egPiKE7Z_4sL2-nhKvmICNHmNhInFEnQ_zGqmKnX4"
+      "rawContentDigest": "sha256-8n5_pefZDzrt6pbVwFt-_8ztlJvwD2MAyorcNFM4mVc"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-TBfLo0C3yYiGB5dc-0F_6fCR9xFbntYYK7KGaljhJro"
+      "rawContentDigest": "sha256-shN5iTNiQYLe-8ri3WPKbAhbWbw5QsgWNK-aN_YMFpA"
     },
     {
       "kind": "registry",
@@ -268496,26 +268499,26 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-89MvndYR-ms8LN5mVI9y7_ZNwQpiASJYd_xjfTRAeQE"
+      "rawContentDigest": "sha256-7fGQAzaHKqLqwxB3M7YIYwRxqnwgTFeM6zgCKdgNEYs"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-S9LxVH9ohqKFM0i5ZttxWkqJU99nfAylYZFt_vhHl-o"
+      "rawContentDigest": "sha256-wPLVz-Hl-k0pOAgifhCX6CySZFKSPgF-jIHYN2qFJME"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-iy5IP1_g4pgSWWnzY5U1__oBvVXc5qmu0f1FgSij730"
+      "rawContentDigest": "sha256-k4juKVDjv3Xa9KdJeJPqy9jutUqlVBSNW8iG55dylVA"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-Z4q2vH46TAGEdVT-oH5g5ghbFhYhK4tiGr1qLhX0sa4"
+      "rawContentDigest": "sha256-vaClgU5xlpNaOd1PHukmvbnk5xWn12hR0S1yRJteF9w"
     }
   ],
   "counts": {
-    "observedReferences": 13057,
+    "observedReferences": 13058,
     "logicalSurfaces": 7208,
     "enforcementBranches": 7408,
     "coverageEdges": 7208,

@@ -1418,7 +1418,19 @@ impl Runtime {
             _host: host,
             bundle_format,
             exec_argv: build_audit_exec_argv(cli),
-            compat_modes: Vec::new(),
+            // Foreground audit is the explicit compatibility posture used by
+            // the cross-platform runtime suite. Seed its opt-in Bun control
+            // before the shared bundle computes process.versions; the
+            // Windows minimal bootstrap otherwise observes the environment
+            // late enough to install Bun without the matching versions.bun.
+            // @ref LLP 0012#decision — compatibility identity is coherent.
+            compat_modes: if cli.compat.as_deref() == Some("bun")
+                || crate::env_flag_enabled("EXACT_COMPAT_BUN")
+            {
+                vec!["bun".to_owned()]
+            } else {
+                Vec::new()
+            },
         })
     }
 
@@ -1905,7 +1917,7 @@ impl Runtime {
                 .await
                 .with_context(|| format!("Failed to read file {}", entry_path.display()))?;
             let source = normalize_hashbang_for_eval(&source);
-            let source = wrap_source_for_tla_eval(source, true);
+            let source = wrap_windows_file_source_for_eval(source, true);
             let code = format!("{argv_code}\n{source}");
             return self.engine.eval(&code).await;
         }
@@ -4483,6 +4495,21 @@ fn source_needs_tla_shim(source: &str) -> bool {
 
 fn wrap_source_for_tla_eval(source: Cow<'_, str>, is_main_file: bool) -> String {
     wrap_source_for_tla_eval_with(source, is_main_file, false)
+}
+
+/// Windows executes the prepared file bytes directly rather than through the
+/// CommonJS loader. Preserve a promise completion only when the entry needs
+/// the async compatibility wrapper. An ordinary file's final expression is
+/// not its program result: fencing it with `void 0` leaves a floating rejected
+/// promise to the normal unhandled-rejection policy, where user handlers and a
+/// preselected process.exitCode retain their Node-compatible precedence.
+/// @ref LLP 0003#the-event-loop — asynchronous failures follow runtime policy.
+fn wrap_windows_file_source_for_eval(source: Cow<'_, str>, is_main_file: bool) -> String {
+    if source_needs_tla_shim(source.as_ref()) {
+        wrap_entry_source_for_eval(source, is_main_file, false)
+    } else {
+        format!("{}\nvoid 0;", source)
+    }
 }
 
 /// `already_lowered` marks swc output from the in-process pipeline: its
@@ -7629,6 +7656,26 @@ mod tests {
             "wrapped: {wrapped}"
         );
         assert!(wrapped.contains("__exactEntryFile"), "wrapped: {wrapped}");
+    }
+
+    #[test]
+    fn windows_file_wrap_fences_only_ordinary_script_completion() {
+        let ordinary = wrap_windows_file_source_for_eval(
+            std::borrow::Cow::Borrowed("Promise.reject(new Error('floating'));"),
+            true,
+        );
+        assert!(ordinary.ends_with("\nvoid 0;"), "ordinary: {ordinary}");
+        assert!(ordinary.contains("Promise.reject"), "ordinary: {ordinary}");
+
+        let tla = wrap_windows_file_source_for_eval(
+            std::borrow::Cow::Borrowed("await Promise.resolve(1);"),
+            true,
+        );
+        assert!(
+            tla.contains("(async function(__filename, __dirname, module, exports)"),
+            "tla: {tla}"
+        );
+        assert!(!tla.ends_with("\nvoid 0;"), "tla: {tla}");
     }
 
     #[test]
