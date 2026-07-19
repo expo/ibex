@@ -8,6 +8,9 @@
 **Revised:** 2026-07-18 (the Windows full-matrix Rust product gate preserves
 the fail-on-zero wrapper while binding Cargo to the configured MSVC linker and
 vendored OpenSSL to native Perl before Git Bash can shadow those tools)
+**Revised:** 2026-07-18 (Windows replacement translation units preserve
+cross-target integration-test C ABI shape so the full Rust gate can link before
+the test reports target/profile inapplicability)
 **Revised:** 2026-07-18 (target-local protected-artifact publication fsyncs
 the parent directory on Unix and flushes the pinned linked file on Windows,
 where opening a directory through `std::fs::File` is refused)
@@ -1602,6 +1605,9 @@ through the fail-on-zero wrapper; that wrapper binds Cargo to the configured
 absolute MSVC linker before Git Bash can prepend its unrelated Coreutils
 `link.exe`, and binds vendored OpenSSL to a validated native Perl from the
 original Windows developer path rather than Git's incomplete Perl.
+Target-selected replacement translation units still provide any cross-target
+integration-test C ABI whose runtime contract reports that the physical target
+or profile is unsupported; target absence is a test result, not a link error.
 An obligation can pass only with fixture-specific command evidence carrying
 its exact fixture ID, result marker, exit status, recomputed evidence digest,
 and exact execution binding. Missing, generic, duplicated, stale, or synthetic

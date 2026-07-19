@@ -11,6 +11,9 @@ execution to evidence-gated macOS arm64 and Linux x64; this RFC's broader
 matrix remains the product ambition and build-visibility plan, not a 0.2
 execution advertisement)
 **Revised:** 2026-07-18 (exact-target recipe generation now intersects source-discovered native registrations with the Windows translation units selected by `build.rs`)
+**Revised:** 2026-07-18 (the Windows replacement crypto translation unit
+preserves the cross-target hash-normalizer test ABI and reports that profile as
+unsupported, so the complete Cargo matrix can link before deciding applicability)
 **Revised:** 2026-07-17 (ENG-24933 adds a pinned patched no-debugger Windows Hermes source build/release bundle pipeline and independent loaded-DLL volume/file identity; Windows remains compatibility-only pending remote artifact and conformance evidence)
 **Revised:** 2026-07-15 (ENG-25066 advertises the native module runner on exact macOS arm64 and Linux x64 targets while retaining Windows as an explicit compatibility-only row until a matching patched Hermes artifact exists); 2026-07-15 (ENG-25061: matching-artifact native module-runner corpus on macOS arm64 and Linux x64); 2026-07-12 (ENG-24263/ENG-24264: full exact-engine CapSec matrix/evidence is a gating macOS job; Windows runs behavioral locked-DLL staging coverage; Android queue behavior runs on a host JVM)
 **Related:** LLP 0000; LLP 0002
@@ -92,6 +95,10 @@ global found only in an excluded default translation unit is not callable
 Windows evidence; the current intersection keeps 37 recipes spanning 33 such
 globals residual under `native-public-operation-not-installed-on-target`.
 Globals with an actual Windows installation branch remain eligible.
+Replacement translation units must also preserve cross-target integration-test
+C ABI shape when the test contract reports unsupported applicability at
+runtime; otherwise Windows cannot link the complete matrix far enough to make
+that honest decision.
 
 ## 2. The axes that matter beyond OS
 

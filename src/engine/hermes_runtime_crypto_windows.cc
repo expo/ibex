@@ -381,6 +381,17 @@ void installZlibHostFunctions(ExactHermesRuntime* handle) {
 
 } // namespace
 
+// The cross-target integration test links this ABI before it can ask whether
+// the selected crypto profile has a node-crypto normalizer. Windows replaces
+// the default crypto translation unit, so preserve the ABI and report the
+// documented unsupported result instead of failing the test binary's link.
+// @ref LLP 0001#current-buildrs-support-honest-status — target replacement
+// translation units preserve cross-platform test ABI shape.
+extern "C" int ex_crypto_test_node_hash_name(
+    const char*, char*, size_t) {
+  return -1;
+}
+
 void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
 
