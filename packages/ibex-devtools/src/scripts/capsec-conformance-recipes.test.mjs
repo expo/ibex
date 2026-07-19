@@ -109,9 +109,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_014);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(5_238);
-    expect(recipes.summary.unresolvedFixtures).toBe(17_776);
+    expect(recipes.summary.requiredFixtures).toBe(23_061);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(5_240);
+    expect(recipes.summary.unresolvedFixtures).toBe(17_821);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -203,9 +203,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_014);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_084);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_930);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_061);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(5_086);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_975);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -427,7 +427,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_737);
+    expect(callbackRecipes).toHaveLength(2_739);
     expect(
       Object.fromEntries(
         [
@@ -449,8 +449,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 509,
       "principal-restore": 509,
       "snapshot-mismatch-deny": 509,
-      "cannot-widen-authority": 346,
-      "post-lockdown-invariant": 346,
+      "cannot-widen-authority": 347,
+      "post-lockdown-invariant": 347,
       "non-capability": 9,
     });
     for (const terminalObservedKey of [

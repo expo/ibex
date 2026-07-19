@@ -4082,6 +4082,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           row.kind === "native-op" &&
           (row.metadata?.surfaceType !== "global-api" ||
             row.metadata?.surfaceTypes?.includes("private-native-operation")) &&
+          // Authenticated WebGPU rows come from the digest-bound generated
+          // route plan and have their own exact registry join below this
+          // source-scanned native-operation approval boundary.
+          row.metadata?.evidenceType !==
+            "authenticated-webgpu-production-route" &&
           !row.name.startsWith("inspector."),
       )
       .map((row) => row.name)
