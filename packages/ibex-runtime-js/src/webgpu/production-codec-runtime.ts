@@ -4794,7 +4794,9 @@ function u64Number(value: unknown, label: string): number {
 }
 
 function finiteNumber(value: unknown, label: string): number {
-  const converted = Number(value);
+  // Web IDL's double conversion uses ToNumber, which rejects BigInt. The
+  // Number constructor is observably different because it accepts BigInt.
+  const converted = +(value as number);
   if (!Number.isFinite(converted)) {
     throw new TypeError(`${label} must be finite`);
   }
@@ -4959,9 +4961,22 @@ function convertConstants(
   label: string,
 ): Readonly<Record<string, number>> {
   const source = dictionary(value, label);
+  // Record conversion observes own enumerable string keys in ECMAScript
+  // enumeration order and performs each Get/conversion in that same order.
+  // Canonicalize only the already-converted snapshot so wire stability cannot
+  // reorder user code.
+  const convertedEntries: [string, number][] = [];
+  for (const key of Object.keys(source)) {
+    convertedEntries.push([
+      key,
+      finiteNumber(source[key], `${label}.${key}`),
+    ]);
+  }
   const result: Record<string, number> = {};
-  for (const key of Object.keys(source).sort()) {
-    result[key] = finiteNumber(source[key], `${label}.${key}`);
+  for (const [key, converted] of convertedEntries.sort(([left], [right]) => (
+    left < right ? -1 : left > right ? 1 : 0
+  ))) {
+    result[key] = converted;
   }
   return Object.freeze(result);
 }

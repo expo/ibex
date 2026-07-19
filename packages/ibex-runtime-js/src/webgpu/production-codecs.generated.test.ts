@@ -1593,6 +1593,51 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
   });
 
+  test('observes programmable constants before canonicalizing and rejects BigInt', () => {
+    const trace: string[] = [];
+    const constants: Record<string, unknown> = {};
+    for (const [key, value] of [['zeta', 2], ['alpha', 1]] as const) {
+      Object.defineProperty(constants, key, {
+        enumerable: true,
+        get() {
+          trace.push(key);
+          return value;
+        },
+      });
+    }
+    const converted = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .convertPublicArguments(
+        'GPUDevice.createRenderPipeline',
+        [{
+          layout: 'auto',
+          vertex: { constants, module: shaderModule },
+        }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>;
+    const convertedConstants = (
+      converted.vertex as Readonly<Record<string, unknown>>
+    ).constants as Readonly<Record<string, number>>;
+
+    expect(trace).toEqual(['zeta', 'alpha']);
+    expect(Object.keys(convertedConstants)).toEqual(['alpha', 'zeta']);
+    expect(convertedConstants).toEqual({ alpha: 1, zeta: 2 });
+
+    let moduleReads = 0;
+    const stage = {
+      constants: { bad: 1n },
+      get module() {
+        moduleReads += 1;
+        return shaderModule;
+      },
+    };
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createRenderPipeline',
+      [{ layout: 'auto', vertex: stage }],
+      wrappers,
+    )).toThrow(TypeError);
+    expect(moduleReads).toBe(0);
+  });
+
   test('orders render WebIDL conversion and fails brands or bounds synchronously', () => {
     const trace: string[] = [];
     const observed = (
