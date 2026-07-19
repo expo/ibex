@@ -346,7 +346,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     "nativeExecutionEvidence": "none-recording-provider-is-inventory-only",
     "source": {
       "path": "tests/gpu/typegpu-workload-closure-v1.json",
-      "normalizedProjectionSha256": "3900b226779d2ddf25aac8b8f9332cc7070915c79aca87ebee0c2147164ffcf8",
+      "normalizedProjectionSha256": "4269ee82eaccbe5ab3913e4d70b847192727be7c229ee307416c1218c2bb3422",
       "fullArtifactSha256Disposition": "provenance-only-excluded-to-avoid-outer-submodule-recursion"
     },
     "typegpuVersion": "0.11.9",
@@ -364,8 +364,8 @@ export const WEBGPU_PRODUCTION_PLAN = {
         "operationId": "GPUCommandEncoder.clearBuffer",
         "memberKind": "method",
         "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 1489307075,
-        "recordIdentitySha256": "c305c5588286220ea45b37492f859869004975baf40ad890670fbb276cfc1d87"
+        "localRecordId": 2733786132,
+        "recordIdentitySha256": "1444f2a270409c21371a63b12a198326421a0efe8d3bbeb44d1f9f9530c4c1ed"
       },
       {
         "operationId": "GPUCommandEncoder.copyBufferToBuffer",
@@ -461,9 +461,9 @@ export const WEBGPU_PRODUCTION_PLAN = {
           "logicalExecutionKind": "wrapper-local-recording",
           "terminalDisposition": "sealed-logical-record-no-provider-submit",
           "routingDisposition": "construction-private-non-installing-non-routing",
-          "sourceEvidenceSha256": "36b5eb9ffc1925729aab453fc946e19254129ebcf6742598da8e3b0f538a57d3",
-          "localRecordId": 1489307075,
-          "recordIdentitySha256": "c305c5588286220ea45b37492f859869004975baf40ad890670fbb276cfc1d87"
+          "sourceEvidenceSha256": "d72ce5daf27f5b328abce0fe0bc7db012e40b81d952ec1c76ad672bf6859d5de",
+          "localRecordId": 2733786132,
+          "recordIdentitySha256": "1444f2a270409c21371a63b12a198326421a0efe8d3bbeb44d1f9f9530c4c1ed"
         },
         {
           "operationId": "GPUCommandEncoder.copyBufferToBuffer",
