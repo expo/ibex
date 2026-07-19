@@ -1016,50 +1016,60 @@ function completeClosedDebuggerAbiCatalog() {
   return catalog;
 }
 
-function completeClosedSharedRuntimeGlobalCatalog() {
+function completeClosedSharedRuntimeGlobalCatalog({
+  sharedRuntime = false,
+} = {}) {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
-  const sourceRef =
-    "src/engine/bootstrap/module-loader.js#CacheStorage.open";
+  const globalName = sharedRuntime ? "BroadcastChannel" : "CacheStorage";
+  const memberName = sharedRuntime ? null : "open";
+  const exportName =
+    memberName === null ? globalName : `${globalName}.${memberName}`;
+  const surfaceName = `global:${exportName}`;
+  const sourceRef = sharedRuntime
+    ? "packages/ibex-runtime-js/src/bootstrap.ts#defineLazyGlobal:globals:BroadcastChannel"
+    : "src/engine/bootstrap/module-loader.js#CacheStorage.open";
+  const route = sharedRuntime ? "shared-runtime" : "legacy-bootstrap";
+  const targetVariant = sharedRuntime ? "all" : "default";
   const sourceDescriptor = {
     kind: "closed-shared-runtime-global-absence",
-    surfaceObservedKey: "native-op:global:CacheStorage.open",
-    globalName: "CacheStorage",
-    memberName: "open",
+    surfaceObservedKey: `native-op:${surfaceName}`,
+    globalName,
+    ...(memberName === null ? {} : { memberName }),
     targetTriple: "aarch64-apple-darwin",
     sourceRefs: [sourceRef],
     sourceMetadata: {
       branches: [
         {
           branchKind: "single",
-          id: "default",
+          id: targetVariant,
           kind: "single",
-          route: "legacy-bootstrap",
-          routes: ["legacy-bootstrap"],
+          route,
+          routes: [route],
           sourceRefs: [sourceRef],
-          targetVariant: "default",
+          targetVariant,
         },
       ],
-      exportName: "CacheStorage.open",
-      globalName: "CacheStorage",
+      exportName,
+      globalName,
       installationBranches: [
         {
           branchKind: "single",
-          id: "default",
+          id: targetVariant,
           kind: "single",
-          route: "legacy-bootstrap",
-          routes: ["legacy-bootstrap"],
+          route,
+          routes: [route],
           sourceRefs: [sourceRef],
-          targetVariant: "default",
+          targetVariant,
         },
       ],
-      memberName: "open",
+      memberName,
       moduleSpecifiers: [],
-      sourceKey: "global_module_loader",
+      sourceKey: sharedRuntime ? "shared_runtime" : "global_module_loader",
       surfaceType: "global-api",
     },
   };
-  recipe.fixtureId = "fixture.shared-runtime.cache-storage-open.closed";
+  recipe.fixtureId = `fixture.shared-runtime.${exportName}.closed`;
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
   recipe.route.alternatives[0].terminalObservedKey =
@@ -1067,57 +1077,64 @@ function completeClosedSharedRuntimeGlobalCatalog() {
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "native-op",
-    surfaceName: "global:CacheStorage.open",
+    surfaceName,
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
     operation: {
       kind: "shared-runtime-global-absence",
-      globalName: "CacheStorage",
-      memberName: "open",
-      expectedError:
-        "armed shared runtime does not expose CacheStorage.open",
+      globalName,
+      memberName,
+      expectedError: `armed shared runtime does not expose ${exportName}`,
     },
   });
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
   return catalog;
 }
 
-function completeClosedArmedNativeGlobalCatalog() {
+function completeClosedArmedNativeGlobalCatalog({
+  globalName = "__exactExit",
+  arity = 1,
+  targetVariant = "default",
+  sourcePath = "src/engine/hermes_runtime.cc",
+} = {}) {
   const catalog = structuredClone(completeClosedCatalog());
   const recipe = catalog.recipes[0];
   const sourceRefs = [
-    "src/engine/hermes_runtime.cc#__exactExit",
-    "src/engine/hermes_runtime.cc#jsi-global:__exactExit",
+    `src/engine/hermes_runtime.cc#${globalName}`,
+    ...(sourcePath === "src/engine/hermes_runtime.cc"
+      ? []
+      : [`${sourcePath}#${globalName}`]),
+    `${sourcePath}#jsi-global:${globalName}`,
   ];
   const sourceDescriptor = {
     kind: "closed-armed-native-global-absence",
-    surfaceObservedKey: "native-op:__exactExit",
-    globalName: "__exactExit",
+    surfaceObservedKey: `native-op:${globalName}`,
+    globalName,
     targetTriple: "aarch64-apple-darwin",
     sourceRefs,
     sourceMetadata: {
-      exportName: "__exactExit",
-      globalName: "__exactExit",
+      exportName: globalName,
+      globalName,
       installationBranches: [
         {
           route: "native-jsi-global",
           sourceRefs,
-          targetVariant: "default",
+          targetVariant,
         },
       ],
       memberKinds: ["native-root"],
       memberName: null,
       publicInvocation: {
-        arity: 1,
-        globalName: "__exactExit",
+        arity,
+        globalName,
         kind: "native-global-function",
-        sourceRef: sourceRefs[1],
+        sourceRef: sourceRefs.at(-1),
       },
       sourceKey: "native_jsi_global",
       surfaceType: "global-api",
     },
   };
-  recipe.fixtureId = "fixture.armed-native.exact-exit.closed";
+  recipe.fixtureId = `fixture.armed-native.${globalName}.closed`;
   recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
   recipe.route.alternatives[0].terminalObservedKey =
@@ -1125,13 +1142,84 @@ function completeClosedArmedNativeGlobalCatalog() {
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "native-op",
-    surfaceName: "__exactExit",
+    surfaceName: globalName,
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
     operation: {
       kind: "armed-native-global-absence",
-      globalName: "__exactExit",
-      expectedError: "armed runtime does not expose __exactExit",
+      globalName,
+      expectedError: `armed runtime does not expose ${globalName}`,
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function completeClosedArmedWorkletGlobalCatalog({
+  globalName,
+  memberName = null,
+  sourceKey,
+} = {}) {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const exportName =
+    memberName === null ? globalName : `${globalName}.${memberName}`;
+  const surfaceName = `global:${exportName}`;
+  const nativeJsi = sourceKey === "native_jsi_global";
+  const route = nativeJsi ? "native-jsi-global" : "evaluated-native-script";
+  const sourceRef = nativeJsi
+    ? `src/engine/hermes_runtime_worklet.cc#jsi-global:${exportName}`
+    : `src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:${exportName}`;
+  const sourceRefs = [sourceRef];
+  const sourceMetadata = {
+    exportName,
+    globalName,
+    installationBranches: [
+      {
+        route,
+        sourceRefs,
+        targetVariant: "worklet",
+      },
+    ],
+    ...(nativeJsi
+      ? {
+          memberKinds: [
+            memberName === null ? "native-root" : "native-object-member",
+          ],
+        }
+      : {
+          evaluatedScript: "kPrelude",
+          sourceUrls: ["worklet-prelude.js"],
+        }),
+    memberName,
+    sourceKey,
+    surfaceType: "global-api",
+  };
+  const sourceDescriptor = {
+    kind: "closed-armed-native-global-absence",
+    surfaceObservedKey: `native-op:${surfaceName}`,
+    globalName,
+    ...(memberName === null ? {} : { memberName }),
+    targetTriple: "aarch64-apple-darwin",
+    sourceRefs,
+    sourceMetadata,
+  };
+  recipe.fixtureId = `fixture.armed-worklet.${exportName}.closed`;
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "armed-native-global-absence",
+      globalName,
+      ...(memberName === null ? {} : { memberName }),
+      expectedError: `armed runtime does not expose ${exportName}`,
     },
   });
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
@@ -2677,6 +2765,19 @@ describe("CapSec public-surface promotion evidence", () => {
       }),
     ).not.toThrow();
 
+    const sharedRuntimeCatalog = completeClosedSharedRuntimeGlobalCatalog({
+      sharedRuntime: true,
+    });
+    const sharedRuntimeRecipe = sharedRuntimeCatalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: sharedRuntimeRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(sharedRuntimeRecipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
     const wrongRoute = structuredClone(recipe);
     wrongRoute.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches[0].route =
       "shared-runtime";
@@ -2716,6 +2817,60 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).not.toThrow();
+
+    const posixCatalog = completeClosedArmedNativeGlobalCatalog({
+      globalName: "__exactGetGCStats",
+      arity: 0,
+      targetVariant: "posix",
+      sourcePath: "src/engine/hermes_runtime_process_setup.cc",
+    });
+    const posixRecipe = posixCatalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: posixRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(posixRecipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const workletCatalog of [
+      completeClosedArmedWorkletGlobalCatalog({
+        globalName: "measure",
+        sourceKey: "native_jsi_global",
+      }),
+      completeClosedArmedWorkletGlobalCatalog({
+        globalName: "worklet",
+        memberName: "capture",
+        sourceKey: "evaluated_native_script",
+      }),
+    ]) {
+      const workletRecipe = workletCatalog.recipes[0];
+      expect(() =>
+        buildPublicFixtureEvidence({
+          recipe: workletRecipe,
+          engineBinaryDigest: engine.binaryDigest,
+          runtimeObservation: closedRuntimeObservation(workletRecipe),
+          coverage,
+        }),
+      ).not.toThrow();
+    }
+
+    const wrongTarget = structuredClone(posixRecipe);
+    wrongTarget.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.installationBranches[0].targetVariant =
+      "windows";
+    wrongTarget.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        wrongTarget.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongTarget,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(wrongTarget),
+        coverage,
+      }),
+    ).toThrow(/source-derived JSI path/);
 
     const inventedSource = structuredClone(recipe);
     inventedSource.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata.publicInvocation.sourceRef =

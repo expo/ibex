@@ -1647,6 +1647,24 @@ function validateRuntimeInvocation(observation, recipe) {
         "global:Exact.accessibility.prefersReducedTransparency",
         "global:Exact.gc",
       ]);
+      const reviewedSharedRuntimeRoots = new Set([
+        "BroadcastChannel",
+        "caches",
+        "IDBCursor",
+        "IDBCursorWithValue",
+        "IDBDatabase",
+        "IDBIndex",
+        "IDBKeyRange",
+        "IDBObjectStore",
+        "IDBOpenDBRequest",
+        "IDBRequest",
+        "IDBTransaction",
+        "indexedDB",
+        "localStorage",
+        "MessageChannel",
+        "MessagePort",
+        "sessionStorage",
+      ]);
       const descriptor = authored.sourceDescriptor;
       exactKeys(
         descriptor,
@@ -1673,24 +1691,35 @@ function validateRuntimeInvocation(observation, recipe) {
           ? authored.operation.globalName
           : `${authored.operation.globalName}.${memberName}`;
       const branches = metadata?.installationBranches;
-      const sharedRuntimeAccessibility =
-        /^global:(?:Bun|Exact)\.accessibility(?:\.|$)/u.test(
-          authored.surfaceName,
-        );
+      const sharedRuntimeRoot = authored.surfaceName.startsWith("global:")
+        ? authored.surfaceName.slice("global:".length).split(".", 1)[0]
+        : null;
+      const reviewedSurface =
+        reviewedSurfaces.has(authored.surfaceName) ||
+        reviewedSharedRuntimeRoots.has(sharedRuntimeRoot);
+      const sharedRuntimeInstallation =
+        metadata?.sourceKey === "shared_runtime";
+      const reviewedSharedRuntimeBranch =
+        branches?.[0]?.route === "shared-runtime" &&
+        branches[0].targetVariant === "all";
+      const reviewedComposedSharedRuntimeBranch =
+        branches?.[0]?.route ===
+          "composed:legacy-bootstrap+shared-runtime" &&
+        branches[0].targetVariant === "default" &&
+        canonicalJson(branches[0].routes) ===
+          canonicalJson(["legacy-bootstrap", "shared-runtime"]);
       const reviewedInstallation =
         Array.isArray(branches) &&
         branches.length === 1 &&
         canonicalJson(branches[0].sourceRefs) ===
           canonicalJson(descriptor.sourceRefs) &&
-        (sharedRuntimeAccessibility
-          ? metadata?.sourceKey === "shared_runtime" &&
-            branches[0].route === "shared-runtime" &&
-            branches[0].targetVariant === "all"
+        (sharedRuntimeInstallation
+          ? reviewedSharedRuntimeBranch || reviewedComposedSharedRuntimeBranch
           : metadata?.sourceKey !== "shared_runtime" &&
             branches[0].route === "legacy-bootstrap" &&
             branches[0].targetVariant === "default");
       if (
-        !reviewedSurfaces.has(authored.surfaceName) ||
+        !reviewedSurface ||
         authored.surfaceKind !== "native-op" ||
         descriptor.kind !== "closed-shared-runtime-global-absence" ||
         descriptor.surfaceObservedKey !==
@@ -1715,7 +1744,7 @@ function validateRuntimeInvocation(observation, recipe) {
       }
     }
     if (authored.operation?.kind === "armed-native-global-absence") {
-      const reviewedSurfaces = new Set([
+      const reviewedDirectSurfaces = new Set([
         "__exactExit",
         "__exactGetGCStats",
         "__exactGetHeapInfo",
@@ -1726,13 +1755,32 @@ function validateRuntimeInvocation(observation, recipe) {
         "__exactResetSignal",
         "__exactSetCwd",
       ]);
+      const reviewedWorkletSurfaces = new Set([
+        "global:measure",
+        "global:scheduleOnAppRuntime",
+        "global:worklet",
+        "global:worklet.capture",
+        "global:worklet.captureGet",
+        "global:worklet.captureSet",
+        "global:worklet.clamp",
+        "global:worklet.lerp",
+        "global:worklet.output",
+        "global:worklet.runOnJS",
+        "global:worklet.sharedValue",
+      ]);
       const descriptor = authored.sourceDescriptor;
+      const memberName = authored.operation.memberName ?? null;
+      const exportName =
+        memberName === null
+          ? authored.operation.globalName
+          : `${authored.operation.globalName}.${memberName}`;
       exactKeys(
         descriptor,
         [
           "kind",
           "surfaceObservedKey",
           "globalName",
+          ...(descriptor.memberName === undefined ? [] : ["memberName"]),
           "targetTriple",
           "sourceRefs",
           "sourceMetadata",
@@ -1741,44 +1789,84 @@ function validateRuntimeInvocation(observation, recipe) {
       );
       exactKeys(
         authored.operation,
-        ["kind", "globalName", "expectedError"],
+        [
+          "kind",
+          "globalName",
+          ...(authored.operation.memberName === undefined
+            ? []
+            : ["memberName"]),
+          "expectedError",
+        ],
         `${recipe.fixtureId}: closed armed native global operation`,
       );
       const metadata = descriptor.sourceMetadata;
       const branches = metadata?.installationBranches;
       const publicInvocation = metadata?.publicInvocation;
-      const defaultBranch = branches?.find(
+      const targetNativeVariants = descriptor.targetTriple.includes("-windows-")
+        ? ["windows", "default"]
+        : ["macos", "apple", "posix", "default"];
+      const targetBranch = branches?.find(
         (branch) =>
           branch.route === "native-jsi-global" &&
-          branch.targetVariant === "default",
+          targetNativeVariants.includes(branch.targetVariant) &&
+          branch.sourceRefs?.includes(publicInvocation?.sourceRef),
       );
+      const workletBranch = branches?.find(
+        (branch) =>
+          ["evaluated-native-script", "native-jsi-global"].includes(
+            branch.route,
+          ) && branch.targetVariant === "worklet",
+      );
+      const reviewedDirectGlobal =
+        reviewedDirectSurfaces.has(authored.surfaceName) &&
+        authored.surfaceName === exportName &&
+        metadata?.sourceKey === "native_jsi_global" &&
+        memberName === null &&
+        canonicalJson(metadata.memberKinds) ===
+          canonicalJson(["native-root"]) &&
+        publicInvocation?.kind === "native-global-function" &&
+        publicInvocation.globalName === authored.operation.globalName &&
+        Number.isSafeInteger(publicInvocation.arity) &&
+        publicInvocation.arity >= 0 &&
+        typeof publicInvocation.sourceRef === "string" &&
+        descriptor.sourceRefs.includes(publicInvocation.sourceRef) &&
+        targetBranch !== undefined;
+      const reviewedWorkletGlobal =
+        reviewedWorkletSurfaces.has(authored.surfaceName) &&
+        authored.surfaceName === `global:${exportName}` &&
+        Array.isArray(branches) &&
+        branches.length === 1 &&
+        canonicalJson(workletBranch?.sourceRefs) ===
+          canonicalJson(descriptor.sourceRefs) &&
+        (metadata?.sourceKey === "native_jsi_global"
+          ? workletBranch?.route === "native-jsi-global" &&
+            canonicalJson(metadata.memberKinds) ===
+              canonicalJson([
+                memberName === null ? "native-root" : "native-object-member",
+              ])
+          : metadata?.sourceKey === "evaluated_native_script" &&
+            workletBranch?.route === "evaluated-native-script" &&
+            metadata.evaluatedScript === "kPrelude" &&
+            canonicalJson(metadata.sourceUrls) ===
+              canonicalJson(["worklet-prelude.js"]));
       if (
-        !reviewedSurfaces.has(authored.surfaceName) ||
         authored.surfaceKind !== "native-op" ||
         descriptor.kind !== "closed-armed-native-global-absence" ||
         descriptor.surfaceObservedKey !== `native-op:${authored.surfaceName}` ||
         recipe.terminalObservedKey !== descriptor.surfaceObservedKey ||
         descriptor.globalName !== authored.operation.globalName ||
+        (descriptor.memberName ?? null) !== memberName ||
         descriptor.targetTriple !== "aarch64-apple-darwin" ||
         !Array.isArray(descriptor.sourceRefs) ||
         descriptor.sourceRefs.length === 0 ||
         metadata?.surfaceType !== "global-api" ||
-        metadata.sourceKey !== "native_jsi_global" ||
         metadata.globalName !== authored.operation.globalName ||
-        metadata.memberName !== null ||
-        metadata.exportName !== authored.operation.globalName ||
-        canonicalJson(metadata.memberKinds) !== canonicalJson(["native-root"]) ||
-        publicInvocation?.kind !== "native-global-function" ||
-        publicInvocation.globalName !== authored.operation.globalName ||
-        !Number.isSafeInteger(publicInvocation.arity) ||
-        publicInvocation.arity < 0 ||
-        typeof publicInvocation.sourceRef !== "string" ||
-        !descriptor.sourceRefs.includes(publicInvocation.sourceRef) ||
+        metadata.memberName !== memberName ||
+        metadata.exportName !== exportName ||
         !Array.isArray(branches) ||
-        !defaultBranch ||
-        !defaultBranch.sourceRefs.includes(publicInvocation.sourceRef) ||
+        (!reviewedDirectGlobal && !reviewedWorkletGlobal) ||
         authored.operation.expectedError !==
-          `armed runtime does not expose ${authored.operation.globalName}`
+          `armed runtime does not expose ${exportName}`
       ) {
         throw new Error(
           `${recipe.fixtureId}: armed native global closure is not bound to the reviewed source-derived JSI path`,

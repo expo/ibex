@@ -648,11 +648,11 @@ manifest; it therefore does not package stale filesystem identities. Exact's
 bundled-root producer is complete, while package-bearing policy input remains a
 separate future contract. Apple/Windows conformance reports and target
 advertisements remain incomplete. The refreshed catalogs are target-specific:
-Apple has 22,932 required fixtures, 5,226 fully executable recipes, and 17,706
-unresolved fixtures; Windows has 22,672 required fixtures, 4,962 executable,
-and 17,710 unresolved. The build graph excludes 260 POSIX-only enforcement
+Apple has 22,918 required fixtures, 5,216 fully executable recipes, and 17,702
+unresolved fixtures; Windows has 22,620 required fixtures, 4,959 executable,
+and 17,661 unresolved. The build graph excludes 260 POSIX-only enforcement
 fixtures from Windows instead of treating their translation units as fallback
-implementations. Windows executes 85 source-bound native target-absence probes;
+implementations. Windows executes 94 source-bound native target-absence probes;
 69 additional target-absence source invocations remain unavailable, alongside
 11 recipes for two operations absent from the target and 122 recipes across
 13 installed operations not yet typed there. One installed zero-effect
@@ -734,7 +734,7 @@ reassigned. This reduces `ambiguous-static-enforcement-route` from 7,496 to
 ambiguity is not itself public execution evidence. The later terminal-builtin
 denial tranche resolves 106 exact source and alias facets before module evaluation,
 including 49 otherwise ambiguous call graphs, so the current residual counts
-are 7,043 ambiguous routes with 17,706 unresolved Apple fixtures and 17,710
+are 7,043 ambiguous routes with 17,702 unresolved Apple fixtures and 17,661
 unresolved Windows fixtures. Nine direct native
 compatibility, diagnostic, IPC, signal, process, and working-directory globals
 are now deleted after lazy installation on the armed lockdown path, and their
@@ -1803,6 +1803,16 @@ error placeholders are not installed.
 The physical public-probe validator likewise does not attach argument setup,
 worker, or cleanup terminals to a target-absence recipe: reading a missing
 global cannot execute any of those callable-only paths.
+Closed armed-native-global evidence binds its public invocation to the
+installation branch applicable to the authenticated target (`macos`, `apple`,
+`posix`, or `default` on Apple; `windows` or `default` on Windows). A
+POSIX-specific JSI global is not required to invent a default branch, and a
+wrong-target branch cannot validate the closure.
+The same independent validator recognizes the reviewed worklet-only closure
+forms (direct JSI globals and the evaluated `kPrelude` namespace) and the
+reviewed shared-runtime root families. Their single installation branch must
+retain its exact source set and worklet, shared-runtime, composed, or legacy
+route; a recipe label alone cannot turn another global into closure evidence.
 Retained public-surface evidence also preserves the authored probe's exact JSON
 shape. In particular, an omitted optional native-global member stays omitted
 rather than being reserialized as `null`; aggregation rejects either shape if
@@ -1816,8 +1826,8 @@ without canceling an in-flight full-matrix run. Scheduled, pull-request, and
 `main` executions still require both physical targets; manual selection changes
 only job scheduling, never the target catalog, validators, retained evidence,
 or promotion criteria.
-Its current catalog has 22,672 required fixtures, 4,962 executable recipes, and
-17,710 unresolved fixtures. The
+Its current catalog has 22,620 required fixtures, 4,959 executable recipes, and
+17,661 unresolved fixtures. The
 source-derived class-factory traversal is path-cycle safe: a uniquely resolved
 factory may be revisited after its current return chain unwinds, but a mutually
 recursive return chain cannot recurse forever or invent a class shape. The
