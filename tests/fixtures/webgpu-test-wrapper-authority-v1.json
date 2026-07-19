@@ -15,11 +15,11 @@
   },
   "authentication": {
     "canonicalization": "utf8-domain-line-plus-lexicographic-object-keys-arrays-preserved-v1",
-    "operationSetSha256": "1e76c90b4292a6c5f906f1307c685533a99b5b6c833ad2e5b813e8ec9a06ed92",
-    "semanticProgramSetSha256": "dd3ea159309d0ab4bf123ca7b37fb1a8914cc639247b71fb060b9dc1e69b3a0a",
-    "runtimeRoutingSha256": "40600d481dd40a1d2c6423a386bf821bdbe2388a9386672194900f986bf3380d",
-    "webgpuCVocabularySha256": "e6a5e0e80bd14c612be49d382382a33bce99827022bb9dbaa2f04cd1a0941d58",
-    "projectionPayloadSha256": "467e98ade4bf91e5db43a29174358cfc8c20fec8ed81a29199e8cf46ba755f0b"
+    "operationSetSha256": "ff6ed033ada7f75dc66847ccb7f9c6f68d5852700697de7a5140c4a50810a81a",
+    "semanticProgramSetSha256": "491150aa5ebe5c4cbc6147bc2956d12d0cebd0e4e14ced92ef8884cf0c146b4f",
+    "runtimeRoutingSha256": "da16a415ca0e90066fdb19d3c86f9c4332cae19ebd3b5c207737edc039729d2f",
+    "webgpuCVocabularySha256": "992010a238538843ab1043c165b45c122a19ee123d075c4046b98166e723cf1f",
+    "projectionPayloadSha256": "2e86ec7fc83f5898378775e6603ebe85ff6e0ce06787156b15560622a4adfca0"
   },
   "payload": {
     "profileId": "exact-webgpu-v1-draft",
@@ -8558,10 +8558,10 @@
         "wedgedProviderDisposition": "force-loss-and-quarantine-generation",
         "redactedDiagnostic": "gpu-provider-shutdown-deadline-exceeded-v1"
       },
-      "webgpuCVocabularyDigest": "e6a5e0e80bd14c612be49d382382a33bce99827022bb9dbaa2f04cd1a0941d58",
-      "operationSetDigest": "1e76c90b4292a6c5f906f1307c685533a99b5b6c833ad2e5b813e8ec9a06ed92",
-      "semanticProgramDigest": "dd3ea159309d0ab4bf123ca7b37fb1a8914cc639247b71fb060b9dc1e69b3a0a",
-      "runtimeRoutingDigest": "40600d481dd40a1d2c6423a386bf821bdbe2388a9386672194900f986bf3380d",
+      "webgpuCVocabularyDigest": "992010a238538843ab1043c165b45c122a19ee123d075c4046b98166e723cf1f",
+      "operationSetDigest": "ff6ed033ada7f75dc66847ccb7f9c6f68d5852700697de7a5140c4a50810a81a",
+      "semanticProgramDigest": "491150aa5ebe5c4cbc6147bc2956d12d0cebd0e4e14ced92ef8884cf0c146b4f",
+      "runtimeRoutingDigest": "da16a415ca0e90066fdb19d3c86f9c4332cae19ebd3b5c207737edc039729d2f",
       "sortedOperationIds": [
         31670442,
         194635792,

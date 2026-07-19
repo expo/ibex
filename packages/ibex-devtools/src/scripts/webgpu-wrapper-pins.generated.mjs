@@ -2,11 +2,11 @@
 // Do not edit in Ibex; the normalized Exact authorities own these identities.
 
 export const REVIEWED_DIGESTS = Object.freeze({
-  "projection": "467e98ade4bf91e5db43a29174358cfc8c20fec8ed81a29199e8cf46ba755f0b",
-  "operationSet": "1e76c90b4292a6c5f906f1307c685533a99b5b6c833ad2e5b813e8ec9a06ed92",
-  "semanticProgramSet": "dd3ea159309d0ab4bf123ca7b37fb1a8914cc639247b71fb060b9dc1e69b3a0a",
-  "runtimeRouting": "40600d481dd40a1d2c6423a386bf821bdbe2388a9386672194900f986bf3380d",
-  "webgpuCVocabulary": "e6a5e0e80bd14c612be49d382382a33bce99827022bb9dbaa2f04cd1a0941d58"
+  "projection": "2e86ec7fc83f5898378775e6603ebe85ff6e0ce06787156b15560622a4adfca0",
+  "operationSet": "ff6ed033ada7f75dc66847ccb7f9c6f68d5852700697de7a5140c4a50810a81a",
+  "semanticProgramSet": "491150aa5ebe5c4cbc6147bc2956d12d0cebd0e4e14ced92ef8884cf0c146b4f",
+  "runtimeRouting": "da16a415ca0e90066fdb19d3c86f9c4332cae19ebd3b5c207737edc039729d2f",
+  "webgpuCVocabulary": "992010a238538843ab1043c165b45c122a19ee123d075c4046b98166e723cf1f"
 });
 export const REVIEWED_SEMANTIC_DIGESTS = Object.freeze({
   "semanticProjection": "4d8860b84f07b50c785f8ab716a3df93ff2ba8107838a28d0f358810524294ea",
