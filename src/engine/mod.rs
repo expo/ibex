@@ -3129,7 +3129,9 @@ mod tests {
             let tcp_source = format!(
                 r#"
                 globalThis.__windowsNativeTcp = {{ done: false, result: '' }};
-                __exactEnsureNet();
+                // Structural lockdown eagerly runs and then seals the private
+                // lazy installer; the installed TCP bridge is what this smoke
+                // exercises. @ref LLP 0013#phase-1
                 var tcpHandle = __exactTcpConnect('127.0.0.1', {tcp_port}, null, null);
                 __exactTcpWrite(tcpHandle, 'ibex-winsock-tcp');
                 function __tcpBytesToText(bytes) {{

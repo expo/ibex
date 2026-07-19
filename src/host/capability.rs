@@ -1235,23 +1235,24 @@ fn normalize_network_resource(resource: &str) -> String {
 }
 
 #[cfg(any(windows, test))]
-// @ref LLP 0002#host-boundary-constraints — verbatim and ordinary Windows
-// spellings of one resolved object must share one authorization identity.
-fn normalize_windows_verbatim_path_text(value: &str) -> std::borrow::Cow<'_, str> {
-    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
-        return std::borrow::Cow::Owned(format!(r"\\{rest}"));
-    }
-    if let Some(rest) = value.strip_prefix(r"\\?\") {
-        return std::borrow::Cow::Borrowed(rest);
-    }
-    std::borrow::Cow::Borrowed(value)
+// @ref LLP 0002#host-boundary-constraints — namespace and separator spellings
+// of one resolved Windows object must share one authorization identity.
+fn normalize_windows_authorization_path_text(value: &str) -> String {
+    let ordinary = if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = value.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        value.to_string()
+    };
+    ordinary.replace('\\', "/")
 }
 
 fn normalized_fs_path_text(path: &Path) -> String {
     let value = path.to_string_lossy();
     #[cfg(windows)]
     {
-        return normalize_windows_verbatim_path_text(&value).into_owned();
+        return normalize_windows_authorization_path_text(&value);
     }
     #[cfg(not(windows))]
     value.into_owned()
@@ -1797,14 +1798,18 @@ mod tests {
     }
 
     #[test]
-    fn windows_verbatim_paths_have_one_authorization_identity() {
+    fn windows_paths_have_one_authorization_identity() {
         assert_eq!(
-            normalize_windows_verbatim_path_text(r"\\?\C:\workspace\data.txt"),
-            r"C:\workspace\data.txt"
+            normalize_windows_authorization_path_text(r"\\?\C:\workspace\data.txt"),
+            "C:/workspace/data.txt"
         );
         assert_eq!(
-            normalize_windows_verbatim_path_text(r"\\?\UNC\server\share\data.txt"),
-            r"\\server\share\data.txt"
+            normalize_windows_authorization_path_text(r"\\?\UNC\server\share\data.txt"),
+            "//server/share/data.txt"
+        );
+        assert_eq!(
+            normalize_windows_authorization_path_text(r"C:\workspace\data.txt"),
+            "C:/workspace/data.txt"
         );
     }
 
