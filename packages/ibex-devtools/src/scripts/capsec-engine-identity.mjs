@@ -103,7 +103,14 @@ export function engineLoaderEnvironment(
     }
     throw new Error("macOS Hermes artifact is not inside a framework");
   }
-  if (platform === "win32") prepend("PATH", path.dirname(enginePath));
-  else prepend("LD_LIBRARY_PATH", path.dirname(enginePath));
+  if (platform === "win32") {
+    const pathNames = Object.keys(env).filter(
+      (name) => name.toLowerCase() === "path",
+    );
+    if (pathNames.length > 1) {
+      throw new Error("Windows loader environment has duplicate PATH keys");
+    }
+    prepend(pathNames[0] ?? "PATH", path.dirname(enginePath));
+  } else prepend("LD_LIBRARY_PATH", path.dirname(enginePath));
   return env;
 }

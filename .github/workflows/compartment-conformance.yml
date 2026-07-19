@@ -205,6 +205,7 @@ jobs:
           bun test
           packages/ibex-devtools/src/scripts/capsec-conformance-plan.test.mjs
           packages/ibex-devtools/src/scripts/capsec-command-evidence.test.mjs
+          packages/ibex-devtools/src/scripts/capsec-engine-identity.test.mjs
 
       - name: Cache patched Hermes artifacts
         uses: actions/cache@v4

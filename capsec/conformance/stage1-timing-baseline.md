@@ -15,6 +15,28 @@ duration.
 
 The old runner retained no per-command duration field. These workflow-level
 measurements therefore cannot justify learned deadlines or a sharding choice.
+
+A contemporaneous main-branch run, `29705554965` at commit `a083666e`, adds
+failure-path context but not a complete-suite baseline. Its macOS cache-miss
+setup and Hermes build took about 19 minutes before the suite stopped after
+about 92 seconds on the already-stale runtime-environment inventory. Its
+Windows setup and Hermes install took about 27 minutes before the old
+synchronous runner stopped after about three seconds because it could not
+resolve `bun` as a child executable. These are predecessor failures, not
+Stage 1 command-duration measurements.
+
+Stage 1 branch run `29706646383` at commit `52b2095b` produced and uploaded
+the new outcome, live-status, outer-budget, and secured-log artifacts on both
+targets. The macOS outcome retained four preflight attempts: registry drift
+17.233 seconds, contract drift 6.786 seconds, generated-policy drift 20.309
+seconds, and the existing failing all-generated drift 27.850 seconds. The
+Windows Job Object gate passed its synthetic parent/grandchild timeout test;
+the full runner then retained a four-millisecond failed launch which exposed
+case-sensitive construction of a case-insensitive Windows `Path` environment
+key. The loader-environment fix following that run preserves the runner's
+existing key and rejects duplicate case variants. This remains failure-path
+evidence, not a complete-suite timing sample.
+
 The initial ceilings in `suite-plan.json` are containment limits chosen so the
 complete authored critical path plus setup and cleanup/upload reserves fits the
 360-minute workflow boundary, including the largest single command-cleanup
