@@ -233,6 +233,16 @@ function convertedBindGroupDescriptor(): Readonly<Record<string, unknown>> {
 }
 
 const wrappers: ProductionGpuCodecWrapperAccess = {
+  referenceIfBranded(value, expectedKind) {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      !wrapperKinds.has(value)
+    ) {
+      return undefined;
+    }
+    return wrappers.reference(value, expectedKind);
+  },
   reference(value, expectedKind) {
     if (typeof value !== 'object' || value === null) {
       throw new TypeError('unbranded WebGPU object');
@@ -1431,7 +1441,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       'ibex/webgpu-render-pipeline-conversion-fixtures/1',
     );
     expect(renderPipelineConversionFixtures.source.exactCohortSha256).toBe(
-      '20b31013e1f679cd4d6a8acdc5808683d5920ebf6aefbc47ae4fb83babe67e01',
+      '3a4f9df11b928d03097e994fcc6aa005c3bbde589aca2bb0fa49772587249d3d',
     );
     expect(renderPipelineFixtureRows.map((row) => row.workload)).toEqual([
       'GeneticTextureUtility',
@@ -1650,6 +1660,118 @@ describe('generated injection-only WebGPU executable codecs', () => {
       wrappers,
     )).toThrow(TypeError);
     expect(laterReads).toBe(0);
+
+    let nullLaterReads = 0;
+    const nullConstantsCompute = {
+      constants: null,
+      get entryPoint() {
+        nullLaterReads += 1;
+        return 'item';
+      },
+      get module() {
+        nullLaterReads += 1;
+        return shaderModule;
+      },
+    };
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+      'GPUDevice.createComputePipeline',
+      [{ layout: 'auto', compute: nullConstantsCompute }],
+      wrappers,
+    )).toThrow(TypeError);
+    expect(nullLaterReads).toBe(0);
+  });
+
+  test('discriminates pipeline layout brands before the enum string fallback', () => {
+    const convertComputeLayout = (layout: unknown) => (
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        'GPUDevice.createComputePipeline',
+        [{ layout, compute: { module: shaderModule } }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>
+    ).layout;
+    const convertRenderLayout = (layout: unknown) => (
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
+        'GPUDevice.createRenderPipeline',
+        [{ layout, vertex: { module: shaderModule } }],
+        wrappers,
+      ) as Readonly<Record<string, unknown>>
+    ).layout;
+
+    let ordinaryCalls = 0;
+    const ordinary = {
+      toString() {
+        ordinaryCalls += 1;
+        return 'auto';
+      },
+    };
+    expect(convertComputeLayout(ordinary)).toBe('auto');
+    expect(convertRenderLayout(ordinary)).toBe('auto');
+    expect(ordinaryCalls).toBe(2);
+    expect(convertComputeLayout(new String('auto'))).toBe('auto');
+
+    let functionCalls = 0;
+    const callable = function () {};
+    Object.defineProperty(callable, Symbol.toPrimitive, {
+      value() {
+        functionCalls += 1;
+        return 'auto';
+      },
+    });
+    expect(convertComputeLayout(callable)).toBe('auto');
+    expect(functionCalls).toBe(1);
+
+    const sentinel = new Error('layout conversion sentinel');
+    expect(() => convertComputeLayout({
+      toString() {
+        throw sentinel;
+      },
+    })).toThrow(sentinel);
+
+    let brandedStringCalls = 0;
+    const brandedLayout = {
+      toString() {
+        brandedStringCalls += 1;
+        throw new Error('branded layout must not stringify');
+      },
+    };
+    wrapperKinds.set(brandedLayout, 'GPUPipelineLayout');
+    expect(convertComputeLayout(brandedLayout)).toEqual(reference('GPUPipelineLayout'));
+    expect(brandedStringCalls).toBe(0);
+
+    let wrongBrandStringCalls = 0;
+    const wrongBrand = {
+      toString() {
+        wrongBrandStringCalls += 1;
+        return 'auto';
+      },
+    };
+    wrapperKinds.set(wrongBrand, 'GPUShaderModule');
+    expect(() => convertComputeLayout(wrongBrand)).toThrow(TypeError);
+    expect(wrongBrandStringCalls).toBe(0);
+    expect(() => convertComputeLayout(Symbol('auto'))).toThrow(TypeError);
+
+    const proxyTrace: string[] = [];
+    const proxy = new Proxy({
+      toString() {
+        proxyTrace.push('call:toString');
+        return 'auto';
+      },
+    }, {
+      get(target, key, receiver) {
+        proxyTrace.push(`get:${String(key)}`);
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    expect(convertComputeLayout(proxy)).toBe('auto');
+    expect(proxyTrace).toEqual([
+      'get:Symbol(Symbol.toPrimitive)',
+      'get:toString',
+      'call:toString',
+    ]);
+
+    const revocable = Proxy.revocable({}, {});
+    revocable.revoke();
+    expect(() => convertComputeLayout(revocable.proxy)).toThrow(TypeError);
   });
 
   test('interleaves record traps and preserves every legal constants key', () => {
@@ -1776,6 +1898,9 @@ describe('generated injection-only WebGPU executable codecs', () => {
     const lineageRefs = new WeakMap<object, ReturnType<
       ProductionGpuCodecWrapperAccess['reference']
     >>();
+    const knownLineageBrands = new WeakSet<object>();
+    knownLineageBrands.add(crossDeviceLayout);
+    knownLineageBrands.add(receiverDeviceShader);
     lineageRefs.set(crossDeviceLayout, Object.freeze({
       kind: 'GPUPipelineLayout',
       objectId: '41',
@@ -1793,6 +1918,16 @@ describe('generated injection-only WebGPU executable codecs', () => {
       providerGeneration: '7',
     }));
     const lineageWrappers: ProductionGpuCodecWrapperAccess = {
+      referenceIfBranded(value, expectedKind) {
+        if (
+          typeof value !== 'object' ||
+          value === null ||
+          !knownLineageBrands.has(value)
+        ) {
+          return undefined;
+        }
+        return lineageWrappers.reference(value, expectedKind);
+      },
       reference(value, expectedKind) {
         if (typeof value !== 'object' || value === null) {
           throw new TypeError('unbranded WebGPU object');
@@ -1832,6 +1967,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
 
     const foreignLayout = Object.freeze({ marker: 'foreign-layout' });
+    knownLineageBrands.add(foreignLayout);
     expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.convertPublicArguments(
       'GPUDevice.createComputePipeline',
       [{ layout: foreignLayout, compute: { module: receiverDeviceShader } }],
@@ -4451,6 +4587,9 @@ describe('generated injection-only WebGPU executable codecs', () => {
       },
     });
     const observingWrappers: ProductionGpuCodecWrapperAccess = {
+      referenceIfBranded(value, kind) {
+        return wrappers.referenceIfBranded(value, kind);
+      },
       reference(value, kind) {
         log.push(`reference:${String(kind)}`);
         return wrappers.reference(value, kind);
@@ -4519,6 +4658,9 @@ describe('generated injection-only WebGPU executable codecs', () => {
       },
     };
     const rejectingWrappers: ProductionGpuCodecWrapperAccess = {
+      referenceIfBranded() {
+        return undefined;
+      },
       reference() {
         throw failure;
       },

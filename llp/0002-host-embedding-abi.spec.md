@@ -554,15 +554,20 @@ optional `constants`, optional `entryPoint`, then required `module`, with each
 conversion immediately following its Get. A constants record gets its own keys
 once, then interleaves each descriptor check, USVString key conversion, value
 Get, and `double` conversion before sorting only the owned converted snapshot
-for canonical transport. Enumerable Symbols reject, lone surrogates normalize
+for canonical transport. The `{}` default applies only to an absent or
+`undefined` member; explicit `null` rejects before later stage members are
+observed. Enumerable Symbols reject, lone surrogates normalize
 and may collapse duplicate keys, and legal names such as `__proto__` remain own
 data properties. Its `double` conversion uses `ToNumber`, so BigInt throws
-synchronously. Explicit layouts
-and shader modules retain complete object/logical-device/provider generation
+synchronously. Explicit layouts and shader modules retain complete
+object/logical-device/provider generation
 lineage: same-realm cross-device references survive conversion for the later
 service relationship rejection, while wrong-kind and foreign-realm brands
-throw synchronously. Omitted constants materialize the Web IDL `{}` default;
-an omitted entry point remains absent. Labels, entry points, shader source, and
+throw synchronously. The pipeline-layout union uses a trap-free private-wrapper
+brand probe: ordinary objects fall through to the `"auto"` enum's `ToString`,
+while known wrong-kind or foreign private wrappers remain on Exact's stricter
+fail-closed brand path without invoking app-controlled stringification. An
+omitted entry point remains absent. Labels, entry points, shader source, and
 record keys use USVString conversion. A separate adversarial test covers
 `layout: "auto"` and present values. The
 checked-in seven-row TypeGPU 0.11.9 fixture pins six Genetic Racing descriptors
@@ -614,6 +619,8 @@ and per-command-buffer sealed programs, validates all 15 command-record
 identities and their operation/pass/resource/finish provenance, canonicalizes
 one unique record table plus strictly increasing pending-timeline and
 per-program index projections, and authenticates each command-program digest.
+Inherited compute-pass labels are converted as USVString before entering that
+sealed timeline, including lone-surrogate replacement.
 The carrier preserves timeline-only `getCurrentTexture` records separately
 from command-buffer programs, along with every record-local logical error and
 the submit-level wrapper validation error. A downstream native semantic

@@ -51,6 +51,10 @@ const OBJECT_KINDS: Readonly<
   Record<ProductionGpuAllocatedWrapperKind, number>
 > =
   WEBGPU_OBJECT_KIND_TAGS;
+const IMPLEMENTED_WEBGPU_INTERFACE_KINDS = new WeakMap<
+  object,
+  ProductionGpuAllocatedWrapperKind
+>();
 
 // Capture trusted realm intrinsics before app code can replace the writable
 // global binding. Structural lockdown freezes the intrinsic object, but it
@@ -757,6 +761,28 @@ function stagedString(value: unknown, label: string): string {
   return String(value);
 }
 
+function stagedUsvString(value: unknown, label: string): string {
+  const converted = stagedString(value, label);
+  let result = '';
+  for (let index = 0; index < converted.length; index += 1) {
+    const codeUnit = converted.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = converted.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        result += converted[index] + converted[index + 1];
+        index += 1;
+      } else {
+        result += '\ufffd';
+      }
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      result += '\ufffd';
+    } else {
+      result += converted[index];
+    }
+  }
+  return result;
+}
+
 function stagedEnum(
   value: unknown,
   allowed: readonly string[],
@@ -1134,6 +1160,20 @@ export function createProductionWebGpuPrivateBinding(
     });
   };
 
+  const referenceIfBranded = (
+    value: unknown,
+    expectedKind: ProductionGpuWrapperKind,
+  ): Readonly<ProductionGpuFullObjectReference> | undefined => {
+    if (
+      typeof value !== 'object' ||
+      value === null ||
+      !IMPLEMENTED_WEBGPU_INTERFACE_KINDS.has(value)
+    ) {
+      return undefined;
+    }
+    return reference(value, expectedKind);
+  };
+
   const referenceWithDevice = (
     state: WrapperState,
     device: DeviceState,
@@ -1387,13 +1427,17 @@ export function createProductionWebGpuPrivateBinding(
       realm.localObjectIdExhausted = localObjectPlan.exhaustedAfter;
     }
     realm.wrappers.set(wrapper, state);
+    IMPLEMENTED_WEBGPU_INTERFACE_KINDS.set(wrapper, kind);
     realm.allocatedWrapperCount += 1;
     return state;
   };
 
   const convert = (operationId: string, args: readonly unknown[]): unknown => {
     route(operationId);
-    return codecs.convertPublicArguments(operationId, args, { reference });
+    return codecs.convertPublicArguments(operationId, args, {
+      reference,
+      referenceIfBranded,
+    });
   };
 
   const referenceKey = (
@@ -1417,6 +1461,7 @@ export function createProductionWebGpuPrivateBinding(
     route(operationId);
     const statesByReference = new Map<string, WrapperState>();
     const converted = codecs.convertPublicArguments(operationId, args, {
+      referenceIfBranded,
       reference(value, expectedKind) {
         const state = requireState(value, expectedKind);
         const projected = reference(value, expectedKind);
@@ -3427,7 +3472,7 @@ export function createProductionWebGpuPrivateBinding(
     const source = stagedDictionary(descriptor, 'GPUComputePassDescriptor');
     const label = source.label === undefined
       ? ''
-      : stagedString(source.label, 'GPUComputePassDescriptor.label');
+      : stagedUsvString(source.label, 'GPUComputePassDescriptor.label');
     const timestampWritesValue = source.timestampWrites;
     let timestampQuerySet: WrapperState | undefined;
     let timestampWrites: Readonly<Record<string, unknown>> | null = null;

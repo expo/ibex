@@ -7,6 +7,7 @@ import type { NativeGpuEventV2 } from './native-bridge';
 import { DOMException as RuntimeDOMException } from '../events/DOMException';
 import type {
   ExecutableWebGpuCodecBundle,
+  ProductionGpuFullObjectReference,
   ProductionGpuTextureOriginDigestInput,
   ProductionGpuCodecWrapperAccess,
   ProductionGpuDecodedResult,
@@ -4996,7 +4997,10 @@ function convertConstants(
   value: unknown,
   label: string,
 ): Readonly<Record<string, number>> {
-  const source = dictionary(value, label);
+  const source = value === undefined ? Object.create(null) : value;
+  if (!isObjectLike(source)) {
+    throw new TypeError(`${label} must be an object`);
+  }
   // Web IDL record conversion gets all own keys once, then interleaves each
   // descriptor check, key conversion, value Get, and value conversion. Using
   // Object.keys here would observe every descriptor before the first value
@@ -6268,6 +6272,20 @@ function convertVertexState(
   return frozenRecord(vertex);
 }
 
+function convertPipelineLayoutUnion(
+  value: unknown,
+  wrappers: ProductionGpuCodecWrapperAccess,
+): string | Readonly<ProductionGpuFullObjectReference> {
+  // Web IDL selects the interface member only for a platform object that
+  // implements GPUPipelineLayout. Every other value, including an ordinary
+  // object, falls through to GPUAutoLayoutMode's string conversion. Exact
+  // additionally keeps known wrong-kind and foreign private wrappers on its
+  // fail-closed brand path instead of invoking app-controlled stringification.
+  const reference = wrappers.referenceIfBranded(value, 'GPUPipelineLayout');
+  if (reference !== undefined) return reference;
+  return enumValue(value, ['auto'], 'GPUPipelineDescriptorBase.layout');
+}
+
 function convertRenderPipelineDescriptor(
   value: unknown,
   wrappers: ProductionGpuCodecWrapperAccess,
@@ -6282,9 +6300,7 @@ function convertRenderPipelineDescriptor(
   if (layoutValue === undefined) {
     throw new TypeError('GPUPipelineDescriptorBase.layout is required');
   }
-  const layout = isObjectLike(layoutValue)
-    ? wrappers.reference(layoutValue, 'GPUPipelineLayout')
-    : enumValue(layoutValue, ['auto'], 'GPUPipelineDescriptorBase.layout');
+  const layout = convertPipelineLayoutUnion(layoutValue, wrappers);
   const result: Record<string, unknown> = {
     label,
     layout,
@@ -6329,9 +6345,7 @@ function convertComputePipelineDescriptor(
   if (layoutValue === undefined) {
     throw new TypeError('GPUPipelineDescriptorBase.layout is required');
   }
-  const layout = isObjectLike(layoutValue)
-    ? wrappers.reference(layoutValue, 'GPUPipelineLayout')
-    : enumValue(layoutValue, ['auto'], 'GPUPipelineDescriptorBase.layout');
+  const layout = convertPipelineLayoutUnion(layoutValue, wrappers);
   const computeValue = source.compute;
   if (computeValue === undefined) {
     throw new TypeError('GPUComputePipelineDescriptor.compute is required');

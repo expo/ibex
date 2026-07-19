@@ -2,7 +2,7 @@
   "schema": "ibex/webgpu-render-pipeline-conversion-fixtures/1",
   "source": {
     "typegpuVersion": "0.11.9",
-    "exactCohortSha256": "20b31013e1f679cd4d6a8acdc5808683d5920ebf6aefbc47ae4fb83babe67e01",
+    "exactCohortSha256": "3a4f9df11b928d03097e994fcc6aa005c3bbde589aca2bb0fa49772587249d3d",
     "purpose": "Source-shape and materialized post-WebIDL default fixtures for the four authenticated Exact TypeGPU render-pipeline cohorts"
   },
   "materializedDefaults": [

@@ -847,6 +847,16 @@ function buildCorpus() {
     return Object.freeze(object);
   };
   const bindGroupWrapperAccess = Object.freeze({
+    referenceIfBranded(value, expectedKind) {
+      const reference = value && typeof value === "object"
+        ? bindGroupBrands.get(value)
+        : undefined;
+      if (!reference) return undefined;
+      if (expectedKind && reference.kind !== expectedKind) {
+        throw new TypeError("wrong WebGPU object brand");
+      }
+      return reference;
+    },
     reference(value, expectedKind) {
       const reference = value && typeof value === "object"
         ? bindGroupBrands.get(value)
@@ -3638,6 +3648,13 @@ function buildCorpus() {
     corpusBrand: "GPUBindGroupLayout",
   });
   const pipelineLayoutWrapperAccess = Object.freeze({
+    referenceIfBranded(value, expectedKind) {
+      if (value !== pipelineLayoutWrapper) return undefined;
+      if (expectedKind !== "GPUBindGroupLayout") {
+        throw new TypeError("wrong WebGPU object brand");
+      }
+      return createBindGroupLayoutTarget;
+    },
     reference(value, expectedKind) {
       if (
         value !== pipelineLayoutWrapper ||
@@ -4949,6 +4966,13 @@ function buildCorpus() {
   });
   const queueDestinationBrand = Object.freeze({ corpusBrand: "GPUBuffer" });
   const queueWrapperAccess = Object.freeze({
+    referenceIfBranded(value, expectedKind) {
+      if (value !== queueDestinationBrand) return undefined;
+      if (expectedKind !== "GPUBuffer") {
+        throw new TypeError("wrong WebGPU object brand");
+      }
+      return queueDestination;
+    },
     reference(value, expectedKind) {
       if (value !== queueDestinationBrand || expectedKind !== "GPUBuffer") {
         throw new TypeError("unbranded queue writeBuffer destination");

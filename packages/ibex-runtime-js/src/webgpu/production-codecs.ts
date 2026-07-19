@@ -87,6 +87,10 @@ export interface ProductionGpuTextureOriginDigestInput {
 }
 
 export interface ProductionGpuCodecWrapperAccess {
+  readonly referenceIfBranded: (
+    value: unknown,
+    expectedKind: ProductionGpuWrapperKind,
+  ) => Readonly<ProductionGpuFullObjectReference> | undefined;
   readonly reference: (
     value: unknown,
     expectedKind?: ProductionGpuWrapperKind,

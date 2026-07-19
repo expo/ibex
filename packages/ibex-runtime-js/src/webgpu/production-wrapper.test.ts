@@ -1631,6 +1631,18 @@ describe('production-private WebGPU wrapper factory', () => {
       bindGroupLayouts: [],
     });
 
+    let ordinaryLayoutStringCalls = 0;
+    firstDevice.createRenderPipeline({
+      layout: {
+        toString() {
+          ordinaryLayoutStringCalls += 1;
+          return 'auto';
+        },
+      },
+      vertex: { module: firstShader },
+    });
+    expect(ordinaryLayoutStringCalls).toBe(1);
+
     firstDevice.createRenderPipeline({
       layout: secondLayout,
       vertex: { module: firstShader },
@@ -1662,6 +1674,20 @@ describe('production-private WebGPU wrapper factory', () => {
       },
     });
 
+    let wrongBrandStringCalls = 0;
+    Object.defineProperty(firstShader, 'toString', {
+      configurable: true,
+      value() {
+        wrongBrandStringCalls += 1;
+        return 'auto';
+      },
+    });
+    expect(() => firstDevice.createRenderPipeline({
+      layout: firstShader,
+      vertex: { module: firstShader },
+    })).toThrow(TypeError);
+    expect(wrongBrandStringCalls).toBe(0);
+
     const foreignBridge = createFakeBridge();
     const foreignCodecs = createFakeCodecs();
     const foreignBinding = createProductionWebGpuPrivateBinding(
@@ -1673,6 +1699,14 @@ describe('production-private WebGPU wrapper factory', () => {
     const foreignLayout = foreignDevice.createPipelineLayout({
       bindGroupLayouts: [],
     });
+    let foreignLayoutStringCalls = 0;
+    Object.defineProperty(foreignLayout, 'toString', {
+      configurable: true,
+      value() {
+        foreignLayoutStringCalls += 1;
+        return 'auto';
+      },
+    });
     const beforeForeign = inspectBinding(binding).current;
     const encodingsBeforeForeign = codecs.encodings.length;
     const submissionsBeforeForeign = bridge.submissions.length;
@@ -1680,6 +1714,7 @@ describe('production-private WebGPU wrapper factory', () => {
       layout: foreignLayout,
       vertex: { module: firstShader },
     })).toThrow(TypeError);
+    expect(foreignLayoutStringCalls).toBe(0);
     expect(codecs.encodings).toHaveLength(encodingsBeforeForeign);
     expect(bridge.submissions).toHaveLength(submissionsBeforeForeign);
     expect(inspectBinding(binding).current.allocatedWrapperCount).toBe(
@@ -1754,7 +1789,7 @@ describe('production-private WebGPU wrapper factory', () => {
     renderPass.setVertexBuffer(0, copyDestination, 0, 8);
     renderPass.end();
 
-    const computePass = encoder.beginComputePass({ label: 'dormant-compute' });
+    const computePass = encoder.beginComputePass({ label: 'dormant-\ud800-compute' });
     const computeOffsets = [40];
     computePass.setBindGroup(0, bindGroup, computeOffsets);
     computeOffsets[0] = 41;
@@ -1823,6 +1858,7 @@ describe('production-private WebGPU wrapper factory', () => {
       (record) => record.operationName === 'GPUCommandEncoder.beginComputePass',
     );
     if (!beginCompute) throw new Error('missing beginComputePass record');
+    expect(beginCompute.argumentBody.label).toBe('dormant-\ufffd-compute');
     expect(beginCompute.commandEncoderRef).toEqual(beginCompute.receiverRef);
     expect(beginCompute.passRef).toEqual(beginCompute.wrapperAllocatedTargetRef);
     expect(beginCompute.passRef).toMatchObject({
