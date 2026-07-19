@@ -466,42 +466,20 @@ fn generations_value(generations: capsec_semantics::cache::GenerationSet) -> ser
     serde_json::to_value(generations).expect("typed generations must serialize")
 }
 
-fn package_components(path: &std::path::Path) -> Vec<serde_json::Value> {
-    path.components()
-        .filter_map(|component| match component {
-            std::path::Component::Normal(value) => Some(serde_json::json!({
-                "encoding": "utf8",
-                "value": value.to_str().expect("package path must be UTF-8"),
-            })),
-            _ => None,
-        })
-        .collect()
+fn package_components(path: &std::path::Path) -> serde_json::Value {
+    serde_json::to_value(
+        ibex_runtime::host::host_path_components(path)
+            .expect("encode production-equivalent callback package path"),
+    )
+    .expect("serialize callback package path components")
 }
 
 fn object_identity(path: &std::path::Path) -> serde_json::Value {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = std::fs::metadata(path).expect("read callback package metadata");
-        serde_json::json!({
-            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                "apple"
-            } else {
-                "unix"
-            },
-            "volume": format!("dev:{}", metadata.dev()),
-            "file": format!("ino:{}", metadata.ino()),
-        })
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = path;
-        serde_json::json!({
-            "platform": "windows",
-            "volume": "callback-fixture-volume",
-            "file": "callback-fixture-file",
-        })
-    }
+    serde_json::to_value(
+        ibex_runtime::host::object_identity_for_host_path(path)
+            .expect("pin production-equivalent callback package root"),
+    )
+    .expect("serialize callback package object identity")
 }
 
 fn prepare_package_fixture() -> PackageFixture {
