@@ -32,6 +32,9 @@ stale=()
 bun run check:capsec-registry
 bun run check:capsec-contract
 bun run check:capsec-runtime-projection
+# @ref LLP 0014#the-generated-artifact — policy lockfiles bind the registry
+# digest and must rotate in the same change as the generated registry.
+bun run check:example-policy
 bun run check:compiled-environment-profile
 bun run check:oxc-retirement
 bun run check:module-transform-config

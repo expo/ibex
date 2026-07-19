@@ -5,7 +5,9 @@
 **Systems:** Build, Module Loader, Runtime, CLI
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-18 (checked portable policy examples pin their authenticated source trees and rendered artifacts to LF across Git checkout platforms); 2026-07-18 (Snapback's 0.2 requirement activates computed imports: the generator joins reviewed manifest declarations to producer-owned `ibex:site` correspondence rows and authenticates the exact materialized sidecars); 2026-07-17 (canonical policy v2 binds graph, entry, deployment profile, normalized root ceiling, and closed computed-candidate materialization for LLP 0028/0029); 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
+**Revised:** 2026-07-18 (the aggregate generated-drift gate validates every
+checked policy lockfile so registry digest rotations cannot strand stale review
+artifacts); 2026-07-18 (checked portable policy examples pin their authenticated source trees and rendered artifacts to LF across Git checkout platforms); 2026-07-18 (Snapback's 0.2 requirement activates computed imports: the generator joins reviewed manifest declarations to producer-owned `ibex:site` correspondence rows and authenticates the exact materialized sidecars); 2026-07-17 (canonical policy v2 binds graph, entry, deployment profile, normalized root ceiling, and closed computed-candidate materialization for LLP 0028/0029); 2026-07-15 (LLP 0026 adoption defines the bounded initialization-triggering authority carried by an authorized import edge); 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
 **Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests); LLP 0026 (module-runner initialization authority)
 
 > **Current implementation (2026-07-17):** authoring produces the versioned,
@@ -352,6 +354,9 @@ Normative properties:
   removal, root or package ceiling widening, and computed-candidate additions
   participate in authority expansion classification rather than being
   mislabeled as structural drift. Provenance-only changes remain loud diffs.
+  The aggregate `bun run check:drift` gate invokes this check for every
+  committed example, so a registry digest rotation and its policy lockfiles
+  cannot validate independently.
 
 ## Dynamic grants and the static ceiling
 
