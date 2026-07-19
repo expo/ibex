@@ -1992,34 +1992,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         auto key = args[0].toString(runtime).utf8(runtime);
-#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
-        if (key == "PATH") {
-          auto principals = exactCollectTypedPrincipalStack();
-          fprintf(stderr, "[capsec-env-stack] principals=");
-          for (size_t i = 0; i < principals.size(); ++i) {
-            fprintf(
-                stderr,
-                "%s%llu",
-                i == 0 ? "" : ",",
-                static_cast<unsigned long long>(principals[i]));
-          }
-          fprintf(stderr, "\n");
-          try {
-            auto error = runtime.global()
-                             .getPropertyAsFunction(runtime, "Error")
-                             .callAsConstructor(runtime);
-            if (error.isObject()) {
-              auto stack = error.asObject(runtime).getProperty(runtime, "stack");
-              if (stack.isString()) {
-                auto text = stack.asString(runtime).utf8(runtime);
-                fprintf(stderr, "[capsec-env-stack] %s\n", text.c_str());
-              }
-            }
-          } catch (...) {
-            fprintf(stderr, "[capsec-env-stack] JavaScript stack unavailable\n");
-          }
-        }
-#endif
         authorizeTypedEnvironmentRead(runtime, key);
         auto value = getEnvValue(key);
         if (!value.has_value()) {
