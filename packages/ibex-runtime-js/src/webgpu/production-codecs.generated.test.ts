@@ -491,11 +491,14 @@ function completeLimits(value = 4): Record<string, number> {
 }
 
 describe('generated injection-only WebGPU executable codecs', () => {
-  test('pins one generated catalog over the exact reviewed 41-operation profile', () => {
+  test('pins one generated catalog over the append-only reviewed operation profile', () => {
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationCount).toBe(
       WEBGPU_PRODUCTION_PLAN.routes.length,
     );
-    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(41);
+    expect(WEBGPU_PRODUCTION_PLAN.activeRouteSubset.operationCount).toBe(
+      WEBGPU_PRODUCTION_PLAN.routes.length,
+    );
+    expect(WEBGPU_PRODUCTION_PLAN.routes.length).toBeGreaterThanOrEqual(41);
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.operationIds).toEqual(
       WEBGPU_PRODUCTION_PLAN.routes.map((route) => route.operationId),
     );

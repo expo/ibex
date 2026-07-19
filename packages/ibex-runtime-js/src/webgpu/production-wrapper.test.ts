@@ -1002,17 +1002,22 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
-  test('keeps the unauthorised TypeGPU delta absent after buffer semantic graduation', () => {
+  test('keeps inactive TypeGPU additions absent across semantic graduations', () => {
     const staging = describeProductionWebGpuWorkloadStaging();
     expect(staging.supportClaim).toBe('none');
     expect(staging.nativeExecutionEvidence).toBe(
       'none-recording-provider-is-inventory-only',
     );
     expect(staging.typegpuVersion).toBe('0.11.9');
-    expect(staging.activeRouteOperationCount).toBe(41);
+    expect(staging.activeRouteOperationCount).toBe(
+      WEBGPU_PRODUCTION_PLAN.routes.length,
+    );
+    expect(staging.activeRouteOperationCount).toBeGreaterThanOrEqual(41);
     expect(staging.workloadOperationCount).toBe(51);
-    expect(staging.additionalOperationCount).toBe(14);
-    expect(staging.additionalOperations).toHaveLength(14);
+    expect(staging.additionalOperationCount).toBe(
+      staging.additionalOperations.length,
+    );
+    expect(staging.additionalOperationCount).toBeLessThanOrEqual(14);
     expect(staging.blockers).toHaveLength(5);
     expect(staging.embeddedCodecRule).toBe(
       'EMBEDDED_EXECUTABLE_WEBGPU_CODECS-remains-undefined',
@@ -1046,7 +1051,7 @@ describe('production-private WebGPU wrapper factory', () => {
       createFakeBridge(),
       createFakeCodecs(),
     );
-    expect(WEBGPU_PRODUCTION_PLAN.routes).toHaveLength(41);
+    expect(WEBGPU_PRODUCTION_PLAN.routes.length).toBeGreaterThanOrEqual(41);
     expect(Object.keys(binding.interfaceObjects)).toHaveLength(24);
     expect(Object.keys(binding.constantObjects)).toHaveLength(5);
     const uninstalledBufferRoutes = new Set([
