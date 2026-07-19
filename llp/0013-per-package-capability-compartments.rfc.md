@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
+**Revised:** 2026-07-18 (ENG-24933 binds each dynamically compiled CommonJS package principal directly with its native Domain compartment, making source and HBC bootstrap profiles converge)
 **Revised:** 2026-07-15 (ENG-25066 made ordinary ESM use authenticated per-principal native records; the legacy chunk path remains only for unsupported interop during the 0.1 window)
 **Revised:** 2026-07-02 (author decisions recorded on questions 1, 2, 5, 6, 7); 2026-07-02 (revision for the OpenAI family review — `llp/reviews/0013-per-package-capability-compartments.openai.md` — plus an author-side deep pass — `llp/reviews/0013-per-package-capability-compartments.claude-fable.md`); 2026-07-02 (first implementation landed on branch `llp-0013-compartments` — see [Implementation status](#implementation-status)); 2026-07-02 (delegation model + authority-flow section added; resolved question 10, open question 11); 2026-07-02 (dynamic user-facing permissions: runtime mechanism contract recorded, embedder/broker design explicitly deferred to embedder corpora); 2026-07-02 (import-site declarations become the root-principal grant-authoring surface and the policy artifact becomes generated — LLP 0014; resolved question 11, opened question 12); 2026-07-02 (Phase 2 frame-derived attribution built and wired end-to-end on macOS — patch stack 0001-0003, loader/host integration, conformance tests; Phase 5 stack-intersection wired to real frame stacks; deputy-transparency via a reserved runtime principal resolves Open question 3's lean into a concrete rule); 2026-07-02 (Phase 1 real-global inventory closed — eager-install-then-seal + self-grant channel removed; Phase 3 native compartment globals landed — patch 0004, interpreter-level per-Domain global resolution, closing the sloppy-`this` escape natively; import gating wired as Policy surface 3); 2026-07-02 (Phase 4 landed — authority-bearing `FsHandle` attenuators with `scoped()` re-attenuation and a revocation cascade, the primary delegation mechanism; tri-state grant status and ceiling-bounded runtime permission grants); 2026-07-02 (Phase 3 refinements landed — patch 0006: `eval`/`Function`-produced code binds to the caller's compartment + principal, captured at the eval call site into a GC-rooted pending slot; native transitive deep-freeze `__exactDeepFreeze` behind `IBEX_NATIVE_LOCKDOWN`; `Ibex.permissions.onChange` grant-change signal for embedder UIs; per-package chunks resolve siblings via a source-relative `__exactChunkDir`); 2026-07-02 (`process.env` laundering channel closed — the ungated `process.__exactPlainEnv` snapshot removed; compartment steady-state overhead benchmarked ≈0% (`benches/compartment_overhead.rs`); enforce mode made usable by default — `decide()` trusts the first-party root and `module-loader` principals, ceiling-exempt to preserve Phase 4, and the policy artifact's `mode` field drives `SecurityMode` when no `--capsec` is passed); 2026-07-03 (adversarial review + fixes — patch 0007 fails closed on the async/deputy attribution boundary (`kNoUserPrincipal` sentinel + internal-bytecode runtime-principal stamp) so a package cannot launder a detached deputy op into trusted root; endowment config injected via `__ibexEndowRaw` not gated `process.env`; explicit `--capsec permissive` distinguished from the `Auto` default; `ceiling_configured` fails closed on lock poison; native deep-freeze per-root try/catch; chunk-basename traversal guard); 2026-07-03 (patch 0008 closes the async deputy-class laundering hole ENG-22631 — the schedule-time principal is captured at `enqueueJob` and appended to the deputy-class stack, so `Promise.resolve(x).then(deputy.method)` under `deputyClasses` is attributed to its scheduler; resolves Open question 3's schedule-time half); 2026-07-03 (deep-review fixes ENG-22681/22682/22683/22684/22621: enforce/audit auto-enable per-package chunking so a bundled dependency is attributed to its own principal, not root — plus a per-key bundle-cache subdir and the shared `rolldown-runtime.js` chunk redirect that makes chunking robust for ESM apps and safe under concurrent runs; path-scoped `fs` grants resolve symlinks before matching, and `lutimes`/`lchmod`/symlink-target/hardlink-source gates close the last path-mutator holes; `IBEX_ENDOW` can no longer widen policy endowments under enforce/audit without `--allow-env-endowments`; the generated policy emits an explicit observed `builtins` allowlist so the import axis is default-deny; and package identity is now version-distinguished end-to-end — `name@version` principals/compartments/chunks with bare-name policy selectors, so coexisting versions receive distinct policy treatment)
 **Revised:** 2026-07-04 (deep-review fixes ENG-22716/ENG-22717/ENG-22718/ENG-22720/ENG-22722: no-follow-final link metadata gates, `access(W_OK)` write gating, caller-referrer dynamic imports, `Bun.which` spawn gating, and native server/socket network gates)
@@ -1315,7 +1316,10 @@ currently compatibility routing and defense in depth on top of it:
   compartment defines `x` on the compartment global instead of splitting the
   declaration onto the shared real global. The loader sets
   each package's Domain compartment via the native `__exactSetCompartmentFor`
-  (captured privately, sealed at end-of-bootstrap). This closes channel #2
+  (captured privately, sealed at end-of-bootstrap). Patch 0009 makes that same
+  retained-function binder stamp the authenticated numeric package principal
+  directly onto the Domain after compilation, so compartment and attribution
+  cannot diverge between source and HBC bootstrap profiles. This closes channel #2
   (sloppy-`this`) natively and works for unbundled/dynamically-required code the
   rewrite never touches. Tested by
   `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`.
@@ -1347,8 +1351,10 @@ pending/default package id on `Runtime` consumed in `runBytecode`,
 `getCurrentPackageId` (nearest non-runtime user frame), `collectStackPackageIds`
 (Phase 5), and exported `ex_hermes_vm_*` C bridges reachable via
 `IHermes::getVMRuntimeUnsafe()`. The module loader assigns and registers a
-principal per package and stamps each module's Domain (builtins get the runtime
-principal `0xFFFFFFFF`, transparent to the walk); `checkCapability` reads the
+principal per package and stamps each module's Domain: first through the
+creation-time pending principal, then directly alongside its native compartment
+through the private post-compile binder (patch 0009). Builtins get the runtime
+principal `0xFFFFFFFF`, transparent to the walk; `checkCapability` reads the
 frame principal via `currentPrincipalId()` behind the `EXACT_HAVE_FRAME_ATTRIBUTION`
 build probe (unpatched engines fall back to the thread-local). The
 thread-local, `__exactSetActiveModuleId`, and `__exactGrantCapability` are still
@@ -1552,7 +1558,8 @@ The pin plus the ordered `patches/hermes/` series (0001 Domain principal; 0002
 frame attribution + stack collector + exported C bridge; 0003 Runtime
 pending/default id; 0004 native compartment globals; 0005 native-compartment
 refinements; 0006 `eval`/`Function` binding + native deep-freeze; 0007
-fail-closed async/deputy attribution) is the fork; `scripts/apply-hermes-patches.sh`
+fail-closed async/deputy attribution; 0008 schedule-time principal capture; 0009
+post-compile package-principal binding) is the fork; `scripts/apply-hermes-patches.sh`
 applies it after clone in every `build-hermes*.sh` and is exercised by the
 `hermes-patch-canary` workflow. Class breakdown (per `patches/hermes/README.md`):
 every patch is base A/B; the surgical Class C sites total **five** — 0003 (+1,

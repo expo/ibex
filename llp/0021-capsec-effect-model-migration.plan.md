@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-18 (ENG-24933 makes the trusted CommonJS Domain binder stamp package attribution together with its compartment after physical Windows source-bootstrap evidence exposed a root-principal fallback)
 **Revised:** 2026-07-18 (ENG-24933 authenticates Windows package inventories and source bytes through pinned NT root-relative handles, with reparse refusal and exact two-pass comparison)
 **Revised:** 2026-07-18 (ENG-24933 source-binds the installed Windows fsync/fdatasync globals and keeps their legacy-gated branches residual instead of falsely proving target absence)
 **Revised:** 2026-07-18 (ENG-24933 binds callback-invariant batch cardinality to each target's build-filtered source surface instead of retaining the pre-filter shared count)
@@ -1881,10 +1882,16 @@ armed package reauthentication had descriptor-relative traversal only on Unix.
 Windows now pins the authenticated NTFS root, opens each inventory component
 relative to its retained parent handle with reparse traversal disabled, reads
 source bytes from that same retained object, and requires two exact inventory
-passes. The nine Apple startup-environment recipes and all 2,698 Apple
-callback-invariant fixtures pass with the shared identity binding; Windows must
-still repeat the physical batches before the new traversal can contribute
-evidence.
+passes. The following physical attempt passed that traversal and reached the
+package's public environment read, then exposed that Windows source bootstrap
+left the dynamically compiled CommonJS Domain on root principal `0` even though
+the authenticated package compartment was bound. The trusted, boot-sealed
+compartment binder now stamps the registered package principal directly on the
+same retained function Domain after compilation; the creation-time pending
+label remains in place for eval inheritance and defense in depth. The nine Apple
+startup-environment recipes and all 2,698 Apple callback-invariant fixtures pass
+with the shared identity binding; Windows must still repeat the physical batches
+before either repair can contribute evidence.
 A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not

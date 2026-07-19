@@ -167430,6 +167430,7 @@
           "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
           "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
           "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -167437,7 +167438,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167451,6 +167452,7 @@
           "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
           "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
           "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -167458,7 +167460,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167480,6 +167482,7 @@
         "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
         "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
         "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+        "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -167487,7 +167490,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167509,14 +167512,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -167532,7 +167535,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -184929,6 +184932,7 @@
           "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
           "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
           "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -184936,7 +184940,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -184956,6 +184960,7 @@
           "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
           "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
           "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -184963,7 +184968,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -184991,6 +184996,7 @@
         "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
         "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
         "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+        "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -184998,7 +185004,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/bootstrap/compat-polyfills.js#eval",
         "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -185026,14 +185032,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
@@ -185049,7 +185055,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
@@ -196166,6 +196172,7 @@
           "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
           "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
           "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -196173,7 +196180,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196187,6 +196194,7 @@
           "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
           "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
           "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -196194,7 +196202,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196216,6 +196224,7 @@
         "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
         "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
         "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+        "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -196223,7 +196232,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196245,14 +196254,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196268,7 +196277,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -196376,6 +196385,7 @@
           "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
           "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
           "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -196383,7 +196393,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196397,6 +196407,7 @@
           "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
           "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
           "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+          "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -196404,7 +196415,7 @@
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196426,6 +196437,7 @@
         "patches/hermes/0006-eval-binding-and-native-deep-freeze.patch#patch-content",
         "patches/hermes/0007-fail-closed-async-deputy-attribution.patch#patch-content",
         "patches/hermes/0008-schedule-time-principal-capture.patch#patch-content",
+        "patches/hermes/0009-bind-package-principal-with-compartment.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
@@ -196433,7 +196445,7 @@
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-2aa247e99450e4b1f49056e99ff681bc26ff15d64be44a0cc898247ebcc36f50",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-5f5559b0973674ac6c6e031c723a3a3e0e2cfc213bf17949c00659f13210847b",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196455,14 +196467,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -196478,7 +196490,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-d55222ad1b44006f4e562309101c257862781dc44330962eb7156e2cb1ea5363",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-cdbe7dcea6c9c5395c58288ab157673d813e0ceda9823b268f91af07d7b2517f",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -265813,7 +265825,7 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-Yxa5CzcGFpoEjXIP8rdCWw9CeCJvxACMRNZMTsI-NDA"
+      "rawContentDigest": "sha256-r-NAuMZwK9YfPN6_sIvliwau-QQsrTaYzMKoMHthtE4"
     },
     {
       "kind": "registry",
@@ -265842,7 +265854,7 @@
     }
   ],
   "counts": {
-    "observedReferences": 12834,
+    "observedReferences": 12838,
     "logicalSurfaces": 7103,
     "enforcementBranches": 7332,
     "coverageEdges": 7103,

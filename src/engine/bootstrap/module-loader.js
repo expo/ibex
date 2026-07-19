@@ -270,7 +270,11 @@
       if (!__privSetCompartmentFor) {
         throw new Error('Cannot bind package Domain without the native compartment binder');
       }
-      __privSetCompartmentFor(fn, compartment);
+      // Bind the authenticated package principal and its compartment as one
+      // Domain invariant after compilation. The pending label remains the
+      // creation-time path; this retained-function bind makes source and HBC
+      // bootstrap profiles converge. @ref LLP 0013#mechanism-3
+      __privSetCompartmentFor(fn, compartment, packagePrincipal);
     }
     return fn;
   }

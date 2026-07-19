@@ -1,0 +1,62 @@
+# LLP 0013 Hermes patch 0009 — bind package principal with its compartment
+# Class: B (one existing native binder extension)
+# @ref LLP 0013#mechanism-3
+#
+# The trusted CommonJS loader already binds each freshly compiled package
+# function's Domain to its authenticated compartment after `new Function`.
+# Extend that same private, boot-sealed binder to stamp the package principal
+# directly onto the Domain. The existing pending-principal path remains the
+# creation-time mechanism and the eval/Function inheritance substrate, while
+# this post-compile binding makes the module invariant explicit on source and
+# HBC bootstrap profiles alike: compartment and principal describe the same
+# authenticated package Domain.
+diff --git a/lib/VM/JSLib/GlobalObject.cpp b/lib/VM/JSLib/GlobalObject.cpp
+index 792a8df67..18e08e7c7 100644
+--- a/lib/VM/JSLib/GlobalObject.cpp
++++ b/lib/VM/JSLib/GlobalObject.cpp
+@@ -35,16 +35,17 @@ namespace hermes {
+ namespace vm {
+ 
+ /// @ref LLP 0013#mechanism-2 — (Phase 3) — bind a compartment global to a
+-/// compiled function's Domain. __exactSetCompartmentFor(fn, obj): after the
+-/// loader compiles a package's module body (`new Function(...)`), it calls this
+-/// to set that Domain's compartment global, so bare-global references in the
+-/// package's code (and any function it defines, which shares the Domain) resolve
+-/// through `obj` instead of the real global. A no-op for native callees (no
+-/// CodeBlock) — the loader only ever passes a freshly compiled JSFunction.
++/// compiled function's Domain. __exactSetCompartmentFor(fn, obj, packageId):
++/// after the loader compiles a package's module body (`new Function(...)`), it
++/// calls this to bind that Domain's compartment global and package principal as
++/// one invariant. Bare-global references resolve through `obj`, and host calls
++/// attribute to `packageId`. A no-op for native callees (no CodeBlock) — the
++/// loader only ever passes a freshly compiled JSFunction. @ref LLP 0013#mechanism-3
+ CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime) {
+   NativeArgs args = runtime.getCurrentFrame().getNativeArgs();
+   JSFunction *fn = dyn_vmcast<JSFunction>(args.getArg(0));
+   JSObject *obj = dyn_vmcast<JSObject>(args.getArg(1));
++  HermesValue packageId = args.getArg(2);
+   if (fn && obj) {
+     RuntimeModule *rm = fn->getRuntimeModule();
+     if (rm) {
+@@ -52,6 +53,12 @@ CallResult<HermesValue> exactSetCompartmentFor(void *, Runtime &runtime) {
+         domain->setCompartmentGlobal(runtime, obj);
+         // Arm the interpreter's compartment fast-path guard.
+         runtime.markCompartmentActive();
++        if (packageId.isNumber()) {
++          double value = packageId.getNumber();
++          if (value >= 0.0 && value <= 4294967295.0) {
++            domain->setPackageId(static_cast<uint32_t>(value));
++          }
++        }
+       }
+     }
+   }
+@@ -892,7 +899,7 @@ void initGlobalObject(Runtime &runtime, const JSLibFlags &jsLibFlags) {
+       runtime.getIdentifierTable().registerLazyIdentifier(
+           runtime, createASCIIRef("__exactSetCompartmentFor")),
+       exactSetCompartmentFor,
+-      2);
++      3);
+   // @ref LLP 0013#mechanism-1 — (Phase 3) — the native freeze primitives.
+   defineGlobalFunc(
+       runtime.getIdentifierTable().registerLazyIdentifier(
