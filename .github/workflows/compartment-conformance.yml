@@ -2,6 +2,8 @@
 # complete documented prerequisite matrix against one exact patched engine and
 # retain its artifacts. Until every obligation is executable, CI must prove the
 # candidate is incomplete and unadvertised rather than synthesizing promotion.
+# @ref LLP 0032#stage-1-bounded-sequential-execution — target jobs expose one
+# reviewed outer budget and supervise every conformance child before sharding.
 name: CapSec full matrix and evidence
 
 on:
@@ -22,7 +24,7 @@ jobs:
   conformance:
     name: Complete matrix + unadvertised evidence (macOS arm64)
     runs-on: macos-14
-    timeout-minutes: 180
+    timeout-minutes: 360
     env:
       # download-hermes.sh defaults to the developer/debug profile. This job
       # proves the physical Release target, so bind both artifact selection and
@@ -31,6 +33,9 @@ jobs:
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
+
+      - name: Capture outer job budget start
+        run: echo "IBEX_CAPSEC_JOB_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
         run: |
@@ -118,6 +123,7 @@ jobs:
         run: >-
           bun packages/ibex-devtools/src/scripts/run-capsec-inherited-intrinsic-alias-conformance.mjs
           --profile source-patched
+          --target aarch64-apple-darwin
           --output-dir target/capsec-intrinsic-alias-source-patched
 
       - name: Retain exact-engine suite and refusal evidence
@@ -129,6 +135,9 @@ jobs:
             target/capsec-ci-status.json
             target/capsec-executions.json
             target/capsec-conformance-report.json
+            target/capsec-execution-outcome.json
+            target/capsec-live-status.json
+            target/capsec-outer-budget.json
             target/capsec-suite-evidence-*/**
             target/capsec-intrinsic-alias-source-patched/**
           if-no-files-found: error
@@ -137,12 +146,18 @@ jobs:
   conformance-windows:
     name: Complete matrix + unadvertised evidence (Windows x64)
     runs-on: windows-2022
-    timeout-minutes: 240
+    timeout-minutes: 360
     env:
       HERMES_ENABLE_DEBUGGER: "false"
     steps:
       - name: Check out Ibex
         uses: actions/checkout@v4
+
+      - name: Capture outer job budget start
+        shell: pwsh
+        run: |
+          $started = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          "IBEX_CAPSEC_JOB_STARTED_AT=$started" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Configure MSVC developer environment
         uses: ilammy/msvc-dev-cmd@v1
@@ -184,6 +199,13 @@ jobs:
         shell: pwsh
         run: bun install --frozen-lockfile
 
+      - name: Test bounded command execution and Windows Job Object cleanup
+        shell: pwsh
+        run: >-
+          bun test
+          packages/ibex-devtools/src/scripts/capsec-conformance-plan.test.mjs
+          packages/ibex-devtools/src/scripts/capsec-command-evidence.test.mjs
+
       - name: Cache patched Hermes artifacts
         uses: actions/cache@v4
         with:
@@ -202,7 +224,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $directory = Join-Path $PWD "target\capsec-suite-evidence-engine-preflight"
+          $directory = Join-Path $PWD "target\capsec-workflow-diagnostics\engine-preflight"
           New-Item -ItemType Directory -Force -Path $directory | Out-Null
           @(
             "sourceRevision=${{ github.sha }}"
@@ -251,6 +273,10 @@ jobs:
             target/capsec-ci-status.json
             target/capsec-executions.json
             target/capsec-conformance-report.json
+            target/capsec-execution-outcome.json
+            target/capsec-live-status.json
+            target/capsec-outer-budget.json
+            target/capsec-workflow-diagnostics/**
             target/capsec-suite-evidence-*/**
           if-no-files-found: error
           retention-days: 14

@@ -51,7 +51,8 @@ const outputDispositionEvidencePath = option(
 
 const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
-const git = (...gitArgs) => execFileSync("git", gitArgs, { cwd: repoRoot });
+const git = (...gitArgs) =>
+  execFileSync("git", gitArgs, { cwd: repoRoot, timeout: 30_000 });
 if (!fs.existsSync(enginePath))
   throw new Error(`Hermes engine artifact not found: ${enginePath}`);
 if (git("status", "--porcelain").toString("utf8").trim()) {

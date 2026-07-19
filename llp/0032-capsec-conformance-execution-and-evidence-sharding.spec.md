@@ -1,7 +1,7 @@
 # LLP 0032: CapSec Conformance Execution and Evidence Sharding
 
 **Type:** Spec
-**Status:** Review
+**Status:** Accepted
 **Systems:** Security, CI, Build, Runtime, Engine, Tooling
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
@@ -28,6 +28,15 @@ making failures cheaper to diagnose and retry:
 This document governs execution mechanics. LLP 0021 continues to govern what
 constitutes CapSec conformance, which evidence is authoritative, and whether a
 target may be promoted.
+
+Implementation status (2026-07-19): Stage 1 is in progress on the accepted
+specification. The versioned plan lives at `capsec/conformance/suite-plan.json`;
+the command supervisor, outcome/live-status artifacts, POSIX containment,
+Windows kill-on-close Job Object wrapper, attestation reorder, and workflow
+integration are implemented pending complete macOS, Linux, and Windows
+verification. The pre-Stage-1 timing evidence and the explicit decision to
+defer Stage 2 are recorded in
+`capsec/conformance/stage1-timing-baseline.md`. No sharding work has begun.
 
 ## Motivation
 
