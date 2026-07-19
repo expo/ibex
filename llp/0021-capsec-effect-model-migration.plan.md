@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-19 (ENG-24933 keeps 15 Windows `node:fs` metadata recipes residual after physical evidence proved their installed native terminals still emit no typed discovery/commit/repeat decisions)
 **Revised:** 2026-07-19 (ENG-24933 physically verifies Windows protected-artifact publication, callback principal invariants, and all nine startup-environment recipes after the access and flush repairs)
 **Revised:** 2026-07-19 (ENG-24933 replaces invalid Windows directory `sync_all` after protected-artifact hard-link publication with a post-link flush of the still-writable staged file handle)
 **Revised:** 2026-07-19 (ENG-24933 physically verifies the repaired Windows deputy stack as `1,0` and all nine startup-environment recipes, then reduces the next refusal to excessive generic-read access while pinning an Exact artifact root)
@@ -1943,8 +1944,16 @@ post-link flush through the still-writable staged file handle, while Unix keeps
 directory fsync. A subsequent physical Windows run passed protected-artifact
 publication, the callback principal-invariant smoke, and all nine
 startup-environment recipes. Its retained engine identity binds the loaded
-x86_64 Hermes DLL by digest and Windows volume/file identity. A rebuilt physical
-artifact and complete report must
+x86_64 Hermes DLL by digest and Windows volume/file identity. The first complete
+Windows matrix then reached the third public-fixture batch and proved that
+`node:fs.lstatSync` returned through the installed Windows native global without
+emitting any of its promised typed decisions. The Windows host ABI explicitly
+refuses descriptor-backed filesystem discovery, commit, and repeat stages, so
+the recipe catalog now keeps all 15 `lstatSync`, `statSync`, and `readdirSync`
+effect scenarios residual instead of laundering their legacy native terminals
+through a source-level builtin probe. The Windows builtin batch consequently
+requires only the 90 target-typed OS recipes; Apple retains all 105 OS and
+filesystem recipes. A rebuilt physical artifact and complete report must
 still finish and be inspected before any Windows target cell or advertisement
 can change; incomplete evidence is retained as a refusal artifact, not
 promotion authority.

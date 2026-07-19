@@ -204,8 +204,8 @@ describe("exact-target CapSec executable recipes", () => {
       windowsExpectedFixtureIds.length,
     );
     expect(windowsRecipes.summary.requiredFixtures).toBe(22_625);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_952);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_673);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(4_937);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(17_688);
     const windowsPosixFsOpenRows = windowsRecipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -337,12 +337,39 @@ describe("exact-target CapSec executable recipes", () => {
       windowsRecipes.summary.residualReasons[
         "native-public-operation-not-typed-on-target"
       ],
-    ).toBe(132);
+    ).toBe(147);
     expect(
       windowsRecipes.summary.residualReasons[
         "native-public-setup-operation-not-typed-on-target"
       ],
     ).toBe(4);
+
+    for (const exportName of ["lstatSync", "readdirSync", "statSync"]) {
+      const rows = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.route.surfaceObservedKeys.includes(
+            `builtin:export:node_fs:${exportName}`,
+          ) &&
+          [
+            "allow",
+            "deny",
+            "malformed",
+            "missing-attribution",
+            "wrong-principal",
+          ].includes(recipe.scenario),
+      );
+      expect(rows).toHaveLength(5);
+      expect(
+        rows.every(
+          (recipe) =>
+            recipe.publicSurfaceProbe === null &&
+            recipe.status === "unresolved" &&
+            recipe.residualReasons.includes(
+              "native-public-operation-not-typed-on-target",
+            ),
+        ),
+      ).toBe(true);
+    }
   });
 
   test("authors every node:os effect scenario without hand-labeling a native terminal", () => {

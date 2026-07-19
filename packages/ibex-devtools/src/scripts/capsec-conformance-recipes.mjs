@@ -3323,6 +3323,35 @@ const WINDOWS_UNTYPED_NATIVE_PUBLIC_SETUP_OPERATIONS = new Set([
   "__exactTcpReset",
   "__exactTcpShutdown",
 ]);
+const WINDOWS_UNTYPED_EFFECT_BUILTIN_SURFACES = new Set([
+  "builtin:export:node_fs:lstatSync",
+  "builtin:export:node_fs:readdirSync",
+  "builtin:export:node_fs:statSync",
+]);
+
+function untypedWindowsBuiltinRouteReason(route, target) {
+  if (
+    !target.triple.includes("-windows-") ||
+    route.surfaceObservedKeys.length !== 1 ||
+    !WINDOWS_UNTYPED_EFFECT_BUILTIN_SURFACES.has(
+      route.surfaceObservedKeys[0],
+    )
+  ) {
+    return null;
+  }
+  const hasUntypedTerminal = route.alternatives.some((alternative) => {
+    const prefix = "native-op:";
+    return (
+      alternative.terminalObservedKey.startsWith(prefix) &&
+      WINDOWS_UNTYPED_NATIVE_PUBLIC_OPERATIONS.has(
+        alternative.terminalObservedKey.slice(prefix.length),
+      )
+    );
+  });
+  return hasUntypedTerminal
+    ? "native-public-operation-not-typed-on-target"
+    : null;
+}
 
 function nativePublicTemplateForTarget(template, invocation, target) {
   if (!target.triple.includes("-windows-")) {
@@ -4092,13 +4121,24 @@ export function buildConformanceRecipeCatalog({
       coverageByEdge,
       coverageByObservedKey,
     });
-    const effectBuiltinPublicSurfaceProbe = authoredBuiltinPublicProbe({
-      plan,
-      scenario,
-      route,
-      liveByObservedKey,
-      coverageByObservedKey,
-    });
+    // A public builtin is executable only when every native terminal whose
+    // decisions it promises can emit typed evidence on this target. Windows
+    // currently installs the legacy fs globals, but its host adapter explicitly
+    // refuses descriptor-backed discovery/commit/repeat stages. Do not let the
+    // source-level builtin wrapper launder those untyped terminals into a
+    // fully-executable recipe.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    const effectBuiltinUnavailableReason =
+      untypedWindowsBuiltinRouteReason(route, target);
+    const effectBuiltinPublicSurfaceProbe = effectBuiltinUnavailableReason
+      ? null
+      : authoredBuiltinPublicProbe({
+          plan,
+          scenario,
+          route,
+          liveByObservedKey,
+          coverageByObservedKey,
+        });
     const nonCapabilityBuiltinPublicSurfaceProbe =
       authoredNonCapabilityBuiltinProbe({
         plan,
@@ -4161,7 +4201,9 @@ export function buildConformanceRecipeCatalog({
           route,
           liveByObservedKey,
           target,
-        }) ?? nativePublicSurface.unavailableReason);
+        }) ??
+        effectBuiltinUnavailableReason ??
+        nativePublicSurface.unavailableReason);
     const residual = residualReasons({
       plan,
       scenario,

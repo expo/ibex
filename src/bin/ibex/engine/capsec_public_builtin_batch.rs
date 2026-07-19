@@ -699,8 +699,8 @@ async fn capsec_public_builtin_recipe_batch() {
     let recipes = builtin_recipes(&catalog);
     assert_eq!(
         recipes.len(),
-        105,
-        "expected the authored OS and filesystem builtin recipe slices"
+        if cfg!(windows) { 90 } else { 105 },
+        "expected only target-typed authored builtin recipe slices"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
