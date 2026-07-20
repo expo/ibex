@@ -5,7 +5,13 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r20 — records the second pinned Linux release attempt,
+**Revised:** 2026-07-20 (r21 — records the third pinned Linux release attempt,
+which completed the reachable and control-plane executors but stopped at an
+absence-executor invariant that still expected the superseded 7,361-route and
+9,749-live-binding topology; updates those assertions to the already generated
+and fixture-bound 7,407/10,298 cardinalities and keeps advertisements empty
+pending another unchanged-policy run; r20 — records the second pinned Linux
+release attempt,
 which stopped before materializing evidence because the reachable executor's
 hard cardinality assertion still expected 115 rather than 116 native edges;
 updates that assertion, invokes the newly admitted NumberFormat edge with an
@@ -431,6 +437,16 @@ not target evidence. The executor now expects 116 native rows and invokes
 receiver. A fail-fast run with no evidence files leaves its primary test
 failure in the Actions log instead of replacing it with a second artifact-
 retention error. A fresh run remains required.
+The third pinned Linux release attempt (Actions run `29772419343`, exact
+source `884e327f099ec2daa3510a648db1ff340cfa0f68`) completed the 116-row reachable
+executor and the 22-row control-plane executor, then stopped before absence evidence
+materialization because the Rust executor still asserted the superseded
+7,361-route and 9,749-live-binding topology. The generated probe plan, route
+graph, fixture plan, and their tests already bind 7,407 source routes and
+10,298 live bindings; the executor now asserts those exact cardinalities. This
+was another fail-closed harness mismatch, not target evidence, and no
+advertisement was produced. A fresh unchanged-policy Linux run remains
+required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full

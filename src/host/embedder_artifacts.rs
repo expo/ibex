@@ -3564,7 +3564,7 @@ mod tests {
             Some("aarch64-apple-darwin")
         );
         let routes = route_graph["routes"].as_array().unwrap();
-        assert_eq!(routes.len(), 7_361);
+        assert_eq!(routes.len(), 7_407);
         let route_by_source_probe = routes
             .iter()
             .map(|route| (route["sourceProbeId"].as_str().unwrap().to_owned(), route))
@@ -3580,7 +3580,7 @@ mod tests {
                     .push(route);
             }
         }
-        assert_eq!(routes_by_live_probe.len(), 9_749);
+        assert_eq!(routes_by_live_probe.len(), 10_298);
 
         let probe_logical_path = |path: &str, undefined_terminal_is_unreachable: bool| {
             let path_c = std::ffi::CString::new(path).unwrap();
