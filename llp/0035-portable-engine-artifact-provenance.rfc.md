@@ -5,9 +5,10 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (the macOS arm64 publisher now emits and separately
-attests a producer-validated diagnostic portable package; acceptance,
-installation, selection, runtime consumption, and advertisements remain off)
+**Revised:** 2026-07-20 (the macOS arm64 publisher emits a separately attested
+diagnostic package and the safe checkout-local installer/store core now has an
+injected-verifier adversarial harness; production verifier integration,
+acceptance, runtime consumption, and advertisements remain off)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -955,10 +956,31 @@ and symlink-depth limits are applied before retaining input bytes and again
 while inspecting the archive. The workflow pins every invoked action by commit,
 requires the checked producer `HEAD` to equal `GITHUB_SHA`, separately attests
 this final archive, and retains the exact Sigstore bundle beside it. No
-installer, local store,
-selector, `build.rs` consumer, post-link audit, runtime identity migration, or
-advertisement change is implemented by this checkpoint, and
-`portableArtifactAcceptanceEnabled` remains false.
+production verifier-integrated installer, selector, `build.rs` consumer,
+post-link audit, runtime identity migration, or advertisement change is
+implemented by this checkpoint, and `portableArtifactAcceptanceEnabled`
+remains false.
+
+The checkout-local installer foundation now pins the archive and detached
+bundle into a private same-filesystem workspace, requires a canonical offline-
+verification result before creating a gzip reader, and streams bounded gzip /
+ustar input through an exact-member extractor without a generic archive tool
+or whole-archive buffer. It rejects the cross-platform path-equivalence,
+special-member, symlink, limit, digest, mode, authority-document, partial-store,
+and mutation cases in the acceptance corpus. It reconstructs publisher
+expectations from checked policy plus the externally selected current checkout
+revision, validates the manifest plus every declared authority-document
+preimage and its payload join, writes canonical transport/completion records
+last, atomically publishes the artifact-ID store,
+and fully reverifies an existing store and selected transport; a second
+authenticated transport encoding can be added atomically without changing
+portable identity. The harness injects a verifier so it can exercise valid and
+adversarial transports without fabricating an Ibex signature. Production
+offline-verifier invocation is deliberately fail-closed in this foundation
+until the reviewed verifier expectation profile and real private Ibex corpus
+are integrated. The store still has no `build.rs`, post-link, runtime, REPL, or
+conformance consumer, and this diagnostic materialization does not enable
+portable acceptance.
 
 Exit: a clean checkout can install and run the reviewed Release engine without
 another worktree, and archive/manifest/path/profile tampering fails before
