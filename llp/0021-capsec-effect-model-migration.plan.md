@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-20 (ENG-24933 physical Windows queue-rejection evidence exposes and repairs the missing async open/close hooks and non-injectable Windows fs worker capacity boundary)
+**Revised:** 2026-07-20 (ENG-24933 physical Windows queue-rejection evidence exposes and repairs the missing async open/close hooks and non-injectable Windows fs worker capacity boundary, then replacement physical evidence verifies the repair)
 **Revised:** 2026-07-20 (ENG-24933 replaces the POSIX-only filesystem queue-rejection leak oracle with synchronized native Windows process-handle counts after the complete matrix exposed `/dev/fd` as its sole failure)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the Windows module-semantics baseline and advances the default suite to the Windows DNS record-query stub)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the verified Windows Hermes CLI binding and advances the default product suite to platform-specific module-semantics baseline drift)
@@ -2325,7 +2325,14 @@ The regenerated Windows catalog now accounts for 22,646 required fixtures as
 target-surface and 84 native-global probes. The 18 async-open branch scenarios
 remain residual because Windows does not yet have the typed public recipe
 needed to claim their runtime observations.
-This product repair awaits a replacement focused physical run and the later
+Replacement focused physical run
+[`29761792742`](https://github.com/ccheever/ibex/actions/runs/29761792742)
+compiled the repaired Windows backend at commit `9ef78320` and passed the exact
+integration test in 16.42 seconds (one passed, zero failed). The passing
+contract proves the synchronized assertion
+`seed=true rejected=100 close=true open=true byte=a created=false fdDelta=0`
+and an independently measured Windows process-handle delta of zero. This
+product repair is therefore physically verified, but still awaits the later
 complete report; advertisements remain empty.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
