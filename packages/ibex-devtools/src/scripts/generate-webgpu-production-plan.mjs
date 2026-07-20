@@ -105,6 +105,13 @@ const COMPUTE_PIPELINE_PROMOTION = Object.freeze({
   disposition:
     "construction-private-route-and-native-codec-public-install-and-support-absent",
 });
+// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam — the
+// promotion row is immutable history; this separately pins the active route.
+const REVIEWED_COMPUTE_PIPELINE_ACTIVE_IDENTITY = Object.freeze({
+  operationWireId: 797909431,
+  operationSemanticSha256:
+    "c9fa6574c6833ebcec767bdda2aa7e045fd1090270648c718a555d398590d5a0",
+});
 function authenticatedPromotionProjection(localPromotions) {
   return localPromotions.map((promotion) =>
     promotion.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID
@@ -831,9 +838,10 @@ function buildCodecManifest(
     !authority.payload.operations.some(
       (operation) =>
         operation.operationId === COMPUTE_PIPELINE_PAYLOAD_CODEGEN_OPERATION_ID &&
-        operation.wireId === COMPUTE_PIPELINE_PROMOTION.sourceOperationWireId &&
+        operation.wireId ===
+          REVIEWED_COMPUTE_PIPELINE_ACTIVE_IDENTITY.operationWireId &&
         operation.semanticSha256 ===
-          COMPUTE_PIPELINE_PROMOTION.sourceOperationSemanticSha256,
+          REVIEWED_COMPUTE_PIPELINE_ACTIVE_IDENTITY.operationSemanticSha256,
     ) ||
     authority.provenance.localPromotions?.length !==
       AUTHENTICATED_PROMOTION_OPERATION_IDS.length ||

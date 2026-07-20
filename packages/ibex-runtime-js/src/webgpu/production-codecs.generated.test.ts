@@ -1020,7 +1020,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUDevice.createBindGroupLayout', wireId: 2544948076 },
         { operationId: 'GPUDevice.createBuffer', wireId: 1869756926 },
         { operationId: 'GPUDevice.createPipelineLayout', wireId: 3373402978 },
-        { operationId: 'GPUDevice.createComputePipeline', wireId: 2342501516 },
+        { operationId: 'GPUDevice.createComputePipeline', wireId: 797909431 },
         { operationId: 'GPUDevice.createRenderPipeline', wireId: 2407151159 },
         { operationId: 'GPUDevice.createSampler', wireId: 3285037552 },
         { operationId: 'GPUDevice.createTexture', wireId: 4177957718 },
@@ -1038,7 +1038,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
         { operationId: 'GPUQueue.writeTexture', wireId: 3114133342 },
         {
           operationId: 'GPUQueue.copyExternalImageToTexture',
-          wireId: 2194495720,
+          wireId: 2735509416,
         },
         { operationId: 'GPUQueue.submit', wireId: 308839175 },
       ],
@@ -3732,7 +3732,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
     expect(nativeRoute).toMatchObject({
       operationId,
-      wireId: 2342501516,
+      wireId: 797909431,
       request: {
         catalog: {
           tag: 'gpu-create-compute-pipeline-service-request-v1',
@@ -3742,7 +3742,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
     });
     expect(nativeRoute.request.payload.fields[0]).toMatchObject({
       name: 'header',
-      constants: { codecTag: 25, operationWireId: 2342501516 },
+      constants: { codecTag: 25, operationWireId: 797909431 },
     });
     expect(nativeRoute.request.payload.fields.at(-1)).toMatchObject({
       name: 'convertedArguments',
@@ -3774,7 +3774,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       payload.byteLength,
     );
     expect(header.getUint16(6, true)).toBe(25);
-    expect(header.getUint32(8, true)).toBe(2342501516);
+    expect(header.getUint32(8, true)).toBe(797909431);
     expect(Array.from(payload.slice(53, 55))).toEqual([
       1,
       WEBGPU_OBJECT_KIND_TAGS.GPUComputePipeline,
