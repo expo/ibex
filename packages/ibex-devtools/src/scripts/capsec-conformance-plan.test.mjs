@@ -25,9 +25,16 @@ test("the authored target budgets fit their outer job timeouts", () => {
     commandPolicyFor(
       plan,
       "x86_64-pc-windows-msvc",
+      "exact-loaded-engine-attestation",
+    ).deadlineMs,
+  ).toBe(2_700_000);
+  expect(
+    commandPolicyFor(
+      plan,
+      "x86_64-pc-windows-msvc",
       "rust-default-full",
     ).deadlineMs,
-  ).toBe(3_600_000);
+  ).toBe(2_700_000);
 });
 
 test("suite-plan bindings distinguish source, target, and engine identity", () => {

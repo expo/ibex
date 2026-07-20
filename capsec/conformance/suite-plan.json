@@ -52,8 +52,7 @@
       "maxPublicFixtureBatches": 7,
       "aliasDiagnosticCommands": [],
       "deadlineOverrides": {
-        "rust-default-full": 3600000,
-        "rust-workspace-all-features-executable-tests": 3600000
+        "exact-loaded-engine-attestation": 2700000
       }
     }
   },
