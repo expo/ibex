@@ -21,6 +21,7 @@ pub mod handles;
 #[cfg(feature = "host-http-server")]
 pub mod http_server;
 pub mod policy;
+mod portable_target_admission;
 pub mod process;
 
 use crate::module_loader::{ModuleLoader, ResolvedModule};
@@ -5959,39 +5960,16 @@ fn fd_descends_from_object(
 /// Authenticate the snapshot's exact target claim against the checked product
 /// registry and return the disposition used by every live effect gate.  The
 /// snapshot/launcher cannot assert completeness with a boolean: the target
-/// must be advertised and every generated edge must have one non-unsupported
-/// cell for the exact canonical feature set.
+/// must be advertised and its exact promoted v2 report must carry one complete
+/// conformant cell for every generated edge. Source A's deliberately
+/// unsupported target-cell catalog is never promoted or borrowed here.
 /// @ref LLP 0021#default-and-target-claim
+/// @ref LLP 0035#reports-and-advertisements
 fn authenticated_target_cells(
     snapshot: &capsec_semantics::arming::ArmedSnapshot,
 ) -> capsec_semantics::Result<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>> {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine as _;
-    use capsec_semantics::decision::TargetCellDisposition;
     use capsec_semantics::Error;
-    use sha2::{Digest as _, Sha256};
 
-    let cells_text = crate::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON;
-    let cells: serde_json::Value = serde_json::from_str(cells_text)
-        .map_err(|error| Error::InvalidModel(format!("invalid checked target cells: {error}")))?;
-    let advertisements: serde_json::Value =
-        serde_json::from_str(crate::capsec_registry_generated::CAPSEC_TARGET_ADVERTISEMENTS_JSON)
-            .map_err(|error| {
-            Error::InvalidModel(format!("invalid checked target advertisements: {error}"))
-        })?;
-    let target_cells_digest = format!(
-        "sha256-{}",
-        URL_SAFE_NO_PAD.encode(Sha256::digest(cells_text.as_bytes()))
-    );
-    if advertisements
-        .get("targetCellsRawContentDigest")
-        .and_then(serde_json::Value::as_str)
-        != Some(target_cells_digest.as_str())
-    {
-        return Err(Error::ArmRefused(
-            "target advertisement does not bind the checked target-cell bytes".into(),
-        ));
-    }
     let target = snapshot.engine_target()?;
     let features = snapshot.engine_features()?;
     if features.windows(2).any(|pair| pair[0] >= pair[1]) {
@@ -5999,94 +5977,29 @@ fn authenticated_target_cells(
             "engine feature set is not canonical, sorted, and unique".into(),
         ));
     }
-    let feature_values = features
-        .iter()
-        .cloned()
-        .map(serde_json::Value::String)
-        .collect::<Vec<_>>();
-    let advertised = advertisements
-        .get("advertisements")
-        .and_then(serde_json::Value::as_array)
-        .map(|targets| {
-            targets
-                .iter()
-                .filter(|candidate| {
-                    candidate
-                        .pointer("/target/triple")
-                        .and_then(serde_json::Value::as_str)
-                        == Some(target.as_str())
-                        && candidate
-                            .pointer("/target/features")
-                            .and_then(serde_json::Value::as_array)
-                            == Some(&feature_values)
-                })
-                .collect::<Vec<_>>()
-        })
-        .ok_or_else(|| Error::InvalidModel("target advertisements lack rows".into()))?;
-    if advertised.len() != 1 {
-        return Err(Error::ArmRefused(format!(
-            "engine target {target} with its exact features has no unique verified advertisement"
-        )));
-    }
-    let loaded_engine = crate::engine::loaded_engine_binary_identity()
-        .map_err(Error::ArmRefused)
-        .and_then(|identity| {
-            serde_json::to_value(identity).map_err(|error| {
-                Error::InvalidModel(format!("cannot encode loaded engine identity: {error}"))
-            })
-        })?;
-    if advertised[0].get("engine") != Some(&loaded_engine) {
-        return Err(Error::ArmRefused(
-            "target conformance report does not identify the exact loaded engine artifact".into(),
-        ));
-    }
-
-    let rows = cells
-        .get("cells")
-        .and_then(serde_json::Value::as_array)
-        .ok_or_else(|| Error::InvalidModel("checked target cells are missing cells".into()))?;
-    let mut result = BTreeMap::new();
-    for edge in crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS {
-        let matching = rows
-            .iter()
-            .filter(|row| {
-                row.get("edgeId").and_then(serde_json::Value::as_str) == Some(*edge)
-                    && row
-                        .pointer("/target/triple")
-                        .and_then(serde_json::Value::as_str)
-                        == Some(target.as_str())
-                    && row
-                        .pointer("/target/features")
-                        .and_then(serde_json::Value::as_array)
-                        == Some(&feature_values)
-            })
-            .collect::<Vec<_>>();
-        if matching.len() != 1 {
-            return Err(Error::ArmRefused(format!(
-                "target has no unique cell for coverage edge {edge}"
-            )));
-        }
-        let disposition = match matching[0]
-            .get("disposition")
-            .and_then(serde_json::Value::as_str)
-        {
-            Some("enforced" | "non-capability") => TargetCellDisposition::Complete,
-            Some("closed" | "absent") => TargetCellDisposition::Closed,
-            Some("unsupported") => {
-                return Err(Error::ArmRefused(format!(
-                    "target coverage edge {edge} remains unsupported"
-                )))
-            }
-            Some(other) => {
-                return Err(Error::InvalidModel(format!(
-                    "unknown target-cell disposition {other}"
-                )))
-            }
-            None => return Err(Error::InvalidModel("target cell lacks disposition".into())),
-        };
-        result.insert((*edge).to_owned(), disposition);
-    }
-    Ok(result)
+    let advertised = portable_target_admission::select_v2_advertisement(
+        crate::capsec_registry_generated::CAPSEC_TARGET_ADVERTISEMENTS_JSON,
+        &target,
+        &features,
+    )?;
+    portable_target_admission::require_checked_promotion(
+        &advertised,
+        crate::engine::EMBEDDED_PORTABLE_ENGINE_PROMOTION_ADMISSION,
+    )?;
+    let target_cells = portable_target_admission::authenticated_report_target_cells(
+        &advertised,
+        crate::engine::EMBEDDED_PORTABLE_ENGINE_PROMOTION_REPORT,
+    )?;
+    let loaded_portable = crate::engine::portable_identity::loaded_engine_portable_identity()
+        .map_err(capsec_semantics::Error::ArmRefused)?;
+    let loaded_mapped = crate::engine::portable_identity::loaded_engine_mapped_instance_identity()
+        .map_err(capsec_semantics::Error::ArmRefused)?;
+    portable_target_admission::authenticate_local_engine(
+        &advertised,
+        &loaded_portable,
+        &loaded_mapped,
+    )?;
+    Ok(target_cells)
 }
 
 fn host_path_component(
@@ -9886,9 +9799,7 @@ mod tests {
         let snapshot = example_armed_snapshot_with(|_| {});
         let error = authenticated_target_cells(&snapshot).unwrap_err();
         assert!(
-            error
-                .to_string()
-                .contains("has no unique verified advertisement"),
+            error.to_string().contains("legacy v1"),
             "unexpected refusal: {error}"
         );
     }

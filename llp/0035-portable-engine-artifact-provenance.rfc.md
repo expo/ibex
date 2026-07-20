@@ -1923,6 +1923,29 @@ diagnostic upload retains the exact release plan, Cargo stream, post-link set,
 and bounded refusal state, but no incomplete run receives a candidate artifact
 or target authority.
 
+The Host-admission implementation consumes that publication without changing
+the source-A target-cell catalog or widening the promotion changed-path roles.
+An active admission must contain exactly one `conformance-evidence` artifact
+at
+`capsec/conformance/portable-promotions/<A>/<target>/<artifactId>/conformance-report.json`.
+After the live promotion preflight succeeds, `build.rs` independently
+recomputes the active catalog admission digest, derives that fixed path, checks
+the report's catalog role, mode, size, Git blob object ID, and raw digest, and
+rejoins its exact v2 report bytes and conformance digest to the tracked v2
+advertisement before embedding those bytes in a separate marker. Diagnostic A
+and legacy builds embed exactly `null\n` for the report marker.
+
+At startup Host strictly parses the v2 advertisement, the canonical checked
+A/P/C admission, and the embedded v2 report. It requires exact
+source/target/artifact/report/portable-identity joins, validates a fresh mapped
+identity independently, and requires the report's ordered cell membership to
+equal the complete checked coverage-edge inventory. It derives `enforced`,
+`non-capability`, `closed`, and `absent` semantics only from conformant report
+membership, checked source classifications, and whether the report names an
+implementation branch; these collapse to Host's existing `Complete` and
+`Closed` gate states. It never borrows source A's `unsupported` rows and never
+publishes mapped/local identity fields.
+
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.
 

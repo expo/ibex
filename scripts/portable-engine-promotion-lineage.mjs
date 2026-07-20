@@ -685,6 +685,15 @@ function validateAdmissionShape(admission, label) {
   assert(roleCounts.get("conformance-evidence") >= 1, `${label}: at least one conformance-evidence blob is required`);
   assert(roleCounts.get("target-attestation") === 1, `${label}: exactly one target-attestation blob is required`);
   assert(roleCounts.get("target-advertisement") === 1, `${label}: exactly one target-advertisement blob is required`);
+  const reportPath = `capsec/conformance/portable-promotions/${admission.sourceRevision}/${admission.targetTriple}/${admission.portableArtifactId}/conformance-report.json`;
+  assert(
+    admission.artifacts.filter(
+      (artifact) =>
+        artifact.role === "conformance-evidence" &&
+        artifact.path === reportPath,
+    ).length === 1,
+    `${label}: exactly one conformance report must use the fixed source/target/artifact-scoped path`,
+  );
   assertSemanticDigest(admission.admissionDigest, `${label}.admissionDigest`);
   assert(semanticDigest(ADMISSION_DOMAIN, admission, ["admissionDigest"]) === admission.admissionDigest, `${label}: admissionDigest mismatch`);
 }

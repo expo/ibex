@@ -152,6 +152,7 @@ pub fn write_absent_embedded_outputs(out_dir: &Path) -> Result<(), String> {
         "portable_engine_installation_receipt.json",
         "portable_engine_build_consumption.json",
         "portable_engine_promotion_admission.json",
+        "portable_engine_promotion_report.json",
     ] {
         fs::write(out_dir.join(name), b"null\n")
             .map_err(|error| format!("write absent portable engine marker {name}: {error}"))?;
@@ -282,7 +283,7 @@ impl<'de> Deserialize<'de> for StrictValue {
     }
 }
 
-fn parse_strict(bytes: &[u8], label: &str) -> Result<Value, String> {
+pub(crate) fn parse_strict(bytes: &[u8], label: &str) -> Result<Value, String> {
     let mut deserializer = serde_json::Deserializer::from_slice(bytes);
     let value = StrictValue::deserialize(&mut deserializer)
         .map_err(|error| format!("{label} is not strict I-JSON: {error}"))?;

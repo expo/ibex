@@ -560,7 +560,7 @@ describe("portable engine checked Git promotion lineage", { skip: process.platfo
     const extra = await createPromotionRepository({ unlistedEquivalent: true });
     assertVerifierRefuses(extra.repoRoot, /changed-path set mismatch/u);
     const renamed = await createPromotionRepository({ renameSourceBlob: true });
-    assertVerifierRefuses(renamed.repoRoot, /changed-path set mismatch/u);
+    assertVerifierRefuses(renamed.repoRoot, /exactly one conformance report/u);
   });
 
   test("copies of source blobs are refused even at an admitted evidence path", async () => {

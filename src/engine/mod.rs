@@ -102,6 +102,10 @@ pub const EMBEDDED_PORTABLE_ENGINE_PROMOTION_ADMISSION: &str = include_str!(conc
     env!("OUT_DIR"),
     "/portable_engine_promotion_admission.json"
 ));
+pub const EMBEDDED_PORTABLE_ENGINE_PROMOTION_REPORT: &str = include_str!(concat!(
+    env!("OUT_DIR"),
+    "/portable_engine_promotion_report.json"
+));
 
 fn expected_loaded_engine_identity(
 ) -> &'static std::result::Result<LoadedEngineBinaryIdentity, String> {

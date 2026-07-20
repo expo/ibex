@@ -12,5 +12,8 @@ mod portable_engine_build_preflight;
 #[cfg(not(target_os = "macos"))]
 #[path = "../build_support/portable_engine_build_preflight_unsupported.rs"]
 mod portable_engine_build_preflight;
+#[cfg(target_os = "macos")]
+#[path = "../build_support/portable_engine_promotion_report.rs"]
+mod portable_engine_promotion_report;
 #[path = "../build_support/portable_host_tool_runner.rs"]
 mod portable_host_tool_runner;

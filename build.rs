@@ -15,6 +15,9 @@ mod portable_engine_build_preflight;
 #[cfg(not(target_os = "macos"))]
 #[path = "build_support/portable_engine_build_preflight_unsupported.rs"]
 mod portable_engine_build_preflight;
+#[cfg(target_os = "macos")]
+#[path = "build_support/portable_engine_promotion_report.rs"]
+mod portable_engine_promotion_report;
 #[path = "build_support/portable_host_tool_runner.rs"]
 mod portable_host_tool_runner;
 
@@ -672,6 +675,26 @@ fn main() {
             .unwrap_or_else(|error| {
                 panic!("Failed to write portable Hermes build evidence: {error}")
             });
+        #[cfg(target_os = "macos")]
+        {
+            let promoted_report = portable_engine_promotion_report::select_embedded_report(
+                repo_root,
+                &selection.promotion_admission_bytes,
+            )
+            .unwrap_or_else(|error| {
+                panic!("Portable Hermes promoted report selection refused: {error}")
+            });
+            std::fs::write(
+                out_dir.join("portable_engine_promotion_report.json"),
+                &promoted_report.bytes,
+            )
+            .unwrap_or_else(|error| {
+                panic!("Failed to write embedded portable promotion report: {error}")
+            });
+            for path in promoted_report.rerun_if_changed {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
         if !selection
             .rerun_if_changed
             .contains(&selection.profile_receipt_path)
