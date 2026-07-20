@@ -213,6 +213,17 @@ export interface NativeGpuBridgeV2 {
   readonly cancel: (operationInstanceId: string, promiseId: string) => number;
   readonly retire: (objects: readonly NativeGpuOwnedObjectV2[]) => number;
   /**
+   * Mints one engine-keyed, non-transferable ArrayBuffer alias over an
+   * already-owned external mapped byte block. This method never copies bytes.
+   */
+  readonly createMappedRangeAlias: (
+    source: ArrayBuffer,
+    byteOffset: number,
+    byteLength: number,
+  ) => ArrayBuffer;
+  /** Detaches only aliases minted by createMappedRangeAlias. */
+  readonly detachMappedRange: (buffer: ArrayBuffer) => boolean;
+  /**
    * One-shot owner-thread ordered raw-event channel. It receives every typed
    * record, including Promise terminals also settled through `receipt`; the
    * generated wrapper correlates by operationInstanceId/promiseId and must not
@@ -242,6 +253,8 @@ export function isNativeGpuBridge(value: unknown): value is NativeGpuBridge {
       typeof candidate.rootAccountId === 'string' &&
       typeof candidate.rootAccountGeneration === 'string' &&
       ArrayBuffer.isView(candidate.rootAuthorityDigest) &&
+      typeof candidate.createMappedRangeAlias === 'function' &&
+      typeof candidate.detachMappedRange === 'function' &&
       typeof candidate.setEventSink === 'function';
   }
   return typeof candidate.realmToken === 'string' &&

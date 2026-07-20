@@ -27,6 +27,8 @@
   },
   "bridgeEdges": {
     "cancel": "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z",
+    "createMappedRangeAlias": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
+    "detachMappedRange": "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm",
     "retire": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
     "setEventSink": "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
     "submit": "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99"

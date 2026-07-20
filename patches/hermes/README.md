@@ -53,9 +53,10 @@ is the line between "carrying patches" and "maintaining a divergent engine."
 | 0009 | `0009-raw-throw-capture.patch` | B | Adds an owner-thread scoped Hermes control that suppresses `.message` / `.stack` property reads and `String` coercion while a pending exception crosses JSI. The structured evaluator can therefore retain the exact thrown value without invoking project code; legacy evaluation keeps Hermes' default diagnostics. |
 | 0010 | `0010-completion-record-discriminator.patch` | B | Preserves the VM's `Empty` completion discriminator across the JSI conversion that otherwise collapses it into `undefined`. Structured evaluation can now distinguish a declaration/empty completion from the JavaScript value `undefined` without a syntactic last-expression heuristic. |
 | 0011 | `0011-structured-async-failure-provenance.patch` | B | Captures Promise-job scheduler, job identity, and associated evaluation at enqueue time; exposes failed-job context to the host; adds a poll-checkpoint rejection tracker that cancels by Promise identity; extracts a closed Error class from internal direct-prototype identity; and source-bounds Stage-1 primitive text plus Error message/stack to 16 KiB of valid UTF-8 including an explicit trusted truncation marker, without invoking project code or first materializing attacker-sized text. |
+| 0012 | `0012-webgpu-mapped-arraybuffer-alias.patch` | B | Adds an optional construction-private Hermes interface that mints overlapping `ArrayBuffer` aliases over one embedder-owned external byte block, tags them with the `WebGPUBufferMapping` detach key, refuses ordinary transfer, and detaches them only through the matching native key. The engine API is not a JavaScript intrinsic and Ibex withholds the complete private GPU bridge when the interface is absent. |
 
-All eleven apply clean from pristine (`scripts/apply-hermes-patches.sh`) to
-tree `9945c2a60a5acc5221b238243bbe1867093ba628` and
+All twelve apply clean from pristine (`scripts/apply-hermes-patches.sh`) to
+tree `c5589f7ca3d1ec68f9c282c0e4cd5b675f8268b8` and
 compile into a working `hermesvm.framework` exporting the `ex_hermes_vm_*`
 symbols (`current_package_id`, `set_pending_package_id`, `clear_pending_package_id`,
 `set_default_package_id`, `collect_package_ids`, `set_job_scheduler_capture`,

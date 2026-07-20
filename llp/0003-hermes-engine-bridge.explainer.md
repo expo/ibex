@@ -5,6 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-19 (extends the construction-private GPU V2 capture to six methods with pinned-Hermes mapped-range alias/detach support, true shared external backing, matching-key detachment, and fail-closed whole-bridge absence when the engine capability is unavailable)
 **Revised:** 2026-07-17 (projects ASSIGNED_DETACHED requestDevice results while preserving both admission forms); 2026-07-17 (records native-or-absent FinalizationRegistry ownership and persistent-runtime `FsHandle` reclamation coverage); 2026-07-16 (projects self-contained detached-loss requestDevice terminals to the wrapper before outer receipt settlement); 2026-07-16 (adds the additive Exact GPU ABI V2 typed mailbox, lifecycle replay authority, construction-private four-method bridge, and close/service-entry race fences); 2026-07-16 (adds the construction-private low-level GPU bridge, bounded Promise receipt drain, and cancellation/retirement lifecycle without publishing a WebGPU JS API); 2026-07-16 (adds the optional Exact GPU service mailbox and non-waiting detached teardown); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native ModuleRecords); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Revised:** 2026-07-16 (host-owned REPL/inspector/explicit keep-alive turns now expose their external liveness to native polling without promoting unreferenced timers into runtime liveness); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner)
@@ -341,7 +342,8 @@ Ibex does not retry a maximum-size allocation once per receipt.
 
 Successful finalization also creates a low-level JSI object with V1
 `submit`/`cancel`/`retire` or V2
-`submit`/`cancel`/`retire`/`setEventSink`, passes it directly through a one-shot construction
+`submit`/`cancel`/`retire`/`setEventSink`/`createMappedRangeAlias`/
+`detachMappedRange`, passes it directly through a one-shot construction
 callback installed by the shared runtime bundle, verifies deletion of that
 callback, and keeps the value in a module-private runtime-js slot. The capture
 is closed by the common eval/debugger/module user-entry fence if unused.
@@ -353,6 +355,15 @@ package exports omit this module and the app loader refuses both deep and
 filesystem paths into its directory. This is private plumbing for a future
 generated wrapper, not `navigator.gpu`, an app global, or a WebGPU support
 claim.
+
+The two V2 mapping methods are present only when the compiled and live pinned
+Hermes runtime exposes `IExactWebGpuArrayBuffer`; otherwise finalization
+withholds the whole V2 object. Map completion decoding retains the already
+owned external payload instead of copying it. The engine mints independently
+detachable, possibly overlapping aliases over that one block, marks them with
+the `WebGPUBufferMapping` detach key, rejects them from ordinary transfer, and
+honors detach only through the matching private call. No JavaScript intrinsic,
+copy-and-shadow fallback, partial bridge, or support claim is published.
 
 Runtime destruction revokes that module slot and reserves `Closing` under the
 same mutex as callback admission. If teardown wins, it clears queued events,

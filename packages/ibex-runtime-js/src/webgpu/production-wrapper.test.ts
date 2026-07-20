@@ -219,6 +219,10 @@ function createFakeBridge(): NativeGpuBridgeV2 & {
       return 0;
     },
     retire: () => 0,
+    createMappedRangeAlias(source, offset, length) {
+      return source.slice(offset, offset + length);
+    },
+    detachMappedRange: () => true,
     setEventSink(nextSink) {
       if (sink) throw new TypeError('event sink is one-shot');
       sink = nextSink;

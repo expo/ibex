@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-19 (extends the construction-private GPU V2 bridge with engine-backed mapped-range alias minting and matching-key detach, retains the native-owned map completion block without a second copy, rejects ordinary transfer of keyed aliases, and withholds the entire bridge when the pinned Hermes capability is absent; no public issuer, global installation, positive platform edge, or support claim is added)
 **Revised:** 2026-07-19 (hardens the construction-private GPUBuffer lifecycle: retained cleanup, destroyed state, and an existing pending or active mapping fence new maps without service work; all post-WebIDL `mapAsync` failures remain Promise rejections; void cleanup suppresses known non-admission while retaining the exact retry snapshot and closes on ambiguous admission; spontaneous loss discards detached retry snapshots, preserves active views, and makes their later explicit cleanup local-only with private detachment bookkeeping; cleanup moves the existing private MAP_WRITE block without a second full allocation; and Ibex structured clone/ArrayBuffer transfer entry points enforce mapped-range non-transferability through an inaccessible lexical set and captured operations without claiming native Hermes detachment; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes construction-private `GPUBuffer.destroy`, `GPUBuffer.getMappedRange`, `GPUBuffer.mapAsync`, and `GPUBuffer.unmap` over the authenticated existing lifecycle codecs and V2 routes, with wrapper-owned mapped bytes, independent positive map/cleanup generations, generation-fenced cancellation and typed completion, bounded nonoverlapping mapped-range leases, exact MAP_WRITE cleanup, MAP_READ discard, and synchronous detachment on owning cleanup; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
 **Revised:** 2026-07-19 (materializes authenticated `GPUDevice.createComputePipeline` and `GPUQueue.writeBuffer` methods inside the construction-private wrapper, adds the `GPUComputePipeline` and existing `GPUComputePassEncoder` interface objects to that gated installation inventory, and consumes distinct positive queue ingress for `writeBuffer` without consuming pending command records; the embedded codec slot, public issuer, positive CapSec support, ordinary global installation, and support claim remain absent)
@@ -1159,15 +1160,38 @@ bounded to 16 MiB. It publishes no `navigator.gpu`, `createImageBitmap`, global
 bridge, or other app API. Presence of either the C ABI or this private bridge
 is therefore neither WebGPU support nor conformance evidence.
 
-The V2 construction-private object is separately classified and contains
-`submit`, `cancel`, `retire`, and the one-shot `setEventSink`. Every method is a
-closed CapSec `ipc:channel` edge and exists only inside the authenticated
+The V2 construction-private object is separately classified and contains six
+methods: `submit`, `cancel`, `retire`, the one-shot `setEventSink`,
+`createMappedRangeAlias`, and `detachMappedRange`. All six are closed CapSec
+`ipc:channel` boundary surfaces and exist only inside the authenticated
 capture. V2 `submit` carries one full typed receiver and an optional typed
 target. A realm-level public wrapper may have no public handle, but its
 authenticated runtime-routing record must project that fact to the service's
 typed GPU singleton; callers may not fabricate a singleton or select a
 service-receiver kind ad hoc. Ibex validates the resulting full object record
 generically and does not special-case an operation ID.
+
+Mapped-buffer completion owns one bounded native payload `ArrayBuffer`; the
+decoder retains an affine `Uint8Array` view into that external block rather
+than copying it. `createMappedRangeAlias` accepts only that unkeyed external
+source and asks the pinned Hermes interface to mint a requested in-bounds
+alias. Multiple and overlapping results share the same backing block, so writes
+through a `MAP_WRITE` range are visible to the wrapper's authoritative block
+without a copy or shadow writeback. Hermes tags each minted result with the
+`WebGPUBufferMapping` detach key: ordinary transfer rejects it, an alias cannot
+become a new alias source, and only `detachMappedRange` can detach it. The
+wrapper must call that matching-key detach for every returned range before
+`unmap`, `destroy`, loss, or realm cleanup returns. A non-minted, already
+detached, or repeated target returns false without mutation and is a wrapper
+protocol contradiction, not a substitute detach path.
+
+The complete private bridge is withheld unless the compiled Hermes headers and
+live runtime both expose this exact optional engine interface. Ibex does not
+fall back to copied ranges, shadow detachment, a public intrinsic, or a partial
+four-method bridge. The carried Hermes patch and its full preimage/postimage
+blob identities are therefore part of the reviewed embedding input, while the
+interface itself remains neither a public WebGPU issuer nor platform-support
+evidence.
 
 Each `ExactGpuSemanticCallV1.completion_id` that reaches the provider is
 nonzero and strictly increasing within its realm. Completion, cancellation,

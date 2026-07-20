@@ -199669,6 +199669,26 @@
       "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
     },
     {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.createMappedRangeAlias"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
+      "id": "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "construction-private:gpuNativeBridgeV2.detachMappedRange"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The construction-private GPU bridge is an unadvertised JavaScript-to-provider data channel and remains closed outside its authenticated capture and lifecycle protocol."
+    },
+    {
       "id": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
       "classification": "closed",
       "surface": {

@@ -3729,11 +3729,13 @@ ${GPU_CANONICAL_INCLUDE_BLOCK}
     );
   });
 
-  test("V2 construction-private bridge discovers all four guarded methods and fails closed under mutation", () => {
+  test("V2 construction-private bridge discovers all six guarded methods and fails closed under mutation", () => {
     const sourcePath = "src/engine/hermes_runtime_gpu_v2.cc";
     const source = fs.readFileSync(path.join(repoRoot, sourcePath), "utf8");
     const expected = [
       "construction-private:gpuNativeBridgeV2.cancel",
+      "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
+      "construction-private:gpuNativeBridgeV2.detachMappedRange",
       "construction-private:gpuNativeBridgeV2.retire",
       "construction-private:gpuNativeBridgeV2.setEventSink",
       "construction-private:gpuNativeBridgeV2.submit",
@@ -3748,10 +3750,17 @@ ${GPU_CANONICAL_INCLUDE_BLOCK}
         row.metadata.identityGuardCount,
       ]),
     ).toEqual([
-      ["cancel", 2, "cancelGpuV2BridgeCall", 5],
-      ["retire", 1, "retireGpuV2BridgeCall", 5],
-      ["setEventSink", 1, "setGpuV2EventSinkBridgeCall", 5],
-      ["submit", 4, "submitGpuV2BridgeCall", 5],
+      ["cancel", 2, "cancelGpuV2BridgeCall", 7],
+      [
+        "createMappedRangeAlias",
+        3,
+        "createGpuV2MappedRangeAliasBridgeCall",
+        7,
+      ],
+      ["detachMappedRange", 1, "detachGpuV2MappedRangeBridgeCall", 7],
+      ["retire", 1, "retireGpuV2BridgeCall", 7],
+      ["setEventSink", 1, "setGpuV2EventSinkBridgeCall", 7],
+      ["submit", 4, "submitGpuV2BridgeCall", 7],
     ]);
 
     const guardError =
@@ -8084,6 +8093,8 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       "construction-private:gpuNativeBridge.retire",
       "construction-private:gpuNativeBridge.submit",
       "construction-private:gpuNativeBridgeV2.cancel",
+      "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
+      "construction-private:gpuNativeBridgeV2.detachMappedRange",
       "construction-private:gpuNativeBridgeV2.retire",
       "construction-private:gpuNativeBridgeV2.setEventSink",
       "construction-private:gpuNativeBridgeV2.submit",
@@ -8099,6 +8110,12 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       ["retire", 1, "retireGpuBridgeCall"],
       ["submit", 5, "submitGpuBridgeCall"],
       ["cancel", 2, "cancelGpuV2BridgeCall"],
+      [
+        "createMappedRangeAlias",
+        3,
+        "createGpuV2MappedRangeAliasBridgeCall",
+      ],
+      ["detachMappedRange", 1, "detachGpuV2MappedRangeBridgeCall"],
       ["retire", 1, "retireGpuV2BridgeCall"],
       ["setEventSink", 1, "setGpuV2EventSinkBridgeCall"],
       ["submit", 4, "submitGpuV2BridgeCall"],

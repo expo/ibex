@@ -54,7 +54,7 @@ describe('construction-private GPU bridge capture', () => {
     expect(installedSurfaceRevoked).toBe(true);
   });
 
-  test('V2 capture validation requires the typed raw-event sink', () => {
+  test('V2 capture validation requires the typed sink and mapped-buffer helpers', () => {
     const bridge: NativeGpuBridge = {
       abiVersion: 0x0002_0000,
       runtimeAddress: '11',
@@ -71,11 +71,22 @@ describe('construction-private GPU bridge capture', () => {
       }),
       cancel: () => 0,
       retire: () => 0,
+      createMappedRangeAlias: (source, offset, length) =>
+        source.slice(offset, offset + length),
+      detachMappedRange: () => true,
       setEventSink: () => undefined,
     };
     expect(isNativeGpuBridge(bridge)).toBe(true);
     const missingSink = { ...bridge, setEventSink: undefined };
     expect(isNativeGpuBridge(missingSink)).toBe(false);
+    expect(isNativeGpuBridge({
+      ...bridge,
+      createMappedRangeAlias: undefined,
+    })).toBe(false);
+    expect(isNativeGpuBridge({
+      ...bridge,
+      detachMappedRange: undefined,
+    })).toBe(false);
   });
 
   test('the committed runtime bundle contains one capture module instance', () => {

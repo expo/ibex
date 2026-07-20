@@ -12419,12 +12419,16 @@ const CAPSEC_GPU_V2_TERMINAL_GUARD_IDENTIFIERS = [
   "cancelGpuV2BridgeCall",
   "retireGpuV2BridgeCall",
   "setGpuV2EventSinkBridgeCall",
+  "createGpuV2MappedRangeAliasBridgeCall",
+  "detachGpuV2MappedRangeBridgeCall",
 ];
 const CAPSEC_GPU_V2_TERMINAL_GUARD_ERROR =
   "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros";
 const CAPSEC_GPU_V2_TERMINAL_GUARD_CONDITION = [
   "#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \\",
-  "    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall)",
+  "    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \\",
+  "    defined(createGpuV2MappedRangeAliasBridgeCall) || \\",
+  "    defined(detachGpuV2MappedRangeBridgeCall)",
 ].join("\n");
 const CAPSEC_GPU_TERMINAL_GUARD_PROFILES = [
   {
@@ -14373,6 +14377,7 @@ const REVIEWED_HERMES_PATCH_PATHS = [
   "patches/hermes/0009-raw-throw-capture.patch",
   "patches/hermes/0010-completion-record-discriminator.patch",
   "patches/hermes/0011-structured-async-failure-provenance.patch",
+  "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch",
 ];
 
 const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
@@ -14430,7 +14435,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
       patchStackDigest:
-        "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+        "sha256-7cce6dc071a5bc5b4a4b2f1dea26a5f485e95cb3583f16244ba2dc58fdf32f92",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
           "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
@@ -14465,7 +14470,7 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-7dd0ebd78fe1a3732c3a9a8f5686c0925e723bc886dc03ce22bbb32b56552b1f",
       patchStackDigest:
-        "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
+        "sha256-7cce6dc071a5bc5b4a4b2f1dea26a5f485e95cb3583f16244ba2dc58fdf32f92",
       sourceBuildAuthorityDigest:
         "sha256-38b23085b000c0341365e66b86a7e2afc488f3058a94b78b27c152a1a298a3fd",
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",

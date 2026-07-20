@@ -79,7 +79,7 @@ const GPU_TERMINAL_IDENTITY_EVIDENCE = {
 };
 const GPU_V2_TERMINAL_IDENTITY_EVIDENCE = {
   ...GPU_TERMINAL_IDENTITY_EVIDENCE,
-  identityGuardCount: 5,
+  identityGuardCount: 7,
   identityGuardError:
     "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
   identityGuardIdentifiers: [
@@ -87,12 +87,16 @@ const GPU_V2_TERMINAL_IDENTITY_EVIDENCE = {
     "cancelGpuV2BridgeCall",
     "retireGpuV2BridgeCall",
     "setGpuV2EventSinkBridgeCall",
+    "createGpuV2MappedRangeAliasBridgeCall",
+    "detachGpuV2MappedRangeBridgeCall",
   ],
   protectedIdentifierTokenCounts: {
-    submitGpuV2BridgeCall: 7,
-    cancelGpuV2BridgeCall: 7,
-    retireGpuV2BridgeCall: 7,
-    setGpuV2EventSinkBridgeCall: 7,
+    submitGpuV2BridgeCall: 9,
+    cancelGpuV2BridgeCall: 9,
+    retireGpuV2BridgeCall: 9,
+    setGpuV2EventSinkBridgeCall: 9,
+    createGpuV2MappedRangeAliasBridgeCall: 9,
+    detachGpuV2MappedRangeBridgeCall: 9,
   },
 };
 const GPU_CALLBACK_IDENTITY_EVIDENCE = {
@@ -978,6 +982,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
 
     for (const [memberName, arity, terminalHandler] of [
       ["cancel", 2, "cancelGpuV2BridgeCall"],
+      [
+        "createMappedRangeAlias",
+        3,
+        "createGpuV2MappedRangeAliasBridgeCall",
+      ],
+      ["detachMappedRange", 1, "detachGpuV2MappedRangeBridgeCall"],
       ["retire", 1, "retireGpuV2BridgeCall"],
       ["setEventSink", 1, "setGpuV2EventSinkBridgeCall"],
       ["submit", 4, "submitGpuV2BridgeCall"],

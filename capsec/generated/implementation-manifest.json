@@ -154828,6 +154828,68 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh.construction.private.host.function.0chd8c3",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh.construction.private.host.function.0chd8c3",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.createMappedRangeAlias"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.createMappedRangeAlias:createMappedRangeAlias:createGpuV2MappedRangeAliasBridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.createMappedRangeAlias:createMappedRangeAlias:createGpuV2MappedRangeAliasBridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.createMappedRangeAlias"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.createMappedRangeAlias:createMappedRangeAlias:createGpuV2MappedRangeAliasBridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh.construction.private.host.function.0chd8c3.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm",
+      "observedKey": "native-op:construction-private:gpuNativeBridgeV2.detachMappedRange",
+      "branchId": "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm.construction.private.host.function.0ksds0s",
+      "enforcementBranchId": "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm.construction.private.host.function.0ksds0s",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:construction-private:gpuNativeBridgeV2.detachMappedRange"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.detachMappedRange:detachMappedRange:detachGpuV2MappedRangeBridgeCall"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.detachMappedRange:detachMappedRange:detachGpuV2MappedRangeBridgeCall"
+        ],
+        "terminalObservedKey": "native-op:construction-private:gpuNativeBridgeV2.detachMappedRange"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_gpu_v2.cc#construction-private:gpuNativeBridgeV2.detachMappedRange:detachMappedRange:detachGpuV2MappedRangeBridgeCall"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm.construction.private.host.function.0ksds0s.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
       "observedKey": "native-op:construction-private:gpuNativeBridgeV2.retire",
       "branchId": "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa.construction.private.host.function.1dv8ls4",
@@ -175532,13 +175594,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -175555,13 +175618,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -175586,13 +175650,14 @@
         "patches/hermes/0009-raw-throw-capture.patch#patch-content",
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+        "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -175614,14 +175679,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -175637,7 +175702,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:AsyncFunction"
@@ -193126,13 +193191,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -193155,13 +193221,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/bootstrap/compat-polyfills.js#eval",
           "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -193192,13 +193259,14 @@
         "patches/hermes/0009-raw-throw-capture.patch#patch-content",
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+        "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/bootstrap/compat-polyfills.js#eval",
         "src/engine/bootstrap/process-compat-fix.js#eval",
@@ -193226,14 +193294,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:eval"
@@ -193249,7 +193317,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:eval"
@@ -204490,13 +204558,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -204513,13 +204582,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -204544,13 +204614,14 @@
         "patches/hermes/0009-raw-throw-capture.patch#patch-content",
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+        "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -204572,14 +204643,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -204595,7 +204666,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:Function"
@@ -204718,13 +204789,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -204741,13 +204813,14 @@
           "patches/hermes/0009-raw-throw-capture.patch#patch-content",
           "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
           "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+          "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
           "scripts/apply-hermes-patches.sh#patches",
           "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
           "scripts/build-hermes.sh#apply-hermes-patches.sh",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
           "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
           "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-          "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+          "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
           "scripts/hermes-version.sh#ibex_hermes_patch_digest",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -204772,13 +204845,14 @@
         "patches/hermes/0009-raw-throw-capture.patch#patch-content",
         "patches/hermes/0010-completion-record-discriminator.patch#patch-content",
         "patches/hermes/0011-structured-async-failure-provenance.patch#patch-content",
+        "patches/hermes/0012-webgpu-mapped-arraybuffer-alias.patch#patch-content",
         "scripts/apply-hermes-patches.sh#patches",
         "scripts/build-hermes-linux.sh#apply-hermes-patches.sh",
         "scripts/build-hermes.sh#apply-hermes-patches.sh",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_COMMIT",
         "scripts/hermes-version.sh#IBEX_HERMES_SOURCE_REF",
         "scripts/hermes-version.sh#IBEX_HERMES_VERSION",
-        "scripts/hermes-version.sh#evaluator-identity:sha256-afb724557d118a71e5d7e5dac8d9d608e150297d50a50b1c0453f11118b16591",
+        "scripts/hermes-version.sh#evaluator-identity:sha256-54211a0c57910f73f1d847dae8e0cdc3c6b6d5447e6895c04e0e47793da1c0c1",
         "scripts/hermes-version.sh#ibex_hermes_patch_digest",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -204800,14 +204874,14 @@
         ],
         "proofSourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
         ],
         "sourceRefs": [
           "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+          "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
           "scripts/install-windows-hermes.ps1#hermes-windows-",
           "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
           "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -204823,7 +204897,7 @@
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
         "scripts/build-hermes-windows.ps1#apply-hermes-patches.sh",
-        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-ca0aba4514e9ea09808a028b490282d347152af4806e7e0bdf1c91b7fd041016",
+        "scripts/build-hermes-windows.ps1#evaluator-identity:sha256-49d582b842a287efdf5841d3ec36146d669657409f6a3ffb588c82dbb9d5421d",
         "scripts/install-windows-hermes.ps1#hermes-windows-",
         "src/engine/hermes_runtime.cc#lockdown-taming:sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c",
         "src/engine/hermes_runtime.cc#lockdownJS:GeneratorFunction"
@@ -270928,6 +271002,8 @@
         "surface.native.op.construction.private.gpunativebridge.retire.0rdydxm",
         "surface.native.op.construction.private.gpunativebridge.submit.0msz5eh",
         "surface.native.op.construction.private.gpunativebridgev2.cancel.1knoc8z",
+        "surface.native.op.construction.private.gpunativebridgev2.createmappedrangealias.1wlkeyh",
+        "surface.native.op.construction.private.gpunativebridgev2.detachmappedrange.1bcb3hm",
         "surface.native.op.construction.private.gpunativebridgev2.retire.1cin2pa",
         "surface.native.op.construction.private.gpunativebridgev2.seteventsink.05cdr72",
         "surface.native.op.construction.private.gpunativebridgev2.submit.0eebg99",
@@ -271108,7 +271184,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 252 observed surface edges."
+      "rationale": "Closed by 254 observed surface edges."
     },
     {
       "definitionId": "lifecycle:exit",
@@ -273622,7 +273698,7 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-7AMXYu7Z3RWUEZK7ecfyUFuGTvfh5ipT9PIZOg_kc-4"
+      "rawContentDigest": "sha256-MRINI-q91p3sccgPiCvaIWcwJuZILb4czy7yKhIGOM0"
     },
     {
       "kind": "output-disposition-dataset",
@@ -273637,44 +273713,44 @@
     {
       "kind": "output-shape-catalog",
       "path": "capsec/generated/output-shape-catalog.json",
-      "rawContentDigest": "sha256-PQi4C-JGJ_ShzKFUVK6Wub4TE6NnFRO23TNLAxNoBJI"
+      "rawContentDigest": "sha256-cWpHOJ5K4PFV6HKdurm55tiRh4opK53YWG5fdvKMhAs"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-uL2NhgCmpPSVurVzZRMRQOaER_b95IkyL7xR9S3jQug"
+      "rawContentDigest": "sha256-6c6200lm-AlcQ0E1V7I8vDDcnaHrF6Oy9KENmjYM0T4"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-3Y4Rr14albAt_26mTFdOz2MBwS7WvEXdrSyLPf7elvc"
+      "rawContentDigest": "sha256-jD0ftm1XBgDHf2Hce6Rm6KYjH1TZQrFtv4B2rLW6-hM"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-9bnbYnwjouWhKUOqwVhaBkcaCIMwxG_yM52JWdNUNiA"
+      "rawContentDigest": "sha256-f4DZJfuypnREi8aJQsR2ocLU7IUGLhl9hNta-1JsQqc"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-GHMYN4RD5gx9wAWxOCXWWRl2_c5J6cHv_sS4XSddobg"
+      "rawContentDigest": "sha256-RH5M6onQvgLmHHJDsJbEW-4GzN7328Qak-p6rUeH6Mg"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-PGwpkDaiYmx4OfMK-3d4jdNJWvzTR-MLzwf_PGGiF1g"
+      "rawContentDigest": "sha256-fKXqRLx3CoFBDFCGx6uAyT1ETJ7tG69lSp6X7riv4-g"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-2eJrJ-bvYzKSfQJoV3-BCLHPc6M6aDtK9NYMiyYNZ70"
+      "rawContentDigest": "sha256-BNl2BQVKwc1j8IOZPm8QupBqW-mwKO5QmfLFUKUya2Q"
     }
   ],
   "counts": {
-    "observedReferences": 12917,
-    "logicalSurfaces": 7357,
-    "enforcementBranches": 7576,
-    "coverageEdges": 7357,
-    "targetCells": 14714
+    "observedReferences": 12923,
+    "logicalSurfaces": 7359,
+    "enforcementBranches": 7578,
+    "coverageEdges": 7359,
+    "targetCells": 14718
   }
 }

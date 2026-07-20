@@ -366,6 +366,8 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "construction-private:gpuNativeBridge.retire",
   "construction-private:gpuNativeBridge.submit",
   "construction-private:gpuNativeBridgeV2.cancel",
+  "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
+  "construction-private:gpuNativeBridgeV2.detachMappedRange",
   "construction-private:gpuNativeBridgeV2.retire",
   "construction-private:gpuNativeBridgeV2.setEventSink",
   "construction-private:gpuNativeBridgeV2.submit",
@@ -2877,6 +2879,8 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "construction-private:gpuNativeBridge.retire",
   "construction-private:gpuNativeBridge.submit",
   "construction-private:gpuNativeBridgeV2.cancel",
+  "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
+  "construction-private:gpuNativeBridgeV2.detachMappedRange",
   "construction-private:gpuNativeBridgeV2.retire",
   "construction-private:gpuNativeBridgeV2.setEventSink",
   "construction-private:gpuNativeBridgeV2.submit",
@@ -2908,7 +2912,7 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.5410185e70f99d05265b6375a885af058dd826996d2e453453bff28c1cb58bae";
+  "hermes-evaluators.e54e4efeeced4467aabb0b778b0c9f452d9685be5dc08631cd5f90e07e767ee4";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -13493,9 +13497,49 @@ function classifyConcreteSurface(surface) {
             "cancelGpuV2BridgeCall",
             "retireGpuV2BridgeCall",
             "setGpuV2EventSinkBridgeCall",
+            "createGpuV2MappedRangeAliasBridgeCall",
+            "detachGpuV2MappedRangeBridgeCall",
           ],
           terminalHandler: "cancelGpuV2BridgeCall",
-          tokenCount: 7,
+          tokenCount: 9,
+        },
+      ],
+      [
+        "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
+        {
+          arity: 3,
+          bridgeOwner: "gpuNativeBridgeV2",
+          guardError:
+            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuV2BridgeCall",
+            "cancelGpuV2BridgeCall",
+            "retireGpuV2BridgeCall",
+            "setGpuV2EventSinkBridgeCall",
+            "createGpuV2MappedRangeAliasBridgeCall",
+            "detachGpuV2MappedRangeBridgeCall",
+          ],
+          terminalHandler: "createGpuV2MappedRangeAliasBridgeCall",
+          tokenCount: 9,
+        },
+      ],
+      [
+        "construction-private:gpuNativeBridgeV2.detachMappedRange",
+        {
+          arity: 1,
+          bridgeOwner: "gpuNativeBridgeV2",
+          guardError:
+            "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros",
+          guardIdentifiers: [
+            "submitGpuV2BridgeCall",
+            "cancelGpuV2BridgeCall",
+            "retireGpuV2BridgeCall",
+            "setGpuV2EventSinkBridgeCall",
+            "createGpuV2MappedRangeAliasBridgeCall",
+            "detachGpuV2MappedRangeBridgeCall",
+          ],
+          terminalHandler: "detachGpuV2MappedRangeBridgeCall",
+          tokenCount: 9,
         },
       ],
       [
@@ -13510,9 +13554,11 @@ function classifyConcreteSurface(surface) {
             "cancelGpuV2BridgeCall",
             "retireGpuV2BridgeCall",
             "setGpuV2EventSinkBridgeCall",
+            "createGpuV2MappedRangeAliasBridgeCall",
+            "detachGpuV2MappedRangeBridgeCall",
           ],
           terminalHandler: "retireGpuV2BridgeCall",
-          tokenCount: 7,
+          tokenCount: 9,
         },
       ],
       [
@@ -13527,9 +13573,11 @@ function classifyConcreteSurface(surface) {
             "cancelGpuV2BridgeCall",
             "retireGpuV2BridgeCall",
             "setGpuV2EventSinkBridgeCall",
+            "createGpuV2MappedRangeAliasBridgeCall",
+            "detachGpuV2MappedRangeBridgeCall",
           ],
           terminalHandler: "setGpuV2EventSinkBridgeCall",
-          tokenCount: 7,
+          tokenCount: 9,
         },
       ],
       [
@@ -13544,9 +13592,11 @@ function classifyConcreteSurface(surface) {
             "cancelGpuV2BridgeCall",
             "retireGpuV2BridgeCall",
             "setGpuV2EventSinkBridgeCall",
+            "createGpuV2MappedRangeAliasBridgeCall",
+            "detachGpuV2MappedRangeBridgeCall",
           ],
           terminalHandler: "submitGpuV2BridgeCall",
-          tokenCount: 7,
+          tokenCount: 9,
         },
       ],
     ]);

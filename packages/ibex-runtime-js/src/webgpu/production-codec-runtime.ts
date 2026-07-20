@@ -7102,6 +7102,21 @@ class Reader {
     return result;
   }
 
+  /**
+   * Retain an affine view into the already-owned native completion payload.
+   * GPUBuffer mapping uses this path so the construction-private engine bridge
+   * can mint true keyed aliases without a second byte-block allocation.
+   */
+  mappedBytes(count: number): Uint8Array {
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new TypeError('Invalid WebGPU mapped byte length');
+    }
+    this.require(count);
+    const result = this.bytes.subarray(this.offset, this.offset + count);
+    this.offset += count;
+    return result;
+  }
+
   value(
     limits: ExecutableWebGpuCodecManifest['layout'],
     depth = 0,
@@ -7198,6 +7213,18 @@ function readOwnedBytes(
     throw new TypeError(`${label} exceeds the reviewed byte bound`);
   }
   return reader.raw(length);
+}
+
+function readOwnedMappedBytes(
+  reader: Reader,
+  maximum: number,
+  label: string,
+): Uint8Array {
+  const length = u64Number(reader.u64(), `${label} length`);
+  if (length > maximum) {
+    throw new TypeError(`${label} exceeds the reviewed byte bound`);
+  }
+  return reader.mappedBytes(length);
 }
 
 function exactLifecycleKeys(
@@ -12702,7 +12729,11 @@ export function createExecutableWebGpuCodecs(
         throw new TypeError('GPUBuffer.mapAsync completion mode is invalid');
       }
       const ownedBytes = variant === 'mapped-bytes'
-        ? readOwnedBytes(reader, manifest.maxPayloadBytes, 'GPUBuffer mapped bytes')
+        ? readOwnedMappedBytes(
+          reader,
+          manifest.maxPayloadBytes,
+          'GPUBuffer mapped bytes',
+        )
         : new Uint8Array(0);
       if (variant === 'mapped-bytes' && String(ownedBytes.byteLength) !== size) {
         throw new TypeError('GPUBuffer mapped byte extent does not match completion size');

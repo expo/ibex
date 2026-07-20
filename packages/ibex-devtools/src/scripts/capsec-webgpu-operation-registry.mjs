@@ -56,6 +56,10 @@ const ROUTE_KEYS = Object.freeze([
 
 const BRIDGE_SURFACE_NAMES = Object.freeze({
   cancel: "construction-private:gpuNativeBridgeV2.cancel",
+  createMappedRangeAlias:
+    "construction-private:gpuNativeBridgeV2.createMappedRangeAlias",
+  detachMappedRange:
+    "construction-private:gpuNativeBridgeV2.detachMappedRange",
   retire: "construction-private:gpuNativeBridgeV2.retire",
   setEventSink: "construction-private:gpuNativeBridgeV2.setEventSink",
   submit: "construction-private:gpuNativeBridgeV2.submit",

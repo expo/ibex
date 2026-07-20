@@ -2991,8 +2991,39 @@ facebook::jsi::Value submitGpuV2Carrier(
   return makeCarrier(admission);
 }
 
+size_t parseGpuV2MappedArrayBufferIndex(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value& value,
+    const char* label) {
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(rt, std::string(label) + " must be a number");
+  }
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || number < 0 || std::floor(number) != number ||
+      number > static_cast<double>(std::numeric_limits<uint32_t>::max())) {
+    throw facebook::jsi::JSError(
+        rt, std::string(label) + " must be an unsigned 32-bit integer");
+  }
+  return static_cast<size_t>(number);
+}
+
+#if defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
+facebook::hermes::IExactWebGpuArrayBuffer* requireGpuV2MappedArrayBufferApi(
+    facebook::jsi::Runtime& rt) {
+  auto* api = facebook::jsi::castInterface<
+      facebook::hermes::IExactWebGpuArrayBuffer>(&rt);
+  if (!api) {
+    throw facebook::jsi::JSError(
+        rt, "GPU V2 mapped ArrayBuffer engine capability is unavailable");
+  }
+  return api;
+}
+#endif
+
 #if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
-    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall)
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
 #error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
 #endif
 
@@ -3146,7 +3177,9 @@ facebook::jsi::Value cancelGpuV2CarrierCall(
 }
 
 #if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
-    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall)
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
 #error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
 #endif
 
@@ -3240,7 +3273,9 @@ ExactGpuOwnedObjectRefV2 parseGpuV2OwnedObject(
 }
 
 #if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
-    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall)
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
 #error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
 #endif
 
@@ -3329,7 +3364,9 @@ facebook::jsi::Value setGpuV2EventSinkCarrierCall(
 }
 
 #if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
-    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall)
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
 #error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
 #endif
 
@@ -3339,6 +3376,74 @@ facebook::jsi::Value setGpuV2EventSinkBridgeCall(
     const facebook::jsi::Value* args,
     size_t count) {
   return setGpuV2EventSinkCarrierCall(runtime, rt, args, count);
+}
+
+#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
+#error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
+#endif
+
+facebook::jsi::Value createGpuV2MappedRangeAliasBridgeCall(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count) {
+  if (count != 3 || !args[0].isObject()) {
+    throw facebook::jsi::JSError(
+        rt, "GPU V2 createMappedRangeAlias requires an ArrayBuffer and range");
+  }
+#if !defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
+  (void)args;
+  throw facebook::jsi::JSError(
+      rt, "GPU V2 mapped ArrayBuffer engine capability is unavailable");
+#else
+  auto sourceObject = args[0].asObject(rt);
+  if (!sourceObject.isArrayBuffer(rt)) {
+    throw facebook::jsi::JSError(
+        rt, "GPU V2 mapped range source must be an ArrayBuffer");
+  }
+  const size_t byteOffset = parseGpuV2MappedArrayBufferIndex(
+      rt, args[1], "GPU V2 mapped range byteOffset");
+  const size_t byteLength = parseGpuV2MappedArrayBufferIndex(
+      rt, args[2], "GPU V2 mapped range byteLength");
+  auto source = sourceObject.getArrayBuffer(rt);
+  auto alias = requireGpuV2MappedArrayBufferApi(rt)
+                   ->createWebGpuMappedRangeAlias(
+                       source, byteOffset, byteLength);
+  return facebook::jsi::Value(rt, std::move(alias));
+#endif
+}
+
+#if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
+#error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
+#endif
+
+facebook::jsi::Value detachGpuV2MappedRangeBridgeCall(
+    facebook::jsi::Runtime& rt,
+    const facebook::jsi::Value* args,
+    size_t count) {
+  if (count != 1 || !args[0].isObject()) {
+    throw facebook::jsi::JSError(
+        rt, "GPU V2 detachMappedRange requires one ArrayBuffer");
+  }
+#if !defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
+  (void)args;
+  throw facebook::jsi::JSError(
+      rt, "GPU V2 mapped ArrayBuffer engine capability is unavailable");
+#else
+  auto bufferObject = args[0].asObject(rt);
+  if (!bufferObject.isArrayBuffer(rt)) {
+    throw facebook::jsi::JSError(
+        rt, "GPU V2 mapped range detach target must be an ArrayBuffer");
+  }
+  auto buffer = bufferObject.getArrayBuffer(rt);
+  return facebook::jsi::Value(
+      requireGpuV2MappedArrayBufferApi(rt)->detachWebGpuMappedRange(buffer));
+#endif
 }
 
 #endif
@@ -3644,12 +3749,26 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
           GpuMailboxPhaseV2::Live) {
     return false;
   }
+#if !defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
+  // The construction-private wrapper includes GPUBuffer mapping methods only
+  // when Hermes can mint true aliases and honor WebGPUBufferMapping's detach
+  // key. Never substitute copy-and-shadow semantics.
+  return false;
+#endif
+  auto& rt = *runtime->runtime;
+#if defined(EXACT_HAVE_WEBGPU_MAPPED_ARRAY_BUFFER)
+  if (facebook::jsi::castInterface<
+          facebook::hermes::IExactWebGpuArrayBuffer>(&rt) == nullptr) {
+    return false;
+  }
+#endif
 #if defined(submitGpuV2BridgeCall) || defined(cancelGpuV2BridgeCall) || \
-    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall)
+    defined(retireGpuV2BridgeCall) || defined(setGpuV2EventSinkBridgeCall) || \
+    defined(createGpuV2MappedRangeAliasBridgeCall) || \
+    defined(detachGpuV2MappedRangeBridgeCall)
 #error "Ibex CapSec GPU V2 terminal handlers must not be preprocessor macros"
 #endif
   try {
-    auto& rt = *runtime->runtime;
     facebook::jsi::Object gpuNativeBridgeV2(rt);
     auto submit = facebook::jsi::Function::createFromHostFunction(
         rt,
@@ -3691,6 +3810,28 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
                   size_t count) -> facebook::jsi::Value {
           return setGpuV2EventSinkBridgeCall(runtime, rt, args, count);
         });
+    auto createMappedRangeAlias =
+        facebook::jsi::Function::createFromHostFunction(
+            rt,
+            facebook::jsi::PropNameID::forAscii(
+                rt, "createMappedRangeAlias"),
+            3,
+            [](facebook::jsi::Runtime& rt,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value* args,
+               size_t count) -> facebook::jsi::Value {
+              return createGpuV2MappedRangeAliasBridgeCall(rt, args, count);
+            });
+    auto detachMappedRange = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "detachMappedRange"),
+        1,
+        [](facebook::jsi::Runtime& rt,
+           const facebook::jsi::Value&,
+           const facebook::jsi::Value* args,
+           size_t count) -> facebook::jsi::Value {
+          return detachGpuV2MappedRangeBridgeCall(rt, args, count);
+        });
     defineGpuV2Property(
         rt,
         gpuNativeBridgeV2,
@@ -3702,6 +3843,16 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
         rt, gpuNativeBridgeV2, "cancel", std::move(cancel));
     defineGpuV2Property(
         rt, gpuNativeBridgeV2, "retire", std::move(retire));
+    defineGpuV2Property(
+        rt,
+        gpuNativeBridgeV2,
+        "createMappedRangeAlias",
+        std::move(createMappedRangeAlias));
+    defineGpuV2Property(
+        rt,
+        gpuNativeBridgeV2,
+        "detachMappedRange",
+        std::move(detachMappedRange));
     defineGpuV2Property(
         rt,
         gpuNativeBridgeV2,
