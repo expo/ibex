@@ -2285,9 +2285,15 @@ own descriptors without invoking accessors. The generated Windows catalog
 therefore authors all 125 previously residual absence fixtures: 56 host ABI
 symbols and 69 native globals, including the POSIX-only process stream shape.
 The local catalog contains 22,629 required fixtures, 4,896 executable fixtures,
-and 17,733 residual fixtures. These new absence recipes still await execution
-against the exact Windows Release artifact; they do not credit a target cell or
-change the empty advertisements before that physical evidence exists.
+and 17,733 residual fixtures. Focused physical run
+[`29756968804`](https://github.com/ccheever/ibex/actions/runs/29756968804)
+bound that catalog to Windows Release engine digest
+`sha256-cpOojVhkMP2SfSR7orJgsY8nADbFy3gblDMLojWdhP8` and passed all 125
+fixtures: 56 process-wide symbol lookups and 69 native-global inspections,
+including the nested POSIX-only process stream properties. This exact evidence
+closes the absence-recipe batch, but a complete report on the new revision must
+still verify every other suite and residual before any target cell or empty
+advertisement changes.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
