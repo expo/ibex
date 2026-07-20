@@ -2271,8 +2271,12 @@ TXT queries through its address-only `getaddrinfo` stub, flattening every rcode
 to `ENOTFOUND`. Windows now loads the override or native resolver list into a
 bounded raw-UDP record-query path, validates the response question and record
 bounds, preserves Node-compatible rcodes, and parses the supported non-address
-record shapes. This repair awaits focused physical execution; no target cell
-or advertisement is promoted.
+record shapes. Focused physical run
+[`29752620186`](https://github.com/ccheever/ibex/actions/runs/29752620186)
+compiled that Windows path and passed all seven loopback fixtures: SERVFAIL,
+REFUSED, NXDOMAIN, empty NOERROR, timeout, TXT success, and override-backed
+`getServers()`. This is a product checkpoint, not target-cell credit; the next
+complete report must find the later frontier, and advertisements remain empty.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
