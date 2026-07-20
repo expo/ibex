@@ -623,6 +623,22 @@ void install(Runtime& rt) {
       expect(getter.locatorKind).toBe("typescript-global-installer-route");
       expect(getter.sites.map((site) => site.role)).toEqual(["value-producer", "publication"]);
     }
+    const lazy = resolveRestrictedExactBranchSourceBinding({
+      branchId: "surface.readable-stream.default",
+      observedKey: "native-op:global:ReadableStream",
+      targetVariant: "default",
+    }, "packages/ibex-runtime-js/src/bootstrap.ts#get:globals:ReadableStream");
+    expect(lazy.locatorKind).toBe("typescript-global-installer-route");
+    const staticNameBranch = {
+      branchId: "surface.request-name.all",
+      observedKey: "native-op:global:Request.name",
+      targetVariant: "all",
+    };
+    const staticNameRef = "packages/ibex-runtime-js/src/fetch/Request.ts#Request.name";
+    const staticName = resolveRestrictedExactBranchSourceBinding(staticNameBranch, staticNameRef);
+    expect(staticName.locatorKind).toBe("typescript-static-descriptor-route");
+    expect(buildRestrictedExactBranchSourceRoute(staticNameBranch, [staticNameRef]).status)
+      .toBe("executable");
   });
 
   test("keeps legacy JavaScript symbols as exact supporting provenance", () => {

@@ -1290,6 +1290,19 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
         });
       }
     }
+    if (getterInstaller
+      && node.type === "CallExpression"
+      && node.callee?.type === "Identifier"
+      && node.callee.name === "defineLazyGlobal") {
+      const target = memberSegments(node.arguments[0]);
+      const property = propertyName(node.arguments[1]);
+      if (property !== null && installerPathMatches([...(target ?? []), property])) {
+        candidates.push({
+          producer: node.arguments[2] ?? node,
+          publication: parent?.type === "ExpressionStatement" ? parent : node,
+        });
+      }
+    }
   });
   const unique = [...new Map(candidates.map((candidate) => [
     `${candidate.publication.start}:${candidate.publication.end}`,
@@ -1683,8 +1696,15 @@ function typescriptClassMemberBinding({ sourceRef, sourcePath, locator, absolute
       && members.every((member) => member.type === "ClassMethod")
       && new Set(members.map((member) => member.kind)).size === 2
       && members.every((member) => ["get", "set"].includes(member.kind));
-    if (members.length !== 1 && !accessorPair) return null;
-    producers = members;
+    if (members.length !== 1 && !accessorPair) {
+      const descriptors = index.defineProperties.filter((row) =>
+        row.property === memberName
+        && JSON.stringify(row.targetSegments) === JSON.stringify([className]));
+      if (descriptors.length !== 1) return null;
+      producers = [descriptors[0].node];
+    } else {
+      producers = members;
+    }
     siteKey = `${className}.${prototype ? "prototype." : ""}${memberName}`;
   }
   const sites = producers.map((producer, indexValue) => sourceSite({
@@ -1702,6 +1722,37 @@ function typescriptClassMemberBinding({ sourceRef, sourcePath, locator, absolute
     resolutionPolicy: "provenance-only",
     sites,
     producerPaths: [],
+  });
+}
+
+function typescriptStaticDescriptorBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:global:")
+    || !sourcePath.startsWith("packages/ibex-runtime-js/src/")
+    || !/\.tsx?$/u.test(sourcePath)
+    || branch.observedKey.slice("native-op:global:".length) !== locator) return null;
+  const parts = locator.split(".");
+  if (parts.length !== 2) return null;
+  const [owner, member] = parts;
+  const index = javascriptIndex(absolute, text);
+  const descriptors = index.defineProperties.filter((row) =>
+    row.property === member
+    && JSON.stringify(row.targetSegments) === JSON.stringify([owner]));
+  if (descriptors.length !== 1 || !descriptors[0].descriptor) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${locator}.descriptor`, range: { startByte: descriptors[0].descriptor.start, endByte: descriptors[0].descriptor.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.publication`, range: { startByte: descriptors[0].node.start, endByte: descriptors[0].node.end }, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-static-descriptor-route",
+    targetGlobalPath: locator,
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0static-descriptor`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
   });
 }
 
@@ -5386,6 +5437,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? typescriptGlobalInstallerBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
+    ?? typescriptStaticDescriptorBinding({ branch, sourceRef, ...loaded })
     ?? typescriptClassMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptObjectMemberBinding({ branch, sourceRef, ...loaded })
     ?? typescriptBundleMemberBinding({ branch, sourceRef, ...loaded })
