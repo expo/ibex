@@ -2,6 +2,10 @@
   "fixturePlanSchema": "ibex/restricted-profile-fixture-plan/1",
   "profile": "ibex/exact-embedder-contract/1",
   "registrationStatus": "late-after-positive-pilot-before-per-edge-execution",
+  "absenceProbePlan": {
+    "path": "capsec/generated/restricted-exact-absence-probe-plan.json",
+    "rawContentDigest": "sha256-Mi2MjCwTzEO3qFh2HSsttfMEJplOC9EbTutE4IdE-Dg"
+  },
   "evidenceKinds": [
     {
       "id": "live-invocation",

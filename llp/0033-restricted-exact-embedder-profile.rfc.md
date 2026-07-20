@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r12 — adds an exact-engine descriptor reachability
+**Revised:** 2026-07-19 (r13 — invalidates the reviewed categorical absence
+evidence and adds a generated, fixture-plan-bound authority with 7,366
+source-install probes and 9,754 live-route probes for all 7,152 absent edges;
+none count as evidence until individually executed; r12 — adds an exact-engine descriptor reachability
 gate, reclassifies baseline Hermes intrinsic/root paths that the first
 Ibex-only projection incorrectly called absent, and removes the native `gc`
 and `print` authority channels, yielding 126 reachable and 7,152 candidate
@@ -412,6 +415,17 @@ self-contained Contract bundle and hostile lifecycle corpus now pass on the
 eligible exact-engine Apple build. Complete per-edge source-install/live-
 reachability/invocation evidence, teardown/supervisor evidence, independent
 review, Linux evidence, and target advertisements are still pending.
+
+The first attempted Apple report was independently reviewed and failed: it
+expanded one categorical barrier into 14,304 nominal per-edge passes, including
+4,692 live rows with no descriptor probe. Those rows and every evidence family
+bound to the superseded fixture-plan bytes are invalid. The generated
+`restricted-exact-absence-probe-plan.json` now assigns every absent edge at
+least one exact source-branch probe and one live attacker-route probe (7,366
+source probes and 9,754 live probes total, including 2,602 descriptor-prefix
+probes across 2,460 edges). The plan is an obligation authority only. A new
+native run must publish independently checkable results for every planned
+probe before the target report may credit either absence evidence kind.
 
 ### Phase 1 — Apple vertical slice
 

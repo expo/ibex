@@ -7,6 +7,7 @@
     "fixturePlanSchema",
     "profile",
     "registrationStatus",
+    "absenceProbePlan",
     "evidenceKinds",
     "globalCorpora",
     "invalidRunRules"
@@ -16,6 +17,15 @@
     "profile": { "const": "ibex/exact-embedder-contract/1" },
     "registrationStatus": {
       "const": "late-after-positive-pilot-before-per-edge-execution"
+    },
+    "absenceProbePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "rawContentDigest"],
+      "properties": {
+        "path": { "const": "capsec/generated/restricted-exact-absence-probe-plan.json" },
+        "rawContentDigest": { "$ref": "#/$defs/digest" }
+      }
     },
     "evidenceKinds": {
       "type": "array",
@@ -72,6 +82,10 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
     "stableId": {
       "type": "string",
       "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"

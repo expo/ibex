@@ -31,6 +31,10 @@ const fixturePlanSchemaPath = path.join(
   capsecRoot,
   "schema/restricted-profile-fixture-plan.schema.json",
 );
+const absenceProbePlanSchemaPath = path.join(
+  capsecRoot,
+  "schema/restricted-profile-absence-probe-plan.schema.json",
+);
 
 const requiredByDisposition = new Map([
   ["reachable", ["live-invocation"]],
@@ -99,6 +103,41 @@ export function validateRestrictedFixturePlan(fixturePlan) {
     fixturePlan.globalCorpora.map((row) => row.id),
     "restricted global corpus IDs",
   );
+  const probePlanPath = path.resolve(repoRoot, fixturePlan.absenceProbePlan.path);
+  const generatedRoot = `${path.resolve(capsecRoot, "generated")}${path.sep}`;
+  if (!probePlanPath.startsWith(generatedRoot)) {
+    throw new Error("restricted absence probe plan path escapes capsec/generated");
+  }
+  const stat = fs.lstatSync(probePlanPath);
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error("restricted absence probe plan must be a regular non-symlink file");
+  }
+  const rawProbePlan = fs.readFileSync(probePlanPath);
+  if (taggedDigest(rawProbePlan) !== fixturePlan.absenceProbePlan.rawContentDigest) {
+    throw new Error("restricted absence probe plan raw-content digest mismatch");
+  }
+  const probePlan = parseJsonStrict(rawProbePlan, fixturePlan.absenceProbePlan.path);
+  assertSchema(
+    schemaValidator(absenceProbePlanSchemaPath),
+    probePlan,
+    "restricted absence probe plan",
+  );
+  assertSortedUnique(
+    probePlan.edges.map((row) => row.edgeId),
+    "restricted absence probe-plan edge IDs",
+  );
+  const sourceProbeIds = probePlan.edges.flatMap((row) => row.sourceInstall.map((probe) => probe.probeId));
+  const liveProbeIds = probePlan.edges.flatMap((row) => row.liveReachability.map((probe) => probe.probeId));
+  assertSortedUnique([...sourceProbeIds].sort(), "restricted source-install probe IDs");
+  assertSortedUnique([...liveProbeIds].sort(), "restricted live-reachability probe IDs");
+  if (
+    probePlan.counts.edges !== probePlan.edges.length
+    || probePlan.counts.sourceInstallProbes !== sourceProbeIds.length
+    || probePlan.counts.liveReachabilityProbes !== liveProbeIds.length
+  ) {
+    throw new Error("restricted absence probe-plan counts drifted");
+  }
+  return probePlan;
 }
 
 function validateBindings(bindings, rawAuthorities) {
@@ -138,7 +177,7 @@ function deriveRestrictedTargetReport({
   independentReview,
   rawAuthorities,
 }) {
-  validateRestrictedFixturePlan(fixturePlan);
+  const absenceProbePlan = validateRestrictedFixturePlan(fixturePlan);
   validateBindings(bindings, rawAuthorities);
   const coverageById = new Map(coverage.edges.map((edge) => [edge.id, edge]));
   const implementationIds = new Set(
@@ -151,6 +190,20 @@ function deriveRestrictedTargetReport({
     || projectedIds.some((edgeId) => !coverageById.has(edgeId) || !implementationIds.has(edgeId))
   ) {
     throw new Error("restricted report projection does not join coverage and implementation");
+  }
+  const absentIds = projection.rows
+    .filter((row) => row[1] === "structurally-absent")
+    .map((row) => row[0]);
+  if (
+    absenceProbePlan.profile !== projection.profile
+    || canonicalJson(absenceProbePlan.edges.map((row) => row.edgeId))
+      !== canonicalJson(absentIds)
+    || absenceProbePlan.projectionRawContentDigest !== taggedDigest(rawAuthorities.projection)
+    || absenceProbePlan.coverageRawContentDigest !== taggedDigest(rawAuthorities.coverage)
+    || absenceProbePlan.implementationManifestRawContentDigest
+      !== taggedDigest(rawAuthorities.implementationManifest)
+  ) {
+    throw new Error("restricted absence probe plan does not bind the report authorities");
   }
 
   assertSortedUnique(executions.map((row) => row.executionId), "restricted execution IDs");
