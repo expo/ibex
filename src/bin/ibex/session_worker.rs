@@ -1542,49 +1542,12 @@ fn session_proof(
 fn object_identity_for_directory(
     file: &std::fs::File,
 ) -> Result<capsec_semantics::model::ObjectIdentity, WorkerProtocolError> {
-    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
-
     let metadata = file.metadata()?;
     if !metadata.file_type().is_dir() {
         return Err(WorkerProtocolError::WrongRoot);
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let platform = if cfg!(any(target_os = "macos", target_os = "ios")) {
-            ObjectPlatform::Apple
-        } else if cfg!(target_os = "android") {
-            ObjectPlatform::Android
-        } else {
-            ObjectPlatform::Unix
-        };
-        Ok(ObjectIdentity {
-            platform,
-            volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
-                .map_err(|_| WorkerProtocolError::Malformed("invalid root volume identity"))?,
-            file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
-                .map_err(|_| WorkerProtocolError::Malformed("invalid root file identity"))?,
-        })
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        Ok(ObjectIdentity {
-            platform: ObjectPlatform::Windows,
-            volume: NonEmptyString::new(format!(
-                "volume:{}",
-                metadata.volume_serial_number().unwrap_or(0)
-            ))
-            .map_err(|_| WorkerProtocolError::Malformed("invalid root volume identity"))?,
-            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
-                .map_err(|_| WorkerProtocolError::Malformed("invalid root file identity"))?,
-        })
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = metadata;
-        Err(WorkerProtocolError::UnsupportedPlatform)
-    }
+    ibex_runtime::host::object_identity_for_open_file(file)
+        .map_err(|_| WorkerProtocolError::Malformed("invalid root object identity"))
 }
 
 /// An already-open project directory checked against the exact object identity

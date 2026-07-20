@@ -1351,7 +1351,7 @@
           "postArmDisposition": null,
           "postArmEvidence": null,
           "scope": "spawn",
-          "sourceOffset": 81689,
+          "sourceOffset": 80298,
           "sourcePath": "src/bin/ibex/session_worker.rs",
           "sourceRef": "src/bin/ibex/session_worker.rs#Command::default_env:dynamic:write",
           "stage": "child-environment-construction"

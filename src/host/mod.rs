@@ -6695,7 +6695,10 @@ fn refuse_shared_package_objects_beneath_project(
                 ))
             })?;
             if metadata.is_file() || metadata.file_type().is_symlink() {
+                #[cfg(unix)]
                 let object = object_identity_for_metadata(&metadata)?;
+                #[cfg(windows)]
+                let object = object_identity_for_host_path(&child)?;
                 if package_objects.contains_key(&object) {
                     return Err(capsec_semantics::Error::ArmRefused(format!(
                         "package source and first-party source share one authenticated object: {}",

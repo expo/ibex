@@ -3117,36 +3117,11 @@ fn output_shape_path_components(path: &std::path::Path) -> Vec<Value> {
 }
 
 fn output_shape_object_identity(path: &std::path::Path) -> Value {
-    let metadata = std::fs::metadata(path).expect("identify output-shape package root");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        json!({
-            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
-                "apple"
-            } else if cfg!(target_os = "android") {
-                "android"
-            } else {
-                "unix"
-            },
-            "volume": format!("dev:{}", metadata.dev()),
-            "file": format!("ino:{}", metadata.ino()),
-        })
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        json!({
-            "platform": "windows",
-            "volume": format!("volume:{}", metadata.volume_serial_number().unwrap_or(0)),
-            "file": format!("file:{}", metadata.file_index().unwrap_or(0)),
-        })
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = metadata;
-        panic!("output-shape package object identity is unsupported on this target")
-    }
+    serde_json::to_value(
+        ibex_runtime::host::object_identity_for_host_path(path)
+            .expect("identify output-shape package root"),
+    )
+    .expect("serialize output-shape package root identity")
 }
 
 #[tokio::test(flavor = "current_thread")]
