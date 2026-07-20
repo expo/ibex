@@ -5,8 +5,9 @@
 **Systems:** Security, Engine, Build, Distribution, CI, Runtime, Host ABI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (the macOS arm64 publisher now emits and separately
-attests a producer-validated diagnostic portable package; acceptance,
+**Revised:** 2026-07-20 (native compilation/package production is now isolated
+from the credentialed publisher by immutable raw-artifact handoffs; the
+portable macOS package is emitted for every `main` revision, while acceptance,
 installation, selection, runtime consumption, and advertisements remain off)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
@@ -110,9 +111,9 @@ only one input to LLP 0032's exact-membership aggregate.
   component named by that portable identity.
 - Require every **consumer** to authenticate the complete package before any
   component is linked, loaded, executed, or admitted as conformance evidence.
-  The reviewed publisher may execute newly built tools while validating its
-  own output, but those executions create no consumer or conformance
-  authority.
+  A reviewed unprivileged producer job may execute newly built tools while
+  validating its own output, but those executions create no consumer or
+  conformance authority and occur outside the credentialed publisher job.
 - Make target reports and advertisements free of absolute paths and host-local
   file IDs while retaining those facts in per-run evidence.
 - Supply the portable identity needed by a future cross-runner design while
@@ -202,6 +203,18 @@ enforce file-handle sharing/locking semantics. Repository build and fixture
 code is trusted but may fail or hang; LLP 0032's supervisor contains those
 failures. JavaScript under evaluation is untrusted and receives no provenance
 or loader control.
+
+The workflow also treats newly built native bytes as adversarial with respect
+to release and OIDC credentials. Platform producer jobs have only read access
+to repository contents and upload one direct, inert archive apiece (two only
+when the shared macOS Release build owes both legacy and portable outputs).
+The separately credentialed publisher has no checkout and does not execute,
+load, parse as an archive, or extract any producer output. It may read each
+bounded archive only as a regular byte stream after joining its immutable
+artifact-service identity to the selected producer job and current workflow
+run. This separation limits a compromised compiler, linker, packaging tool,
+or generated native binary to inert output bytes rather than handing it a
+release token or OIDC-backed attestation capability.
 
 ## Portable package contract
 
@@ -457,6 +470,93 @@ and detached provenance bundle as two associated transport objects. The
 installer MUST verify the bundle's signature, trusted workflow identity, and
 exact archive subject digest before parsing or extracting attacker-controlled
 archive members.
+
+Production and publication are separate hosted-runner jobs. Each native
+producer checks out the exact workflow revision with persisted credentials
+disabled, has only `contents: read`, validates and packages locally, hashes the
+closed archive, and uses the artifact service's direct-file mode to emit the
+raw archive without a wrapper archive. The upload action's returned immutable
+artifact ID and raw SHA-256 must join the producer's independently computed
+digest before the job succeeds. Producers have neither repository-write nor
+OIDC/attestation authority.
+
+The publisher starts on a fresh GitHub-hosted runner with no checkout. Before
+using either write or OIDC operations, it validates the fixed repository and
+numeric owner/repository identities, `refs/heads/main`, event class, exact
+workflow path/ref, and equality of workflow revision and source revision. For
+every selected role it reconstructs the only permitted release basename and
+requires a unique positive artifact ID, bounded positive size, and one
+lowercase SHA-256 agreed by the producer and upload service. It then exposes
+the repository token only to a step whose reviewed code performs the artifact
+metadata GET, and requires the exact current run ID, repository/head-repository
+IDs, branch, head revision, raw filename, size, digest, and unexpired state.
+Artifact metadata does not expose the producer job ID or run attempt; the
+workflow therefore does not claim those fields are REST-authenticated.
+Instead, the immutable ID comes through the exact selected `needs` edge, and
+each download deliberately omits a GitHub API token so the artifact action
+remains scoped to the current workflow attempt.
+
+Every download names exactly one immutable artifact ID, sets digest mismatch
+to fatal, and disables decompression explicitly (including for the direct
+Windows ZIP). The publisher rejects absent, additional, nested, linked,
+special, renamed, oversized, size-mismatched, or digest-mismatched filesystem
+objects. It attests only the already validated `(subject-name,
+subject-digest)` pair, never passes the archive as `subject-path`, validates
+that the returned DSSE statement has exactly that subject, retains the exact
+bundle bytes, and rehashes the still-inert archive before uploading sidecars
+and finally the archive. The publisher invokes no repository script and never
+opens a native payload member.
+
+Because the portable manifest binds the complete Ibex source revision, its
+release basename includes that revision and the workflow runs on every commit
+to `main` without path filtering. Each revision gets a separate prerelease
+whose asset namespace is bounded to that portable archive and its three
+sidecars; portable revisions therefore cannot accumulate against GitHub's
+per-release asset limit. The shared Hermes-identity prerelease retains only
+stable-name legacy cache assets. Release tags, titles, and URLs are untrusted
+transport locators rather than provenance authority. Complete macOS Debug,
+Linux, and Windows legacy sets skip their native builders; a complete macOS
+Release legacy set is neither repackaged nor republished when the shared
+Release build runs to make a new portable package.
+Completeness is not inferred from names alone: the read-only resolver parses
+all paginated release-asset metadata and skips a four-file set only when every
+expected name has exactly one positive asset ID, `uploaded` state, and positive
+bounded size. Missing, duplicate, `starter`, zero-size, or oversized members
+select that set for publisher repair; a failed upload therefore cannot make a
+later run bless an unusable name-complete release.
+
+Distinct source revisions may publish their revision-suffixed portable sets in
+parallel, but they MUST NOT interleave writes to stable legacy names. Before
+the first stable legacy package-asset mutation or upload, the publisher
+atomically creates one temporary release-asset lease whose stable name is
+scoped to the Hermes identity and whose strict JSON bytes bind the owning
+workflow run, attempt, and source revision. GitHub's duplicate asset-name
+rejection is the exclusive create operation. A contender first requires
+exactly one matching release
+asset with a positive ID, strictly parsed creation time and state, and bounded
+nonzero size before downloading any lock bytes. A `starter` asset can be the
+winning upload after its name is reserved but before its bytes become
+downloadable, so contenders poll that same immutable ID without mutation
+through a bounded five-minute creation grace. Only a `starter` still present
+after that grace, or an `uploaded` lock with an impossible size, is recoverable
+by deleting the exact inspected asset ID; unknown states remain fail-closed.
+For valid lock bytes, the contender treats the recorded run as active only when
+the Actions API rejoins its workflow path, attempt, source revision, and
+non-completed status. A definitive authenticated 404 means that the run record
+no longer exists and the lock is stale; authentication, rate-limit, server,
+transport, and malformed-response failures remain fail-closed. An invalid,
+completed, missing, or prior-attempt owner is likewise recovered only by
+deleting the exact immutable asset ID that was inspected. Cleanup downloads
+the lease again and deletes it only if all owner fields still name the current
+attempt. Every stable-name legacy sidecar and archive upload occurs after
+acquisition and before owner-checked cleanup, so two revisions cannot mix one
+run's Sigstore bundle with another run's bundle checksum. The SHA-unique
+portable sidecars and archive are uploaded to their revision-scoped prerelease
+before any legacy-lease wait and never use this lock. The transient lease is
+coordination metadata, not package or provenance authority; a crash may leave
+partial untrusted release storage, but cannot make a mixed set verify, and a
+later publisher recovers the stale lease after GitHub marks its owner inactive
+or its retained run record disappears.
 
 For v1, GitHub build provenance is the package-publisher authority;
 Authenticode publisher identity and SmartScreen reputation are explicitly out
@@ -929,11 +1029,12 @@ authority is consumed.
   evaluated-JavaScript mutation route; and
 - retain the existing local mapped-object proof.
 
-Implementation checkpoint (2026-07-20): the reviewed Release publisher now
-constructs a **diagnostic-only** macOS arm64 package containing exactly the
-runtime framework, public header tree, `hermesc`, schema-2 profile receipt,
-checked smoke source, raw Ibex commit/tree contents, and canonical authority
-documents. It omits the xcframework/iOS slices and standalone `hermes` CLI.
+Implementation checkpoint (2026-07-20): the reviewed unprivileged Release
+producer now constructs a **diagnostic-only** macOS arm64 package containing
+exactly the runtime framework, public header tree, `hermesc`, schema-2 profile
+receipt, checked smoke source, raw Ibex commit/tree contents, and canonical
+authority documents. It omits the xcframework/iOS slices and standalone
+`hermes` CLI.
 The producer strict-parses the receipt and reconstructs its source, patch,
 builder, cache-key, and runtime-byte joins. It parses the arm64 Mach-O slices
 directly for machine, generic CPU subtype, role-specific file type, external-
@@ -945,10 +1046,11 @@ request before patch replay or receipt creation. The producer independently
 reconstructs the default upstream version/ref/commit literals from the exact
 tracked `hermes-version.sh` bytes and rejects a receipt for any other source.
 
-The publisher runs `hermesc --version` and a smoke compilation in distinct
-fresh private workspaces with an exact replacement environment, empty stdin,
-fixed relative paths, and bounded output. It binds raw stdout/stderr and HBC
-output bytes and checks the HBC magic, header length, and version 99. It also
+The unprivileged producer runs `hermesc --version` and a smoke compilation in
+distinct fresh private workspaces with an exact replacement environment,
+empty stdin, fixed relative paths, and bounded output. It binds raw
+stdout/stderr and HBC output bytes and checks the HBC magic, header length, and
+version 99. It also
 compiles a bounded arm64 probe with no pre-main Hermes import, verifies that
 probe's Mach-O dependencies from bytes, `dlopen`s the exact runtime component,
 and reads `IHermesRootAPI::getBytecodeVersion()` as a producer gate. The probe
@@ -965,11 +1067,42 @@ metadata, checksums, padding, limits, path equivalence, symlink existence and
 cycles before publication. Member, per-file, cumulative-expanded, archive,
 and symlink-depth limits are applied before retaining input bytes and again
 while inspecting the archive. The workflow pins every invoked action by commit,
-requires the checked producer `HEAD` to equal `GITHUB_SHA`, separately attests
-this final archive, and retains the exact Sigstore bundle beside it. No
-installer, local store,
-selector, `build.rs` consumer, post-link audit, runtime identity migration, or
-advertisement change is implemented by this checkpoint, and
+requires each checked producer `HEAD` to equal `GITHUB_SHA`, and emits the
+portable archive for every `main` commit. All four legacy native packages and
+the portable package are produced in `contents: read` jobs as direct raw
+artifact-service handoffs. A single fresh credentialed publisher has no
+checkout, repository scripts, archive extraction, or native execution; it
+validates the fixed workflow context, current-run immutable artifact metadata,
+closed selected-role set, raw name/size/digest, and regular-file shape before
+attesting only the subject name/digest. It strict-validates and retains the
+exact returned Sigstore bundle, rehashes the archive, uploads sidecars first,
+and publishes the archive last. Structural tests pin this topology and execute
+the production handoff validator against missing, extra, linked, traversing,
+expanded, malformed, oversize, and byte-mismatched inputs. The same tests run
+the production release-state validator against complete, missing, duplicate,
+`starter`, zero-size, and oversized asset metadata. Existing legacy
+release assets remain skip-keyed: unrelated platform builders do not run, and
+the shared macOS Release build does not repackage or republish its complete
+legacy set while producing a new revision-bound portable package. A tested
+cross-revision release-asset lease encloses every stable-name legacy upload,
+polls newly created `starter` assets without mutation, and recovers only aged
+starters, impossible uploaded sizes, and definitively missing run owners by
+exact asset ID while failing closed on unknown states or ambiguous API
+failures. Each SHA-unique portable four-file set is published first to its own
+revision-scoped prerelease, keeping every portable release below GitHub's asset
+ceiling and removing per-`main`-revision growth from the shared legacy asset
+namespace while preserving parallelism.
+Portable release creation and all four portable uploads precede even legacy
+release creation, so exhaustion or failure of the legacy cache cannot prevent
+that revision's portable set from becoming complete and retained. A later
+legacy failure still makes the overall workflow job red; it does not roll back
+the already uploaded, attested portable set. The shared legacy identity release
+is not absolutely bounded across future builder or installer authority changes;
+choosing authority-scoped legacy releases versus a retention policy is
+follow-up work because deleting old sets would break cold installs from
+historical checkouts. No installer, local store, selector, `build.rs` consumer,
+post-link audit, runtime identity migration, or advertisement change is
+implemented by this checkpoint, and
 `portableArtifactAcceptanceEnabled` remains false.
 
 Exit: a clean checkout can install and run the reviewed Release engine without
@@ -1106,3 +1239,7 @@ keep the target unadvertised.
    promotion authority?
 5. Should a future offline/local promotion ceremony have a separate admitted
    signing root, or remain explicitly unsupported?
+6. Should stable legacy caches move to authority-scoped releases, or adopt an
+   explicit retention horizon, so builder/installer authority changes cannot
+   eventually exhaust one Hermes-identity release without silently breaking
+   historical cold-checkout installs?

@@ -41,6 +41,7 @@ packages/ibex-devtools/src/scripts/*portable-engine-* text eol=lf
 scripts/package-portable-hermes-macos.mjs text eol=lf
 scripts/portable-engine-contract.mjs text eol=lf
 scripts/package-portable-hermes-macos.test.mjs text eol=lf
+scripts/hermes-artifacts-workflow-security.test.mjs text eol=lf
 tests/fixtures/portable-engine/** text eol=lf
 
 # The standalone offline verifier embeds and hashes exact trust/corpus bytes;

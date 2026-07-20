@@ -38,6 +38,7 @@
     "check:drift": "scripts/check-generated-drift.sh",
     "package:portable-hermes-macos": "node scripts/package-portable-hermes-macos.mjs",
     "test:portable-hermes-producer": "node --test scripts/package-portable-hermes-macos.test.mjs",
+    "test:hermes-publisher-isolation": "node --test scripts/hermes-artifacts-workflow-security.test.mjs",
     "check:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --check",
     "check:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --check",
     "check:example-policy": "bun packages/ibex-devtools/src/scripts/check-generated-policies.mjs",
