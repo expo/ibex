@@ -26,6 +26,10 @@ llp/evidence/** text eol=lf
 config/llp0024-parser-differential-projection.json text eol=lf
 tests/fixtures/llp0024-parser-differential/** text eol=lf
 
+# Cross-host contract tests inspect exact multiline engine source structure.
+# Keep the text they verify identical on every checkout platform.
+src/engine/** text eol=lf
+
 # Checked example policies authenticate their complete source trees and compare
 # the rendered artifact byte-for-byte. Keep those portable-v1 authorities
 # canonical across Git checkout platforms.
@@ -48,7 +52,6 @@ scripts/build-hermes-linux.sh text eol=lf
 scripts/run-tests.sh text eol=lf
 scripts/test-android-java.sh text eol=lf
 scripts/check-generated-drift.sh text eol=lf
-src/engine/hermes_runtime.cc text eol=lf
 
 # The vendored-runtime fingerprint hashes these source bytes directly. Keep
 # every authority byte-identical across checkouts so the hermetic build's
