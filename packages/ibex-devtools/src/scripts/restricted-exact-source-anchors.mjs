@@ -3360,10 +3360,34 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
       : null;
   if (!locatorPath || locatorPath === "process.cwd") return null;
   const logicalPath = locatorPath.split(".");
-  if (logicalPath.length > 2 || logicalPath.some((part) => part.includes("[["))) return null;
-  const rootCalls = setPropertyCalls(text, logicalPath[0]).filter(
+  if (logicalPath.some((part) => part.includes("[["))) return null;
+  let rootCalls = setPropertyCalls(text, logicalPath[0]).filter(
     (call) => ["rt.global()", "runtime.global()"].includes(call.caller),
   );
+  const memberCallsByRoot = new Map();
+  if (logicalPath.length > 1) {
+    rootCalls = rootCalls.filter((rootCall, rootIndex) => {
+      const lowerBound = rootIndex > 0 ? rootCalls[rootIndex - 1].range.endByte : 0;
+      let currentVariable = movedIdentifier(rootCall.value);
+      let before = rootCall.range.startByte;
+      const memberCalls = [];
+      for (const memberName of logicalPath.slice(1)) {
+        if (!currentVariable) return false;
+        const matches = setPropertyCalls(text, memberName).filter(
+          (call) => call.caller === currentVariable
+            && call.range.startByte >= lowerBound
+            && call.range.startByte < before,
+        );
+        if (matches.length !== 1) return false;
+        const memberCall = matches[0];
+        memberCalls.push(memberCall);
+        currentVariable = movedIdentifier(memberCall.value);
+        before = memberCall.range.startByte;
+      }
+      memberCallsByRoot.set(rootCall.range.startByte, { memberCalls, currentVariable, before });
+      return true;
+    });
+  }
   if (rootCalls.length === 0) return null;
   let branchConditions = rootCalls.map((rootCall) =>
     activePreprocessorCondition(text, rootCall.range.startByte));
@@ -3379,30 +3403,18 @@ function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, 
   const sites = [];
   const producerPaths = [];
   for (const [indexValue, rootCall] of rootCalls.entries()) {
-    const rootVariable = movedIdentifier(rootCall.value);
-    let producerRange;
-    let memberCall;
-    if (logicalPath.length === 1) {
-      producerRange = cppValueProducerRange(text, rootVariable, rootCall.range.startByte)
-        ?? rootCall.range;
-    } else {
-      if (!rootVariable) return null;
-      const memberCalls = setPropertyCalls(text, logicalPath[1]).filter(
-        (call) => call.caller === rootVariable && call.range.startByte < rootCall.range.startByte,
-      );
-      if (memberCalls.length !== 1) return null;
-      memberCall = memberCalls[0];
-      producerRange = cppValueProducerRange(
-        text,
-        movedIdentifier(memberCall.value),
-        memberCall.range.startByte,
-      ) ?? memberCall.range;
-    }
+    const trace = memberCallsByRoot.get(rootCall.range.startByte);
+    const memberCalls = trace?.memberCalls ?? [];
+    const currentVariable = trace?.currentVariable ?? movedIdentifier(rootCall.value);
+    const before = trace?.before ?? rootCall.range.startByte;
+    const producerRange = cppValueProducerRange(text, currentVariable, before)
+      ?? memberCalls.at(-1)?.range
+      ?? rootCall.range;
     const pathSites = [
       sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${logicalPath.join(".")}.producer.${indexValue}`, range: producerRange, text, bytes }),
     ];
-    if (memberCall) {
-      pathSites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath.join(".")}.member-publication.${indexValue}`, range: memberCall.range, text, bytes }));
+    for (const [memberIndex, memberCall] of memberCalls.entries()) {
+      pathSites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath.slice(0, memberIndex + 2).join(".")}.member-publication.${indexValue}`, range: memberCall.range, text, bytes }));
     }
     pathSites.push(sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${logicalPath[0]}.root-publication.${indexValue}`, range: rootCall.range, text, bytes }));
     sites.push(...pathSites);

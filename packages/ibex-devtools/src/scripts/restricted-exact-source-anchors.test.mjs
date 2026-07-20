@@ -475,6 +475,32 @@ module.exports = { Public: Public };
     );
   });
 
+  test("binds nested JSI object publications without borrowing a later root write", () => {
+    for (const [observedKey, sourceRef, siteCount] of [
+      [
+        "native-op:global:exact.callModuleSync",
+        "src/engine/hermes_runtime_ios.cc#jsi-global:exact.callModuleSync",
+        3,
+      ],
+      [
+        "native-op:global:process.release.name",
+        "src/engine/hermes_runtime_process_setup.cc#jsi-global:process.release.name",
+        4,
+      ],
+    ]) {
+      const binding = resolveRestrictedExactBranchSourceBinding({
+        branchId: `surface.${observedKey}`,
+        observedKey,
+        targetVariant: "default",
+      }, sourceRef);
+      expect(binding.locatorKind).toBe("jsi-root-global-route");
+      expect(binding.producerPaths).toHaveLength(1);
+      expect(binding.sites).toHaveLength(siteCount);
+      expect(binding.sites[0].role).toBe("value-producer");
+      expect(binding.sites.slice(1).every((site) => site.role === "publication")).toBe(true);
+    }
+  });
+
   test("rejects an unclassified second JSI publication", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-jsi-branch-"));
     try {
