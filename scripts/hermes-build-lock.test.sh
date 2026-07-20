@@ -211,6 +211,19 @@ assert_pristine_before_patch_replay() {
 assert_pristine_before_patch_replay "$SCRIPT_DIR/build-hermes.sh"
 assert_pristine_before_patch_replay "$SCRIPT_DIR/build-hermes-linux.sh"
 
+grep -Fq 'PROFILE_RECEIPT_DEST="$FRAMEWORKS_DIR/hermes-profile-provenance.json"' \
+    "$SCRIPT_DIR/build-hermes.sh" \
+    || fail "Apple builder does not own the installed profile receipt path"
+grep -Fq 'cp "$PROFILE_RECEIPT_DEST" "$VERSION_CACHE/hermes-profile-provenance.json"' \
+    "$SCRIPT_DIR/build-hermes.sh" \
+    || fail "Apple builder does not publish the fresh reviewed receipt with its cache"
+grep -Fq 'ibex_write_source_patched_profile_receipt \' \
+    "$SCRIPT_DIR/build-hermes-linux.sh" \
+    || fail "Linux builder does not publish a reviewed dynamic-runtime receipt"
+grep -Fq '"$LINUX_LIB_DIR/hermes-profile-provenance.json"' \
+    "$SCRIPT_DIR/build-hermes-linux.sh" \
+    || fail "Linux builder does not install the reviewed receipt beside libhermesvm"
+
 assert_windows_locked_pristine_publication() {
     local builder="$SCRIPT_DIR/build-hermes-windows.ps1"
     local installer="$SCRIPT_DIR/install-windows-hermes.ps1"
