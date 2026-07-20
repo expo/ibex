@@ -1513,6 +1513,32 @@ void install(Runtime& rt) {
     }
   });
 
+  test("keeps multiple installer sites and alias implementations as alternatives", () => {
+    const initialUrlBranch = {
+      branchId: "surface.native.op.initial-url.default",
+      observedKey: "native-op:__exactInitialURL",
+      targetVariant: "default",
+    };
+    const initialUrlRef = "packages/ibex-runtime-js/src/window/index.ts#applyAndroidPlatformState:globals:__exactInitialURL";
+    const initialUrl = resolveRestrictedExactBranchSourceBinding(initialUrlBranch, initialUrlRef);
+    expect(initialUrl.producerPaths).toHaveLength(2);
+    expect(buildRestrictedExactBranchSourceRoute(initialUrlBranch, [initialUrlRef]).status)
+      .toBe("executable");
+
+    const bunInspectBranch = {
+      branchId: "surface.native.op.global.bun.inspect.default",
+      observedKey: "native-op:global:Bun.inspect",
+      targetVariant: "default",
+    };
+    const bunInspect = buildRestrictedExactBranchSourceRoute(bunInspectBranch, [
+      "packages/ibex-runtime-js/src/bootstrap.ts#get:globals:Exact.inspect",
+      "packages/ibex-runtime-js/src/bootstrap.ts#installGlobals:globals:Bun",
+      "packages/ibex-runtime-js/src/inspect/inspect.ts#<module>:globals:Exact.inspect",
+    ]);
+    expect(bunInspect.status).toBe("executable");
+    expect(bunInspect.producerPaths).toHaveLength(2);
+  });
+
   test("binds module-level global assignments and exact C++ terminal symbols", () => {
     const moduleBinding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.android.dispatch.all",

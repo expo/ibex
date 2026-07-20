@@ -1333,38 +1333,43 @@ function typescriptGlobalInstallerBinding({ branch, sourceRef, sourcePath, locat
     `${candidate.publication.start}:${candidate.publication.end}`,
     candidate,
   ])).values()];
-  if (unique.length !== 1) return null;
-  const candidate = unique[0];
-  const sites = [
-    sourceSite({
+  if (unique.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, candidate] of unique.entries()) {
+    const producer = sourceSite({
       sourceRef,
       path: sourcePath,
       role: "value-producer",
-      siteKey: `${logicalPath.join(".")}.producer`,
+      siteKey: `${logicalPath.join(".")}.producer.${indexValue}`,
       range: { startByte: candidate.producer.start, endByte: candidate.producer.end },
       text,
       bytes,
-    }),
-    sourceSite({
+    });
+    const publication = sourceSite({
       sourceRef,
       path: sourcePath,
       role: "publication",
-      siteKey: `${logicalPath.join(".")}.publication`,
+      siteKey: `${logicalPath.join(".")}.publication.${indexValue}`,
       range: { startByte: candidate.publication.start, endByte: candidate.publication.end },
       text,
       bytes,
-    }),
-  ];
+    });
+    sites.push(producer, publication);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0global-installer\0${indexValue}`),
+      conditionId: unique.length === 1
+        ? `target-branch:${branch.targetVariant}:installer:${installerName}`
+        : `target-branch:${branch.targetVariant}:installer:${installerName}:site:${candidate.publication.start}`,
+      requiredSiteIds: [producer.siteId, publication.siteId],
+    });
+  }
   return validateRestrictedExactSourceBinding({
     sourceRef,
     locatorKind: "typescript-global-installer-route",
-    resolutionPolicy: "composite-path",
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
     sites,
-    producerPaths: [{
-      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0global-installer`),
-      conditionId: `target-branch:${branch.targetVariant}:installer:${installerName}`,
-      requiredSiteIds: sites.map((site) => site.siteId),
-    }],
+    producerPaths,
   });
 }
 
@@ -7327,6 +7332,32 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
         conditionId: `runtime-compat:bun+target-branch:${branch.targetVariant}`,
         requiredSiteIds,
       });
+    } else if (publications.length > 0 && exactAliasEntries.length > 0) {
+      for (const publication of publications) {
+        selectedEntries.add(publication);
+        for (const alias of exactAliasEntries) {
+          selectedEntries.add(alias);
+          for (const publicationPath of publication.binding.producerPaths) {
+            for (const aliasPath of alias.binding.producerPaths) {
+              const conditionId = [
+                "runtime-compat:bun",
+                `publication:${stableId("source", publication.sourceRef)}`,
+                `implementation:${stableId("source", alias.sourceRef)}`,
+                publicationPath.conditionId,
+                aliasPath.conditionId,
+              ].join("+");
+              producerPaths.push({
+                pathId: stableId("producer", `${branch.branchId}\0${conditionId}`),
+                conditionId,
+                requiredSiteIds: [
+                  ...publicationPath.requiredSiteIds,
+                  ...aliasPath.requiredSiteIds,
+                ],
+              });
+            }
+          }
+        }
+      }
     } else if (!observedPath.includes(".") && publications.length === 1) {
       selectedEntries.add(publications[0]);
       const requiredSiteIds = publications[0].binding.sites.map((site) => site.siteId);
