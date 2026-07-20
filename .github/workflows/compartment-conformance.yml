@@ -135,7 +135,10 @@ jobs:
           path: |
             capsec/conformance/evidence/restricted-exact/*x86_64-unknown-linux-gnu-${{ steps.restricted-evidence.outputs.short_sha }}.json
             capsec/conformance/restricted-exact-x86_64-unknown-linux-gnu-report.json
-          if-no-files-found: error
+          # A fail-fast edge assertion may intentionally produce no partial
+          # evidence files. Preserve the primary test failure in the job log;
+          # never replace it with a misleading retention-step failure.
+          if-no-files-found: warn
           retention-days: 30
 
   conformance:

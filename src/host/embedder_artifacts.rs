@@ -4127,7 +4127,7 @@ mod tests {
             .filter(|id| id.starts_with("surface.callback."))
             .cloned()
             .collect::<std::collections::BTreeSet<_>>();
-        assert_eq!(native_ids.len(), 115);
+        assert_eq!(native_ids.len(), 116);
         let startup_trace_edges = [
             "surface.startup.runtime.create.09gd22j",
             "surface.startup.install.route.ex.hermes.create.impl.installrestrictedexactglobals.17p1el8",
@@ -4303,6 +4303,9 @@ mod tests {
             } else if (path === 'Intl.DateTimeFormat.prototype.formatToParts') {
               receiver = new Intl.DateTimeFormat('en-US');
               args = [new Date(0)];
+            } else if (path === 'Intl.NumberFormat.prototype.formatToParts') {
+              receiver = new Intl.NumberFormat('en-US');
+              args = [0];
             } else if (path.endsWith('.prototype.subarray')) {
               receiver = new globalThis[spec.root](0);
               args = [0, 0];
@@ -4650,7 +4653,7 @@ mod tests {
         }
 
         // The real engine observations above cover every reachable projection
-        // class: 115 JS/native identities, nine startup edges, and seven
+        // class: 116 JS/native identities, nine startup edges, and seven
         // lifecycle callback edges.
         assert_eq!(native_ids.len() + 9 + 7, reachable_ids.len());
     }

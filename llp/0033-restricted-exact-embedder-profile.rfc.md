@@ -5,7 +5,13 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r19 — records the first pinned Linux exact-engine
+**Revised:** 2026-07-20 (r20 — records the second pinned Linux release attempt,
+which stopped before materializing evidence because the reachable executor's
+hard cardinality assertion still expected 115 rather than 116 native edges;
+updates that assertion, invokes the newly admitted NumberFormat edge with an
+exact receiver, preserves the primary test failure when no partial artifact
+exists, and keeps advertisements empty pending another unchanged-policy run;
+r19 — records the first pinned Linux exact-engine
 absence run, reclassifies the observed deterministic
 `Intl.NumberFormat.prototype.formatToParts` edge as reachable, regenerates the
 authority at 132 reachable/7,193 absent/22 control rows, and keeps all prior
@@ -416,6 +422,15 @@ The first pinned Linux run then reached the absence executor and found
 The fail-closed mismatch invalidated that run; the exact edge is now admitted
 as reachable and must receive its own fresh invocation observation before any
 Linux report can conform.
+The second pinned Linux release attempt reached the regenerated reachable
+executor but stopped before engine invocation or evidence materialization: its
+explicit native-edge cardinality assertion still expected the earlier 115-row
+set and rejected the current 116-row set. That is a stale harness assertion,
+not target evidence. The executor now expects 116 native rows and invokes
+`Intl.NumberFormat.prototype.formatToParts` with an actual NumberFormat
+receiver. A fail-fast run with no evidence files leaves its primary test
+failure in the Actions log instead of replacing it with a second artifact-
+retention error. A fresh run remains required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
