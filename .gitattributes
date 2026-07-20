@@ -42,3 +42,9 @@ scripts/package-portable-hermes-macos.mjs text eol=lf
 scripts/portable-engine-contract.mjs text eol=lf
 scripts/package-portable-hermes-macos.test.mjs text eol=lf
 tests/fixtures/portable-engine/** text eol=lf
+
+# The standalone offline verifier embeds and hashes exact trust/corpus bytes;
+# its source-build entry point must also remain portable shell text.
+tools/portable-engine-attestation-verifier/** text eol=lf
+scripts/build-portable-engine-attestation-verifier.sh text eol=lf
+scripts/build-portable-engine-attestation-verifier.test.sh text eol=lf
