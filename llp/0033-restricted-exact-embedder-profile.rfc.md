@@ -5,7 +5,10 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-19 (r9 — renumbers the proposal after LLP 0026 was assigned
+**Revised:** 2026-07-19 (r10 — refreshes the implementation-status inventory
+after the current-main registry integration and records the reviewed VS 2026
+Hermes source-build authority without opening evidence or advertisement; r9 —
+renumbers the proposal after LLP 0026 was assigned
 on main, rebases the restricted profile onto the LLP 0032 command-envelope
 authority, and regenerates the complete 7,302-edge projection with 28
 reachable/22 control-plane/7,252 absent rows while keeping evidence and
@@ -330,9 +333,9 @@ empty.
 
 Implementation status (2026-07-19): the additive definition, projection, and
 advertisement schemas and their non-writing drift gate are implemented. The
-authored definition pins the exact 7,129-edge full-registry set and binds each
+authored definition pins the exact 7,302-edge full-registry set and binds each
 of 28 candidate reachable and 22 trusted-control-plane rows to its
-source-derived kind and name; the remaining 7,079 rows are candidate
+source-derived kind and name; the remaining 7,252 rows are candidate
 structural absences whose source-install and live-reachability evidence is
 explicitly pending. The projection also binds the raw definition, coverage,
 implementation-manifest, and three profile-schema byte digests. Six mutation
@@ -363,7 +366,7 @@ positive mechanism/hostile pilot but before any per-edge source-install,
 reachability, or invocation execution. The target-report builder requires a
 deterministic fixture ID for every exact `(edge, evidence-kind)` observation,
 requires both source-install and live-reachability evidence for each structural
-absence, re-derives all 7,129 rows and summary counts, binds exact authority and
+absence, re-derives all 7,302 rows and summary counts, binds exact authority and
 engine bytes, and refuses duplicate, wrong-engine, identity-drifted, generic,
 or synthesized credit. Content-addressed attestations reopen conformant reports
 and may derive only the separately identified restricted advertisement; an
