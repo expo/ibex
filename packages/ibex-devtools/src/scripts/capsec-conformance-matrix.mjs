@@ -17,20 +17,36 @@ export function resolveConformanceMatrixInvocation({
   environment,
   repoRoot,
 }) {
-  if (target !== WINDOWS_TARGET || id !== "capsec-registry-drift") {
+  if (target !== WINDOWS_TARGET) {
     return { command, args, environmentKeys: [] };
   }
-  const nodeOracle = environment.IBEX_NODE_ORACLE_BIN;
-  if (typeof nodeOracle !== "string" || nodeOracle.length === 0) {
-    throw new Error(
-      "Windows CapSec registry drift requires IBEX_NODE_ORACLE_BIN",
-    );
+  if (id === "capsec-registry-drift") {
+    const nodeOracle = environment.IBEX_NODE_ORACLE_BIN;
+    if (typeof nodeOracle !== "string" || nodeOracle.length === 0) {
+      throw new Error(
+        "Windows CapSec registry drift requires IBEX_NODE_ORACLE_BIN",
+      );
+    }
+    return {
+      command: nodeOracle,
+      args: [`${repoRoot}/${REGISTRY_GENERATOR}`, "--check"],
+      environmentKeys: ["IBEX_NODE_ORACLE_BIN"],
+    };
   }
-  return {
-    command: nodeOracle,
-    args: [`${repoRoot}/${REGISTRY_GENERATOR}`, "--check"],
-    environmentKeys: ["IBEX_NODE_ORACLE_BIN"],
-  };
+  if (command === "bash") {
+    const gitBash = environment.IBEX_GIT_BASH_BIN;
+    if (typeof gitBash !== "string" || gitBash.length === 0) {
+      throw new Error(
+        "Windows CapSec shell commands require IBEX_GIT_BASH_BIN",
+      );
+    }
+    return {
+      command: gitBash,
+      args,
+      environmentKeys: ["IBEX_GIT_BASH_BIN"],
+    };
+  }
+  return { command, args, environmentKeys: [] };
 }
 
 export const CONFORMANCE_PREFLIGHT_COMMANDS = Object.freeze([

@@ -93,3 +93,31 @@ test("Windows registry drift uses the pinned Node oracle", () => {
     }),
   ).toThrow(/IBEX_NODE_ORACLE_BIN/u);
 });
+
+test("Windows shell commands use the pinned Git for Windows bash", () => {
+  const invocation = resolveConformanceMatrixInvocation({
+    id: "all-generated-drift",
+    command: "bash",
+    args: ["./scripts/check-generated-drift.sh"],
+    target: "x86_64-pc-windows-msvc",
+    environment: {
+      IBEX_GIT_BASH_BIN: "C:\\Program Files\\Git\\bin\\bash.exe",
+    },
+    repoRoot: "C:/ibex",
+  });
+  expect(invocation).toEqual({
+    command: "C:\\Program Files\\Git\\bin\\bash.exe",
+    args: ["./scripts/check-generated-drift.sh"],
+    environmentKeys: ["IBEX_GIT_BASH_BIN"],
+  });
+  expect(() =>
+    resolveConformanceMatrixInvocation({
+      id: "all-generated-drift",
+      command: "bash",
+      args: ["./scripts/check-generated-drift.sh"],
+      target: "x86_64-pc-windows-msvc",
+      environment: {},
+      repoRoot: "C:/ibex",
+    }),
+  ).toThrow(/IBEX_GIT_BASH_BIN/u);
+});
