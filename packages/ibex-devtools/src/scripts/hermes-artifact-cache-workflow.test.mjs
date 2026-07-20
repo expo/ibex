@@ -112,3 +112,15 @@ test("Windows conformance can isolate module-semantics evidence", () => {
   );
   expect(windowsJob).toContain('"module-semantics-observations.json"');
 });
+
+test("Windows conformance can isolate native DNS fidelity evidence", () => {
+  const windowsJob = conformanceWorkflow.slice(
+    conformanceWorkflow.indexOf("conformance-windows:"),
+  );
+
+  expect(conformanceWorkflow).toContain("- dns");
+  expect(windowsJob).toContain("name: Run focused native DNS fidelity suite");
+  expect(windowsJob).toContain("inputs.scope == 'dns'");
+  expect(windowsJob).toContain("cargo test --test native_dns_rcode");
+  expect(windowsJob).toContain('"native-dns-rcode.log"');
+});

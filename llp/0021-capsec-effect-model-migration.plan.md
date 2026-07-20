@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 physically clears the Windows module-semantics baseline and advances the default suite to the Windows DNS record-query stub)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the verified Windows Hermes CLI binding and advances the default product suite to platform-specific module-semantics baseline drift)
 **Revised:** 2026-07-20 (ENG-24933 physically clears Windows EC key generation/export and advances the default product suite to a missing verified-Hermes CLI binding)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the Windows KDF/AES frontier and narrows 23 crypto product tests to missing CNG EC key generation/export)
@@ -2256,6 +2257,22 @@ error. All other observations match, including dynamic-import settlement. A
 checked provenance-bound Windows overlay now records only those two current-
 path divergences; the canonical baseline remains unchanged. This baseline is
 descriptive evidence, not target promotion or acceptance of silent behavior.
+Focused physical run
+[`29746276690`](https://github.com/ccheever/ibex/actions/runs/29746276690)
+then passed that exact 12-fixture overlay against the bound Windows Hermes CLI.
+Full run
+[`29747420854`](https://github.com/ccheever/ibex/actions/runs/29747420854)
+passed all seven public-fixture batches, all three producer-spike tests, and the
+module-semantics baseline, advancing the default Rust matrix to 564 executions
+(557 passing, three ignored) before all seven `native_dns_rcode` tests exposed
+the next Windows frontier. The platform shim ignored `IBEX_DNS_SERVER`,
+reported the Azure runner's system resolver from `dns.getServers()`, and routed
+TXT queries through its address-only `getaddrinfo` stub, flattening every rcode
+to `ENOTFOUND`. Windows now loads the override or native resolver list into a
+bounded raw-UDP record-query path, validates the response question and record
+bounds, preserves Node-compatible rcodes, and parses the supported non-address
+record shapes. This repair awaits focused physical execution; no target cell
+or advertisement is promoted.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked

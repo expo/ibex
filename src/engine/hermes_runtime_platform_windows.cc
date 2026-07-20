@@ -2088,6 +2088,542 @@ void installProcessSetup(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactPlatform", facebook::jsi::String::createFromUtf8(rt, "win32"));
 }
 
+// @ref LLP 0008#sockets-dns-and-process — Windows default-path record queries
+// preserve resolver rcodes through a bounded raw UDP transport instead of
+// flattening them through getaddrinfo.
+struct WindowsDnsResult {
+  bool ok = false;
+  std::string payload;
+  std::string error;
+  std::string code;
+};
+
+uint16_t readDnsU16(const uint8_t* bytes) {
+  return static_cast<uint16_t>((static_cast<uint16_t>(bytes[0]) << 8) | bytes[1]);
+}
+
+uint32_t readDnsU32(const uint8_t* bytes) {
+  return (static_cast<uint32_t>(bytes[0]) << 24) |
+      (static_cast<uint32_t>(bytes[1]) << 16) |
+      (static_cast<uint32_t>(bytes[2]) << 8) | static_cast<uint32_t>(bytes[3]);
+}
+
+const char* windowsDnsRcodeToErrorCode(int rcode) {
+  switch (rcode) {
+    case 1: return "EFORMERR";
+    case 2: return "ESERVFAIL";
+    case 3: return "ENOTFOUND";
+    case 4: return "ENOTIMP";
+    case 5: return "EREFUSED";
+    default: return "EBADRESP";
+  }
+}
+
+int windowsDnsRrtypeToQtype(const std::string& rrtype) {
+  if (rrtype == "A") return 1;
+  if (rrtype == "NS") return 2;
+  if (rrtype == "CNAME") return 5;
+  if (rrtype == "SOA") return 6;
+  if (rrtype == "PTR") return 12;
+  if (rrtype == "MX") return 15;
+  if (rrtype == "TXT") return 16;
+  if (rrtype == "AAAA") return 28;
+  if (rrtype == "SRV") return 33;
+  if (rrtype == "NAPTR") return 35;
+  if (rrtype == "ANY") return 255;
+  if (rrtype == "CAA") return 257;
+  return -1;
+}
+
+void applyWindowsDnsTiming(int& timeoutSeconds, int& attempts) {
+  const std::string options = getenvString("RES_OPTIONS");
+  std::istringstream tokens(options);
+  std::string token;
+  while (tokens >> token) {
+    if (token.rfind("timeout:", 0) == 0) {
+      int value = std::atoi(token.c_str() + 8);
+      if (value > 0 && value <= 30) timeoutSeconds = value;
+    } else if (token.rfind("attempts:", 0) == 0) {
+      int value = std::atoi(token.c_str() + 9);
+      if (value > 0 && value <= 5) attempts = value;
+    }
+  }
+}
+
+void loadWindowsDnsServers(
+    std::vector<sockaddr_in>& servers,
+    int& timeoutSeconds,
+    int& attempts) {
+  timeoutSeconds = 5;
+  attempts = 2;
+  const std::string overrideSpec = getenvString("IBEX_DNS_SERVER");
+  if (!overrideSpec.empty()) {
+    std::string address = overrideSpec;
+    int port = 53;
+    const size_t colon = address.rfind(':');
+    if (colon != std::string::npos) {
+      port = std::atoi(address.substr(colon + 1).c_str());
+      address.resize(colon);
+    }
+    sockaddr_in server{};
+    if (port > 0 && port <= 65535 &&
+        InetPtonA(AF_INET, address.c_str(), &server.sin_addr) == 1) {
+      server.sin_family = AF_INET;
+      server.sin_port = htons(static_cast<uint16_t>(port));
+      servers.push_back(server);
+    }
+  }
+
+  if (servers.empty()) {
+    ULONG size = 0;
+    if (GetNetworkParams(nullptr, &size) == ERROR_BUFFER_OVERFLOW && size > 0) {
+      std::vector<uint8_t> storage(size);
+      auto* info = reinterpret_cast<FIXED_INFO*>(storage.data());
+      if (GetNetworkParams(info, &size) == NO_ERROR) {
+        for (IP_ADDR_STRING* item = &info->DnsServerList; item; item = item->Next) {
+          sockaddr_in server{};
+          if (InetPtonA(AF_INET, item->IpAddress.String, &server.sin_addr) != 1) continue;
+          server.sin_family = AF_INET;
+          server.sin_port = htons(53);
+          servers.push_back(server);
+        }
+      }
+    }
+  }
+  applyWindowsDnsTiming(timeoutSeconds, attempts);
+}
+
+std::string windowsDnsServersJson() {
+  std::vector<sockaddr_in> servers;
+  int timeoutSeconds = 0;
+  int attempts = 0;
+  loadWindowsDnsServers(servers, timeoutSeconds, attempts);
+  std::ostringstream json;
+  json << '[';
+  bool first = true;
+  for (const auto& server : servers) {
+    char address[INET_ADDRSTRLEN]{};
+    if (!InetNtopA(AF_INET, const_cast<IN_ADDR*>(&server.sin_addr), address, sizeof(address))) {
+      continue;
+    }
+    if (!first) json << ',';
+    first = false;
+    json << '"' << address;
+    const uint16_t port = ntohs(server.sin_port);
+    if (port != 0 && port != 53) json << ':' << port;
+    json << '"';
+  }
+  json << ']';
+  return json.str();
+}
+
+bool buildWindowsDnsQuery(
+    const std::string& hostname,
+    int qtype,
+    uint16_t id,
+    std::vector<uint8_t>& query) {
+  query.clear();
+  query.reserve(hostname.size() + 18);
+  query.push_back(static_cast<uint8_t>(id >> 8));
+  query.push_back(static_cast<uint8_t>(id));
+  query.push_back(0x01);
+  query.push_back(0x00);
+  query.push_back(0x00);
+  query.push_back(0x01);
+  query.insert(query.end(), 6, 0x00);
+  size_t labelStart = 0;
+  size_t encodedLength = 0;
+  for (size_t index = 0; index <= hostname.size(); ++index) {
+    if (index != hostname.size() && hostname[index] != '.') continue;
+    const size_t labelLength = index - labelStart;
+    if (labelLength == 0) {
+      if (index == hostname.size() && index > 0) break;
+      return false;
+    }
+    encodedLength += labelLength + 1;
+    if (labelLength > 63 || encodedLength > 255) return false;
+    query.push_back(static_cast<uint8_t>(labelLength));
+    query.insert(query.end(), hostname.begin() + labelStart, hostname.begin() + index);
+    labelStart = index + 1;
+  }
+  query.push_back(0x00);
+  query.push_back(static_cast<uint8_t>((qtype >> 8) & 0xff));
+  query.push_back(static_cast<uint8_t>(qtype & 0xff));
+  query.push_back(0x00);
+  query.push_back(0x01);
+  return true;
+}
+
+struct WindowsRawDnsOutcome {
+  std::vector<uint8_t> response;
+  int rcode = -1;
+  bool truncated = false;
+  bool connectionRefused = false;
+};
+
+WindowsRawDnsOutcome sendWindowsDnsQuery(
+    const std::vector<sockaddr_in>& servers,
+    int timeoutSeconds,
+    int attempts,
+    const std::vector<uint8_t>& query) {
+  WindowsRawDnsOutcome outcome;
+  const uint16_t queryId = readDnsU16(query.data());
+  std::vector<uint8_t> response(4096);
+  for (int attempt = 0; attempt < attempts; ++attempt) {
+    for (const auto& server : servers) {
+      SOCKET socketHandle = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+      if (socketHandle == INVALID_SOCKET) continue;
+      if (connect(
+              socketHandle,
+              reinterpret_cast<const sockaddr*>(&server),
+              sizeof(server)) == SOCKET_ERROR ||
+          send(
+              socketHandle,
+              reinterpret_cast<const char*>(query.data()),
+              static_cast<int>(query.size()),
+              0) != static_cast<int>(query.size())) {
+        if (WSAGetLastError() == WSAECONNREFUSED) outcome.connectionRefused = true;
+        closesocket(socketHandle);
+        continue;
+      }
+      const auto deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(timeoutSeconds);
+      bool receivedFinal = false;
+      while (std::chrono::steady_clock::now() < deadline) {
+        const auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(
+            deadline - std::chrono::steady_clock::now());
+        timeval timeout{};
+        timeout.tv_sec = static_cast<long>(remaining.count() / 1000000);
+        timeout.tv_usec = static_cast<long>(remaining.count() % 1000000);
+        fd_set readable;
+        FD_ZERO(&readable);
+        FD_SET(socketHandle, &readable);
+        const int selected = select(0, &readable, nullptr, nullptr, &timeout);
+        if (selected <= 0) break;
+        const int received = recv(
+            socketHandle,
+            reinterpret_cast<char*>(response.data()),
+            static_cast<int>(response.size()),
+            0);
+        if (received == SOCKET_ERROR) {
+          if (WSAGetLastError() == WSAECONNREFUSED) outcome.connectionRefused = true;
+          break;
+        }
+        if (received < 12 || readDnsU16(response.data()) != queryId ||
+            (response[2] & 0x80) == 0) {
+          continue;
+        }
+        outcome.rcode = response[3] & 0x0f;
+        if ((response[2] & 0x02) != 0) {
+          outcome.truncated = true;
+          receivedFinal = true;
+        } else if (outcome.rcode == 0 || outcome.rcode == 3) {
+          response.resize(static_cast<size_t>(received));
+          outcome.response = response;
+          receivedFinal = true;
+        }
+        break;
+      }
+      closesocket(socketHandle);
+      if (receivedFinal) return outcome;
+    }
+  }
+  return outcome;
+}
+
+bool readWindowsDnsName(
+    const std::vector<uint8_t>& packet,
+    size_t offset,
+    std::string& name,
+    size_t& nextOffset) {
+  name.clear();
+  bool jumped = false;
+  size_t cursor = offset;
+  nextOffset = offset;
+  for (size_t steps = 0; steps <= packet.size(); ++steps) {
+    if (cursor >= packet.size()) return false;
+    const uint8_t length = packet[cursor];
+    if ((length & 0xc0) == 0xc0) {
+      if (cursor + 1 >= packet.size()) return false;
+      const size_t pointer =
+          (static_cast<size_t>(length & 0x3f) << 8) | packet[cursor + 1];
+      if (pointer >= packet.size()) return false;
+      if (!jumped) nextOffset = cursor + 2;
+      cursor = pointer;
+      jumped = true;
+      continue;
+    }
+    if ((length & 0xc0) != 0 || length > 63) return false;
+    ++cursor;
+    if (length == 0) {
+      if (!jumped) nextOffset = cursor;
+      return true;
+    }
+    if (cursor + length > packet.size()) return false;
+    if (!name.empty()) name.push_back('.');
+    name.append(reinterpret_cast<const char*>(packet.data() + cursor), length);
+    cursor += length;
+    if (!jumped) nextOffset = cursor;
+  }
+  return false;
+}
+
+bool appendWindowsDnsText(
+    const std::vector<uint8_t>& packet,
+    size_t end,
+    size_t& offset,
+    std::string& json) {
+  if (offset >= end) return false;
+  const size_t length = packet[offset++];
+  if (offset + length > end) return false;
+  if (!appendEscapedJsonText(json, packet.data() + offset, length)) return false;
+  offset += length;
+  return true;
+}
+
+WindowsDnsResult parseWindowsDnsResponse(
+    const std::vector<uint8_t>& packet,
+    const std::string& hostname,
+    int qtype,
+    const std::string& rrtype) {
+  if (packet.size() < 12 || readDnsU16(packet.data() + 4) != 1) {
+    return {false, "", "Invalid DNS response (EBADRESP)", "EBADRESP"};
+  }
+  const uint16_t flags = readDnsU16(packet.data() + 2);
+  if ((flags & 0x8000) == 0 || (flags & 0x7800) != 0 || (flags & 0x0200) != 0) {
+    return {false, "", "Invalid DNS response flags (EBADRESP)", "EBADRESP"};
+  }
+  const int rcode = packet[3] & 0x0f;
+  if (rcode != 0) {
+    const std::string code = windowsDnsRcodeToErrorCode(rcode);
+    return {false, "", "DNS query failed (" + code + ")", code};
+  }
+  size_t offset = 12;
+  std::string questionName;
+  size_t nextOffset = 0;
+  if (!readWindowsDnsName(packet, offset, questionName, nextOffset) ||
+      nextOffset + 4 > packet.size() || readDnsU16(packet.data() + nextOffset) != qtype ||
+      readDnsU16(packet.data() + nextOffset + 2) != 1) {
+    return {false, "", "Invalid DNS question (EBADRESP)", "EBADRESP"};
+  }
+  auto normalizeName = [](std::string value) {
+    if (!value.empty() && value.back() == '.') value.pop_back();
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char byte) {
+      return static_cast<char>(std::tolower(byte));
+    });
+    return value;
+  };
+  if (normalizeName(questionName) != normalizeName(hostname)) {
+    return {false, "", "DNS response question mismatch (EBADRESP)", "EBADRESP"};
+  }
+  offset = nextOffset + 4;
+  const uint16_t answerCount = readDnsU16(packet.data() + 6);
+  std::ostringstream json;
+  json << '[';
+  bool first = true;
+  auto appendRecord = [&](const std::string& record) {
+    if (!first) json << ',';
+    first = false;
+    json << record;
+  };
+  (void)rrtype;
+  for (uint16_t index = 0; index < answerCount; ++index) {
+    std::string owner;
+    if (!readWindowsDnsName(packet, offset, owner, nextOffset) ||
+        nextOffset + 10 > packet.size()) {
+      return {false, "", "Truncated DNS record (EBADRESP)", "EBADRESP"};
+    }
+    const int recordType = readDnsU16(packet.data() + nextOffset);
+    const uint16_t recordClass = readDnsU16(packet.data() + nextOffset + 2);
+    const uint32_t ttl = readDnsU32(packet.data() + nextOffset + 4);
+    const size_t dataLength = readDnsU16(packet.data() + nextOffset + 8);
+    const size_t dataOffset = nextOffset + 10;
+    const size_t dataEnd = dataOffset + dataLength;
+    if (dataEnd > packet.size()) {
+      return {false, "", "Truncated DNS record data (EBADRESP)", "EBADRESP"};
+    }
+    offset = dataEnd;
+    if (recordClass != 1 || (qtype != 255 && recordType != qtype)) continue;
+    if (recordType == 1 && dataLength == 4) {
+      char address[INET_ADDRSTRLEN]{};
+      IN_ADDR parsed{};
+      std::memcpy(&parsed, packet.data() + dataOffset, 4);
+      if (InetNtopA(AF_INET, &parsed, address, sizeof(address))) {
+        std::string addressJson;
+        appendEscapedJsonText(
+            addressJson, reinterpret_cast<const uint8_t*>(address), std::strlen(address));
+        appendRecord(addressJson);
+      }
+    } else if (recordType == 28 && dataLength == 16) {
+      char address[INET6_ADDRSTRLEN]{};
+      IN6_ADDR parsed{};
+      std::memcpy(&parsed, packet.data() + dataOffset, 16);
+      if (InetNtopA(AF_INET6, &parsed, address, sizeof(address))) {
+        std::string addressJson;
+        appendEscapedJsonText(
+            addressJson, reinterpret_cast<const uint8_t*>(address), std::strlen(address));
+        appendRecord(addressJson);
+      }
+    } else if (recordType == 15 && dataLength >= 3) {
+      std::string exchange;
+      size_t ignored = 0;
+      if (!readWindowsDnsName(packet, dataOffset + 2, exchange, ignored)) continue;
+      std::string exchangeJson;
+      if (!appendEscapedJsonText(
+              exchangeJson,
+              reinterpret_cast<const uint8_t*>(exchange.data()),
+              exchange.size())) continue;
+      appendRecord(
+          "{\"priority\":" + std::to_string(readDnsU16(packet.data() + dataOffset)) +
+          ",\"exchange\":" + exchangeJson + "}");
+    } else if (recordType == 16) {
+      size_t textOffset = dataOffset;
+      std::ostringstream texts;
+      texts << '[';
+      bool firstText = true;
+      bool valid = true;
+      while (textOffset < dataEnd) {
+        std::string textJson;
+        if (!appendWindowsDnsText(packet, dataEnd, textOffset, textJson)) {
+          valid = false;
+          break;
+        }
+        if (!firstText) texts << ',';
+        firstText = false;
+        texts << textJson;
+      }
+      if (valid) {
+        texts << ']';
+        appendRecord(texts.str());
+      }
+    } else if (recordType == 2 || recordType == 5 || recordType == 12) {
+      std::string value;
+      size_t ignored = 0;
+      if (!readWindowsDnsName(packet, dataOffset, value, ignored)) continue;
+      std::string valueJson;
+      if (appendEscapedJsonText(
+              valueJson,
+              reinterpret_cast<const uint8_t*>(value.data()),
+              value.size())) appendRecord(valueJson);
+    } else if (recordType == 33 && dataLength >= 7) {
+      std::string target;
+      size_t ignored = 0;
+      if (!readWindowsDnsName(packet, dataOffset + 6, target, ignored)) continue;
+      std::string targetJson;
+      if (!appendEscapedJsonText(
+              targetJson,
+              reinterpret_cast<const uint8_t*>(target.data()),
+              target.size())) continue;
+      appendRecord(
+          "{\"priority\":" + std::to_string(readDnsU16(packet.data() + dataOffset)) +
+          ",\"weight\":" + std::to_string(readDnsU16(packet.data() + dataOffset + 2)) +
+          ",\"port\":" + std::to_string(readDnsU16(packet.data() + dataOffset + 4)) +
+          ",\"name\":" + targetJson + "}");
+    } else if (recordType == 6) {
+      std::string nsname;
+      std::string hostmaster;
+      size_t soaOffset = 0;
+      if (!readWindowsDnsName(packet, dataOffset, nsname, soaOffset) ||
+          !readWindowsDnsName(packet, soaOffset, hostmaster, soaOffset) ||
+          soaOffset + 20 != dataEnd) continue;
+      std::string nsnameJson;
+      std::string hostmasterJson;
+      if (!appendEscapedJsonText(
+              nsnameJson,
+              reinterpret_cast<const uint8_t*>(nsname.data()),
+              nsname.size()) ||
+          !appendEscapedJsonText(
+              hostmasterJson,
+              reinterpret_cast<const uint8_t*>(hostmaster.data()),
+              hostmaster.size())) continue;
+      appendRecord(
+          "{\"nsname\":" + nsnameJson + ",\"hostmaster\":" + hostmasterJson +
+          ",\"serial\":" + std::to_string(readDnsU32(packet.data() + soaOffset)) +
+          ",\"refresh\":" + std::to_string(readDnsU32(packet.data() + soaOffset + 4)) +
+          ",\"retry\":" + std::to_string(readDnsU32(packet.data() + soaOffset + 8)) +
+          ",\"expire\":" + std::to_string(readDnsU32(packet.data() + soaOffset + 12)) +
+          ",\"minttl\":" + std::to_string(readDnsU32(packet.data() + soaOffset + 16)) + "}");
+    } else if (recordType == 257 && dataLength >= 2) {
+      const size_t tagLength = packet[dataOffset + 1];
+      if (dataOffset + 2 + tagLength > dataEnd) continue;
+      std::string tagJson;
+      std::string valueJson;
+      if (!appendEscapedJsonText(tagJson, packet.data() + dataOffset + 2, tagLength) ||
+          !appendEscapedJsonText(
+              valueJson,
+              packet.data() + dataOffset + 2 + tagLength,
+              dataEnd - dataOffset - 2 - tagLength)) continue;
+      appendRecord(
+          "{\"critical\":" + std::to_string(packet[dataOffset]) + "," + tagJson + ":" +
+          valueJson + "}");
+    } else if (recordType == 35 && dataLength >= 5) {
+      size_t naptrOffset = dataOffset + 4;
+      std::string flagsJson;
+      std::string serviceJson;
+      std::string regexpJson;
+      if (!appendWindowsDnsText(packet, dataEnd, naptrOffset, flagsJson) ||
+          !appendWindowsDnsText(packet, dataEnd, naptrOffset, serviceJson) ||
+          !appendWindowsDnsText(packet, dataEnd, naptrOffset, regexpJson)) continue;
+      std::string replacement;
+      size_t ignored = 0;
+      if (!readWindowsDnsName(packet, naptrOffset, replacement, ignored)) continue;
+      std::string replacementJson;
+      if (!appendEscapedJsonText(
+              replacementJson,
+              reinterpret_cast<const uint8_t*>(replacement.data()),
+              replacement.size())) continue;
+      appendRecord(
+          "{\"flags\":" + flagsJson + ",\"service\":" + serviceJson +
+          ",\"regexp\":" + regexpJson + ",\"replacement\":" + replacementJson +
+          ",\"order\":" + std::to_string(readDnsU16(packet.data() + dataOffset)) +
+          ",\"preference\":" + std::to_string(readDnsU16(packet.data() + dataOffset + 2)) +
+          "}");
+    }
+    (void)ttl;
+  }
+  json << ']';
+  return {true, json.str(), "", ""};
+}
+
+WindowsDnsResult resolveWindowsDnsRecords(
+    const std::string& hostname,
+    const std::string& rrtype) {
+  ensureWinsock();
+  const int qtype = windowsDnsRrtypeToQtype(rrtype);
+  if (qtype < 0) {
+    return {false, "", "Unsupported DNS record type (ENOTIMP)", "ENOTIMP"};
+  }
+  std::vector<sockaddr_in> servers;
+  int timeoutSeconds = 5;
+  int attempts = 2;
+  loadWindowsDnsServers(servers, timeoutSeconds, attempts);
+  if (servers.empty()) {
+    return {false, "", "No usable DNS servers (ENOTFOUND)", "ENOTFOUND"};
+  }
+  static std::random_device randomDevice;
+  const uint16_t id = static_cast<uint16_t>(randomDevice());
+  std::vector<uint8_t> query;
+  if (!buildWindowsDnsQuery(hostname, qtype, id, query)) {
+    return {false, "", "Invalid DNS name (EBADNAME)", "EBADNAME"};
+  }
+  WindowsRawDnsOutcome outcome =
+      sendWindowsDnsQuery(servers, timeoutSeconds, attempts, query);
+  if (!outcome.response.empty()) {
+    return parseWindowsDnsResponse(outcome.response, hostname, qtype, rrtype);
+  }
+  if (outcome.truncated) {
+    return {false, "", "Truncated DNS response (EBADRESP)", "EBADRESP"};
+  }
+  if (outcome.rcode > 0) {
+    const std::string code = windowsDnsRcodeToErrorCode(outcome.rcode);
+    return {false, "", "DNS query failed (" + code + ")", code};
+  }
+  if (outcome.connectionRefused) {
+    return {false, "", "DNS server refused connection (ECONNREFUSED)", "ECONNREFUSED"};
+  }
+  return {false, "", "DNS query timed out (ETIMEOUT)", "ETIMEOUT"};
+}
+
 void installDnsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   auto dnsGetServersFn = facebook::jsi::Function::createFromHostFunction(
@@ -2098,30 +2634,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
-        ULONG size = 0;
-        if (GetNetworkParams(nullptr, &size) != ERROR_BUFFER_OVERFLOW || size == 0) {
-          return facebook::jsi::String::createFromUtf8(runtime, "[]");
-        }
-        std::vector<uint8_t> storage(size);
-        auto* info = reinterpret_cast<FIXED_INFO*>(storage.data());
-        if (GetNetworkParams(info, &size) != NO_ERROR) {
-          return facebook::jsi::String::createFromUtf8(runtime, "[]");
-        }
-        std::ostringstream json;
-        json << '[';
-        bool first = true;
-        for (IP_ADDR_STRING* server = &info->DnsServerList;
-             server != nullptr;
-             server = server->Next) {
-          const char* address = server->IpAddress.String;
-          IN_ADDR parsed{};
-          if (!address || InetPtonA(AF_INET, address, &parsed) != 1) continue;
-          if (!first) json << ',';
-          first = false;
-          json << '"' << address << '"';
-        }
-        json << ']';
-        return facebook::jsi::String::createFromUtf8(runtime, json.str());
+        return facebook::jsi::String::createFromUtf8(runtime, windowsDnsServersJson());
       });
   rt.global().setProperty(rt, "__exactDnsGetServers", std::move(dnsGetServersFn));
 
@@ -2195,6 +2708,13 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
         std::string rrtype = "A";
         if (count > 1 && args[1].isString()) {
           rrtype = args[1].toString(runtime).utf8(runtime);
+        }
+        if (rrtype != "A" && rrtype != "AAAA") {
+          WindowsDnsResult resolved = resolveWindowsDnsRecords(hostname, rrtype);
+          if (!resolved.ok) {
+            throw facebook::jsi::JSError(runtime, resolved.error);
+          }
+          return facebook::jsi::String::createFromUtf8(runtime, resolved.payload);
         }
         int family = rrtype == "AAAA" ? 6 : 4;
         addrinfo hints{};

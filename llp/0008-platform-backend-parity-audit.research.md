@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-20 (ENG-24933: the Windows BCrypt/CNG profile supplies PBKDF2, portable RFC 7914 scrypt, RFC 5869 HKDF, padded AES-CBC, and EC key generation with PKCS#8/SPKI export in addition to hash and HMAC); 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
+**Revised:** 2026-07-20 (ENG-24933: Windows default-path non-address DNS queries now use the bounded raw-UDP, rcode-preserving contract, including validated response/question parsing and the test-only server override); 2026-07-20 (ENG-24933: the Windows BCrypt/CNG profile supplies PBKDF2, portable RFC 7914 scrypt, RFC 5869 HKDF, padded AES-CBC, and EC key generation with PKCS#8/SPKI export in addition to hash and HMAC); 2026-07-12 (ENG-24261: executable host-JVM tests cover the production Android WebSocket queue's flood, overflow, terminal, and repeated flow-control behavior); 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -158,9 +158,17 @@ ignores them natively). Android keeps the `DnsResolver`/`res_query` transports
 but maps non-zero rcodes in returned packets the same way. `lookup` and reverse
 lookup stay on `getaddrinfo`/`getnameinfo` and map `EAI_*` failures the way
 libuv does (`EAI_NONAME`/`EAI_NODATA` → `ENOTFOUND`, `EAI_AGAIN` passes
-through). Windows' `__exactDnsResolve` is a `getaddrinfo`-based stub with no
-record-query transport, so it has no rcode to preserve; the JS-side code mapping
-in `src/builtins/dns.js` is shared across platforms.
+through). Windows retains `getaddrinfo` for address lookup and A/AAAA
+resolution, while non-address `__exactDnsResolve` queries use a bounded raw UDP
+transport over the `GetNetworkParams` resolver list. The transport validates
+transaction id, response/question shape, name compression, record bounds, and
+class before it serializes MX, TXT, NS/CNAME/PTR, SOA, SRV, NAPTR, or CAA
+results. It preserves the same Node-compatible rcode distinctions and
+`RES_OPTIONS` timing bounds as the POSIX implementation. `IBEX_DNS_SERVER`
+replaces the Windows server list, including a non-default port, so the physical
+loopback corpus exercises this default path without public network dependence.
+Truncated UDP responses remain a loud `EBADRESP` on Windows pending a bounded
+TCP retry; they never degrade to an unrelated `getaddrinfo` answer.
 
 Async child-process registry entries are owned by both runtime nonce and
 principal. `ChildProcess.ref()` / `unref()` updates an owner-validated native

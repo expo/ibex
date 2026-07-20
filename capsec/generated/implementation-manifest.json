@@ -256444,17 +256444,19 @@
       "edgeId": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "observedKey": "startup:env:IBEX_DNS_SERVER",
       "branchId": "surface.startup.env.ibex.dns.server.0ggdo6d.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:IBEX_DNS_SERVER"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read"
+          "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:IBEX_DNS_SERVER:read"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read"
+          "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:IBEX_DNS_SERVER:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_DNS_SERVER"
       },
@@ -256464,19 +256466,20 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read"
+        "src/engine/hermes_runtime_dns.cc#getenv:IBEX_DNS_SERVER:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:IBEX_DNS_SERVER:read"
       ],
       "implementationOwner": "WP6",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.allow",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.branch-selection",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.deny",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.malformed",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.set.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.unset.branch-selection",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.unset.malformed-branch-facts",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0mx3d67.logical.unset.no-effect"
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.allow",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.branch-selection",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.deny",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.malformed",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.set.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.unset.branch-selection",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.unset.malformed-branch-facts",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.ibex.dns.server.read.0sq7wqh.logical.unset.no-effect"
       ]
     },
     {
@@ -257689,17 +257692,19 @@
       "edgeId": "surface.startup.env.res.options.0e62k3i",
       "observedKey": "startup:env:RES_OPTIONS",
       "branchId": "surface.startup.env.res.options.0e62k3i.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:RES_OPTIONS"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read"
+          "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:RES_OPTIONS:read"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read"
+          "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:RES_OPTIONS:read"
         ],
         "terminalObservedKey": "startup:env:RES_OPTIONS"
       },
@@ -257709,19 +257714,20 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read"
+        "src/engine/hermes_runtime_dns.cc#getenv:RES_OPTIONS:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:RES_OPTIONS:read"
       ],
       "implementationOwner": "WP6",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.allow",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.branch-selection",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.deny",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.malformed",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.set.wrong-principal",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.unset.branch-selection",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.unset.malformed-branch-facts",
-        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.0oxobfh.logical.unset.no-effect"
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.allow",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.branch-selection",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.deny",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.malformed",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.set.wrong-principal",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.unset.branch-selection",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.unset.malformed-branch-facts",
+        "enforcement.src.engine.hermes.runtime.dns.cc.getenv.res.options.read.1i8hbnm.logical.unset.no-effect"
       ]
     },
     {
@@ -266038,12 +266044,12 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-_TCw7oz5kXJpmliMiaIgGq4rZ7cMf-q_e0ZWU6LKvlw"
+      "rawContentDigest": "sha256-Ftv4cCysUDSLZe-MLxZNe0pzpb-ESWPCgWJgpS8f0pM"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-xvT71ONOrO60aDXIaUP8vIuYjxr2_RUntv38L6O4AVA"
+      "rawContentDigest": "sha256-UKVE7yiE7YjrqG9PLQxvLmGEHHarnMuupnQQsIwkMD0"
     },
     {
       "kind": "registry",
@@ -266053,26 +266059,26 @@
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-o7E6KjW7pt4-9vFYxBgNv74SODh8RFJtXIRKOfnF0fk"
+      "rawContentDigest": "sha256-gMbDn82nGyvmbHnVEyqcZw8Jz-wNkJWZgnnuhL_bBdw"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-t2rdP7mT5DtVLO9MZc3uXhUs2gySgQBe1hoLfdzHsaY"
+      "rawContentDigest": "sha256-IkYDo8jbLOG3gStWVwz6uESvbLJgzdZlmmUgJrYBJNA"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Qge9Cf00Lse9mEbHSmuMtOCqBWa0LWO7sylXEACvko8"
+      "rawContentDigest": "sha256-oa9V0-HTu4uJg3wA58cZHjMZdeCWm0ES3PLqCu7pATY"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-VzSlxjyE83hScKjlA1wabzpUzXPDlOx2TBY91uEP5io"
+      "rawContentDigest": "sha256-jY1DgtNCzd5g9e3bnQ3v_RDMzqoec2dfDy-B2GHaQeI"
     }
   ],
   "counts": {
-    "observedReferences": 12851,
+    "observedReferences": 12853,
     "logicalSurfaces": 7103,
     "enforcementBranches": 7338,
     "coverageEdges": 7103,

@@ -25,6 +25,7 @@ on:
           - full
           - startup
           - module-semantics
+          - dns
   schedule:
     # Weekly, Monday 08:00 UTC (after the patch canary).
     - cron: "0 8 * * 1"
@@ -310,6 +311,17 @@ jobs:
           cargo test --test module_semantics_baseline -- --exact --test-threads=1 --nocapture 2>&1 |
             Tee-Object -FilePath (Join-Path $directory "module-semantics.log")
           if ($LASTEXITCODE -ne 0) { throw "focused module-semantics baseline failed" }
+
+      - name: Run focused native DNS fidelity suite
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'dns' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $directory = Join-Path $PWD "target\capsec-focused-windows"
+          New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          cargo test --test native_dns_rcode -- --exact --test-threads=1 --nocapture 2>&1 |
+            Tee-Object -FilePath (Join-Path $directory "native-dns-rcode.log")
+          if ($LASTEXITCODE -ne 0) { throw "focused native DNS fidelity suite failed" }
 
       - name: Run the complete CapSec matrix and bind evidence
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.scope == 'full' }}
