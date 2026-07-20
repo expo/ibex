@@ -25,6 +25,12 @@ const MACHO_LOAD_DYLIB_COMMANDS = new Map([
 const MACHO_ID_DYLIB = 0x0d;
 const MACHO_LOAD_DYLINKER = 0x0e;
 const MACHO_RPATH = 0x8000001c;
+const MACHO_DYLD_ENVIRONMENT = 0x27;
+const MACHO_UNACCOUNTED_FINAL_LOADER_COMMANDS = new Map([
+  [0x06, "LC_LOADFVMLIB"],
+  [0x09, "LC_FVMFILE"],
+  [0x10, "LC_PREBOUND_DYLIB"],
+]);
 const HERMES_HBC_MAGIC = 0x1f1903c103bc1fc6n;
 
 export function compareUtf8(left, right) {
@@ -441,10 +447,15 @@ function selectMachOSlice(buffer, architecture) {
 }
 
 // @ref LLP 0035#build-consumption-and-post-link-contracts — final-executable
-// evidence retains exact load-command kinds, RPATHs, and whole-file identity.
+// evidence retains exact load-command kinds, RPATHs, DYLD environment entries,
+// and whole-file identity.
 export function parseMachO(
   bytes,
-  { architecture = "arm64", requireExternalDefinedSymbols = true } = {},
+  {
+    architecture = "arm64",
+    finalExecutableAudit = false,
+    requireExternalDefinedSymbols = true,
+  } = {},
 ) {
   const buffer = Buffer.from(bytes);
   const slice = selectMachOSlice(buffer, architecture);
@@ -476,6 +487,8 @@ export function parseMachO(
   const commandsEnd = cursor + commandBytes;
   const dependencyCommands = [];
   const rpaths = [];
+  const dyldEnvironment = [];
+  const unaccountedFinalLoaderCommands = [];
   let dylibId = null;
   let dylinker = null;
   let symbolTable = null;
@@ -545,6 +558,30 @@ export function parseMachO(
       }
       rpaths.push(decoded.text);
     }
+    if (command === MACHO_DYLD_ENVIRONMENT) {
+      if (commandSize < 12) {
+        throw new Error(`Mach-O LC_DYLD_ENVIRONMENT command ${index} is truncated`);
+      }
+      const valueOffset = buffer.readUInt32LE(cursor + 8);
+      if (valueOffset < 12 || valueOffset >= commandSize) {
+        throw new Error(`Mach-O LC_DYLD_ENVIRONMENT command ${index} has invalid value offset`);
+      }
+      const decoded = decodeCString(
+        buffer,
+        cursor + valueOffset,
+        cursor + commandSize,
+        `Mach-O LC_DYLD_ENVIRONMENT ${index}`,
+      );
+      if (!buffer.subarray(decoded.end, cursor + commandSize).every((byte) => byte === 0)) {
+        throw new Error(`Mach-O LC_DYLD_ENVIRONMENT command ${index} has non-zero string padding`);
+      }
+      dyldEnvironment.push(decoded.text);
+    }
+    const unaccountedLoaderCommand =
+      MACHO_UNACCOUNTED_FINAL_LOADER_COMMANDS.get(command);
+    if (unaccountedLoaderCommand !== undefined) {
+      unaccountedFinalLoaderCommands.push(unaccountedLoaderCommand);
+    }
     if (command === 0x02) {
       if (commandSize !== 24 || symbolTable) throw new Error("Mach-O must contain at most one canonical LC_SYMTAB command");
       symbolTable = {
@@ -604,6 +641,25 @@ export function parseMachO(
   );
   const rpathSet = [...new Set(rpaths)].sort(compareUtf8);
   if (rpathSet.length !== rpaths.length) throw new Error("Mach-O contains duplicate LC_RPATH commands");
+  const dyldEnvironmentSet = [...new Set(dyldEnvironment)].sort(compareUtf8);
+  if (dyldEnvironmentSet.length !== dyldEnvironment.length) {
+    throw new Error("Mach-O contains duplicate LC_DYLD_ENVIRONMENT commands");
+  }
+  if (finalExecutableAudit && fileType !== 2) {
+    throw new Error("Mach-O final-executable audit requires an MH_EXECUTE image");
+  }
+  if (finalExecutableAudit && dyldEnvironmentSet.length !== 0) {
+    throw new Error(
+      `Mach-O final executable contains forbidden LC_DYLD_ENVIRONMENT: ${dyldEnvironmentSet.join(", ")}`,
+    );
+  }
+  if (finalExecutableAudit && unaccountedFinalLoaderCommands.length !== 0) {
+    throw new Error(
+      `Mach-O final executable contains unaccounted load-bearing command: ${[
+        ...new Set(unaccountedFinalLoaderCommands),
+      ].sort(compareUtf8).join(", ")}`,
+    );
+  }
   return {
     format: "mach-o",
     architecture,
@@ -614,6 +670,7 @@ export function parseMachO(
     dependencies: dependencySet,
     dependencyCommands: sortedDependencyCommands,
     rpaths: rpathSet,
+    dyldEnvironment: dyldEnvironmentSet,
     executableDigest: rawDigest(buffer),
     executableSize: buffer.length,
     externalDefinedSymbolNames: [...names.values()].sort(Buffer.compare),

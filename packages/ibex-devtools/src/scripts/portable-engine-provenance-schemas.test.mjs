@@ -1696,7 +1696,9 @@ function postLinkVerificationSemantics(
       audit.architecture === "arm64" &&
       audit.cpuSubtype === "all" &&
       audit.fileType === "execute" &&
-      audit.dynamicLinker === "/usr/lib/dyld",
+      audit.dynamicLinker === "/usr/lib/dyld" &&
+      Array.isArray(audit.dyldEnvironment) &&
+      audit.dyldEnvironment.length === 0,
     "post-link Mach-O audit does not match the target",
   );
   assertStringSet(audit.rpaths, "postLinkVerification.audit.rpaths");
@@ -1842,6 +1844,7 @@ function finalExecutableParserFixtureSemantics(
       "dependencyCommands",
       "dylibId",
       "dylinker",
+      "dyldEnvironment",
       "executableDigest",
       "executableSize",
       "fileType",
@@ -1857,6 +1860,7 @@ function finalExecutableParserFixtureSemantics(
   );
   const parsed = parseMachO(bytes, {
     architecture: "arm64",
+    finalExecutableAudit: true,
     requireExternalDefinedSymbols: false,
   });
   const parsedProjection = {
@@ -1866,6 +1870,7 @@ function finalExecutableParserFixtureSemantics(
     fileType: parsed.fileType,
     dylibId: parsed.dylibId,
     dylinker: parsed.dylinker,
+    dyldEnvironment: parsed.dyldEnvironment,
     dependencyCommands: parsed.dependencyCommands,
     rpaths: parsed.rpaths,
     executableDigest: parsed.executableDigest,
@@ -1893,6 +1898,7 @@ function finalExecutableParserFixtureSemantics(
       fileType: postLinkVerification.audit.fileType === "execute" ? 2 : null,
       dylibId: null,
       dylinker: postLinkVerification.audit.dynamicLinker,
+      dyldEnvironment: postLinkVerification.audit.dyldEnvironment,
       dependencyCommands: postLinkVerification.audit.dependencies.map(
         ({ command, installName }) => ({ command, installName }),
       ),
@@ -1914,6 +1920,7 @@ function rejectedFinalExecutableObservationSemantics(observation) {
       "dependencyCommands",
       "dylibId",
       "dylinker",
+      "dyldEnvironment",
       "evidenceClass",
       "executableDigest",
       "executableSize",
@@ -1941,6 +1948,7 @@ function rejectedFinalExecutableObservationSemantics(observation) {
       observation.fileType === 2 &&
       observation.dylibId === null &&
       observation.dylinker === "/usr/lib/dyld" &&
+      Array.isArray(observation.dyldEnvironment) &&
       observation.rpaths.some((rpath) => path.isAbsolute(rpath)),
     "rejected final executable observation is not the checked absolute-rpath diagnostic",
   );
@@ -1948,6 +1956,10 @@ function rejectedFinalExecutableObservationSemantics(observation) {
     observation.dependencyCommands,
     (row) => `${row.command}\0${row.installName}`,
     "rejected final executable dependency commands",
+  );
+  assertExactUtf8StringSet(
+    observation.dyldEnvironment,
+    "rejected final executable DYLD environment",
   );
   assertExactUtf8StringSet(
     observation.rpaths,
@@ -2800,6 +2812,20 @@ describe("LLP 0035 portable engine authority schemas", () => {
         },
         error: "payload revalidation",
       },
+      {
+        label: "complete manifest count",
+        mutate: (verification) => {
+          verification.payloadRevalidation.manifestEntryCount += 1;
+        },
+        error: "payload revalidation",
+      },
+      {
+        label: "regular manifest byte count",
+        mutate: (verification) => {
+          verification.payloadRevalidation.regularByteCount += 1;
+        },
+        error: "payload revalidation",
+      },
     ];
     for (const { label, mutate, error } of cases) {
       const documents = structuredClone(validVectors.documents);
@@ -2832,6 +2858,22 @@ describe("LLP 0035 portable engine authority schemas", () => {
       recomputePostLinkDigest(documents);
       expect(validate(documents.postLinkVerification)).toBe(false);
     }
+  });
+
+  test("embedded DYLD environment redirection stays invalid after coherent self-rehash", () => {
+    const documents = structuredClone(validVectors.documents);
+    documents.postLinkVerification.audit.dyldEnvironment = [
+      "DYLD_LIBRARY_PATH=/tmp/injected-libraries",
+    ];
+    recomputePostLinkDigest(documents);
+    const validate = validatorFor(
+      buildAjv(),
+      "portable-engine-post-link-verification-v1.schema.json",
+    );
+    expect(validate(documents.postLinkVerification)).toBe(false);
+    expect(() => postLinkVerificationSemantics(documents)).toThrow(
+      "Mach-O audit does not match the target",
+    );
   });
 
   test("post-link audit cannot omit or duplicate the portable runtime dependency", () => {
@@ -2929,6 +2971,9 @@ describe("LLP 0035 portable engine authority schemas", () => {
     ).resolution;
     candidate.executable.digest = diagnostic.executableDigest;
     candidate.executable.size = diagnostic.executableSize;
+    candidate.audit.dyldEnvironment = structuredClone(
+      diagnostic.dyldEnvironment,
+    );
     candidate.audit.rpaths = structuredClone(diagnostic.rpaths);
     candidate.audit.dependencies = diagnostic.dependencyCommands.map(
       ({ command, installName }) => ({

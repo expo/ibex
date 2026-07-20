@@ -668,6 +668,17 @@
       "expected": "schema-invalid"
     },
     {
+      "id": "post-link-rejects-embedded-dyld-environment",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "add",
+        "path": "/audit/dyldEnvironment/0",
+        "value": "DYLD_LIBRARY_PATH=/tmp/injected-libraries"
+      },
+      "expected": "schema-invalid"
+    },
+    {
       "id": "post-link-rejects-parent-traversal-cargo-identity",
       "documentPath": "postLinkVerification",
       "schema": "portable-engine-post-link-verification-v1.schema.json",
@@ -802,6 +813,28 @@
         "op": "replace",
         "path": "/payloadRevalidation/regularEntryCount",
         "value": 15
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-manifest-entry-count-substitution",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/payloadRevalidation/manifestEntryCount",
+        "value": 29
+      },
+      "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-regular-byte-count-substitution",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/payloadRevalidation/regularByteCount",
+        "value": 1067671
       },
       "expected": "semantic-invalid"
     },

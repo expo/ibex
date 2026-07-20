@@ -151,6 +151,9 @@ if (
     transportProvenanceReverified: true,
   });
 }
+if (!Object.hasOwn(documents.postLinkVerification.audit, "dyldEnvironment")) {
+  documents.postLinkVerification.audit.dyldEnvironment = [];
+}
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 for (const schemaFile of schemaFiles) {
@@ -807,6 +810,7 @@ if (finalExecutableBytes.toString("base64") !== finalExecutableParserFixture.byt
 }
 const parsedFinalExecutable = parseMachO(finalExecutableBytes, {
   architecture: "arm64",
+  finalExecutableAudit: true,
   requireExternalDefinedSymbols: false,
 });
 const parsedFinalExecutableProjection = {
@@ -816,6 +820,7 @@ const parsedFinalExecutableProjection = {
   fileType: parsedFinalExecutable.fileType,
   dylibId: parsedFinalExecutable.dylibId,
   dylinker: parsedFinalExecutable.dylinker,
+  dyldEnvironment: parsedFinalExecutable.dyldEnvironment,
   dependencyCommands: parsedFinalExecutable.dependencyCommands,
   rpaths: parsedFinalExecutable.rpaths,
   executableDigest: parsedFinalExecutable.executableDigest,
@@ -845,6 +850,7 @@ postLinkVerification.audit = {
   cpuSubtype: parsedFinalExecutable.cpuSubtype === 0 ? "all" : "unsupported",
   fileType: parsedFinalExecutable.fileType === 2 ? "execute" : "unsupported",
   dynamicLinker: parsedFinalExecutable.dylinker,
+  dyldEnvironment: clone(parsedFinalExecutable.dyldEnvironment),
   rpaths: clone(parsedFinalExecutable.rpaths),
   dependencies: [],
 };
@@ -897,6 +903,7 @@ assertSame(
     "dependencyCommands",
     "dylibId",
     "dylinker",
+    "dyldEnvironment",
     "evidenceClass",
     "executableDigest",
     "executableSize",
@@ -924,6 +931,7 @@ if (
   rejectedFinalExecutableObservation.fileType !== 2 ||
   rejectedFinalExecutableObservation.dylibId !== null ||
   rejectedFinalExecutableObservation.dylinker !== "/usr/lib/dyld" ||
+  !Array.isArray(rejectedFinalExecutableObservation.dyldEnvironment) ||
   !rejectedFinalExecutableObservation.rpaths.some((rpath) => path.isAbsolute(rpath))
 ) {
   throw new Error("rejected final executable observation has the wrong diagnostic role");
@@ -937,6 +945,13 @@ assertSame(
     ),
   ),
   "rejected final executable dependency-command order",
+);
+assertSame(
+  rejectedFinalExecutableObservation.dyldEnvironment,
+  [...rejectedFinalExecutableObservation.dyldEnvironment].sort((left, right) =>
+    Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")),
+  ),
+  "rejected final executable DYLD environment order",
 );
 assertSame(
   rejectedFinalExecutableObservation.rpaths,

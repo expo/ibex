@@ -248,6 +248,7 @@
         "cpuSubtype",
         "fileType",
         "dynamicLinker",
+        "dyldEnvironment",
         "rpaths",
         "dependencies"
       ],
@@ -258,6 +259,10 @@
         "cpuSubtype": { "const": "all" },
         "fileType": { "const": "execute" },
         "dynamicLinker": { "const": "/usr/lib/dyld" },
+        "dyldEnvironment": {
+          "const": [],
+          "$comment": "LC_DYLD_ENVIRONMENT can redirect library/framework resolution and is forbidden in an authoritative final executable."
+        },
         "rpaths": {
           "type": "array",
           "minItems": 1,

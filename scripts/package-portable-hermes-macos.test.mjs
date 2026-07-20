@@ -47,6 +47,7 @@ function makeThinMachO({
   dylibId = fileType === 6 ? "@rpath/hermesvm.framework/Versions/1/hermesvm" : null,
   dylinker = fileType === 2 ? "/usr/lib/dyld" : null,
   dependencies = [],
+  dyldEnvironment = [],
   rpaths = [],
   symbols = ["_symbol"],
 } = {}) {
@@ -80,6 +81,9 @@ function makeThinMachO({
   if (dylibId !== null) roleCommands.push(makeStringCommand(0x0d, 24, dylibId));
   if (dylinker !== null) roleCommands.push(makeStringCommand(0x0e, 12, dylinker));
   roleCommands.push(...rpaths.map((rpath) => makeStringCommand(0x8000001c, 12, rpath)));
+  roleCommands.push(
+    ...dyldEnvironment.map((value) => makeStringCommand(0x27, 12, value)),
+  );
   const symtabCommand = symbols === null ? null : Buffer.alloc(24);
   const commands = [
     ...dependencyCommands,
@@ -391,6 +395,7 @@ describe("portable engine production contract", () => {
       "@executable_path/../Frameworks",
       "@loader_path/../Frameworks",
     ]);
+    assert.deepEqual(parsed.dyldEnvironment, []);
     assert.equal(parsed.executableDigest, rawDigest(fat));
     assert.equal(parsed.executableSize, fat.length);
     assert.deepEqual(
@@ -425,9 +430,53 @@ describe("portable engine production contract", () => {
     });
     assert.throws(() => parseMachO(strippedExecutable), /LC_SYMTAB/u);
     assert.deepEqual(
-      parseMachO(strippedExecutable, { requireExternalDefinedSymbols: false }).rpaths,
+      parseMachO(strippedExecutable, {
+        finalExecutableAudit: true,
+        requireExternalDefinedSymbols: false,
+      }).rpaths,
       ["@executable_path/../Frameworks"],
     );
+
+    const environmentRedirect = makeThinMachO({
+      fileType: 2,
+      dependencies: ["/usr/lib/libSystem.B.dylib"],
+      dyldEnvironment: ["DYLD_FRAMEWORK_PATH=/tmp/injected-frameworks"],
+      rpaths: ["@executable_path/../Frameworks"],
+      symbols: null,
+    });
+    assert.deepEqual(
+      parseMachO(environmentRedirect, {
+        requireExternalDefinedSymbols: false,
+      }).dyldEnvironment,
+      ["DYLD_FRAMEWORK_PATH=/tmp/injected-frameworks"],
+    );
+    assert.throws(
+      () =>
+        parseMachO(environmentRedirect, {
+          finalExecutableAudit: true,
+          requireExternalDefinedSymbols: false,
+        }),
+      /forbidden LC_DYLD_ENVIRONMENT/u,
+    );
+
+    for (const [commandId, commandName] of [
+      [0x06, "LC_LOADFVMLIB"],
+      [0x09, "LC_FVMFILE"],
+      [0x10, "LC_PREBOUND_DYLIB"],
+    ]) {
+      const obsoleteLoaderCommand = makeThinMachO({
+        fileType: 2,
+        dependencies: ["/tmp/injected-loader-input"],
+      });
+      obsoleteLoaderCommand.writeUInt32LE(commandId, 32);
+      assert.throws(
+        () =>
+          parseMachO(obsoleteLoaderCommand, {
+            finalExecutableAudit: true,
+          }),
+        new RegExp(`unaccounted load-bearing command: ${commandName}`, "u"),
+      );
+    }
   });
 
   test("Hermes bytecode binds magic, version, and declared file length", () => {

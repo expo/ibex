@@ -14,6 +14,7 @@
     "fileType": 2,
     "dylibId": null,
     "dylinker": "/usr/lib/dyld",
+    "dyldEnvironment": [],
     "dependencyCommands": [
       {
         "command": "LC_LOAD_DYLIB",

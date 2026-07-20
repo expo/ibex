@@ -38,6 +38,7 @@
         "fileType": 2,
         "dylibId": null,
         "dylinker": "/usr/lib/dyld",
+        "dyldEnvironment": [],
         "dependencyCommands": [
           {
             "command": "LC_LOAD_DYLIB",
@@ -66,6 +67,7 @@
       "fileType": 2,
       "dylibId": null,
       "dylinker": "/usr/lib/dyld",
+      "dyldEnvironment": [],
       "dependencyCommands": [
         {
           "command": "LC_LOAD_DYLIB",
@@ -846,6 +848,7 @@
         "cpuSubtype": "all",
         "fileType": "execute",
         "dynamicLinker": "/usr/lib/dyld",
+        "dyldEnvironment": [],
         "rpaths": [
           "@executable_path/../Frameworks"
         ],
@@ -870,7 +873,7 @@
         ]
       },
       "outcome": "verified",
-      "verificationDigest": "sha256-I-1nxffEzjdU0tzM0DC-HKEZekwvW8DTyBjXFdtwWWQ"
+      "verificationDigest": "sha256-DLga7wc0v4nYIPeF-C4Uq2gJBV7PL1C3VKzChe8Eqeg"
     },
     "mappedInstance": {
       "schema": "ibex/mapped-engine-instance-identity/1",
@@ -1860,7 +1863,7 @@
       "omitFields": [
         "verificationDigest"
       ],
-      "expectedDigest": "sha256-I-1nxffEzjdU0tzM0DC-HKEZekwvW8DTyBjXFdtwWWQ"
+      "expectedDigest": "sha256-DLga7wc0v4nYIPeF-C4Uq2gJBV7PL1C3VKzChe8Eqeg"
     },
     {
       "id": "mapped-observation-digest",

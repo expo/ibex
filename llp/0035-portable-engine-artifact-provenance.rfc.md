@@ -741,8 +741,13 @@ no result on a failed check.
 
 The v1 `audit` is deliberately the closed macOS Mach-O variant with exact
 fields `class, format, architecture, cpuSubtype, fileType, dynamicLinker,
-rpaths, dependencies`. It requires an arm64 `MH_EXECUTE` image using
-`/usr/lib/dyld`. Rpaths are a complete, strictly sorted set of loader-relative
+dyldEnvironment, rpaths, dependencies`. It requires an arm64 `MH_EXECUTE`
+image using `/usr/lib/dyld`. `dyldEnvironment` is explicitly the empty array:
+any `LC_DYLD_ENVIRONMENT` command can redirect library or framework resolution
+and fails before a result is emitted. The final-executable parser also rejects
+the obsolete load-bearing `LC_LOADFVMLIB`, `LC_FVMFILE`, and
+`LC_PREBOUND_DYLIB` commands rather than silently excluding them from the
+audit. Rpaths are a complete, strictly sorted set of loader-relative
 `@executable_path` or `@loader_path` values; absolute build/store rpaths are
 unrepresentable. `dependencies` is the complete strictly sorted inventory of
 the final executable's `LC_LOAD_DYLIB`, `LC_LOAD_WEAK_DYLIB`,
@@ -1128,11 +1133,13 @@ checkpoint only:
 The valid golden is derived only by replaying the complete base64 bytes of the
 checked admitted synthetic Mach-O fixture through the production parser. The
 parser records exact sorted `(load command, install name)` rows, complete
-sorted `LC_RPATH` values, and the whole executable's raw digest and size; the
-updater projects those fields verbatim into the post-link result. Mutation
-tests coherently recompute result digests and still reject command, rpath,
-executable-byte, Cargo-identity, build-input, and full-payload-count changes at
-their semantic joins.
+sorted `LC_RPATH` values, the exact `LC_DYLD_ENVIRONMENT` set, and the whole
+executable's raw digest and size; the authoritative final-executable mode
+requires the environment set to be empty. The updater projects those fields
+verbatim into the post-link result. Mutation tests coherently recompute result
+digests and still reject command, environment, rpath, executable-byte,
+Cargo-identity, build-input, and full-payload-count changes at their semantic
+joins.
 
 A separate checked diagnostic observation records those same fields for the
 current arm64 debug executable used to review the Apple allowlist. It grants
