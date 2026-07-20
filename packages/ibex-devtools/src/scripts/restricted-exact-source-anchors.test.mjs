@@ -605,6 +605,24 @@ module.exports = { Public: Public };
       .toBe("executable");
   });
 
+  test("binds Android storage members through helper construction and armed sealing", () => {
+    const branch = {
+      branchId: "surface.android.storage-paths.cache-dir.android",
+      observedKey: "native-op:__exactAndroidStoragePaths.cacheDir",
+      targetVariant: "android",
+    };
+    const sourceRef =
+      "src/engine/hermes_runtime_android.cc#jsi-global:__exactAndroidStoragePaths.cacheDir";
+    const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+    expect(binding.locatorKind).toBe("android-storage-global-route");
+    expect(binding.producerPaths.map((path) => path.conditionId)).toEqual([
+      "runtime:unarmed",
+      "runtime:armed",
+    ]);
+    expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+      .toBe("executable");
+  });
+
   test("binds Exact capability definition and sealing as one ordered route", () => {
     for (const [member, publicationCount] of [
       ["takeCheckpointBytes", 1],
@@ -767,15 +785,15 @@ void install(Runtime& rt) {
       .toBe("executable");
   });
 
-  test("keeps legacy JavaScript symbols as exact supporting provenance", () => {
+  test("binds legacy JavaScript terminal symbols to exact executable sites", () => {
     const binding = resolveRestrictedExactBranchSourceBinding({
       branchId: "surface.native.op.dirname.default",
       observedKey: "native-op:__dirname",
       targetVariant: "default",
     }, "src/engine/bootstrap/module-loader.js#__dirname");
-    expect(binding.locatorKind).toBe("javascript-symbol-provenance");
+    expect(binding.locatorKind).toBe("javascript-terminal-route");
     expect(binding.sites.length).toBeGreaterThan(0);
-    expect(binding.sites.every((site) => site.role === "symbol-provenance")).toBe(true);
+    expect(binding.sites.some((site) => site.role === "dispatch")).toBe(true);
   });
 
   test("binds legacy view constructor tables through wrapper dispatch and publication", () => {
@@ -834,6 +852,28 @@ void install(Runtime& rt) {
     expect(binding.locatorKind).toBe("javascript-global-assignment-route");
     expect(binding.producerPaths).toHaveLength(2);
     expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+  });
+
+  test("binds exact legacy bootstrap terminal expressions to executable statements", () => {
+    const fixtures = [
+      ["native-op:__dirname", "src/engine/bootstrap/module-loader.js#__dirname"],
+      [
+        "native-op:global:WebStreamsPolyfill",
+        "src/engine/bootstrap/web-streams-polyfill.js#WebStreamsPolyfill",
+      ],
+    ];
+    for (const [observedKey, sourceRef] of fixtures) {
+      const branch = {
+        branchId: `surface.${observedKey}.default`,
+        observedKey,
+        targetVariant: "default",
+      };
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("javascript-terminal-route");
+      expect(binding.producerPaths.length).toBeGreaterThan(0);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
   });
 
   test("binds an object-literal global member without crediting its installer", () => {
@@ -931,6 +971,7 @@ void install(Runtime& rt) {
   test("binds exact shared-view wrapper selection, members, and publication fallbacks", () => {
     for (const observedPath of [
       "Int16Array",
+      "Uint32Array.prototype",
       "Float16Array.name",
       "BigInt64Array.constructor",
       "DataView.__exactSharedArrayBufferWrapped",
@@ -950,6 +991,27 @@ void install(Runtime& rt) {
         "shared-view-wrapper:define-property-succeeds",
         "shared-view-wrapper:define-property-throws",
       ]);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
+  test("binds typed-array subarray replacement and its exact marker", () => {
+    for (const observedPath of [
+      "Int16Array.prototype.subarray",
+      "BigUint64Array.prototype.subarray.__exactZeroLengthWrapped",
+    ]) {
+      const installedPath = observedPath.replace(/\.__exactZeroLengthWrapped$/u, "");
+      const branch = {
+        branchId: `surface.native.op.global.${observedPath}.all`,
+        observedKey: `native-op:global:${observedPath}`,
+        targetVariant: "all",
+      };
+      const sourceRef =
+        `packages/ibex-runtime-js/src/polyfills/typedarray.ts#installTypedArrayPolyfills:globals:${installedPath}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("typescript-typed-array-subarray-route");
+      expect(binding.targetGlobalPath).toBe(observedPath);
       expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
         .toBe("executable");
     }
@@ -1000,6 +1062,40 @@ void install(Runtime& rt) {
     expect(binding.targetGlobalPath).toBe("exact.runtime.detectEngine");
     expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
       .toBe("executable");
+  });
+
+  test("binds exact CDP branches and platform debugger exports", () => {
+    const cdpBranch = {
+      branchId: "surface.inspector.cdp.runtime-evaluate.default",
+      observedKey: "native-op:inspector.cdp-request:Runtime.evaluate",
+      targetVariant: "default",
+    };
+    const cdpRef = "src/bin/ibex/cdp/mod.rs#handle_request:Runtime.evaluate";
+    const cdp = resolveRestrictedExactBranchSourceBinding(cdpBranch, cdpRef);
+    expect(cdp.locatorKind).toBe("inspector-cdp-handler-route");
+    expect(cdp.sites.map((site) => site.role)).toEqual(["registration", "dispatch"]);
+    expect(buildRestrictedExactBranchSourceRoute(cdpBranch, [cdpRef]).status)
+      .toBe("executable");
+
+    const debuggerBranch = {
+      branchId: "surface.inspector.debugger-pause.all",
+      observedKey: "native-op:inspector.debugger-pause",
+      targetVariant: "all",
+    };
+    const debuggerRefs = [
+      "src/engine/hermes_runtime_debugger.cc#ex_hermes_debugger_pause",
+      "src/engine/hermes_runtime_platform_windows.cc#ex_hermes_debugger_pause",
+    ];
+    for (const sourceRef of debuggerRefs) {
+      expect(resolveRestrictedExactBranchSourceBinding(debuggerBranch, sourceRef).locatorKind)
+        .toBe("inspector-native-export-route");
+    }
+    const route = buildRestrictedExactBranchSourceRoute(debuggerBranch, debuggerRefs);
+    expect(route.status).toBe("executable");
+    expect(route.producerPaths.map((path) => path.conditionId).sort()).toEqual([
+      "target-platform:not-windows",
+      "target-platform:windows",
+    ]);
   });
 
   test("binds evaluated C++ JavaScript through member, publication, and dispatch", () => {

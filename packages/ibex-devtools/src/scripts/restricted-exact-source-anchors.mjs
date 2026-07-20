@@ -2332,14 +2332,24 @@ function sharedArrayBufferViewWrapperBinding({
 
   let memberRange = null;
   if (member) {
-    const expectedTarget = member === "constructor" ? "WrappedCtor.prototype" : "WrappedCtor";
-    const expectedProperty = member;
-    const memberCalls = descriptorCalls.filter((range) => {
-      const call = text.slice(range.startByte, range.endByte);
-      return call.includes(`Object.defineProperty(${expectedTarget}, '${expectedProperty}'`);
-    });
-    if (memberCalls.length !== 1) return null;
-    memberRange = memberCalls[0];
+    if (member === "prototype") {
+      const prototypeAssignments = tokenRangesWithin(
+        text,
+        "WrappedCtor.prototype = NativeCtor.prototype;",
+        wrapperRange,
+      );
+      if (prototypeAssignments.length !== 1) return null;
+      memberRange = prototypeAssignments[0];
+    } else {
+      const expectedTarget = member === "constructor" ? "WrappedCtor.prototype" : "WrappedCtor";
+      const expectedProperty = member;
+      const memberCalls = descriptorCalls.filter((range) => {
+        const call = text.slice(range.startByte, range.endByte);
+        return call.includes(`Object.defineProperty(${expectedTarget}, '${expectedProperty}'`);
+      });
+      if (memberCalls.length !== 1) return null;
+      memberRange = memberCalls[0];
+    }
   }
 
   const commonSites = [
@@ -2378,6 +2388,77 @@ function sharedArrayBufferViewWrapperBinding({
         requiredSiteIds: [...commonSiteIds, fallbackPublication.siteId],
       },
     ],
+  });
+}
+
+function typedArraySubarrayRouteBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  text,
+  bytes,
+}) {
+  const prefix = "installTypedArrayPolyfills:globals:";
+  if (sourcePath !== "packages/ibex-runtime-js/src/polyfills/typedarray.ts"
+    || !locator.startsWith(prefix)
+    || !branch?.observedKey?.startsWith("native-op:global:")) return null;
+  const installedPath = locator.slice(prefix.length);
+  const match = /^([A-Za-z0-9_$]+)\.prototype\.subarray$/u.exec(installedPath);
+  if (!match) return null;
+  const constructorName = match[1];
+  const observedPath = branch.observedKey.slice("native-op:global:".length);
+  if (observedPath !== installedPath
+    && observedPath !== `${installedPath}.__exactZeroLengthWrapped`) return null;
+  const installer = robustFunctionDeclarationRange(text, "installTypedArrayPolyfills");
+  if (!installer) return null;
+  const selections = tokenRangesWithin(text, `'${constructorName}'`, installer);
+  const retention = uniqueTokenRange(text, [
+    "    const originalSubarray = TypedArrayCtor.prototype.subarray as typeof Uint8Array.prototype.subarray & {",
+  ]);
+  const patchedDefinition = uniqueTokenRange(text, [
+    "    const patchedSubarray = function (",
+  ]);
+  const descriptorCalls = callExpressionRangesWithin(text, "Object.defineProperty", installer);
+  const markerPublications = descriptorCalls.filter((range) =>
+    text.slice(range.startByte, range.endByte)
+      .includes("Object.defineProperty(patchedSubarray, '__exactZeroLengthWrapped'"));
+  const subarrayPublications = descriptorCalls.filter((range) =>
+    text.slice(range.startByte, range.endByte)
+      .includes("Object.defineProperty(TypedArrayCtor.prototype, 'subarray'"));
+  if (selections.length !== 1
+    || !retention
+    || !patchedDefinition
+    || markerPublications.length !== 1
+    || subarrayPublications.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: `${constructorName}.typed-array-selection`, range: selections[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "retention", siteKey: `${constructorName}.original-subarray`, range: retention, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${constructorName}.patched-subarray`, range: patchedDefinition, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${constructorName}.subarray-publication`, range: subarrayPublications[0], text, bytes }),
+  ];
+  if (observedPath.endsWith(".__exactZeroLengthWrapped")) {
+    sites.splice(3, 0, sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "registration",
+      siteKey: `${constructorName}.zero-length-marker`,
+      range: markerPublications[0],
+      text,
+      bytes,
+    }));
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "typescript-typed-array-subarray-route",
+    targetGlobalPath: observedPath,
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0typed-array-subarray`),
+      conditionId: `typed-array-constructor:${constructorName}:available-and-unpatched`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
   });
 }
 
@@ -2455,6 +2536,91 @@ function legacyJavascriptGlobalRouteBinding({ branch, sourceRef, sourcePath, loc
   return validateRestrictedExactSourceBinding({
     sourceRef,
     locatorKind: "javascript-global-assignment-route",
+    resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
+    sites,
+    producerPaths,
+  });
+}
+
+function legacyJavascriptTerminalRouteBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  text,
+  bytes,
+}) {
+  if (!branch?.observedKey?.startsWith("native-op:")
+    || !sourcePath.startsWith("src/engine/bootstrap/")
+    || !sourcePath.endsWith(".js")
+    || locator.includes(":")
+    || locator.includes("[[")
+    || locator.startsWith("<")) return null;
+  const observedPath = branch.observedKey.startsWith("native-op:global:")
+    ? branch.observedKey.slice("native-op:global:".length)
+    : branch.observedKey.slice("native-op:".length);
+  if (observedPath !== locator) return null;
+  const logicalPath = locator.split(".");
+  if (logicalPath.some((part) => !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(part))) return null;
+  const normalize = (segments) => {
+    if (!segments) return null;
+    return ["globalThis", "__global", "g", "self", "window"].includes(segments[0])
+      ? segments.slice(1)
+      : segments;
+  };
+  const candidates = [];
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  walkJavaScript(ast.program, (node, parent) => {
+    const segments = normalize(memberSegments(node));
+    const exactMember = segments
+      && JSON.stringify(segments) === JSON.stringify(logicalPath);
+    const exactIdentifier = logicalPath.length === 1
+      && node.type === "Identifier"
+      && node.name === logicalPath[0]
+      && parent?.type !== "MemberExpression";
+    if (!exactMember && !exactIdentifier) return;
+    const range = { startByte: node.start, endByte: node.end };
+    const statement = lineRange(text, node.start);
+    const publication = parent?.type === "AssignmentExpression" && parent.left === node;
+    candidates.push({ range, statement, publication });
+  });
+  const unique = [...new Map(candidates.map((candidate) => [
+    `${candidate.range.startByte}:${candidate.range.endByte}`,
+    candidate,
+  ])).values()];
+  if (unique.length === 0) return null;
+  const sites = [];
+  const producerPaths = [];
+  for (const [indexValue, candidate] of unique.entries()) {
+    const targetSite = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: "value-producer",
+      siteKey: `${locator}.terminal.${indexValue}`,
+      range: candidate.range,
+      text,
+      bytes,
+    });
+    const executionSite = sourceSite({
+      sourceRef,
+      path: sourcePath,
+      role: candidate.publication ? "publication" : "dispatch",
+      siteKey: `${locator}.execution.${indexValue}`,
+      range: candidate.statement,
+      text,
+      bytes,
+    });
+    sites.push(targetSite, executionSite);
+    producerPaths.push({
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0legacy-terminal\0${indexValue}`),
+      conditionId: `legacy-source-site:${sourcePath}:${candidate.range.startByte}`,
+      requiredSiteIds: [targetSite.siteId, executionSite.siteId],
+    });
+  }
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-terminal-route",
+    targetGlobalPath: branch.observedKey.startsWith("native-op:global:") ? observedPath : undefined,
     resolutionPolicy: producerPaths.length > 1 ? "conditioned-alternatives" : "composite-path",
     sites,
     producerPaths,
@@ -2754,6 +2920,83 @@ function nativeDefinitionBinding({ branch, sourceRef, sourcePath, locator, text,
       pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0native-definition`),
       conditionId: `target-branch:${branch.targetVariant}:definition:${sourcePath}`,
       requiredSiteIds: [producer.siteId, publication.siteId],
+    }],
+  });
+}
+
+function inspectorCdpRouteBinding({
+  branch,
+  sourceRef,
+  sourcePath,
+  locator,
+  absolute,
+  text,
+  bytes,
+}) {
+  if (!branch?.observedKey?.startsWith("native-op:inspector.")
+    || sourcePath !== "src/bin/ibex/cdp/mod.rs") return null;
+  const handlerName = locator.split(":")[0];
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(handlerName)) return null;
+  const handler = rustFunctionRange(text, handlerName);
+  const exact = resolveRange(sourcePath, locator, text, absolute);
+  if (!handler || !exact) return null;
+  const branchSite = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "registration",
+    siteKey: `${locator}.request-branch`,
+    range: exact,
+    text,
+    bytes,
+  });
+  const dispatchSite = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "dispatch",
+    siteKey: `${handlerName}.handler-dispatch`,
+    range: handler,
+    text,
+    bytes,
+  });
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "inspector-cdp-handler-route",
+    resolutionPolicy: "composite-path",
+    sites: [branchSite, dispatchSite],
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0cdp-handler`),
+      conditionId: `inspector-route:${locator}`,
+      requiredSiteIds: [branchSite.siteId, dispatchSite.siteId],
+    }],
+  });
+}
+
+function inspectorDebuggerExportBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (!branch?.observedKey?.startsWith("native-op:inspector.debugger-")
+    || ![
+      "src/engine/hermes_runtime_debugger.cc",
+      "src/engine/hermes_runtime_platform_windows.cc",
+    ].includes(sourcePath)
+    || !locator.startsWith("ex_hermes_debugger_")) return null;
+  const definition = robustFunctionDeclarationRange(text, locator);
+  if (!definition || !/\bextern\s+"C"/u.test(
+    text.slice(definition.startByte, Math.min(definition.endByte, definition.startByte + 500)),
+  )) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${locator}.definition`, range: definition, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${locator}.export`, range: definition, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "inspector-native-export-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0debugger-export`),
+      conditionId: sourcePath.endsWith("_windows.cc")
+        ? "target-platform:windows"
+        : "target-platform:not-windows",
+      requiredSiteIds: sites.map((site) => site.siteId),
     }],
   });
 }
@@ -4154,6 +4397,68 @@ function jsiStructuredDynamicGlobalBinding({ branch, sourceRef, sourcePath, loca
         pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0structured-global-update`),
         conditionId: "structured-session:global-present",
         requiredSiteIds: [...commonSiteIds, reflectedSite.siteId],
+      },
+    ],
+  });
+}
+
+function androidStoragePathGlobalBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  const prefix = "jsi-global:__exactAndroidStoragePaths.";
+  if (sourcePath !== "src/engine/hermes_runtime_android.cc"
+    || !locator.startsWith(prefix)
+    || branch?.observedKey !== `native-op:${locator.slice("jsi-global:".length)}`) return null;
+  const member = locator.slice(prefix.length);
+  const memberCalls = setPropertyCalls(text, member).filter((call) => call.caller === "storage");
+  const rootCalls = setPropertyCalls(text, "__exactAndroidStoragePaths").filter(
+    (call) => call.caller === "runtime.global()",
+  );
+  const dispatches = callExpressionRangesWithin(
+    text,
+    "installStoragePathsGlobal",
+    { startByte: 0, endByte: text.length },
+  ).filter((range) => text.slice(range.startByte, range.endByte).includes("std::move(storage)"));
+  const guard = uniqueTokenRange(text, ["  if (!armed) {"]);
+  const descriptorPublications = callExpressionRangesWithin(
+    text,
+    "defineProperty.call",
+    { startByte: 0, endByte: text.length },
+  ).filter((range) => text.slice(range.startByte, range.endByte).includes("__exactAndroidStoragePaths"));
+  if (memberCalls.length !== 1
+    || rootCalls.length !== 1
+    || dispatches.length !== 1
+    || descriptorPublications.length !== 1
+    || !guard) return null;
+  const commonSites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${member}.storage-value`, range: memberCalls[0].range, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "android-storage.root-publication", range: rootCalls[0].range, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "dispatch", siteKey: "android-storage.install-dispatch", range: dispatches[0], text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "guard", siteKey: "android-storage.armed-guard", range: guard, text, bytes }),
+  ];
+  const sealedPublication = sourceSite({
+    sourceRef,
+    path: sourcePath,
+    role: "publication",
+    siteKey: "android-storage.sealed-publication",
+    range: descriptorPublications[0],
+    text,
+    bytes,
+  });
+  const commonSiteIds = commonSites.map((site) => site.siteId);
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "android-storage-global-route",
+    resolutionPolicy: "conditioned-alternatives",
+    sites: [...commonSites, sealedPublication],
+    producerPaths: [
+      {
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0android-storage-unarmed`),
+        conditionId: "runtime:unarmed",
+        requiredSiteIds: commonSiteIds,
+      },
+      {
+        pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0android-storage-armed`),
+        conditionId: "runtime:armed",
+        requiredSiteIds: [...commonSiteIds, sealedPublication.siteId],
       },
     ],
   });
@@ -6105,11 +6410,14 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? builtinInheritedTableFallbackBinding({ branch, sourceRef, ...loaded })
     ?? builtinExportFallbackBinding({ branch, sourceRef, ...loaded })
     ?? legacyEvaluatorRunnerBinding({ branch, sourceRef, ...loaded })
+    ?? inspectorCdpRouteBinding({ branch, sourceRef, ...loaded })
+    ?? inspectorDebuggerExportBinding({ branch, sourceRef, ...loaded })
     ?? nativeDefinitionBinding({ branch, sourceRef, ...loaded })
     ?? preprocessorBranchBinding({ branch, sourceRef, ...loaded })
     ?? jsiProcessEnvDynamicTableBinding({ branch, sourceRef, ...loaded })
     ?? jsiProcessEnvBinding({ branch, sourceRef, ...loaded })
     ?? jsiStructuredDynamicGlobalBinding({ branch, sourceRef, ...loaded })
+    ?? androidStoragePathGlobalBinding({ branch, sourceRef, ...loaded })
     ?? jsiConditionalRootMemberBinding({ branch, sourceRef, ...loaded })
     ?? exactCapabilityDefinitionBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
@@ -6141,6 +6449,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? cliVisibleCommandBinding({ branch, sourceRef, ...loaded })
     ?? cliNamespaceRefusalBinding({ branch, sourceRef, ...loaded })
     ?? sharedArrayBufferViewWrapperBinding({ branch, sourceRef, ...loaded })
+    ?? typedArraySubarrayRouteBinding({ branch, sourceRef, ...loaded })
     ?? typescriptGlobalInstallerBinding({ branch, sourceRef, ...loaded })
     ?? bootstrapGlobalBinding({ branch, sourceRef, ...loaded })
     ?? legacyBootstrapGlobalBinding({ branch, sourceRef, ...loaded })
@@ -6158,6 +6467,7 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? legacyViewConstructorTableBinding({ branch, sourceRef, ...loaded })
     ?? legacyReturnedPrototypeMemberBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
+    ?? legacyJavascriptTerminalRouteBinding({ branch, sourceRef, ...loaded })
     ?? generatedJavascriptGlobalBinding({ branch, sourceRef, ...loaded })
     ?? javascriptSymbolProvenanceBinding({ branch, sourceRef, ...loaded });
   return contextual ?? resolveRestrictedExactSourceBinding(sourceRef, root);
