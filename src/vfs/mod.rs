@@ -20,6 +20,10 @@ use capsec_semantics::model::{
 };
 use sha2::{Digest as _, Sha256};
 
+use crate::host::object_identity_for_host_path;
+#[cfg(test)]
+use crate::host::object_identity_for_open_file;
+
 const PROJECT_MOUNT: &str = "project";
 const READ_EVIDENCE_DOMAIN: &[u8] = b"ibex/vfs-authenticated-read/1\0";
 
@@ -1061,7 +1065,7 @@ impl VirtualFileSystem {
         if root_metadata.file_type().is_symlink() || !root_metadata.is_dir() {
             return Err(VfsError::stale_identity(operation, virtual_path));
         }
-        let root_object = object_identity_for_metadata(&root_metadata)
+        let root_object = object_identity_for_host_path(&self.mount.host_root)
             .map_err(|_| VfsError::stale_identity(operation, virtual_path.clone()))?;
         if root_object != self.mount.root_object {
             return Err(VfsError::stale_identity(operation, virtual_path));
@@ -3297,41 +3301,25 @@ fn host_path_from_binding(binding: &ArmedRootBinding) -> Result<PathBuf, VfsErro
     Ok(path)
 }
 
+#[cfg(unix)]
 pub(crate) fn object_identity_for_metadata(
     metadata: &std::fs::Metadata,
 ) -> capsec_semantics::Result<ObjectIdentity> {
     use capsec_semantics::model::{NonEmptyString, ObjectPlatform};
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        Ok(ObjectIdentity {
-            platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
-                ObjectPlatform::Apple
-            } else if cfg!(target_os = "android") {
-                ObjectPlatform::Android
-            } else {
-                ObjectPlatform::Unix
-            },
-            volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
-                .map_err(capsec_semantics::Error::InvalidModel)?,
-            file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
-                .map_err(capsec_semantics::Error::InvalidModel)?,
-        })
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        Ok(ObjectIdentity {
-            platform: ObjectPlatform::Windows,
-            volume: NonEmptyString::new(format!(
-                "volume:{}",
-                metadata.volume_serial_number().unwrap_or(0)
-            ))
+    use std::os::unix::fs::MetadataExt;
+    Ok(ObjectIdentity {
+        platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+            ObjectPlatform::Apple
+        } else if cfg!(target_os = "android") {
+            ObjectPlatform::Android
+        } else {
+            ObjectPlatform::Unix
+        },
+        volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
             .map_err(capsec_semantics::Error::InvalidModel)?,
-            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
-                .map_err(capsec_semantics::Error::InvalidModel)?,
-        })
-    }
+        file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+    })
 }
 
 #[cfg(unix)]
@@ -3438,7 +3426,7 @@ mod tests {
     }
 
     fn test_vfs(root: &std::path::Path) -> VirtualFileSystem {
-        let object = object_identity_for_metadata(&fs::metadata(root).unwrap()).unwrap();
+        let object = object_identity_for_host_path(root).unwrap();
         VirtualFileSystem::from_bindings(
             root.to_path_buf(),
             object,
@@ -3584,10 +3572,8 @@ mod tests {
         let substitute = temp.path().join("substitute-package");
         fs::create_dir_all(package_root.join("sub")).unwrap();
         fs::create_dir_all(substitute.join("sub")).unwrap();
-        let project_object =
-            object_identity_for_metadata(&fs::metadata(temp.path()).unwrap()).unwrap();
-        let package_object =
-            object_identity_for_metadata(&fs::metadata(&package_root).unwrap()).unwrap();
+        let project_object = object_identity_for_host_path(temp.path()).unwrap();
+        let package_object = object_identity_for_host_path(&package_root).unwrap();
         let bindings = vec![
             ArmedRootBinding {
                 logical_root: LogicalRoot::Project,
@@ -3631,8 +3617,7 @@ mod tests {
         let package_root = temp.path().join("node_modules/pkg");
         fs::create_dir_all(package_root.join("sub")).unwrap();
         symlink("node_modules", temp.path().join("alias")).unwrap();
-        let project_object =
-            object_identity_for_metadata(&fs::metadata(temp.path()).unwrap()).unwrap();
+        let project_object = object_identity_for_host_path(temp.path()).unwrap();
         let root = root_principal("test-project");
         let package = package_principal("pkg");
         let bindings = vec![
@@ -3648,8 +3633,7 @@ mod tests {
                 owner: Some(package.clone()),
                 logical_path: None,
                 host_path: host_bound_path(&package_root),
-                object: object_identity_for_metadata(&fs::metadata(&package_root).unwrap())
-                    .unwrap(),
+                object: object_identity_for_host_path(&package_root).unwrap(),
             },
         ];
         let vfs = VirtualFileSystem::from_bindings(
@@ -3738,8 +3722,7 @@ mod tests {
         fs::create_dir_all(substitute.join("live")).unwrap();
         fs::write(root.join("live/marker"), b"authenticated").unwrap();
         fs::write(substitute.join("live/marker"), b"substitute").unwrap();
-        let authentic_live =
-            object_identity_for_metadata(&fs::metadata(root.join("live")).unwrap()).unwrap();
+        let authentic_live = object_identity_for_host_path(&root.join("live")).unwrap();
         let session =
             RuntimeVfsSession::new(NonZeroU64::new(306).unwrap(), test_vfs(&root)).unwrap();
         let root_open_barrier = Arc::new(std::sync::Barrier::new(2));
@@ -3779,7 +3762,7 @@ mod tests {
         assert_eq!(result.unwrap(), b"/project/live");
         let cwd = lock_recover(&session.cwd);
         assert_eq!(
-            object_identity_for_metadata(&cwd.retained.metadata().unwrap()).unwrap(),
+            object_identity_for_open_file(&cwd.retained).unwrap(),
             authentic_live
         );
         drop(cwd);
@@ -4298,8 +4281,7 @@ mod tests {
         fs::write(package_root.join("util.js"), b"module.exports = {};\n").unwrap();
         let root = root_principal("test-project");
         let foo = package_principal("foo");
-        let project_object =
-            object_identity_for_metadata(&fs::metadata(temp.path()).unwrap()).unwrap();
+        let project_object = object_identity_for_host_path(temp.path()).unwrap();
         let bindings = vec![
             ArmedRootBinding {
                 logical_root: LogicalRoot::Project,
@@ -4313,8 +4295,7 @@ mod tests {
                 owner: Some(foo.clone()),
                 logical_path: None,
                 host_path: host_bound_path(&package_root),
-                object: object_identity_for_metadata(&fs::metadata(&package_root).unwrap())
-                    .unwrap(),
+                object: object_identity_for_host_path(&package_root).unwrap(),
             },
         ];
         let vfs = VirtualFileSystem::from_bindings(
@@ -4366,8 +4347,7 @@ mod tests {
         let root = root_principal("test-project");
         let a = package_principal("a");
         let b = package_principal("b");
-        let project_object =
-            object_identity_for_metadata(&fs::metadata(temp.path()).unwrap()).unwrap();
+        let project_object = object_identity_for_host_path(temp.path()).unwrap();
         let bindings = vec![
             ArmedRootBinding {
                 logical_root: LogicalRoot::Project,
@@ -4381,14 +4361,14 @@ mod tests {
                 owner: Some(a.clone()),
                 logical_path: None,
                 host_path: host_bound_path(&a_root),
-                object: object_identity_for_metadata(&fs::metadata(&a_root).unwrap()).unwrap(),
+                object: object_identity_for_host_path(&a_root).unwrap(),
             },
             ArmedRootBinding {
                 logical_root: LogicalRoot::Package,
                 owner: Some(b.clone()),
                 logical_path: None,
                 host_path: host_bound_path(&b_root),
-                object: object_identity_for_metadata(&fs::metadata(&b_root).unwrap()).unwrap(),
+                object: object_identity_for_host_path(&b_root).unwrap(),
             },
         ];
         let vfs = VirtualFileSystem::from_bindings(
@@ -4465,8 +4445,7 @@ mod tests {
         let root = root_principal("test-project");
         let a = package_principal("a");
         let b = package_principal("b");
-        let project_object =
-            object_identity_for_metadata(&fs::metadata(temp.path()).unwrap()).unwrap();
+        let project_object = object_identity_for_host_path(temp.path()).unwrap();
         let bindings = vec![
             ArmedRootBinding {
                 logical_root: LogicalRoot::Project,
@@ -4480,14 +4459,14 @@ mod tests {
                 owner: Some(a.clone()),
                 logical_path: None,
                 host_path: host_bound_path(&a_root),
-                object: object_identity_for_metadata(&fs::metadata(&a_root).unwrap()).unwrap(),
+                object: object_identity_for_host_path(&a_root).unwrap(),
             },
             ArmedRootBinding {
                 logical_root: LogicalRoot::Package,
                 owner: Some(b.clone()),
                 logical_path: None,
                 host_path: host_bound_path(&b_root),
-                object: object_identity_for_metadata(&fs::metadata(&b_root).unwrap()).unwrap(),
+                object: object_identity_for_host_path(&b_root).unwrap(),
             },
         ];
         let vfs = VirtualFileSystem::from_bindings(
@@ -4536,8 +4515,7 @@ mod tests {
         fs::create_dir(&replacement).unwrap();
         fs::write(package_root.join("index.js"), b"authenticated").unwrap();
         fs::write(replacement.join("index.js"), b"attacker").unwrap();
-        let project_object =
-            object_identity_for_metadata(&fs::metadata(temp.path()).unwrap()).unwrap();
+        let project_object = object_identity_for_host_path(temp.path()).unwrap();
         let bindings = vec![
             ArmedRootBinding {
                 logical_root: LogicalRoot::Project,
@@ -4551,8 +4529,7 @@ mod tests {
                 owner: Some(package_principal("a")),
                 logical_path: None,
                 host_path: host_bound_path(&package_root),
-                object: object_identity_for_metadata(&fs::metadata(&package_root).unwrap())
-                    .unwrap(),
+                object: object_identity_for_host_path(&package_root).unwrap(),
             },
         ];
         let vfs = VirtualFileSystem::from_bindings(

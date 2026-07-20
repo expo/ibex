@@ -47,6 +47,12 @@ registry semantics rather than by borrowing another product's version number.
   sources. Source references may identify definitions, target stubs, or
   security-relevant uses; they are not conformance evidence. Do not edit these
   files by hand.
+- `conformance/suite-plan.json` is the LLP 0032 Stage 1 execution authority:
+  the closed command/deadline map, target-specific outer budgets, helper
+  exceptions, and maximum generated public-batch membership. Changing it
+  changes `suitePlanDigest`; the executor retains atomic live status, an outer-
+  budget record, per-attempt durations, and an always-produced outcome beside
+  the existing promotion-facing artifacts.
 
 Implementation-manifest rows retain exact branch IDs and normalized target
 applicability. Target cells select those IDs deterministically from the target

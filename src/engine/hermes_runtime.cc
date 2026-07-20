@@ -7224,6 +7224,11 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
 #if defined(EXACT_HAVE_HERMES_MICROTASK_CONFIG)
   configBuilder.withMicrotaskQueue(true);
 #endif
+#if defined(EXACT_HAVE_HERMES_ES6_BLOCK_SCOPING_CONFIG)
+  configBuilder.withES6BlockScoping(ibexHermesES6BlockScopingEnabled());
+#elif defined(EXACT_HAVE_HERMES_ENABLE_BLOCK_SCOPING_CONFIG)
+  configBuilder.withEnableBlockScoping(ibexHermesES6BlockScopingEnabled());
+#endif
   auto config = configBuilder.withEnableEval(true).build();
   TRACE_END(hermes_config);
 

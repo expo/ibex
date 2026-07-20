@@ -172,6 +172,11 @@ describe("Ibex custom DNS Resolver", () => {
     const server = dgram.createSocket("udp4");
     const attacker = dgram.createSocket("udp4");
     sockets.push(server, attacker);
+    attacker.on("error", (error: NodeJS.ErrnoException) => {
+      // Linux may return an ICMP port-unreachable error to the forged sender
+      // when the connected resolver socket rejects its foreign-source packet.
+      if (error.code !== "ECONNREFUSED") throw error;
+    });
     await new Promise<void>((resolve) => attacker.bind(0, "127.0.0.1", resolve));
     server.on("message", (query, peer) => {
       attacker.send(dnsTxtResponse(query, "forged-source"), peer.port, peer.address);

@@ -358,7 +358,9 @@ function collectCppStringValues(text, label) {
   const flushPending = () => {
     if (!pending) return;
     values.push(pending);
-    if (pendingIncludesRaw) values.push(...scanEmbeddedScriptStrings(pending));
+    if (pendingIncludesRaw) {
+      for (const value of scanEmbeddedScriptStrings(pending)) values.push(value);
+    }
     pending = "";
     pendingIncludesRaw = false;
   };
@@ -2638,7 +2640,9 @@ function buildHostAbiOutputContract({
               typeRegistry,
             })
           : null;
-        if (expanded) outputChannels.push(...expanded);
+        if (expanded) {
+          for (const channel of expanded) outputChannels.push(channel);
+        }
         continue;
       }
       if (
@@ -2661,9 +2665,10 @@ function buildHostAbiOutputContract({
         selector: outputSelector(parameter.name),
       });
     } else if (parameter.role === "callback-payload") {
-      outputChannels.push(
-        ...(callbackBindings.get(parameter.index)?.outputChannels ?? []),
-      );
+      for (const channel of
+        callbackBindings.get(parameter.index)?.outputChannels ?? []) {
+        outputChannels.push(channel);
+      }
     }
   }
 
@@ -2691,9 +2696,10 @@ function buildHostAbiOutputContract({
     ) {
       unresolved.push(`aggregate-schema:${label}`);
     }
-    unresolved.push(
-      ...(callbackBindings.get(parameter.index)?.unresolved ?? []),
-    );
+    for (const reason of
+      callbackBindings.get(parameter.index)?.unresolved ?? []) {
+      unresolved.push(reason);
+    }
   }
 
   return {
@@ -3339,9 +3345,9 @@ function javascriptLexicalBindingIndex(program) {
     for (const [key, value] of Object.entries(node)) {
       if (omittedKeys.has(key)) continue;
       if (Array.isArray(value)) {
-        children.push(
-          ...value.filter((child) => child && typeof child === "object"),
-        );
+        for (const child of value) {
+          if (child && typeof child === "object") children.push(child);
+        }
       } else if (value && typeof value === "object") {
         children.push(value);
       }
@@ -3667,7 +3673,9 @@ function objectPropertyNames(node, substitutions = new Map()) {
     if (!property.computed && property.key?.type === "Identifier") {
       names.push(property.key.name);
     } else {
-      names.push(...staticPropertyName(property.key, substitutions));
+      for (const name of staticPropertyName(property.key, substitutions)) {
+        names.push(name);
+      }
     }
   }
   return uniqueSorted(names);
@@ -5342,6 +5350,7 @@ export function scanStaticBuiltinExports(
     }
     return owner;
   };
+  const activeClassFactoryDefinitions = new Set();
   const bindClassExpression = (
     target,
     exportNames,
@@ -5416,38 +5425,49 @@ export function scanStaticBuiltinExports(
         return false;
       }
       const definition = definitions[0].node;
-      const localValues = new Map();
-      walkDirectFunctionBody(definition, (node) => {
-        if (
-          node.type === "VariableDeclarator" &&
-          node.id?.type === "Identifier" &&
-          node.init
-        ) {
-          localValues.set(node.id.name, node.init);
-        }
-      });
-      const bindReturnedValue = (value, seen = new Set()) => {
-        if (value?.type === "Identifier" && localValues.has(value.name)) {
-          if (seen.has(value.name)) return false;
-          const nextSeen = new Set(seen);
-          nextSeen.add(value.name);
-          return bindReturnedValue(localValues.get(value.name), nextSeen);
-        }
-        return bindClassExpression(target, exportNames, value, substitutions);
-      };
-      let bound = false;
-      if (
-        definition.type === "ArrowFunctionExpression" &&
-        definition.body?.type !== "BlockStatement"
-      ) {
-        bound = bindReturnedValue(definition.body);
-      } else {
+      if (activeClassFactoryDefinitions.has(definition)) return false;
+      activeClassFactoryDefinitions.add(definition);
+      try {
+        const localValues = new Map();
         walkDirectFunctionBody(definition, (node) => {
-          if (node.type !== "ReturnStatement") return;
-          bound = bindReturnedValue(node.argument) || bound;
+          if (
+            node.type === "VariableDeclarator" &&
+            node.id?.type === "Identifier" &&
+            node.init
+          ) {
+            localValues.set(node.id.name, node.init);
+          }
         });
+        const bindReturnedValue = (value, seen = new Set()) => {
+          if (value?.type === "Identifier" && localValues.has(value.name)) {
+            if (seen.has(value.name)) return false;
+            const nextSeen = new Set(seen);
+            nextSeen.add(value.name);
+            return bindReturnedValue(localValues.get(value.name), nextSeen);
+          }
+          return bindClassExpression(
+            target,
+            exportNames,
+            value,
+            substitutions,
+          );
+        };
+        let bound = false;
+        if (
+          definition.type === "ArrowFunctionExpression" &&
+          definition.body?.type !== "BlockStatement"
+        ) {
+          bound = bindReturnedValue(definition.body);
+        } else {
+          walkDirectFunctionBody(definition, (node) => {
+            if (node.type !== "ReturnStatement") return;
+            bound = bindReturnedValue(node.argument) || bound;
+          });
+        }
+        return bound;
+      } finally {
+        activeClassFactoryDefinitions.delete(definition);
       }
-      return bound;
     }
     return false;
   };
@@ -7642,12 +7662,17 @@ export function scanStaticGlobalApiSurfaces(
   options = {},
 ) {
   const fullProgram = parseJavaScript(text, sourcePath);
-  const webStreamsWrapperMarker = "\n(function () {\n  var globalObject = ";
-  const webStreamsWrapperOffset = text.indexOf(webStreamsWrapperMarker);
+  const webStreamsWrapperMatch =
+    /(?:^|\r?\n)(\(function \(\) \{\r?\n  var globalObject = )/u.exec(text);
+  const webStreamsWrapperOffset = webStreamsWrapperMatch
+    ? webStreamsWrapperMatch.index +
+      webStreamsWrapperMatch[0].length -
+      webStreamsWrapperMatch[1].length
+    : -1;
   const sourceText =
     webStreamsWrapperOffset === -1
       ? text
-      : text.slice(webStreamsWrapperOffset + 1);
+      : text.slice(webStreamsWrapperOffset);
   const program =
     webStreamsWrapperOffset === -1
       ? fullProgram
@@ -7968,6 +7993,7 @@ export function scanStaticGlobalApiSurfaces(
     substitutions = staticBindings,
   ) => {
     const owners = new Set();
+    const activeCallableDefinitions = new Set();
     const visit = (candidate) => {
       if (!candidate) return;
       if (candidate.type === "ClassExpression") {
@@ -8030,36 +8056,42 @@ export function scanStaticGlobalApiSurfaces(
           return;
         }
         const definition = definitions[0].node;
-        const localValues = new Map();
-        walkDirectFunctionBody(definition, (node) => {
-          if (
-            node.type === "VariableDeclarator" &&
-            node.id?.type === "Identifier" &&
-            node.init
-          ) {
-            localValues.set(node.id.name, node.init);
-          }
-        });
-        const visitReturnedValue = (value, seen = new Set()) => {
-          if (value?.type === "Identifier" && localValues.has(value.name)) {
-            if (seen.has(value.name)) return;
-            const nextSeen = new Set(seen);
-            nextSeen.add(value.name);
-            visitReturnedValue(localValues.get(value.name), nextSeen);
-            return;
-          }
-          visit(value);
-        };
-        if (
-          definition.type === "ArrowFunctionExpression" &&
-          definition.body?.type !== "BlockStatement"
-        ) {
-          visitReturnedValue(definition.body);
-        } else {
+        if (activeCallableDefinitions.has(definition)) return;
+        activeCallableDefinitions.add(definition);
+        try {
+          const localValues = new Map();
           walkDirectFunctionBody(definition, (node) => {
-            if (node.type === "ReturnStatement")
-              visitReturnedValue(node.argument);
+            if (
+              node.type === "VariableDeclarator" &&
+              node.id?.type === "Identifier" &&
+              node.init
+            ) {
+              localValues.set(node.id.name, node.init);
+            }
           });
+          const visitReturnedValue = (value, seen = new Set()) => {
+            if (value?.type === "Identifier" && localValues.has(value.name)) {
+              if (seen.has(value.name)) return;
+              const nextSeen = new Set(seen);
+              nextSeen.add(value.name);
+              visitReturnedValue(localValues.get(value.name), nextSeen);
+              return;
+            }
+            visit(value);
+          };
+          if (
+            definition.type === "ArrowFunctionExpression" &&
+            definition.body?.type !== "BlockStatement"
+          ) {
+            visitReturnedValue(definition.body);
+          } else {
+            walkDirectFunctionBody(definition, (node) => {
+              if (node.type === "ReturnStatement")
+                visitReturnedValue(node.argument);
+            });
+          }
+        } finally {
+          activeCallableDefinitions.delete(definition);
         }
       }
     };
@@ -10346,14 +10378,22 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       const values = [];
       for (const declaration of symbol.declarations ?? []) {
         if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-          values.push(
-            ...staticStrings(declaration.initializer, environment, seen),
-          );
+          for (const value of staticStrings(
+            declaration.initializer,
+            environment,
+            seen,
+          )) {
+            values.push(value);
+          }
         }
         if (ts.isParameter(declaration) && bound?.expression) {
-          values.push(
-            ...staticStrings(bound.expression, bound.environment, seen),
-          );
+          for (const value of staticStrings(
+            bound.expression,
+            bound.environment,
+            seen,
+          )) {
+            values.push(value);
+          }
         }
       }
       return uniqueSorted(values);
@@ -10400,24 +10440,24 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       const paths = [];
       for (const declaration of symbol.declarations ?? []) {
         if (ts.isVariableDeclaration(declaration) && declaration.initializer) {
-          paths.push(
-            ...globalPaths(
-              declaration.initializer,
-              environment,
-              seen,
-              includeInstalled,
-            ),
-          );
+          for (const candidate of globalPaths(
+            declaration.initializer,
+            environment,
+            seen,
+            includeInstalled,
+          )) {
+            paths.push(candidate);
+          }
         }
         if (ts.isParameter(declaration) && bound?.expression) {
-          paths.push(
-            ...globalPaths(
-              bound.expression,
-              bound.environment,
-              seen,
-              includeInstalled,
-            ),
-          );
+          for (const candidate of globalPaths(
+            bound.expression,
+            bound.environment,
+            seen,
+            includeInstalled,
+          )) {
+            paths.push(candidate);
+          }
         }
       }
       return paths;
@@ -10826,7 +10866,9 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
           environment,
         );
         for (const returned of tsReturnExpressions(declaration)) {
-          returns.push(...resolveValueExpressions(returned, invocation, seen));
+          for (const value of resolveValueExpressions(returned, invocation, seen)) {
+            returns.push(value);
+          }
         }
       }
       return returns.length > 0 ? returns : [{ environment, node }];
@@ -11549,7 +11591,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         (ts.isMethodDeclaration(property) ||
           ts.isGetAccessorDeclaration(property))
       ) {
-        values.push(...tsReturnExpressions(property));
+        for (const value of tsReturnExpressions(property)) values.push(value);
       }
       if (
         names.includes("get") &&
@@ -11557,9 +11599,11 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         (ts.isArrowFunction(tsUnwrapExpression(property.initializer)) ||
           ts.isFunctionExpression(tsUnwrapExpression(property.initializer)))
       ) {
-        values.push(
-          ...tsReturnExpressions(tsUnwrapExpression(property.initializer)),
-        );
+        for (const value of tsReturnExpressions(
+          tsUnwrapExpression(property.initializer),
+        )) {
+          values.push(value);
+        }
       }
     }
     return values;
@@ -13033,9 +13077,9 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
         "sha256-4ee8b3103bf9341b9d7460884323978471558d5a03f0926d70e5593c07ff9025",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
-          "sha256-8d0f00b05f198bb2c823f55a92cabc4f0101bddad7daaa54e0244d63e97ba011",
+          "sha256-0a3cfc35c52974b72771d828bd6149b30fa557e50e9cdd09faf4def70661b3ea",
         "scripts/build-hermes.sh":
-          "sha256-31584f20c5deeb86750d79a2bfbb56ec98a84861ddc2a0c681c314185e100d69",
+          "sha256-a01778167ee9d39a33dd0e606d68761789176063c0d62b879fd7ef7b2fcfec13",
       },
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
@@ -15557,8 +15601,7 @@ export async function scanBuiltinSurfaces(
       sourceAliases,
       text,
     });
-    exports.push(
-      ...scanStaticBuiltinExports(text, {
+    for (const row of scanStaticBuiltinExports(text, {
         bootstrapInternalModuleSpecifiers: sourceAliases
           .filter(
             (alias) =>
@@ -15572,8 +15615,9 @@ export async function scanBuiltinSurfaces(
         publicModuleSpecifiers: sourceAliases
           .filter((alias) => alias.metadata.importReachability === "public")
           .map((alias) => alias.name),
-      }),
-    );
+      })) {
+      exports.push(row);
+    }
   }
 
   exports.push(
@@ -16406,16 +16450,16 @@ export function scanRuntimeCliSurfaces(
           ),
         );
       }
-      rows.push(
-        ...cliValueShapeRows(
+      for (const row of cliValueShapeRows(
           "option",
           command.path,
           option.id,
           option.valueShape,
           sourcePath,
           ref,
-        ),
-      );
+        )) {
+        rows.push(row);
+      }
     }
 
     const positionals = command.positionals ?? [];
@@ -16487,16 +16531,16 @@ export function scanRuntimeCliSurfaces(
           },
         ),
       );
-      rows.push(
-        ...cliValueShapeRows(
+      for (const row of cliValueShapeRows(
           "positional",
           command.path,
           positional.id,
           positional.valueShape,
           sourcePath,
           ref,
-        ),
-      );
+        )) {
+        rows.push(row);
+      }
     }
   }
 
@@ -17882,7 +17926,7 @@ export function scanRustLoaderRoutes(sources) {
           ? `${lexicalParent.definitionId ?? `${record.moduleId}::${lexicalParent.definition.name}`}::${record.definition.name}`
           : `${record.moduleId}::${record.definition.name}`;
     }
-    records.push(...sourceRecords);
+    for (const record of sourceRecords) records.push(record);
   }
 
   const byId = new Map(records.map((record) => [record.id, record]));
@@ -23513,20 +23557,24 @@ export async function discoverRepositorySurfaces(repoRoot) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
     const source = readUtf8(filePath);
     if (filePath.startsWith(`${engineRoot}${path.sep}`)) {
-      nativeRows.push(...scanPrivateNativeIdentifiers(source, relativePath));
-      nativeGlobalRows.push(
-        ...scanCppGlobalPropertySurfaces(source, relativePath),
-      );
-      nativeGlobalRows.push(
-        ...scanEvaluatedCppGlobalScripts(source, relativePath),
-      );
-      lifecycleRows.push(...scanNativeLifecycleSurfaces(source, relativePath));
+      for (const row of scanPrivateNativeIdentifiers(source, relativePath)) {
+        nativeRows.push(row);
+      }
+      for (const row of scanCppGlobalPropertySurfaces(source, relativePath)) {
+        nativeGlobalRows.push(row);
+      }
+      for (const row of scanEvaluatedCppGlobalScripts(source, relativePath)) {
+        nativeGlobalRows.push(row);
+      }
+      for (const row of scanNativeLifecycleSurfaces(source, relativePath)) {
+        lifecycleRows.push(row);
+      }
     }
-    abiRows.push(
-      ...scanCppPublicAbiDefinitions(source, relativePath, {
-        typeRegistry: abiTypeRegistry,
-      }),
-    );
+    for (const row of scanCppPublicAbiDefinitions(source, relativePath, {
+      typeRegistry: abiTypeRegistry,
+    })) {
+      abiRows.push(row);
+    }
   }
 
   for (const filePath of listFiles(
@@ -23534,9 +23582,12 @@ export async function discoverRepositorySurfaces(repoRoot) {
     (candidate) => path.extname(candidate) === ".rs",
   )) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
-    abiRows.push(
-      ...scanRustPublicAbiDefinitions(readUtf8(filePath), relativePath),
-    );
+    for (const row of scanRustPublicAbiDefinitions(
+      readUtf8(filePath),
+      relativePath,
+    )) {
+      abiRows.push(row);
+    }
   }
   const androidJavaPath =
     "platform/android/java/dev/ibex/runtime/IbexNetworking.java";
@@ -23613,22 +23664,26 @@ export async function discoverRepositorySurfaces(repoRoot) {
     (candidate) => path.extname(candidate) === ".js",
   )) {
     const relativePath = posixPath(path.relative(repoRoot, filePath));
-    globalRows.push(
-      ...scanStaticGlobalApiSurfaces(readUtf8(filePath), relativePath, {
+    for (const row of scanStaticGlobalApiSurfaces(
+      readUtf8(filePath),
+      relativePath,
+      {
         evaluatorInstallation:
           legacyEvaluatorInstallations[path.basename(filePath)],
-      }),
-    );
+      },
+    )) {
+      globalRows.push(row);
+    }
   }
   const hermesEvaluatorProfiles =
     discoverHermesEvaluatorIdentityProfiles(repoRoot);
-  globalRows.push(
-    ...scanLockdownEvaluatorSurfaces(
+  for (const row of scanLockdownEvaluatorSurfaces(
       readUtf8(path.join(engineRoot, "hermes_runtime.cc")),
       "src/engine/hermes_runtime.cc",
       hermesEvaluatorProfiles,
-    ),
-  );
+    )) {
+    globalRows.push(row);
+  }
   const globals = mergeSurfaceEvidence(
     globalRows,
     "bootstrap global API inventory",

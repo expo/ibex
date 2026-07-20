@@ -5,8 +5,8 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-16 (host-owned REPL/inspector/explicit keep-alive turns now expose their external liveness to native polling without promoting unreferenced timers into runtime liveness); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
-**Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner)
+**Revised:** 2026-07-19 (LLP 0034: main and worklet runtimes explicitly share the ES6 block-scoping mode); 2026-07-16 (host-owned REPL/inspector/explicit keep-alive turns now expose their external liveness to native polling without promoting unreferenced timers into runtime liveness); 2026-07-15 (ENG-25061 links indirect/star/namespace exports to native live cells and adds the synchronous graph lifecycle driver); 2026-07-15 (ENG-25060 implements the common runtime-drive gate and native module factory/context/record capabilities); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized eval, poll, runner, and destroy entry); 2026-07-15 (ENG-25006: native fetch completion publishes its runtime callback before releasing the pending-fetch keepalive); 2026-07-13 (retained net/WebSocket owner identity installs before native WebSocket and shared-runtime capture while transport host functions remain lazy); 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline); LLP 0026 (module runner); LLP 0034 (ES6 block scoping)
 
 ## Summary
 
@@ -23,9 +23,14 @@ Production uses `ex_hermes_create_armed(snapshot_digest)`; the historical
 `ex_hermes_create()` symbol is intentionally non-executable, and the separately
 named diagnostic constructor is not a project-execution API. Armed creation:
 
-1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue and `eval`
-   enabled, then `facebook::hermes::makeHermesRuntime(config)`
-   (`src/engine/hermes_runtime.cc:1391-1403`).
+1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue, `eval`, and
+   ES6 block scoping enabled, then
+   `facebook::hermes::makeHermesRuntime(config)`. The explicit temporary
+   rollback `IBEX_LEGACY_HERMES_BLOCK_SCOPING=1` selects the old false value;
+   worklet runtime construction applies the same resolved mode. Unsupported
+   Hermes headers fail configuration instead of silently selecting a different
+   source-compilation profile ([LLP 0034](./0034-hermes-es6-block-scoping.decision.md);
+   `src/engine/hermes_runtime.cc`; `src/engine/hermes_runtime_worklet.cc`).
 2. Wraps it in an `ExactHermesRuntime` handle, records the owning thread, a
    fresh runtime nonce, and the exact claimed immutable Host context.
 3. Optionally constructs the async debugger if the Hermes build supports it

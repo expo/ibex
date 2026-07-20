@@ -2929,7 +2929,7 @@ const REVIEWED_SOURCE_BOUND_NATIVE_PROPERTY_NAMES = Object.freeze([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.5410185e70f99d05265b6375a885af058dd826996d2e453453bff28c1cb58bae";
+  "hermes-evaluators.b58ad3ad9e3b241a108e7abe442b5adab1b5ce6422957bba03d755d06db64301";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-84bc50a29f721c540d8cf37b74f395d4afef63f0174df05bd40ec9b0e4486e8c";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
@@ -5076,11 +5076,9 @@ function buildReviewedGlobalApiNames() {
         `reviewed global API members for ${globalName} are empty, duplicate, or not canonical UTF-8 order`,
       );
     }
-    names.push(
-      ...memberNames.map((memberName) =>
-        reviewedGlobalSurfaceName(globalName, memberName),
-      ),
-    );
+    for (const memberName of memberNames) {
+      names.push(reviewedGlobalSurfaceName(globalName, memberName));
+    }
   }
   if (new Set(names).size !== names.length) {
     throw new Error(
@@ -6672,6 +6670,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_HERMESC_TIMEOUT_MS",
     "env:IBEX_HERMES_TOOL_DIR",
     "env:IBEX_HTTP_MAX_REQUEST_BODY_BYTES",
+    "env:IBEX_LEGACY_HERMES_BLOCK_SCOPING",
     "env:IBEX_LEGACY_MODULE_LOADER",
     "env:IBEX_LOCKDOWN",
     "env:IBEX_LOOP_TRACE",
@@ -10660,6 +10659,7 @@ const ORDINARY_STARTUP_ENVIRONMENT_READS = new Set([
 
 const RUNTIME_TRANSFORM_ENVIRONMENT_CONTROLS = new Set([
   "EXACT_RUNTIME_TRANSFORM",
+  "IBEX_LEGACY_HERMES_BLOCK_SCOPING",
   "IBEX_RUNTIME_TRANSFORM",
 ]);
 
@@ -14674,7 +14674,9 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     }
     seenEdgeIds.set(classification.edge.id, observedKey);
     edges.push(classification.edge);
-    implementationRows.push(...classification.implementationRows);
+    for (const row of classification.implementationRows) {
+      implementationRows.push(row);
+    }
   }
 
   edges.sort((left, right) => utf8Compare(left.id, right.id));

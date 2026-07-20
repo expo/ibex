@@ -5,6 +5,49 @@
  * evidence is accepted.
  */
 const pythonCommand = process.platform === "win32" ? "python" : "python3";
+const WINDOWS_TARGET = "x86_64-pc-windows-msvc";
+const REGISTRY_GENERATOR =
+  "packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs";
+
+export function resolveConformanceMatrixInvocation({
+  id,
+  command,
+  args,
+  target,
+  environment,
+  repoRoot,
+}) {
+  if (target !== WINDOWS_TARGET) {
+    return { command, args, environmentKeys: [] };
+  }
+  if (id === "capsec-registry-drift") {
+    const nodeOracle = environment.IBEX_NODE_ORACLE_BIN;
+    if (typeof nodeOracle !== "string" || nodeOracle.length === 0) {
+      throw new Error(
+        "Windows CapSec registry drift requires IBEX_NODE_ORACLE_BIN",
+      );
+    }
+    return {
+      command: nodeOracle,
+      args: [`${repoRoot}/${REGISTRY_GENERATOR}`, "--check"],
+      environmentKeys: ["IBEX_NODE_ORACLE_BIN"],
+    };
+  }
+  if (command === "bash") {
+    const gitBash = environment.IBEX_GIT_BASH_BIN;
+    if (typeof gitBash !== "string" || gitBash.length === 0) {
+      throw new Error(
+        "Windows CapSec shell commands require IBEX_GIT_BASH_BIN",
+      );
+    }
+    return {
+      command: gitBash,
+      args,
+      environmentKeys: ["IBEX_GIT_BASH_BIN"],
+    };
+  }
+  return { command, args, environmentKeys: [] };
+}
 
 export const CONFORMANCE_PREFLIGHT_COMMANDS = Object.freeze([
   ["capsec-registry-drift", "bun", ["run", "check:capsec-registry"]],

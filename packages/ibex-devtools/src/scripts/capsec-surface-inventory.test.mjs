@@ -1742,6 +1742,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ),
       ),
     ).toBe(true);
+
+    const cyclicFactoryRows = scanStaticBuiltinExports(
+      "function first() { return second(); } function second() { return first(); } module.exports.Public = first();",
+      {
+        sourceKey: "node_cyclic_factory",
+        sourcePath: "src/builtins/cyclic-factory.js",
+      },
+    );
+    expect(
+      cyclicFactoryRows.some((row) =>
+        /^Public\.\[\[dynamic-table:inherited-[a-f0-9]{12}-properties\]\]$/u.test(
+          row.metadata.exportName,
+        ),
+      ),
+    ).toBe(true);
   });
 
   test("direct public class expressions and util inheritance retain their complete shape", () => {
@@ -2583,6 +2598,30 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  test("registry scanner authority is pinned to canonical LF checkout bytes", () => {
+    const attributes = fs.readFileSync(
+      path.join(repoRoot, ".gitattributes"),
+      "utf8",
+    );
+    expect(attributes).toContain("build.rs text eol=lf");
+    expect(attributes).toContain("include/** text eol=lf");
+    expect(attributes).toContain("platform/android/** text eol=lf");
+    expect(attributes).toContain("src/** text eol=lf");
+    expect(attributes).toContain("src/engine/bootstrap/** text eol=lf");
+    for (const sourcePath of [
+      "build.rs",
+      "include/exact_runtime.h",
+      "platform/android/java/dev/ibex/runtime/IbexNetworking.java",
+      "src/engine/bootstrap/web-streams-polyfill.js",
+      "src/engine/evaluation.rs",
+    ]) {
+      expect(
+        fs.readFileSync(path.join(repoRoot, sourcePath), "utf8").includes("\r"),
+        sourcePath,
+      ).toBe(false);
+    }
   });
 
   test("global discovery rejects open computed names and resolves closed installers", () => {
@@ -6107,11 +6146,12 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       ]),
     );
 
+    const streamSource = fs.readFileSync(
+      path.join(repoRoot, "src/engine/bootstrap/web-streams-polyfill.js"),
+      "utf8",
+    );
     const streamRows = scanStaticGlobalApiSurfaces(
-      fs.readFileSync(
-        path.join(repoRoot, "src/engine/bootstrap/web-streams-polyfill.js"),
-        "utf8",
-      ),
+      streamSource,
       "src/engine/bootstrap/web-streams-polyfill.js",
     );
     expect(streamRows.map((row) => row.name)).toEqual(
@@ -6128,6 +6168,13 @@ fn scanner_receiver_ambiguous(fd_one: OwnedFd, fd_two: OwnedFd, lock: RwLock<()>
       streamRows.find((row) => row.name === "global:WebStreamsPolyfill")
         .metadata.semanticRole,
     ).toBe("implementation-container");
+    const windowsStreamRows = scanStaticGlobalApiSurfaces(
+      streamSource.replace(/\n/gu, "\r\n"),
+      "src/engine/bootstrap/web-streams-polyfill.js",
+    );
+    expect(windowsStreamRows.map((row) => row.name)).toEqual(
+      streamRows.map((row) => row.name),
+    );
 
     const compatRows = scanStaticGlobalApiSurfaces(
       fs.readFileSync(

@@ -255,11 +255,11 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(24_071);
+    expect(recipes.summary.requiredFixtures).toBe(24_074);
     // Thirty reviewed roots gain exact fresh-engine receipts while the
     // formerly source-misattributed stream/promises export probe is retracted.
     expect(recipes.summary.fullyExecutableFixtures).toBe(2_532);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_539);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_542);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -355,9 +355,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_956);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_959);
     expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_390);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_566);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_569);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -617,7 +617,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(2_844);
+    expect(rationaleOnly).toHaveLength(2_846);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -630,8 +630,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 510,
       "principal-restore": 510,
       "snapshot-mismatch-deny": 510,
-      "cannot-widen-authority": 402,
-      "post-lockdown-invariant": 402,
+      "cannot-widen-authority": 403,
+      "post-lockdown-invariant": 403,
     });
     expect(
       rationaleOnly.every(

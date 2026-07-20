@@ -26,7 +26,15 @@ import {
 } from "./capsec-inherited-intrinsic-alias-conformance.mjs";
 import { auditInheritedIntrinsicAliasSources } from "./capsec-inherited-intrinsic-alias-accounts.mjs";
 import { discoverHermesEvaluatorIdentityProfiles } from "./capsec-surface-inventory.mjs";
-import { runObservedCommand } from "./capsec-command-evidence.mjs";
+import {
+  createCapsecCommandSupervisor,
+  legacyCommandEvidence,
+  runObservedCommand,
+} from "./capsec-command-evidence.mjs";
+import {
+  bindConformanceSuitePlan,
+  readConformanceSuitePlan,
+} from "./capsec-conformance-plan.mjs";
 import { canonicalJson, parseJsonStrict } from "./capsec-contract.mjs";
 
 const repoRoot = path.resolve(
@@ -49,6 +57,7 @@ function parseArguments(argv) {
     expectedProfile: null,
     planOnly: false,
     preflightPath: null,
+    target: null,
   };
   const valueAfter = (index, flag) => {
     const value = argv[index + 1];
@@ -70,6 +79,9 @@ function parseArguments(argv) {
       index += 1;
     } else if (argument === "--preflight") {
       options.preflightPath = valueAfter(index, argument);
+      index += 1;
+    } else if (argument === "--target") {
+      options.target = valueAfter(index, argument);
       index += 1;
     } else {
       throw new Error(`unknown argument ${argument}`);
@@ -165,7 +177,11 @@ function sourceAudit() {
 }
 
 function git(...args) {
-  return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
+  return execFileSync("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 30_000,
+  }).trim();
 }
 
 function committedSourceIdentity({ requireClean }) {
@@ -187,7 +203,14 @@ function evidenceDigest(value) {
     .digest("hex")}`;
 }
 
-function runCargoBatch({ id, testName, environment, outputDirectory }) {
+async function runCargoBatch({
+  supervisor,
+  id,
+  testName,
+  environment,
+  outputDirectory,
+  expectedOutputs,
+}) {
   const args = [
     "test",
     "--bin",
@@ -201,16 +224,27 @@ function runCargoBatch({ id, testName, environment, outputDirectory }) {
   ];
   let commandEvidence;
   try {
-    commandEvidence = runObservedCommand({
+    const attempt = await runObservedCommand({
+      supervisor,
       id,
       command: "cargo",
       args,
       cwd: repoRoot,
-      evidenceDirectory: outputDirectory,
       env: { ...process.env, ...environment },
+      environmentKeys: Object.keys(environment),
+      declaredInputs: [
+        {
+          name: "suitePlan",
+          digest: supervisor.suitePlanBinding.suitePlanDigest,
+        },
+      ],
+      expectedOutputs,
     });
+    commandEvidence = legacyCommandEvidence(attempt);
   } catch (error) {
-    commandEvidence = error.commandEvidence;
+    commandEvidence = error.commandEvidence
+      ? legacyCommandEvidence(error.commandEvidence)
+      : null;
     if (commandEvidence) {
       writeNewJson(path.join(outputDirectory, `${id}.command.json`), {
         schema: "ibex/capsec-inherited-intrinsic-alias-command/1",
@@ -290,9 +324,55 @@ let localTargetRecordPath = null;
 let sourceIdentity = committedSourceIdentity({
   requireClean: !options.auditOnly,
 });
+let supervisor = null;
 if (!options.auditOnly) {
+  const inferredTarget =
+    process.platform === "darwin" && process.arch === "arm64"
+      ? "aarch64-apple-darwin"
+      : process.platform === "win32" && process.arch === "x64"
+        ? "x86_64-pc-windows-msvc"
+        : null;
+  const plannedTarget = options.target ?? inferredTarget;
+  if (!plannedTarget) {
+    throw new Error("local alias execution requires --target on this host");
+  }
+  const suitePlan = readConformanceSuitePlan();
+  const suitePlanBinding = bindConformanceSuitePlan({
+    plan: suitePlan,
+    sourceRevision: sourceIdentity.sourceRevision,
+    sourceTreeDigest: `sha256-${crypto
+      .createHash("sha256")
+      .update(`${sourceIdentity.sourceTree}\n`)
+      .digest("base64url")}`,
+    target: plannedTarget,
+    engineArtifactDigest: `profile-${options.expectedProfile ?? "loaded-engine-preflight"}`,
+  });
+  const jobStartedAtInput = process.env.IBEX_CAPSEC_JOB_STARTED_AT;
+  const jobStartedAtMs =
+    jobStartedAtInput === undefined
+      ? Date.now()
+      : /^\d+$/u.test(jobStartedAtInput)
+        ? Number(jobStartedAtInput)
+        : Date.parse(jobStartedAtInput);
+  const abortController = new AbortController();
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.once(signal, () => abortController.abort(signal));
+  }
+  supervisor = createCapsecCommandSupervisor({
+    evidenceDirectory: outputDirectory,
+    suitePlanBinding,
+    executionShard: "inherited-intrinsic-alias-sequential",
+    jobStartedAtMs,
+    abortSignal: abortController.signal,
+  });
+  process.once("exit", (code) => {
+    if (supervisor.finishedAt === null) {
+      supervisor.finish(code === 0 ? "success" : "failed");
+    }
+  });
   const preflightPath = path.join(outputDirectory, "loaded-engine-preflight.json");
-  runCargoBatch({
+  await runCargoBatch({
+    supervisor,
     id: "loaded-engine-preflight",
     testName: "capsec_inherited_intrinsic_alias_loaded_engine_preflight",
     environment: {
@@ -300,9 +380,15 @@ if (!options.auditOnly) {
       IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE: "1",
     },
     outputDirectory,
+    expectedOutputs: [preflightPath],
   });
   const preflight = readJson(preflightPath, "loaded-engine preflight");
   validatePreflight(preflight, options.expectedProfile);
+  if (preflight.target.triple !== plannedTarget) {
+    throw new Error(
+      `loaded-engine preflight target ${preflight.target.triple} does not match planned target ${plannedTarget}`,
+    );
+  }
 
   const plan = inheritedIntrinsicAliasExecutionPlan({
     sourceAudit: audit,
@@ -312,7 +398,8 @@ if (!options.auditOnly) {
   const planPath = path.join(outputDirectory, "execution-plan.json");
   writeNewJson(planPath, plan);
   localEvidencePath = path.join(outputDirectory, "loaded-execution.json");
-  const executionCommand = runCargoBatch({
+  const executionCommand = await runCargoBatch({
+    supervisor,
     id: "loaded-intrinsic-alias-execution",
     testName: "capsec_inherited_intrinsic_alias_loaded_execution",
     environment: {
@@ -321,6 +408,7 @@ if (!options.auditOnly) {
       IBEX_REQUIRE_HERMES_PROFILE_PROVENANCE: "1",
     },
     outputDirectory,
+    expectedOutputs: [localEvidencePath],
   });
   const evidence = readJson(localEvidencePath, "local loaded execution");
   const finalSourceIdentity = committedSourceIdentity({ requireClean: true });
@@ -383,3 +471,4 @@ console.log(
     2,
   ),
 );
+supervisor?.finish("success");

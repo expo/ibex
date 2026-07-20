@@ -562,7 +562,9 @@ function expectedDefinitionsForBackend(specification) {
       specification.family === "combined" ||
       operation.family === specification.family,
   ).map((operation) => operation.name);
-  names.push(...(INTERNAL_HELPERS_BY_PATH.get(specification.sourcePath) ?? []));
+  for (const name of INTERNAL_HELPERS_BY_PATH.get(specification.sourcePath) ?? []) {
+    names.push(name);
+  }
   return names.sort(compareText);
 }
 

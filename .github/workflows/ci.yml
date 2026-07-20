@@ -76,11 +76,19 @@ jobs:
           # test file a fresh global plus module cache so mocks cannot leak or
           # bind a product module before another file installs its own hooks.
           bun test packages/ibex-devtools/src/scripts
-          mapfile -t runtime_tests < <(
-            rg --files packages/ibex-runtime-js/src |
-              rg '\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$' |
-              sort
-          )
+          if command -v rg >/dev/null 2>&1; then
+            mapfile -t runtime_tests < <(
+              rg --files packages/ibex-runtime-js/src |
+                rg '\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$' |
+                sort
+            )
+          else
+            mapfile -t runtime_tests < <(
+              find packages/ibex-runtime-js/src -type f -print |
+                awk '/\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/' |
+                sort
+            )
+          fi
           test "${#runtime_tests[@]}" -gt 0
           for test_file in "${runtime_tests[@]}"; do
             bun test "$test_file"
