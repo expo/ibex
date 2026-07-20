@@ -1,44 +1,71 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-import { nativeGpuBridgeForGeneratedWrapper } from './runtime-internal';
+import { Blob } from '../blob/Blob';
 import {
-  installNativeGpuBridgeCapture,
+  installNativeGpuBridgeCapture as installRuntimeNativeGpuBridgeCapture,
+  nativeGpuBridgeForGeneratedWrapper,
+} from './runtime-internal';
+import {
+  installNativeGpuBridgeCapture as installNativeGpuBridgeCaptureSlot,
   isNativeGpuBridge,
   type NativeGpuBridge,
 } from './native-bridge';
 
 describe('construction-private GPU bridge capture', () => {
-  test('the embedded entry and generated-wrapper path share one module slot', () => {
+  test('the embedded entry authenticates codecs and publishes one revocable app surface', async () => {
     const occupiedGlobal = {
       __ibexCaptureGpuNativeBridge: () => undefined,
     } as unknown as typeof globalThis;
-    expect(() => installNativeGpuBridgeCapture(occupiedGlobal)).toThrow(
+    expect(() => installNativeGpuBridgeCaptureSlot(occupiedGlobal)).toThrow(
       'capture name is already occupied',
     );
 
-    const constructionGlobal = {} as typeof globalThis;
+    const constructionGlobal = { navigator: {} } as unknown as typeof globalThis;
     const bridge: NativeGpuBridge = {
-      realmToken: '17',
-      accountToken: '23',
+      abiVersion: 0x0002_0000,
+      runtimeAddress: '11',
+      runtimeNonce: '13',
+      realmId: '17',
+      realmGeneration: '19',
+      rootAccountId: '23',
+      rootAccountGeneration: '29',
+      rootAuthorityDigest: new Uint8Array(32).fill(7),
+      decodedImageAuthority: Object.freeze({
+        async decodePng(request) {
+          return Object.freeze({
+            runtimeAddress: request.runtimeAddress,
+            runtimeNonce: request.runtimeNonce,
+            sourceId: request.sourceId,
+            sourceGeneration: request.sourceGeneration,
+            width: 1,
+            height: 1,
+            bytesPerRow: 4,
+            encodedBytes: request.encodedBytes,
+            decodedPremultipliedRgba8: new Uint8Array([1, 2, 3, 4]),
+            encodedContentSha256: '12'.repeat(32),
+            decodedContentSha256: '34'.repeat(32),
+            originClean: true as const,
+            colorSpace: 'srgb' as const,
+            alphaMode: 'premultiplied' as const,
+            orientation: 'top-left' as const,
+          });
+        },
+      }),
       submit: () => ({
-        completionId: '1',
-        admissionStatus: 0,
-        receipt: Promise.resolve(),
+        operationInstanceId: '1',
+        promiseId: '0',
+        submissionStatus: 0,
       }),
       cancel: () => 0,
       retire: () => 0,
+      createMappedRangeAlias: (source, offset, length) =>
+        source.slice(offset, offset + length),
+      detachMappedRange: () => true,
+      setEventSink: () => undefined,
     };
 
-    let installedSurface = false;
-    let installedSurfaceRevoked = false;
-    installNativeGpuBridgeCapture(constructionGlobal, (candidate) => {
-      expect(candidate).toBe(bridge);
-      installedSurface = true;
-      return () => {
-        installedSurfaceRevoked = true;
-      };
-    });
+    installRuntimeNativeGpuBridgeCapture(constructionGlobal);
     const capture = Object.getOwnPropertyDescriptor(
       constructionGlobal,
       '__ibexCaptureGpuNativeBridge',
@@ -46,12 +73,29 @@ describe('construction-private GPU bridge capture', () => {
     expect(capture).toBeFunction();
     const revoke = capture!(bridge);
 
-    expect(Reflect.ownKeys(constructionGlobal)).toEqual([]);
+    expect(Reflect.ownKeys(constructionGlobal)).toContain('GPUDevice');
+    expect('gpu' in constructionGlobal.navigator).toBe(true);
+    const createImageBitmap = Object.getOwnPropertyDescriptor(
+      constructionGlobal,
+      'createImageBitmap',
+    )?.value as ((source: Blob) => Promise<{
+      readonly width: number;
+      readonly height: number;
+      close(): void;
+    }>) | undefined;
+    const bitmap = await createImageBitmap!(
+      new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }),
+    );
+    expect({ width: bitmap.width, height: bitmap.height }).toEqual({
+      width: 1,
+      height: 1,
+    });
     expect(nativeGpuBridgeForGeneratedWrapper()).toBe(bridge);
-    expect(installedSurface).toBe(true);
-    revoke();
+    revoke?.();
     expect(nativeGpuBridgeForGeneratedWrapper()).toBeUndefined();
-    expect(installedSurfaceRevoked).toBe(true);
+    expect('gpu' in constructionGlobal.navigator).toBe(false);
+    expect('GPUDevice' in constructionGlobal).toBe(false);
+    expect('createImageBitmap' in constructionGlobal).toBe(false);
   });
 
   test('V2 capture validation requires the typed sink and mapped-buffer helpers', () => {

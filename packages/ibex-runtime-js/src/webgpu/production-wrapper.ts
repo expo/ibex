@@ -6230,6 +6230,7 @@ const PUBLIC_CONSTANT_NAMES = Object.freeze([
   'GPUShaderStage',
   'GPUTextureUsage',
 ]);
+const PUBLIC_FUNCTION_NAMES = Object.freeze(['createImageBitmap']);
 
 export function installProductionWebGpu(
   globalObject: typeof globalThis,
@@ -6257,7 +6258,11 @@ export function installProductionWebGpu(
   }
   if (
     'gpu' in navigatorValue ||
-    [...PUBLIC_INTERFACE_NAMES, ...PUBLIC_CONSTANT_NAMES].some(
+    [
+      ...PUBLIC_INTERFACE_NAMES,
+      ...PUBLIC_CONSTANT_NAMES,
+      ...PUBLIC_FUNCTION_NAMES,
+    ].some(
       (name) => name in globalObject,
     )
   ) {
@@ -6278,6 +6283,9 @@ export function installProductionWebGpu(
 
   try {
     installValue(navigatorValue, 'gpu', binding.gpu);
+    if (binding.createImageBitmap) {
+      installValue(globalObject, 'createImageBitmap', binding.createImageBitmap);
+    }
     for (const name of PUBLIC_INTERFACE_NAMES) {
       installValue(globalObject, name, binding.interfaceObjects[name]);
     }

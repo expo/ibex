@@ -827,7 +827,7 @@ describe('production-private WebGPU wrapper gate', () => {
       .toThrow(TypeError);
   });
 
-  test('keeps generated codecs injection-only while the native decoder is not installed', () => {
+  test('keeps the generic embedded default absent from host-selected injection', () => {
     expect(WEBGPU_PRODUCTION_PLAN.codecReadiness).toBe(
       'generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-copy-external-image-to-texture-queue-submit-native-codec-not-installed',
     );
@@ -859,6 +859,63 @@ describe('production-private WebGPU wrapper gate', () => {
     expect('gpu' in globalObject.navigator).toBe(false);
   });
 
+  test('installs and revokes a bridge-carried decoded-image global atomically', async () => {
+    const globalObject = isolatedGlobal();
+    const bridge = Object.assign(createFakeBridge(), {
+      decodedImageAuthority: Object.freeze({
+        async decodePng(request: ProductionGpuDecodedImageRequestV1) {
+          return Object.freeze({
+            runtimeAddress: request.runtimeAddress,
+            runtimeNonce: request.runtimeNonce,
+            sourceId: request.sourceId,
+            sourceGeneration: request.sourceGeneration,
+            width: 1,
+            height: 1,
+            bytesPerRow: 4,
+            encodedBytes: request.encodedBytes,
+            decodedPremultipliedRgba8: new Uint8Array([4, 3, 2, 1]),
+            encodedContentSha256: '12'.repeat(32),
+            decodedContentSha256: '34'.repeat(32),
+            originClean: true as const,
+            colorSpace: 'srgb' as const,
+            alphaMode: 'premultiplied' as const,
+            orientation: 'top-left' as const,
+          });
+        },
+      }),
+    });
+    const installation = installProductionWebGpu(
+      globalObject,
+      bridge,
+      createFakeCodecs(),
+    );
+    expect(installation.status).toBe('installed');
+    if (installation.status !== 'installed') throw new Error('installation failed');
+
+    const createImageBitmap = Object.getOwnPropertyDescriptor(
+      globalObject,
+      'createImageBitmap',
+    )?.value as ((source: Blob) => Promise<{
+      readonly width: number;
+      readonly height: number;
+      close(): void;
+    }>) | undefined;
+    expect(createImageBitmap).toBeFunction();
+    const bitmap = await createImageBitmap!(
+      new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }),
+    );
+    expect({ width: bitmap.width, height: bitmap.height }).toEqual({
+      width: 1,
+      height: 1,
+    });
+    bitmap.close();
+
+    installation.revoke();
+    expect('gpu' in globalObject.navigator).toBe(false);
+    expect('GPUDevice' in globalObject).toBe(false);
+    expect('createImageBitmap' in globalObject).toBe(false);
+  });
+
   test('refuses worker installation and public-surface replacement', () => {
     const codecs = createFakeCodecs();
     const workerGlobal = isolatedGlobal();
@@ -871,6 +928,14 @@ describe('production-private WebGPU wrapper gate', () => {
     Object.defineProperty(occupied.navigator, 'gpu', { value: Object.freeze({}) });
     expect(
       installProductionWebGpu(occupied, createFakeBridge(), codecs),
+    ).toEqual({ status: 'not-installed', reason: 'public-surface-conflict' });
+
+    const occupiedFunction = isolatedGlobal();
+    Object.defineProperty(occupiedFunction, 'createImageBitmap', {
+      value: () => Promise.resolve(),
+    });
+    expect(
+      installProductionWebGpu(occupiedFunction, createFakeBridge(), codecs),
     ).toEqual({ status: 'not-installed', reason: 'public-surface-conflict' });
   });
 });

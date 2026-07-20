@@ -245,10 +245,11 @@ export interface ExecutableWebGpuCodecBundle {
 }
 
 /**
- * This remains undefined until the generated injection layout has a matching
- * native decoder and the manifest's unavailable semantic-field list is empty.
- * A route table, V2 carrier, or explicit test injection cannot substitute for
- * that production-readiness evidence.
+ * The generic installer deliberately has no ambient codec authority. The
+ * authenticated runtime capture may pass the generated injection bundle
+ * explicitly after an embedder opens a matching V2 native service, but a
+ * route table, structural V2 carrier, or direct call cannot infer that choice
+ * or turn it into a support claim.
  */
 export const EMBEDDED_EXECUTABLE_WEBGPU_CODECS:
   | ExecutableWebGpuCodecBundle

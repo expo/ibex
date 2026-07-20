@@ -8,14 +8,14 @@ import {
   installNativeGpuBridgeCapture as installCapture,
   type NativeGpuBridge,
 } from './native-bridge';
+import { WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION } from './production-codecs.generated';
 import { installProductionWebGpu } from './production-wrapper';
 
 /**
  * Register the authenticated construction handoff and bind the app-realm
- * wrapper install to the same native revoker. The current embedded codec
- * authority is intentionally absent, so this is a fail-closed no-op until the
- * reviewed injection layout has a matching native decoder and every required
- * authenticated semantic input.
+ * wrapper install to the same native revoker. The generated executable bundle
+ * is injected only after Ibex has authenticated and opened a V2 service; a
+ * runtime without that native bridge still publishes no WebGPU surface.
  */
 export function installNativeGpuBridgeCapture(
   globalObject: typeof globalThis,
@@ -24,7 +24,7 @@ export function installNativeGpuBridgeCapture(
     const installation = installProductionWebGpu(
       globalObject,
       bridge,
-      undefined,
+      WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION,
       'app',
     );
     return installation.status === 'installed' ? installation.revoke : undefined;
