@@ -804,7 +804,7 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "sealed-bare-evaluator",
       'extern "C" int ex_hermes_eval(',
       'extern "C" int ibex_test_install_capsec_context_observer(',
-      "sha256-EObeUFnhHg8009OGCdyytBVkp4Cj8q37CU1DG53nCdU",
+      "sha256-AYsCE9oCOmwR1lbYo3H6ZKmsgJ73F2Gv_cBkY7vrQyY",
     ),
   ]),
   "src/engine/hermes_structured.rs": Object.freeze([

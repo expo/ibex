@@ -5,7 +5,7 @@
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "e10e56bd3cb031abc3a0e499c7a9265d9eee7ba4df35e94692f733546a999762"
+    "manifestSha256": "06193d526b53f9effce0a1a14a67a661e68470aa80cbe95f587772d020450236"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",

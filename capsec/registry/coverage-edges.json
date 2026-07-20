@@ -140925,6 +140925,16 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.host.abi.ex.hermes.begin.app.bundle.evaluation.v1.0heml9g",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_begin_app_bundle_evaluation_v1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.begin.embedder.capabilities.v1.0e96o0g",
       "classification": "non-capability",
       "surface": {
@@ -140973,6 +140983,16 @@
       },
       "rationaleId": "authority-release",
       "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.classify.prepared.native.startup.v1.0aj7l67",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_classify_prepared_native_startup_v1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.host.abi.ex.hermes.commonjs.create.record.0bryv5u",
@@ -141305,6 +141325,26 @@
       "rationale": "Public ABI evaluation remains closed until authenticated entry binding is proved."
     },
     {
+      "id": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.immediate.v1.0xwvp9s",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "Public ABI evaluation remains closed until authenticated entry binding is proved."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.eval.gpu.canvas.app.bundle.with.prelude.immediate.v1.1c9miel",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "Public ABI evaluation remains closed until authenticated entry binding is proved."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.eval.lowered.session.1anyth1",
       "classification": "non-capability",
       "surface": {
@@ -141360,6 +141400,16 @@
       "surface": {
         "kind": "host-abi",
         "name": "ex_hermes_finalize_embedder_capabilities_v1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.finish.app.bundle.evaluation.v1.1ss4yws",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_finish_app_bundle_evaluation_v1"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -141725,6 +141775,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.host.abi.ex.hermes.quarantine.runtime.v1.104iqhs",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_quarantine_runtime_v1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
       "classification": "non-capability",
       "surface": {
@@ -141753,6 +141813,26 @@
       },
       "rationaleId": "terminal-session-control",
       "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.run.prepared.app.v1.12n10zc",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_run_prepared_app_v1"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "Prepared startup staging and runApp invocation are authenticated outer-transaction embedder operations and are not exposed to project code."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.runtime.is.quarantined.v1.0eo02vr",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_runtime_is_quarantined_v1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
@@ -141925,6 +142005,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.host.abi.ex.hermes.stage.prepared.native.startup.v1.1a6m6ld",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_stage_prepared_native_startup_v1"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "Prepared startup staging and runApp invocation are authenticated outer-transaction embedder operations and are not exposed to project code."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.structured.active.work.target.1ks2wxn",
       "classification": "non-capability",
       "surface": {
@@ -142083,6 +142173,16 @@
       },
       "rationaleId": "pure-in-memory-compute",
       "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.verify.prepared.native.startup.absent.v1.064gzo2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_verify_prepared_native_startup_absent_v1"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.host.abi.ex.host.armed.bootstrap.compatibility.flags.1m94svg",
@@ -209767,6 +209867,16 @@
       "rationale": "Process signal control is closed in the initial profile."
     },
     {
+      "id": "surface.native.op.exactpreparednativestartupv1.1brr31d",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactPreparedNativeStartupV1"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "The exact-shape prepared startup carrier is temporary authenticated app-bundle code ingress and remains closed outside its native outer-transaction protocol."
+    },
+    {
       "id": "surface.native.op.exactprocessipcbootstrap.1f8twb6",
       "classification": "closed",
       "surface": {
@@ -258066,6 +258176,56 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.native.op.ibeximmediatehandlercalled.1t9yr5e",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexImmediateHandlerCalled"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.native.op.ibeximmediatemicrotaskran.1u63tdb",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexImmediateMicrotaskRan"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.native.op.ibeximmediatenexttickran.1e5ei92",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexImmediateNextTickRan"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.native.op.ibeximmediateresultcoerced.06n2sbz",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexImmediateResultCoerced"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.native.op.ibeximmediatetheninspected.1yxrdqj",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexImmediateThenInspected"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.native.op.ibexlockeddown.1l9g3ta",
       "classification": "non-capability",
       "surface": {
@@ -270072,6 +270232,36 @@
       },
       "rationaleId": "terminal-session-control",
       "rationale": "This native session-layer control operates presentation, editor state, or a parity-safe virtual-namespace projection without granting JavaScript authority; any external effect is classified and mediated at its own route."
+    },
+    {
+      "id": "surface.startup.script.immediate.bytecode.1stdmdk",
+      "classification": "closed",
+      "surface": {
+        "kind": "startup",
+        "name": "script:immediate-bytecode"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "Startup eval and bytecode execution are closed until authenticated entry binding is proved."
+    },
+    {
+      "id": "surface.startup.script.immediate.eval.0aoh0ap",
+      "classification": "closed",
+      "surface": {
+        "kind": "startup",
+        "name": "script:immediate-eval"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "Startup eval and bytecode execution are closed until authenticated entry binding is proved."
+    },
+    {
+      "id": "surface.startup.script.immediate.prelude.01h6s8s",
+      "classification": "closed",
+      "surface": {
+        "kind": "startup",
+        "name": "script:immediate-prelude"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "Immediate app-bundle artifact and prelude evaluation are closed authenticated embedder ingress."
     },
     {
       "id": "surface.startup.script.ipc.listener.183xoza",
