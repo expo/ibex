@@ -172,6 +172,10 @@ describe("canonical authority checkout bytes", () => {
       "llp/fixtures/** text eol=lf",
       "runtime-surface.json text eol=lf",
       "Cargo.lock text eol=lf",
+      "crates/capsec-semantics/tests/fixtures/jcs-number-vectors.tsv text eol=lf",
+      "tests/fixtures/module-runner-spike/sources/** text eol=lf",
+      "tests/fixtures/module-runner-spike/canonical-artifacts.json text eol=lf",
+      "tests/fixtures/module-runner-spike/test262-artifacts.json text eol=lf",
     ]) {
       expect(attributes).toContain(rule);
     }
@@ -183,6 +187,10 @@ describe("canonical authority checkout bytes", () => {
       "llp/fixtures/0023-vfs-error-union.v1.json",
       "runtime-surface.json",
       "Cargo.lock",
+      "crates/capsec-semantics/tests/fixtures/jcs-number-vectors.tsv",
+      "tests/fixtures/module-runner-spike/sources/live-mutation/entry.js",
+      "tests/fixtures/module-runner-spike/canonical-artifacts.json",
+      "tests/fixtures/module-runner-spike/test262-artifacts.json",
     ]) {
       expect(
         fs.readFileSync(path.join(repoRoot, sourcePath), "utf8").includes("\r"),
