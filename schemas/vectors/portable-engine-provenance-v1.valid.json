@@ -22,28 +22,101 @@
         ]
       }
     ],
-    "finalExecutableParserObservation": {
-      "schema": "ibex/portable-engine-mach-o-parser-observation/1",
-      "evidenceClass": "diagnostic-physical-observation",
+    "finalExecutableParserFixture": {
+      "schema": "ibex/portable-engine-mach-o-parser-fixture/1",
+      "evidenceClass": "admitted-replayable-parser-fixture",
       "parser": "scripts/portable-engine-contract.mjs#parseMachO",
+      "cargoIdentity": {
+        "logicalName": "bin/ibex",
+        "targetKind": "bin"
+      },
+      "bytesBase64": "z/rt/gwAAAEAAAAAAgAAAAQAAADQAAAAAAAAAAAAAAAMAAAASAAAABgAAAAAAAAAAAAAAAAAAABAcnBhdGgvaGVybWVzdm0uZnJhbWV3b3JrL1ZlcnNpb25zLzEvaGVybWVzdm0AAAAMAAAAOAAAABgAAAAAAAAAAAAAAAAAAAAvdXNyL2xpYi9saWJTeXN0ZW0uQi5keWxpYgAAAAAAAA4AAAAgAAAADAAAAC91c3IvbGliL2R5bGQAAAAAAAAAHAAAgDAAAAAMAAAAQGV4ZWN1dGFibGVfcGF0aC8uLi9GcmFtZXdvcmtzAAAAAAAA",
+      "expected": {
+        "format": "mach-o",
+        "architecture": "arm64",
+        "cpuSubtype": 0,
+        "fileType": 2,
+        "dylibId": null,
+        "dylinker": "/usr/lib/dyld",
+        "dependencyCommands": [
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "/usr/lib/libSystem.B.dylib"
+          },
+          {
+            "command": "LC_LOAD_DYLIB",
+            "installName": "@rpath/hermesvm.framework/Versions/1/hermesvm"
+          }
+        ],
+        "rpaths": [
+          "@executable_path/../Frameworks"
+        ],
+        "executableDigest": "sha256-b36dd4726d4e1bd6e7e1b83bbf1fd656f70e2e19635053b19e4a8fa30f4b3b55",
+        "executableSize": 240
+      }
+    },
+    "rejectedFinalExecutableObservation": {
+      "schema": "ibex/portable-engine-mach-o-parser-observation/1",
+      "evidenceClass": "diagnostic-rejected-absolute-rpath",
+      "parser": "scripts/portable-engine-contract.mjs#parseMachO",
+      "sourceRole": "current-checkout-debug-binary",
       "format": "mach-o",
       "architecture": "arm64",
       "cpuSubtype": 0,
       "fileType": 2,
+      "dylibId": null,
       "dylinker": "/usr/lib/dyld",
-      "dependencies": [
-        "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
-        "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
-        "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
-        "/System/Library/Frameworks/Security.framework/Versions/A/Security",
-        "/usr/lib/libSystem.B.dylib",
-        "/usr/lib/libc++.1.dylib",
-        "/usr/lib/libiconv.2.dylib",
-        "/usr/lib/libobjc.A.dylib",
-        "/usr/lib/libresolv.9.dylib",
-        "/usr/lib/libz.1.dylib",
-        "@rpath/hermesvm.framework/Versions/1/hermesvm"
-      ]
+      "dependencyCommands": [
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/System/Library/Frameworks/Security.framework/Versions/A/Security"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/usr/lib/libSystem.B.dylib"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/usr/lib/libc++.1.dylib"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/usr/lib/libiconv.2.dylib"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/usr/lib/libobjc.A.dylib"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/usr/lib/libresolv.9.dylib"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "/usr/lib/libz.1.dylib"
+        },
+        {
+          "command": "LC_LOAD_DYLIB",
+          "installName": "@rpath/hermesvm.framework/Versions/1/hermesvm"
+        }
+      ],
+      "rpaths": [
+        "/Users/ccheever/projects/ibex-eng-24578-merge-prep/target/hermes-final9-builder-3cdb20b0/ios/Frameworks"
+      ],
+      "executableDigest": "sha256-8e0fd4198b79998eb92da9409d4196914142a2e8ad20efa2befa613a8770aae4",
+      "executableSize": 175243400
     }
   },
   "documents": {
@@ -751,8 +824,8 @@
       "executable": {
         "logicalName": "bin/ibex",
         "targetKind": "bin",
-        "digest": "sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "size": 2097152
+        "digest": "sha256-b36dd4726d4e1bd6e7e1b83bbf1fd656f70e2e19635053b19e4a8fa30f4b3b55",
+        "size": 240
       },
       "payloadRevalidation": {
         "artifactId": "sha256-1Zn4fxnACSTUiCG0_DpVyy0jXAajBFjYV9st5X9i0Pw",
@@ -760,7 +833,11 @@
         "manifestDigest": "sha256-R2FtpDYsLxAQ-BpnHLNS8eUijYVZLwWYQVdWeToGptY",
         "installationReceiptDigest": "sha256-cCseFiII81Da3Leil0SPLP8G7P5hmvIJigturd4RNgE",
         "verificationPolicyDigest": "sha256-uvzjA54HCJrdOGUuPixR_NfQB2a9uv2jBRnUEvNQyNg",
-        "revalidatedInputCount": 3
+        "manifestEntryCount": 28,
+        "regularEntryCount": 14,
+        "regularByteCount": 1067670,
+        "manifestGraphValidation": "complete-exact-membership-path-and-link-graph",
+        "transportProvenanceReverified": true
       },
       "audit": {
         "class": "macos-macho-final-engine-executable",
@@ -775,82 +852,10 @@
         "dependencies": [
           {
             "command": "LC_LOAD_DYLIB",
-            "installName": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
-            "installName": "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
-            "installName": "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
-            "installName": "/System/Library/Frameworks/Security.framework/Versions/A/Security",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/System/Library/Frameworks/Security.framework/Versions/A/Security"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
             "installName": "/usr/lib/libSystem.B.dylib",
             "resolution": {
               "class": "platform-system",
               "name": "/usr/lib/libSystem.B.dylib"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
-            "installName": "/usr/lib/libc++.1.dylib",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/usr/lib/libc++.1.dylib"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
-            "installName": "/usr/lib/libiconv.2.dylib",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/usr/lib/libiconv.2.dylib"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
-            "installName": "/usr/lib/libobjc.A.dylib",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/usr/lib/libobjc.A.dylib"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
-            "installName": "/usr/lib/libresolv.9.dylib",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/usr/lib/libresolv.9.dylib"
-            }
-          },
-          {
-            "command": "LC_LOAD_DYLIB",
-            "installName": "/usr/lib/libz.1.dylib",
-            "resolution": {
-              "class": "platform-system",
-              "name": "/usr/lib/libz.1.dylib"
             }
           },
           {
@@ -865,7 +870,7 @@
         ]
       },
       "outcome": "verified",
-      "verificationDigest": "sha256-na41eimQwTBxnInTY7xZCtjeYfmMgqfptg2eeH0FIN8"
+      "verificationDigest": "sha256-I-1nxffEzjdU0tzM0DC-HKEZekwvW8DTyBjXFdtwWWQ"
     },
     "mappedInstance": {
       "schema": "ibex/mapped-engine-instance-identity/1",
@@ -1855,7 +1860,7 @@
       "omitFields": [
         "verificationDigest"
       ],
-      "expectedDigest": "sha256-na41eimQwTBxnInTY7xZCtjeYfmMgqfptg2eeH0FIN8"
+      "expectedDigest": "sha256-I-1nxffEzjdU0tzM0DC-HKEZekwvW8DTyBjXFdtwWWQ"
     },
     {
       "id": "mapped-observation-digest",

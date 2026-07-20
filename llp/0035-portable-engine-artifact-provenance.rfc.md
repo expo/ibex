@@ -7,8 +7,9 @@
 **Date:** 2026-07-19
 **Revised:** 2026-07-20 (native package production and credentialed publishing
 are isolated by immutable raw-artifact handoffs; the closed build-consumption
-and macOS post-link contracts bind the portable input set and final executable;
-acceptance, build/runtime consumption, and advertisements remain off)
+and macOS post-link contracts bind complete payload revalidation plus a
+replayed byte-level final-executable observation; acceptance, build/runtime
+consumption, and advertisements remain off)
 **Related:** LLP 0001; LLP 0005; LLP 0013; LLP 0021; LLP 0032
 
 ## Summary
@@ -718,15 +719,25 @@ installationReceiptDigest, verificationPolicyDigest, target, ibexFeatures,
 executable, payloadRevalidation, audit, outcome, verificationDigest`. The
 portable identity, authority digests, target, and feature set must equal the
 bound build-consumption record. `executable` has exact fields `logicalName,
-targetKind, digest, size`: `logicalName` is a Cargo artifact identity such as
-`bin/ibex`, never a local output path.
+targetKind, digest, size`. `logicalName` uses the closed ASCII grammar
+`<targetKind>/<cargo-target-name>`, where `targetKind` is exactly `bin`,
+`test`, `example`, or `bench` and the name is one to 128 ASCII alphanumeric,
+hyphen, or underscore characters beginning with an alphanumeric character.
+The prefix must equal `targetKind`; dots, percent escapes, separators, and
+local output paths are unrepresentable.
 
 `payloadRevalidation` has exact fields `artifactId, buildConsumptionDigest,
 manifestDigest, installationReceiptDigest, verificationPolicyDigest,
-revalidatedInputCount`. The count is the number of unique payload paths whose
-bytes the verifier rehashed; it is a consistency check, not a replacement for
-validating every record row. `outcome` is exactly `verified`, and the verifier
-emits no result on a failed check.
+manifestEntryCount, regularEntryCount, regularByteCount,
+manifestGraphValidation, transportProvenanceReverified`. The verifier rehashes
+every regular manifest entry, checks these complete entry and byte totals,
+revalidates exact archive/manifest membership plus the normalized path and
+symlink graph, and re-verifies the installation receipt's transport
+provenance. `manifestGraphValidation` is exactly
+`complete-exact-membership-path-and-link-graph` and
+`transportProvenanceReverified` is exactly `true`. These claims never mean a
+selected input subset. `outcome` is exactly `verified`, and the verifier emits
+no result on a failed check.
 
 The v1 `audit` is deliberately the closed macOS Mach-O variant with exact
 fields `class, format, architecture, cpuSubtype, fileType, dynamicLinker,
@@ -740,11 +751,12 @@ commands, sorted by `(command, installName)`, not a selected engine-only subset.
 Exactly one row resolves to the portable runtime in the current runtime-only
 topology, with its payload path and digest equal to `runtimeComponent`; a
 future admitted non-system component must likewise have exactly one matching
-row. Every other row must name and resolve to a target-policy-admitted Apple
-system dependency. Missing, duplicate, undeclared, or path-resolved local
-dylibs fail. Windows final-PE evidence requires its separately frozen
-loader/import-graph contract and may not be represented as this Mach-O v1
-result.
+row. Every portable-component row must use current `LC_LOAD_DYLIB`, never weak,
+lazy, upward, or re-export loading. Every other row must name and resolve to a
+target-policy-admitted Apple system dependency. Missing, duplicate,
+undeclared, or path-resolved local dylibs fail. Windows final-PE evidence
+requires its separately frozen loader/import-graph contract and may not be
+represented as this Mach-O v1 result.
 
 The result digest is:
 
@@ -1113,14 +1125,21 @@ executable byte digest and size, loader-relative rpaths, and complete direct
 Mach-O dependency inventory. This is a contract and adversarial vector
 checkpoint only:
 `build.rs` does not yet emit the record and no post-link verifier consumes it.
-The checked diagnostic parser observation records the current arm64
-executable's machine, file type, dynamic linker, and complete dependency-name
-subset used to review the Apple allowlist. It grants no physical authority.
-The current executable also carries an absolute checkout-local `LC_RPATH`, so
-it deliberately cannot satisfy the new result schema. Phase 1 must emit a
-loader-relative layout and extend the byte parser to retain each load-command
-kind plus complete `LC_RPATH` values; the existing package parser's collapsed
-dependency-name list is only the input fixture, not the final verifier.
+The valid golden is derived only by replaying the complete base64 bytes of the
+checked admitted synthetic Mach-O fixture through the production parser. The
+parser records exact sorted `(load command, install name)` rows, complete
+sorted `LC_RPATH` values, and the whole executable's raw digest and size; the
+updater projects those fields verbatim into the post-link result. Mutation
+tests coherently recompute result digests and still reject command, rpath,
+executable-byte, Cargo-identity, build-input, and full-payload-count changes at
+their semantic joins.
+
+A separate checked diagnostic observation records those same fields for the
+current arm64 debug executable used to review the Apple allowlist. It grants
+no physical authority and never supplies the valid golden. That executable
+carries an absolute checkout-local `LC_RPATH`, so the result schema deliberately
+rejects it. Phase 1 must produce and verify a loader-relative final executable
+before the contract can become authority.
 
 Exit: two paths containing the same validated payload derive the same portable
 ID, every local/provenance field mutation is classified correctly, and no new

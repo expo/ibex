@@ -668,12 +668,45 @@
       "expected": "schema-invalid"
     },
     {
+      "id": "post-link-rejects-parent-traversal-cargo-identity",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/executable/logicalName",
+        "value": "bin/../ibex"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "post-link-rejects-percent-encoded-cargo-identity",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/executable/logicalName",
+        "value": "bin/%2e%2e"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "post-link-rejects-cargo-kind-prefix-mismatch",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/executable/targetKind",
+        "value": "test"
+      },
+      "expected": "schema-invalid"
+    },
+    {
       "id": "post-link-rejects-runtime-resolution-substitution",
       "documentPath": "postLinkVerification",
       "schema": "portable-engine-post-link-verification-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/audit/dependencies/10/resolution/digest",
+        "path": "/audit/dependencies/1/resolution/digest",
         "value": "sha256-5656565656565656565656565656565656565656565656565656565656565656"
       },
       "expected": "semantic-invalid"
@@ -684,7 +717,7 @@
       "schema": "portable-engine-post-link-verification-v1.schema.json",
       "mutation": {
         "op": "remove",
-        "path": "/audit/dependencies/10"
+        "path": "/audit/dependencies/1"
       },
       "expected": "semantic-invalid"
     },
@@ -694,7 +727,7 @@
       "schema": "portable-engine-post-link-verification-v1.schema.json",
       "mutation": {
         "op": "add",
-        "path": "/audit/dependencies/11",
+        "path": "/audit/dependencies/2",
         "value": {
           "command": "LC_LOAD_DYLIB",
           "installName": "@rpath/zz-hermesvm.framework/Versions/1/hermesvm",
@@ -706,6 +739,28 @@
         }
       },
       "expected": "semantic-invalid"
+    },
+    {
+      "id": "post-link-rejects-weak-portable-runtime-load",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/audit/dependencies/1/command",
+        "value": "LC_LOAD_WEAK_DYLIB"
+      },
+      "expected": "schema-invalid"
+    },
+    {
+      "id": "post-link-rejects-portable-install-name-traversal",
+      "documentPath": "postLinkVerification",
+      "schema": "portable-engine-post-link-verification-v1.schema.json",
+      "mutation": {
+        "op": "replace",
+        "path": "/audit/dependencies/1/installName",
+        "value": "@rpath/../hermesvm"
+      },
+      "expected": "schema-invalid"
     },
     {
       "id": "post-link-rejects-unadmitted-system-dependency",
@@ -740,13 +795,13 @@
       "expected": "semantic-invalid"
     },
     {
-      "id": "post-link-rejects-revalidation-count-substitution",
+      "id": "post-link-rejects-regular-entry-count-substitution",
       "documentPath": "postLinkVerification",
       "schema": "portable-engine-post-link-verification-v1.schema.json",
       "mutation": {
         "op": "replace",
-        "path": "/payloadRevalidation/revalidatedInputCount",
-        "value": 4
+        "path": "/payloadRevalidation/regularEntryCount",
+        "value": 15
       },
       "expected": "semantic-invalid"
     },

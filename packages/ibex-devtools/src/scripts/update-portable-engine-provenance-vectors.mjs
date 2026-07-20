@@ -17,6 +17,7 @@ import {
   computeDomainDigest,
   parseJsonStrict,
 } from "./capsec-contract.mjs";
+import { parseMachO } from "../../../../scripts/portable-engine-contract.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../../..");
@@ -28,9 +29,13 @@ const trustPolicyPath = path.join(
   repoRoot,
   "schemas/portable-engine-provenance-trust-policy-v1.json",
 );
-const finalExecutableParserObservationPath = path.join(
+const finalExecutableParserFixturePath = path.join(
   repoRoot,
-  "tests/fixtures/portable-engine/post-link/macos-arm64-ibex-parser-observation.json",
+  "tests/fixtures/portable-engine/post-link/macos-arm64-admitted-executable.json",
+);
+const rejectedFinalExecutableObservationPath = path.join(
+  repoRoot,
+  "tests/fixtures/portable-engine/post-link/macos-arm64-current-ibex-rejected-observation.json",
 );
 const schemasDir = path.join(repoRoot, "schemas");
 const schemaFiles = [
@@ -116,10 +121,36 @@ documents.trustPolicy = parseJsonStrict(
   fs.readFileSync(trustPolicyPath),
   trustPolicyPath,
 );
-vector.rawFixtures.finalExecutableParserObservation = parseJsonStrict(
-  fs.readFileSync(finalExecutableParserObservationPath),
-  finalExecutableParserObservationPath,
+vector.rawFixtures.finalExecutableParserFixture = parseJsonStrict(
+  fs.readFileSync(finalExecutableParserFixturePath),
+  finalExecutableParserFixturePath,
 );
+vector.rawFixtures.rejectedFinalExecutableObservation = parseJsonStrict(
+  fs.readFileSync(rejectedFinalExecutableObservationPath),
+  rejectedFinalExecutableObservationPath,
+);
+delete vector.rawFixtures.finalExecutableParserObservation;
+
+// Permit the checked updater to migrate the previous frozen vector through the
+// new exact-field payload-revalidation schema before validating its input.
+if (
+  Object.hasOwn(
+    documents.postLinkVerification.payloadRevalidation,
+    "revalidatedInputCount",
+  )
+) {
+  delete documents.postLinkVerification.payloadRevalidation.revalidatedInputCount;
+  const regularEntries = documents.manifest.entries.filter(
+    (entry) => entry.kind === "regular",
+  );
+  Object.assign(documents.postLinkVerification.payloadRevalidation, {
+    manifestEntryCount: documents.manifest.entries.length,
+    regularEntryCount: regularEntries.length,
+    regularByteCount: regularEntries.reduce((sum, entry) => sum + entry.size, 0),
+    manifestGraphValidation: "complete-exact-membership-path-and-link-graph",
+    transportProvenanceReverified: true,
+  });
+}
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 for (const schemaFile of schemaFiles) {
@@ -723,96 +754,197 @@ postLinkVerification.verificationPolicyDigest =
   buildConsumption.verificationPolicyDigest;
 postLinkVerification.target = clone(buildConsumption.target);
 postLinkVerification.ibexFeatures = clone(buildConsumption.ibexFeatures);
-const revalidatedPaths = new Set([
-  ...buildConsumption.headers.files.map((input) => input.path),
-  buildConsumption.runtimeComponent.path,
-  ...buildConsumption.linkInputs.map((input) => input.path),
-  ...buildConsumption.hostTools.map((input) => input.path),
-  ...buildConsumption.nonSystemLoadableDependencies.map((input) => input.path),
-]);
+const regularManifestEntries = documents.manifest.entries.filter(
+  (entry) => entry.kind === "regular",
+);
 postLinkVerification.payloadRevalidation = {
   artifactId: documents.portableIdentity.artifactId,
   buildConsumptionDigest: buildConsumption.consumptionDigest,
   manifestDigest: buildConsumption.manifestDigest,
   installationReceiptDigest: buildConsumption.installationReceiptDigest,
   verificationPolicyDigest: buildConsumption.verificationPolicyDigest,
-  revalidatedInputCount: revalidatedPaths.size,
+  manifestEntryCount: documents.manifest.entries.length,
+  regularEntryCount: regularManifestEntries.length,
+  regularByteCount: regularManifestEntries.reduce(
+    (sum, entry) => sum + entry.size,
+    0,
+  ),
+  manifestGraphValidation: "complete-exact-membership-path-and-link-graph",
+  transportProvenanceReverified: true,
 };
-const portableAuditDependencies =
-  postLinkVerification.audit.dependencies.filter(
-    (dependency) => dependency.resolution.class === "portable-component",
-  );
-if (portableAuditDependencies.length !== 1) {
-  throw new Error("golden post-link audit must contain one portable dependency");
-}
-portableAuditDependencies[0].resolution.path = runtime.path;
-portableAuditDependencies[0].resolution.digest = runtime.digest;
-const finalExecutableParserObservation =
-  vector.rawFixtures.finalExecutableParserObservation;
+const finalExecutableParserFixture =
+  vector.rawFixtures.finalExecutableParserFixture;
 assertSame(
-  Object.keys(finalExecutableParserObservation).sort(),
+  Object.keys(finalExecutableParserFixture).sort(),
   [
-    "architecture",
-    "cpuSubtype",
-    "dependencies",
-    "dylinker",
+    "bytesBase64",
+    "cargoIdentity",
     "evidenceClass",
-    "fileType",
-    "format",
+    "expected",
     "parser",
     "schema",
   ].sort(),
-  "final executable parser observation exact fields",
+  "final executable parser fixture exact fields",
 );
 if (
-  finalExecutableParserObservation.schema !==
-    "ibex/portable-engine-mach-o-parser-observation/1" ||
-  finalExecutableParserObservation.evidenceClass !==
-    "diagnostic-physical-observation" ||
-  finalExecutableParserObservation.parser !==
+  finalExecutableParserFixture.schema !==
+    "ibex/portable-engine-mach-o-parser-fixture/1" ||
+  finalExecutableParserFixture.evidenceClass !==
+    "admitted-replayable-parser-fixture" ||
+  finalExecutableParserFixture.parser !==
     "scripts/portable-engine-contract.mjs#parseMachO" ||
-  finalExecutableParserObservation.format !== "mach-o" ||
-  finalExecutableParserObservation.architecture !== "arm64" ||
-  finalExecutableParserObservation.cpuSubtype !== 0 ||
-  finalExecutableParserObservation.fileType !== 2 ||
-  finalExecutableParserObservation.dylinker !== "/usr/lib/dyld"
+  canonicalJson(finalExecutableParserFixture.cargoIdentity) !==
+    canonicalJson({ logicalName: "bin/ibex", targetKind: "bin" })
 ) {
-  throw new Error("final executable parser observation has the wrong role");
+  throw new Error("final executable parser fixture has the wrong role");
 }
+const finalExecutableBytes = Buffer.from(
+  finalExecutableParserFixture.bytesBase64,
+  "base64",
+);
+if (finalExecutableBytes.toString("base64") !== finalExecutableParserFixture.bytesBase64) {
+  throw new Error("final executable parser fixture is not canonical base64");
+}
+const parsedFinalExecutable = parseMachO(finalExecutableBytes, {
+  architecture: "arm64",
+  requireExternalDefinedSymbols: false,
+});
+const parsedFinalExecutableProjection = {
+  format: parsedFinalExecutable.format,
+  architecture: parsedFinalExecutable.architecture,
+  cpuSubtype: parsedFinalExecutable.cpuSubtype,
+  fileType: parsedFinalExecutable.fileType,
+  dylibId: parsedFinalExecutable.dylibId,
+  dylinker: parsedFinalExecutable.dylinker,
+  dependencyCommands: parsedFinalExecutable.dependencyCommands,
+  rpaths: parsedFinalExecutable.rpaths,
+  executableDigest: parsedFinalExecutable.executableDigest,
+  executableSize: parsedFinalExecutable.executableSize,
+};
+assertSame(
+  parsedFinalExecutableProjection,
+  finalExecutableParserFixture.expected,
+  "replayed final executable parser fixture",
+);
+if (
+  parsedFinalExecutable.fileType !== 2 ||
+  parsedFinalExecutable.dylibId !== null ||
+  parsedFinalExecutable.dylinker !== "/usr/lib/dyld"
+) {
+  throw new Error("replayed final executable has the wrong Mach-O image role");
+}
+postLinkVerification.executable = {
+  ...clone(finalExecutableParserFixture.cargoIdentity),
+  digest: parsedFinalExecutable.executableDigest,
+  size: parsedFinalExecutable.executableSize,
+};
+postLinkVerification.audit = {
+  class: "macos-macho-final-engine-executable",
+  format: parsedFinalExecutable.format,
+  architecture: parsedFinalExecutable.architecture,
+  cpuSubtype: parsedFinalExecutable.cpuSubtype === 0 ? "all" : "unsupported",
+  fileType: parsedFinalExecutable.fileType === 2 ? "execute" : "unsupported",
+  dynamicLinker: parsedFinalExecutable.dylinker,
+  rpaths: clone(parsedFinalExecutable.rpaths),
+  dependencies: [],
+};
 const allowedFinalSystemDependencies = new Set(
   documents.trustPolicy.platformSystemDependencies[
     targetPolicy.systemDependencyPolicyKey
   ],
 );
-const portableInstallName = portableAuditDependencies[0].installName;
 postLinkVerification.audit.dependencies =
-  finalExecutableParserObservation.dependencies
-    .map((name) => {
-      if (name === portableInstallName) return portableAuditDependencies[0];
-      if (!allowedFinalSystemDependencies.has(name)) {
-        throw new Error(
-          `physical final executable dependency is not admitted: ${name}`,
-        );
+  parsedFinalExecutable.dependencyCommands.map(({ command, installName }) => {
+    if (installName.startsWith("@rpath/")) {
+      if (command !== "LC_LOAD_DYLIB") {
+        throw new Error("portable runtime must use LC_LOAD_DYLIB");
       }
       return {
-        command: "LC_LOAD_DYLIB",
-        installName: name,
-        resolution: { class: "platform-system", name },
+        command,
+        installName,
+        resolution: {
+          class: "portable-component",
+          path: runtime.path,
+          digest: runtime.digest,
+        },
       };
-    })
-    .sort((left, right) =>
-      Buffer.compare(
-        Buffer.from(`${left.command}\0${left.installName}`, "utf8"),
-        Buffer.from(`${right.command}\0${right.installName}`, "utf8"),
-      ),
-    );
+    }
+    if (!allowedFinalSystemDependencies.has(installName)) {
+      throw new Error(
+        `replayed final executable dependency is not admitted: ${installName}`,
+      );
+    }
+    return {
+      command,
+      installName,
+      resolution: { class: "platform-system", name: installName },
+    };
+  });
 if (
   postLinkVerification.audit.dependencies.filter(
     (dependency) => dependency.resolution.class === "portable-component",
   ).length !== 1
 ) {
-  throw new Error("physical final executable observation has no unique runtime");
+  throw new Error("replayed final executable has no unique portable runtime");
 }
+const rejectedFinalExecutableObservation =
+  vector.rawFixtures.rejectedFinalExecutableObservation;
+assertSame(
+  Object.keys(rejectedFinalExecutableObservation).sort(),
+  [
+    "architecture",
+    "cpuSubtype",
+    "dependencyCommands",
+    "dylibId",
+    "dylinker",
+    "evidenceClass",
+    "executableDigest",
+    "executableSize",
+    "fileType",
+    "format",
+    "parser",
+    "rpaths",
+    "schema",
+    "sourceRole",
+  ].sort(),
+  "rejected final executable observation exact fields",
+);
+if (
+  rejectedFinalExecutableObservation.schema !==
+    "ibex/portable-engine-mach-o-parser-observation/1" ||
+  rejectedFinalExecutableObservation.evidenceClass !==
+    "diagnostic-rejected-absolute-rpath" ||
+  rejectedFinalExecutableObservation.parser !==
+    "scripts/portable-engine-contract.mjs#parseMachO" ||
+  rejectedFinalExecutableObservation.sourceRole !==
+    "current-checkout-debug-binary" ||
+  rejectedFinalExecutableObservation.format !== "mach-o" ||
+  rejectedFinalExecutableObservation.architecture !== "arm64" ||
+  rejectedFinalExecutableObservation.cpuSubtype !== 0 ||
+  rejectedFinalExecutableObservation.fileType !== 2 ||
+  rejectedFinalExecutableObservation.dylibId !== null ||
+  rejectedFinalExecutableObservation.dylinker !== "/usr/lib/dyld" ||
+  !rejectedFinalExecutableObservation.rpaths.some((rpath) => path.isAbsolute(rpath))
+) {
+  throw new Error("rejected final executable observation has the wrong diagnostic role");
+}
+assertSame(
+  rejectedFinalExecutableObservation.dependencyCommands,
+  [...rejectedFinalExecutableObservation.dependencyCommands].sort((left, right) =>
+    Buffer.compare(
+      Buffer.from(`${left.command}\0${left.installName}`, "utf8"),
+      Buffer.from(`${right.command}\0${right.installName}`, "utf8"),
+    ),
+  ),
+  "rejected final executable dependency-command order",
+);
+assertSame(
+  rejectedFinalExecutableObservation.rpaths,
+  [...rejectedFinalExecutableObservation.rpaths].sort((left, right) =>
+    Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8")),
+  ),
+  "rejected final executable rpath order",
+);
 postLinkVerification.verificationDigest = digest(
   "ibex.portable-engine-post-link-verification.v1",
   postLinkVerification,
