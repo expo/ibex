@@ -2892,6 +2892,105 @@ function legacyObjectPublishedMemberBinding({
   });
 }
 
+function legacyKChannelHandleBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (![
+    "src/engine/bootstrap/compat-polyfills.js",
+    "src/engine/bootstrap/ipc-listener.js",
+  ].includes(sourcePath)
+    || branch?.observedKey !== `native-op:global:${locator}`) return null;
+  const match = /^process\.__exactKChannelHandle(?:\.(readStart|readStop))?$/u.exec(locator);
+  if (!match) return null;
+  const member = match[1] ?? null;
+  const candidates = [];
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  walkJavaScript(ast.program, (node, parent) => {
+    if (node.type !== "AssignmentExpression" || node.right?.type !== "ObjectExpression") return;
+    const left = node.left;
+    if (left?.type !== "MemberExpression" || !left.computed) return;
+    const objectPath = memberSegments(left.object);
+    if (!objectPath || objectPath.at(-1) !== "process") return;
+    const keyName = left.property?.type === "Identifier" ? left.property.name : null;
+    if (!keyName) return;
+    const keyDeclarations = [];
+    walkJavaScript(ast.program, (candidate) => {
+      if (candidate.type === "VariableDeclarator"
+        && candidate.id?.name === keyName
+        && propertyName(candidate.init) === "__exactKChannelHandle"
+        && candidate.end < node.start) keyDeclarations.push(candidate);
+    });
+    if (keyDeclarations.length === 0) return;
+    const key = keyDeclarations.at(-1);
+    const producer = member ? objectProperty(node.right, member) : node.right;
+    if (!producer) return;
+    candidates.push({ key, producer, publication: parent?.type === "ExpressionStatement" ? parent : node });
+  });
+  if (candidates.length !== 1) return null;
+  const candidate = candidates[0];
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "registration", siteKey: "k-channel-handle.key", range: { startByte: candidate.key.start, endByte: candidate.key.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `k-channel-handle.${member ?? "object"}`, range: { startByte: candidate.producer.start, endByte: candidate.producer.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "k-channel-handle.publication", range: { startByte: candidate.publication.start, endByte: candidate.publication.end }, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-k-channel-handle-route",
+    targetGlobalPath: locator,
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0k-channel-handle`),
+      conditionId: `ipc-bootstrap:${sourcePath}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function legacyNativeWrapStateBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/bootstrap/module-loader.js"
+    || branch?.observedKey !== `native-op:${locator}`) return null;
+  const match = /^__exactNativeWrapState\.([A-Za-z_$][A-Za-z0-9_$]*)$/u.exec(locator);
+  if (!match) return null;
+  const member = match[1];
+  const ast = parse(text, { sourceType: "script", allowReturnOutsideFunction: true });
+  const functions = [];
+  walkJavaScript(ast.program, (node) => {
+    if (node.type === "FunctionDeclaration" && node.id?.name === "_getExactNativeWrapState") {
+      functions.push(node);
+    }
+  });
+  if (functions.length !== 1) return null;
+  const stateDeclarations = [];
+  const publications = [];
+  walkJavaScript(functions[0], (node, parent) => {
+    if (node.type === "VariableDeclarator"
+      && node.id?.name === "state"
+      && node.init?.type === "ObjectExpression") stateDeclarations.push(node);
+    if (node.type === "AssignmentExpression"
+      && JSON.stringify(memberSegments(node.left)) === JSON.stringify(["root", "__exactNativeWrapState"])
+      && node.right?.name === "state") {
+      publications.push(parent?.type === "ExpressionStatement" ? parent : node);
+    }
+  });
+  if (stateDeclarations.length !== 1 || publications.length !== 1) return null;
+  const property = objectProperty(stateDeclarations[0].init, member);
+  if (!property) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `native-wrap-state.${member}`, range: { startByte: property.start, endByte: property.end }, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: "native-wrap-state.publication", range: { startByte: publications[0].start, endByte: publications[0].end }, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "javascript-native-wrap-state-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0native-wrap-state`),
+      conditionId: "native-wrap-state:first-install",
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function exactGlobalAliasBinding({ branch, sourceRef, sourcePath, locator, absolute, text, bytes }) {
   if (sourcePath !== "src/engine/bootstrap/exact-global.js"
     || !/^native-op:global:(?:Bun|Exact)(?:\.|$)/u.test(branch?.observedKey ?? "")
@@ -6773,6 +6872,8 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? legacyJavascriptGlobalRouteBinding({ branch, sourceRef, ...loaded })
     ?? legacyStdioLazyMethodBinding({ branch, sourceRef, ...loaded })
     ?? legacyObjectPublishedMemberBinding({ branch, sourceRef, ...loaded })
+    ?? legacyKChannelHandleBinding({ branch, sourceRef, ...loaded })
+    ?? legacyNativeWrapStateBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptTerminalRouteBinding({ branch, sourceRef, ...loaded })
     ?? legacyJavascriptAliasRouteBinding({ branch, sourceRef, ...loaded })
     ?? generatedJavascriptGlobalBinding({ branch, sourceRef, ...loaded })

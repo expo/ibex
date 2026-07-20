@@ -936,6 +936,38 @@ void install(Runtime& rt) {
     }
   });
 
+  test("binds computed IPC channel handle objects and methods", () => {
+    for (const [locator, sourcePath] of [
+      ["process.__exactKChannelHandle", "src/engine/bootstrap/ipc-listener.js"],
+      ["process.__exactKChannelHandle.readStart", "src/engine/bootstrap/compat-polyfills.js"],
+    ]) {
+      const branch = {
+        branchId: `surface.native.op.global.${locator}.default`,
+        observedKey: `native-op:global:${locator}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `${sourcePath}#${locator}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("javascript-k-channel-handle-route");
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+        .toBe("executable");
+    }
+  });
+
+  test("binds native wrap-state members through their shared publication", () => {
+    const locator = "__exactNativeWrapState.TCPConnectWrap";
+    const branch = {
+      branchId: `surface.native.op.${locator}.default`,
+      observedKey: `native-op:${locator}`,
+      targetVariant: "default",
+    };
+    const sourceRef = `src/engine/bootstrap/module-loader.js#${locator}`;
+    const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+    expect(binding.locatorKind).toBe("javascript-native-wrap-state-route");
+    expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status)
+      .toBe("executable");
+  });
+
   test("binds an object-literal global member without crediting its installer", () => {
     const branch = {
       branchId: "surface.native.op.global.atomics.add.all",
