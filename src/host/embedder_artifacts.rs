@@ -2437,26 +2437,6 @@ mod tests {
             "/capsec/generated/root-global-disposition-manifest.json"
         )))
         .unwrap();
-        let coverage: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/capsec/registry/coverage-edges.json"
-        )))
-        .unwrap();
-        let observed_identities = coverage["edges"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|edge| {
-                (
-                    edge["id"].as_str().unwrap().to_owned(),
-                    format!(
-                        "{}:{}",
-                        edge["surface"]["kind"].as_str().unwrap(),
-                        edge["surface"]["name"].as_str().unwrap()
-                    ),
-                )
-            })
-            .collect::<std::collections::BTreeMap<_, _>>();
         let projection: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capsec/generated/restricted-exact-profile-projection.json"
@@ -2589,6 +2569,26 @@ mod tests {
             "/capsec/generated/root-global-disposition-manifest.json"
         )))
         .unwrap();
+        let coverage: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/coverage-edges.json"
+        )))
+        .unwrap();
+        let observed_identities = coverage["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|edge| {
+                (
+                    edge["id"].as_str().unwrap().to_owned(),
+                    format!(
+                        "{}:{}",
+                        edge["surface"]["kind"].as_str().unwrap(),
+                        edge["surface"]["name"].as_str().unwrap()
+                    ),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
         let mut probes = std::collections::BTreeMap::<String, serde_json::Value>::new();
         for row in root_manifest["rows"].as_array().unwrap() {
             let edge_id = row["registryEdgeId"].as_str().unwrap();
