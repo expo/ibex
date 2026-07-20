@@ -5,7 +5,12 @@
 **Systems:** Security, Runtime, Engine, Host ABI, Module Loader, Build, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-19
-**Revised:** 2026-07-20 (r25 — records the sixth pinned Linux release attempt,
+**Revised:** 2026-07-20 (r26 — records the seventh pinned Linux release attempt,
+whose Linux target job passed but whose source revision is ineligible because
+the macOS and Windows matrix legs both caught three stale source offsets in the
+generated runtime-environment inventory; refreshes only those derived offsets
+and keeps the passing Linux artifact unpromotable pending a fresh clean-source
+run; r25 — records the sixth pinned Linux release attempt,
 which passed reachable, control-plane, all 14,386 source/live absence
 observations, and the global corpora but failed closed at report ingestion
 because the exact-key validator omitted the newly emitted
@@ -496,6 +501,17 @@ roster, blocked segment, mode, startup trace, and callback completion slots;
 removal and target tampering are rejected. The run remains failed evidence,
 produced no conformant report or advertisement, and cannot contribute to
 promotion. A fresh unchanged-policy Linux run remains required.
+The seventh pinned Linux release attempt (Actions run `29784565650`, Linux job
+`88493162562`, exact source `aa80c6811a92a11424bbfd2f02e2634e873ca2a0`)
+passed its complete restricted Exact target-evidence job. The same immutable
+source revision nevertheless failed generated-drift in both the macOS and
+Windows matrix legs: the production-installer edit had shifted three
+source-derived offsets in `runtime-environment-inventory.json` without
+regenerating that authority. The inventory refresh changes only those three
+offsets and the complete generated-drift check is clean afterward. Because
+the passing Linux artifact binds the governance-dirty source revision, it is
+ineligible for report promotion or advertisement and remains failed program
+evidence. A fresh clean-source run remains required.
 A strict activation-artifact schema
 and internal target-local candidate builder now additionally bind the raw
 profile definition, projection, and advertisement authorities; checked full
