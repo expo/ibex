@@ -5407,9 +5407,10 @@ extern "C" int32_t ibex_test_gpu_v2_mapped_range_bridge_roundtrip(
     if (!serialization) return 0;
     auto transfers = facebook::jsi::Array::createWithElements(
         rt, facebook::jsi::Value(rt, alias));
+    auto transferValue = facebook::jsi::Value(rt, alias);
     try {
       (void)serialization->serializeWithTransfer(
-          facebook::jsi::Value(rt, alias), transfers);
+          transferValue, transfers);
     } catch (...) {
       transferRejected = true;
     }
