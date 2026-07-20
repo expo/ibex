@@ -538,6 +538,38 @@ module.exports = { Public: Public };
     expect(buildRestrictedExactBranchSourceRoute(envBranch, [envRef]).status).toBe("executable");
   });
 
+  test("binds Exact capability definition and sealing as one ordered route", () => {
+    for (const [member, publicationCount] of [
+      ["takeCheckpointBytes", 1],
+      ["invokeHostAsync", 2],
+    ]) {
+      const branch = {
+        branchId: `surface.exact.${member}.default`,
+        observedKey: `native-op:global:exact.${member}`,
+        targetVariant: "default",
+      };
+      const sourceRef = `src/engine/hermes_runtime.cc#jsi-global:exact.${member}`;
+      const binding = resolveRestrictedExactBranchSourceBinding(branch, sourceRef);
+      expect(binding.locatorKind).toBe("exact-capability-definition-route");
+      expect(binding.sites.filter((site) => site.role === "publication"))
+        .toHaveLength(publicationCount);
+      expect(binding.producerPaths).toHaveLength(1);
+      expect(buildRestrictedExactBranchSourceRoute(branch, [sourceRef]).status).toBe("executable");
+    }
+    for (const [globalName, sourceRef] of [
+      ["__exactHasSharedRuntimeBundle", "src/engine/hermes_bootstrap.cc#__exactHasSharedRuntimeBundle"],
+      ["__StringBuffer", "src/engine/hermes_runtime.cc#jsi-global:__StringBuffer"],
+    ]) {
+      const direct = resolveRestrictedExactBranchSourceBinding({
+        branchId: `surface.${globalName}.default`,
+        observedKey: `native-op:${globalName}`,
+        targetVariant: "default",
+      }, sourceRef);
+      expect(direct.locatorKind).toBe("cpp-global-property-expression-route");
+      expect(direct.sites.map((site) => site.role)).toEqual(["value-producer", "publication"]);
+    }
+  });
+
   test("rejects an unclassified second JSI publication", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-jsi-branch-"));
     try {

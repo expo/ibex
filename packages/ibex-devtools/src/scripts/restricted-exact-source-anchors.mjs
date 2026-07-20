@@ -3653,6 +3653,93 @@ function jsiProcessEnvBinding({ branch, sourceRef, sourcePath, locator, text, by
   });
 }
 
+function exactCapabilityDefinitionBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  if (sourcePath !== "src/engine/hermes_runtime.cc" || !locator.startsWith("jsi-global:exact.")) {
+    return null;
+  }
+  const member = locator.slice("jsi-global:exact.".length);
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(member)) return null;
+  const calls = callExpressionRangesWithin(
+    text,
+    "defineExactCapability",
+    { startByte: 0, endByte: text.length },
+  ).flatMap((range) => {
+    const opening = text.indexOf("(", range.startByte);
+    const args = splitTopLevelArguments(text.slice(opening + 1, range.endByte - 1));
+    return args[2]?.trim() === `"${member}"` ? [{ range, args }] : [];
+  });
+  if (calls.length === 0) return null;
+  const moved = /std::move\(([A-Za-z_$][A-Za-z0-9_$]*)\)/u.exec(calls[0].args[3] ?? "");
+  if (!moved) return null;
+  const producerRange = cppValueProducerRange(text, moved[1], calls[0].range.startByte);
+  const exactObjectRange = cppValueProducerRange(text, "exactObject", producerRange?.startByte ?? calls[0].range.startByte);
+  if (!producerRange || !exactObjectRange) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `exact.${member}.producer`, range: producerRange, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "alias", siteKey: `exact.${member}.object-resolution`, range: exactObjectRange, text, bytes }),
+    ...calls.map((call, indexValue) => sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `exact.${member}.publication.${indexValue}`, range: call.range, text, bytes })),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "exact-capability-definition-route",
+    targetGlobalPath: `exact.${member}`,
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0exact-capability`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
+function cppGlobalPropertyExpressionBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
+  const globalName = locator.startsWith("jsi-global:")
+    ? locator.slice("jsi-global:".length)
+    : locator;
+  if (!/\.(?:cc|mm)$/u.test(sourcePath)
+    || globalName.includes("[[")
+    || branch?.observedKey !== `native-op:${globalName}`) return null;
+  const matches = [];
+  let marker = text.indexOf(".setProperty");
+  while (marker >= 0) {
+    const opening = text.indexOf("(", marker);
+    const endByte = opening < 0 ? -1 : matchingDelimiterEnd(text, opening, "(", ")");
+    if (endByte < 0) break;
+    const prefix = text.slice(Math.max(0, marker - 200), marker);
+    const args = splitTopLevelArguments(text.slice(opening + 1, endByte - 1));
+    if (/global\(\)\s*$/u.test(prefix)
+      && args[1]?.includes(`"${globalName}"`)
+      && args.length >= 3) {
+      const valueText = args.slice(2).join(", ").trim();
+      const valueStart = text.indexOf(valueText, opening);
+      matches.push({
+        publication: { startByte: marker, endByte },
+        producer: valueStart >= 0
+          ? { startByte: valueStart, endByte: valueStart + valueText.length }
+          : { startByte: marker, endByte },
+      });
+    }
+    marker = text.indexOf(".setProperty", endByte);
+  }
+  if (matches.length !== 1) return null;
+  const sites = [
+    sourceSite({ sourceRef, path: sourcePath, role: "value-producer", siteKey: `${globalName}.expression`, range: matches[0].producer, text, bytes }),
+    sourceSite({ sourceRef, path: sourcePath, role: "publication", siteKey: `${globalName}.global-publication`, range: matches[0].publication, text, bytes }),
+  ];
+  return validateRestrictedExactSourceBinding({
+    sourceRef,
+    locatorKind: "cpp-global-property-expression-route",
+    resolutionPolicy: "composite-path",
+    sites,
+    producerPaths: [{
+      pathId: stableId("producer", `${branch.branchId}\0${sourceRef}\0cpp-global-expression`),
+      conditionId: `target-branch:${branch.targetVariant}`,
+      requiredSiteIds: sites.map((site) => site.siteId),
+    }],
+  });
+}
+
 function jsiGlobalBranchBinding({ branch, sourceRef, sourcePath, locator, text, bytes }) {
   if (!/\.(?:cc|mm|h)$/u.test(sourcePath)) return null;
   const observedPath = branch?.observedKey?.startsWith("native-op:global:")
@@ -5501,7 +5588,9 @@ export function resolveRestrictedExactBranchSourceBinding(
     ?? preprocessorBranchBinding({ branch, sourceRef, ...loaded })
     ?? jsiProcessEnvBinding({ branch, sourceRef, ...loaded })
     ?? jsiConditionalRootMemberBinding({ branch, sourceRef, ...loaded })
+    ?? exactCapabilityDefinitionBinding({ branch, sourceRef, ...loaded })
     ?? jsiGlobalBranchBinding({ branch, sourceRef, ...loaded })
+    ?? cppGlobalPropertyExpressionBinding({ branch, sourceRef, ...loaded })
     ?? javaHostMethodBinding({ branch, sourceRef, ...loaded })
     ?? androidJavaCallBinding({ branch, sourceRef, ...loaded })
     ?? androidJniCallbackBinding({ branch, sourceRef, ...loaded })
@@ -5805,10 +5894,10 @@ export function buildRestrictedExactBranchSourceRoute(branch, sourceRefs, root =
     const terminalEntries = entries.filter(({ binding }) =>
       binding.producerPaths.length > 0 || binding.refusalPaths.length > 0);
     for (const entry of terminalEntries) {
-      if (entry.binding.locatorKind === "jsi-root-global-route"
+      if (["jsi-root-global-route", "cpp-global-property-expression-route"].includes(entry.binding.locatorKind)
         && !locatorOf(entry.sourceRef).startsWith("jsi-global:")
         && terminalEntries.some((candidate) =>
-          candidate.binding.locatorKind === "jsi-root-global-route"
+          candidate.binding.locatorKind === entry.binding.locatorKind
           && candidate.sourceRef.slice(0, candidate.sourceRef.indexOf("#"))
             === entry.sourceRef.slice(0, entry.sourceRef.indexOf("#"))
           && locatorOf(candidate.sourceRef) === `jsi-global:${locatorOf(entry.sourceRef)}`)) {
