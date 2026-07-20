@@ -189,6 +189,18 @@ export type ProductionGpuCanvasServiceEncoding =
       origin:
         | Readonly<{ kind: 'device-created-v1' }>
         | ProductionGpuCanvasCurrentTextureOriginEncoding;
+    }>
+  | Readonly<{
+      /**
+       * Native host-task expiry is orthogonal to an app's earlier destroy().
+       * It therefore has a distinct control discriminator while sharing the
+       * already-authenticated GPUTexture.destroy route and target cell.
+       */
+      kind: 'texture-expire-v1';
+      receiverTextureRef: ProductionGpuFullObjectReference;
+      expiryIntent: 'host-task-expiry';
+      materializationState: 'unmaterialized' | 'materialized';
+      origin: ProductionGpuCanvasCurrentTextureOriginEncoding;
     }>;
 
 export interface ProductionGpuServiceEncodingInput {

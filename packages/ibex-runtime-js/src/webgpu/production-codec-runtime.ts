@@ -7,6 +7,7 @@ import type { NativeGpuEventV2 } from './native-bridge';
 import { DOMException as RuntimeDOMException } from '../events/DOMException';
 import type {
   ExecutableWebGpuCodecBundle,
+  ProductionGpuCanvasCurrentTextureOriginEncoding,
   ProductionGpuCanvasServiceEncoding,
   ProductionGpuFullObjectReference,
   ProductionGpuTextureOriginDigestInput,
@@ -8662,17 +8663,34 @@ function validateCanvasServiceBody(
     return;
   }
 
-  if (operationId !== TEXTURE_DESTROY_OPERATION_ID ||
-      body.kind !== 'texture-destroy-v1') {
+  if (
+    operationId !== TEXTURE_DESTROY_OPERATION_ID ||
+    (body.kind !== 'texture-destroy-v1' &&
+      body.kind !== 'texture-expire-v1')
+  ) {
     throw new TypeError(`${operationId} has the wrong canvas service body`);
   }
-  exactLifecycleKeys(body, [
-    'kind',
-    'receiverTextureRef',
-    'terminalIntent',
-    'materializationState',
-    'origin',
-  ], 'GPUTexture.destroy authority');
+  exactLifecycleKeys(
+    body,
+    body.kind === 'texture-expire-v1'
+      ? [
+        'kind',
+        'receiverTextureRef',
+        'expiryIntent',
+        'materializationState',
+        'origin',
+      ]
+      : [
+        'kind',
+        'receiverTextureRef',
+        'terminalIntent',
+        'materializationState',
+        'origin',
+      ],
+    body.kind === 'texture-expire-v1'
+      ? 'GPUTexture host-task expiry authority'
+      : 'GPUTexture.destroy authority',
+  );
   const receiverTextureRef = submitReference(
     body.receiverTextureRef,
     'GPUTexture.destroy receiverTextureRef',
@@ -8681,17 +8699,26 @@ function validateCanvasServiceBody(
   if (
     !sameReference(receiverTextureRef, receiver) ||
     convertedArguments !== null ||
-    ![
-      'first-cleanup',
-      'first-expired-cleanup',
-      'repeat-cleanup-noop',
-    ].includes(body.terminalIntent) ||
     (body.materializationState !== 'unmaterialized' &&
       body.materializationState !== 'materialized')
   ) {
     throw new TypeError('GPUTexture.destroy authority was retargeted');
   }
+  if (
+    body.kind === 'texture-expire-v1'
+      ? body.expiryIntent !== 'host-task-expiry'
+      : ![
+        'first-cleanup',
+        'first-expired-cleanup',
+        'repeat-cleanup-noop',
+      ].includes(body.terminalIntent)
+  ) {
+    throw new TypeError('GPUTexture.destroy authority has an invalid intent');
+  }
   if (body.origin.kind === 'device-created-v1') {
+    if (body.kind === 'texture-expire-v1') {
+      throw new TypeError('Host-task expiry requires a canvas-current origin');
+    }
     exactLifecycleKeys(body.origin, ['kind'], 'GPUTexture.destroy device origin');
     if (body.terminalIntent === 'first-expired-cleanup') {
       throw new TypeError('A device-created texture cannot carry canvas expiry');
@@ -8790,11 +8817,15 @@ function writeCanvasServiceBody(
     return;
   }
   writeReference(writer, body.receiverTextureRef, objectKinds);
-  writer.u8({
-    'repeat-cleanup-noop': 0,
-    'first-cleanup': 1,
-    'first-expired-cleanup': 2,
-  }[body.terminalIntent]);
+  writer.u8(
+    body.kind === 'texture-expire-v1'
+      ? 3
+      : {
+        'repeat-cleanup-noop': 0,
+        'first-cleanup': 1,
+        'first-expired-cleanup': 2,
+      }[body.terminalIntent],
+  );
   writer.u8(body.materializationState === 'materialized' ? 1 : 0);
   writer.u8(body.origin.kind === 'device-created-v1' ? 1 : 2);
   if (body.origin.kind === 'canvas-current-v1') {
@@ -8920,7 +8951,13 @@ function readCanvasServiceBody(
       : materializationTag === 1
         ? 'materialized'
         : undefined;
-    if (!terminalIntent || !materializationState || (originTag !== 1 && originTag !== 2)) {
+    const hostTaskExpiry = terminalIntentTag === 3;
+    if (
+      (!terminalIntent && !hostTaskExpiry) ||
+      !materializationState ||
+      (originTag !== 1 && originTag !== 2) ||
+      (hostTaskExpiry && originTag !== 2)
+    ) {
       throw new TypeError('GPUTexture.destroy body tag is unknown');
     }
     const origin = originTag === 1
@@ -8938,13 +8975,21 @@ function readCanvasServiceBody(
           }),
           textureOriginDigest: readDigest(reader),
         });
-    body = Object.freeze({
-      kind: 'texture-destroy-v1',
-      receiverTextureRef,
-      terminalIntent,
-      materializationState,
-      origin,
-    });
+    body = hostTaskExpiry
+      ? Object.freeze({
+        kind: 'texture-expire-v1',
+        receiverTextureRef,
+        expiryIntent: 'host-task-expiry',
+        materializationState,
+        origin: origin as ProductionGpuCanvasCurrentTextureOriginEncoding,
+      })
+      : Object.freeze({
+        kind: 'texture-destroy-v1',
+        receiverTextureRef,
+        terminalIntent: terminalIntent!,
+        materializationState,
+        origin,
+      });
   }
   validateCanvasServiceBody(
     operationId,

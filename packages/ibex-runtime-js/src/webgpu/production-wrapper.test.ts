@@ -3850,6 +3850,125 @@ describe('production-private WebGPU wrapper factory', () => {
     binding.revoke();
   });
 
+  test('expires every current texture in canonical texture order without conflating manual destroy', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(
+      bridge,
+      codecs,
+      { enableStateInspection: true },
+    );
+    const device = await requestTestRecordingDevice(binding);
+    const firstContext = mintTestCanvasContext(binding);
+    const secondContext = mintSecondTestCanvasContext(binding);
+    firstContext.configure({ device, format: 'bgra8unorm' });
+    secondContext.configure({ device, format: 'rgba8unorm' });
+    const secondTexture = secondContext.getCurrentTexture();
+    const firstTexture = firstContext.getCurrentTexture();
+
+    // Manual destroy ends app write access but cannot retire the immutable
+    // drawing buffer before the host-task expiry control arrives.
+    secondTexture.destroy();
+    binding.checkpointHostTask();
+
+    const lifecycle = codecs.encodings.filter(
+      (encoding) => encoding.operationId === 'GPUTexture.destroy',
+    );
+    expect(lifecycle).toHaveLength(3);
+    expect(lifecycle.map((encoding) => encoding.canvasService)).toMatchObject([
+      {
+        kind: 'texture-destroy-v1',
+        terminalIntent: 'first-cleanup',
+        origin: { contextRef: { objectId: '402' } },
+      },
+      {
+        kind: 'texture-expire-v1',
+        expiryIntent: 'host-task-expiry',
+        origin: { contextRef: { objectId: '402' } },
+      },
+      {
+        kind: 'texture-expire-v1',
+        expiryIntent: 'host-task-expiry',
+        origin: { contextRef: { objectId: '401' } },
+      },
+    ]);
+    expect(inspectBinding(binding).current.pendingLocalRecordCount).toBe(0);
+
+    expect(firstContext.getCurrentTexture()).not.toBe(firstTexture);
+    expect(secondContext.getCurrentTexture()).not.toBe(secondTexture);
+    firstTexture.destroy();
+    secondTexture.destroy();
+    expect(codecs.encodings.slice(-2).map((encoding) =>
+      (encoding.canvasService as Extract<
+        ProductionGpuCanvasServiceEncoding,
+        { kind: 'texture-destroy-v1' }
+      >).terminalIntent)).toEqual([
+      'repeat-cleanup-noop',
+      'repeat-cleanup-noop',
+    ]);
+    binding.revoke();
+  });
+
+  test('commits no local texture expiry when a later checkpoint control is rejected', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestRecordingDevice(binding);
+    const firstContext = mintTestCanvasContext(binding);
+    const secondContext = mintSecondTestCanvasContext(binding);
+    firstContext.configure({ device, format: 'bgra8unorm' });
+    secondContext.configure({ device, format: 'rgba8unorm' });
+    const secondTexture = secondContext.getCurrentTexture();
+    const firstTexture = firstContext.getCurrentTexture();
+    const destroyWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUTexture.destroy',
+    )?.wireId;
+    if (destroyWireId === undefined) throw new Error('missing texture destroy route');
+
+    let expiryAttempt = 0;
+    bridge.setSubmitHook((operationId) => {
+      if (operationId !== destroyWireId) return undefined;
+      expiryAttempt += 1;
+      return expiryAttempt === 2 ? 83 : undefined;
+    });
+    expect(() => binding.checkpointHostTask()).toThrow(
+      'WebGPU semantic service rejected GPUTexture.destroy (83)',
+    );
+    expect(expiryAttempt).toBe(2);
+    expect(firstContext.getCurrentTexture()).toBe(firstTexture);
+    expect(secondContext.getCurrentTexture()).toBe(secondTexture);
+    expect(codecs.encodings.slice(-2).map((encoding) =>
+      (encoding.canvasService as Extract<
+        ProductionGpuCanvasServiceEncoding,
+        { kind: 'texture-expire-v1' }
+      >).origin.contextRef.objectId)).toEqual(['402', '401']);
+    binding.revoke();
+  });
+
+  test('does not clear a current texture when host-task expiry is rejected', async () => {
+    const bridge = createFakeBridge();
+    const codecs = createFakeCodecs();
+    const binding = createProductionWebGpuPrivateBinding(bridge, codecs);
+    const device = await requestTestRecordingDevice(binding);
+    const context = mintTestCanvasContext(binding);
+    context.configure({ device, format: 'bgra8unorm' });
+    const current = context.getCurrentTexture();
+    const destroyWireId = WEBGPU_PRODUCTION_PLAN.routes.find(
+      (route) => route.operationId === 'GPUTexture.destroy',
+    )?.wireId;
+    if (destroyWireId === undefined) throw new Error('missing texture destroy route');
+    bridge.setSubmitHook((operationId) =>
+      operationId === destroyWireId ? 79 : undefined);
+    expect(() => binding.checkpointHostTask()).toThrow(
+      'WebGPU semantic service rejected GPUTexture.destroy (79)',
+    );
+    expect(context.getCurrentTexture()).toBe(current);
+    bridge.setSubmitHook(undefined);
+    binding.checkpointHostTask();
+    expect(context.getCurrentTexture()).not.toBe(current);
+    binding.revoke();
+  });
+
   test('keeps texture destroy retryable after bridge rejection and authenticates each terminal intent', async () => {
     const bridge = createFakeBridge();
     const codecs = createFakeCodecs();

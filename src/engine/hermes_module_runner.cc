@@ -56,6 +56,10 @@ void observeModuleRunnerAbi(const char*) {}
 
 void writeError(char** out, const std::string& message) {
   if (out == nullptr) return;
+  if (*out != nullptr) {
+    std::free(*out);
+    *out = nullptr;
+  }
   *out = static_cast<char*>(std::malloc(message.size() + 1));
   if (*out == nullptr) return;
   std::memcpy(*out, message.data(), message.size());
@@ -1020,9 +1024,9 @@ extern "C" int32_t ex_hermes_module_compile_factory(
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
   if (!exactRuntimeEnterUserExecution(runtime)) {
-    writeError(
-        out_error,
-        "module factory compile refused before embedder capability finalization");
+    writeError(out_error,
+               "module factory compile refused before embedder "
+               "capability finalization");
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
   if (runtime_nonce == 0 || graph_generation == 0 || source_goal > 3 ||
@@ -1054,12 +1058,20 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
 
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error, "module factory host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+
   ScopedRuntimeSecurityContext securityContext(runtime);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
 
+  uint64_t pendingErrorToken = 0;
+  std::string pendingError;
   try {
     auto& rt = *runtime->runtime;
     facebook::jsi::Object targetCompartment(rt);
@@ -1132,35 +1144,44 @@ extern "C" int32_t ex_hermes_module_compile_factory(
     entry.factory = std::make_shared<facebook::jsi::Function>(
         factoryValue.asObject(rt).asFunction(rt));
     runtime->module_factories.emplace(id, std::move(entry));
+    if (!hostTask.finish()) {
+      runtime->module_factories.erase(id);
+      writeError(out_error, "module factory host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     out_factory->opaque[0] = runtime_nonce;
     out_factory->opaque[1] = graph_generation;
     out_factory->opaque[2] = id;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    if (out_error_token) {
-      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
-    }
+    pendingErrorToken = exactRetainStructuredModuleGraphError(runtime, error);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    writeError(out_error, "module factory compilation threw");
+    pendingError = "module factory compilation threw";
   } catch (const std::exception& error) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    writeError(out_error, error.what());
+    pendingError = error.what();
   } catch (...) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    writeError(out_error, "unknown module factory compilation failure");
+    pendingError = "unknown module factory compilation failure";
   }
+  if (!hostTask.finish()) {
+    writeError(out_error, "module factory host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  if (out_error_token) *out_error_token = pendingErrorToken;
+  writeError(out_error, pendingError);
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
@@ -1241,12 +1262,20 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
 
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error, "module carrier host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+
   ScopedRuntimeSecurityContext securityContext(runtime);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
 
+  uint64_t pendingErrorToken = 0;
+  std::string pendingError;
   try {
     auto& rt = *runtime->runtime;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -1281,6 +1310,10 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
           ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
 #endif
+          if (!hostTask.finish()) {
+            writeError(out_error, "module carrier host-task checkpoint failed");
+            return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+          }
           writeError(out_error, "Bytecode sanity check failed: " + reason);
           return 2;
         }
@@ -1294,6 +1327,10 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
           ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
 #endif
+          if (!hostTask.finish()) {
+            writeError(out_error, "module carrier host-task checkpoint failed");
+            return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+          }
           writeError(
               out_error,
               "Bytecode sanity check failed: " +
@@ -1352,35 +1389,44 @@ extern "C" int32_t ex_hermes_module_load_carrier_factory(
     stored.factory = std::make_shared<facebook::jsi::Function>(
         std::move(factory));
     runtime->module_factories.emplace(id, std::move(stored));
+    if (!hostTask.finish()) {
+      runtime->module_factories.erase(id);
+      writeError(out_error, "module carrier host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     out_factory->opaque[0] = runtime_nonce;
     out_factory->opaque[1] = graph_generation;
     out_factory->opaque[2] = id;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    if (out_error_token) {
-      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
-    }
+    pendingErrorToken = exactRetainStructuredModuleGraphError(runtime, error);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    writeError(out_error, "prepared module factory load threw");
+    pendingError = "prepared module factory load threw";
   } catch (const std::exception& error) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    writeError(out_error, error.what());
+    pendingError = error.what();
   } catch (...) {
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
     if (runtime->attribution_runtime != nullptr) {
       ex_hermes_vm_clear_pending_package_id(runtime->attribution_runtime);
     }
 #endif
-    writeError(out_error, "unknown prepared carrier load failure");
+    pendingError = "unknown prepared carrier load failure";
   }
+  if (!hostTask.finish()) {
+    writeError(out_error, "module carrier host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  if (out_error_token) *out_error_token = pendingErrorToken;
+  writeError(out_error, pendingError);
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
@@ -1586,22 +1632,35 @@ extern "C" int32_t ex_hermes_commonjs_record_evaluate(
   if (out_evicted == nullptr) return EXACT_RUNTIME_DRIVE_INVALID;
   auto* entry = commonJsRecordFor(runtime, record);
   if (entry == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error, "CommonJS host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  uint64_t pendingErrorToken = 0;
+  std::string pendingError;
   try {
     evaluateCommonJsRecord(*runtime->runtime, runtime, record.opaque[2]);
+    if (!hostTask.finish()) {
+      writeError(out_error, "CommonJS host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
-    if (out_error_token) {
-      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
-    }
-    *out_evicted = 1;
-    writeError(out_error, "CommonJS record evaluation threw");
+    pendingErrorToken = exactRetainStructuredModuleGraphError(runtime, error);
+    pendingError = "CommonJS record evaluation threw";
   } catch (const std::exception& error) {
-    *out_evicted = 1;
-    writeError(out_error, error.what());
+    pendingError = error.what();
   } catch (...) {
-    *out_evicted = 1;
-    writeError(out_error, "unknown CommonJS evaluation failure");
+    pendingError = "unknown CommonJS evaluation failure";
   }
+  if (!hostTask.finish()) {
+    writeError(out_error, "CommonJS host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  *out_evicted = 1;
+  if (out_error_token) *out_error_token = pendingErrorToken;
+  writeError(out_error, pendingError);
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
@@ -1620,6 +1679,13 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
   if (out_error_token) *out_error_token = 0;
   ExactRuntimeDriveGuard drive(runtime, runtime_nonce);
   if (!drive) return drive.status();
+  if (!exactRuntimeEnterUserExecution(runtime)) {
+    writeError(
+        out_error,
+        "CommonJS adapter creation refused before embedder capability "
+        "finalization");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   auto* commonjs = commonJsRecordFor(runtime, record);
   if (commonjs == nullptr) return EXACT_RUNTIME_DRIVE_STALE;
   if (out_adapter == nullptr ||
@@ -1633,6 +1699,15 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
       context->second.references == std::numeric_limits<uint32_t>::max()) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error, "CommonJS adapter host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  ExactModuleRunnerHandle pendingAdapter{{0, 0, 0}};
+  uint64_t pendingErrorToken = 0;
+  std::string pendingError;
+  bool created = false;
   try {
     auto& rt = *runtime->runtime;
     NativeModuleRecordEntry adapter;
@@ -1655,20 +1730,28 @@ extern "C" int32_t ex_hermes_commonjs_record_create_esm_adapter(
     if (commonjs->state == NativeCommonJsRecordState::Evaluated) {
       finalizeCommonJsAdapter(rt, runtime, *commonjs);
     }
-    out_adapter->opaque[0] = runtime_nonce;
-    out_adapter->opaque[1] = commonjs->graph_generation;
-    out_adapter->opaque[2] = id;
-    return EXACT_RUNTIME_DRIVE_OK;
+    pendingAdapter.opaque[0] = runtime_nonce;
+    pendingAdapter.opaque[1] = commonjs->graph_generation;
+    pendingAdapter.opaque[2] = id;
+    created = true;
   } catch (const facebook::jsi::JSError& error) {
-    if (out_error_token) {
-      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
-    }
-    writeError(out_error, "CommonJS adapter creation threw");
+    pendingErrorToken = exactRetainStructuredModuleGraphError(runtime, error);
+    pendingError = "CommonJS adapter creation threw";
   } catch (const std::exception& error) {
-    writeError(out_error, error.what());
+    pendingError = error.what();
   } catch (...) {
-    writeError(out_error, "unknown CommonJS adapter failure");
+    pendingError = "unknown CommonJS adapter failure";
   }
+  if (!hostTask.finish()) {
+    writeError(out_error, "CommonJS adapter host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  if (created) {
+    *out_adapter = pendingAdapter;
+    return EXACT_RUNTIME_DRIVE_OK;
+  }
+  if (out_error_token) *out_error_token = pendingErrorToken;
+  writeError(out_error, pendingError);
   return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
 }
 
@@ -2081,6 +2164,13 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
 
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error,
+               "module instantiate host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+
   try {
     auto& rt = *runtime->runtime;
     auto objectConstructor = rt.global().getPropertyAsObject(rt, "Object");
@@ -2305,6 +2395,10 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
     entry->execute_function = std::make_shared<facebook::jsi::Function>(
         executeValue.asObject(rt).asFunction(rt));
     entry->state = NativeModuleRecordState::Instantiated;
+    if (!hostTask.finish()) {
+      writeError(out_error, "module instantiate host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
     rememberRecordError(
@@ -2315,6 +2409,10 @@ extern "C" int32_t ex_hermes_module_record_instantiate(
     rememberRecordError(*entry, error.what());
   } catch (...) {
     rememberRecordError(*entry, "unknown module instantiation failure");
+  }
+  if (!hostTask.finish()) {
+    writeError(out_error, "module instantiate host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
   return reportRecordError(*entry, out_error, out_error_token);
 }
@@ -2347,9 +2445,19 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
       !entry->declare_function) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error,
+               "module declaration host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
   try {
     entry->declare_function->call(*runtime->runtime);
     entry->state = NativeModuleRecordState::Declared;
+    if (!hostTask.finish()) {
+      writeError(out_error, "module declaration host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
     rememberRecordError(
@@ -2360,6 +2468,10 @@ extern "C" int32_t ex_hermes_module_record_run_declare(
     rememberRecordError(*entry, error.what());
   } catch (...) {
     rememberRecordError(*entry, "unknown module declaration failure");
+  }
+  if (!hostTask.finish()) {
+    writeError(out_error, "module declaration host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
   return reportRecordError(*entry, out_error, out_error_token);
 }
@@ -2394,11 +2506,21 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
       !entry->execute_function || out_async == nullptr) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error, "module execution host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
   try {
-    *out_async = beginRecordExecute(
-                         *runtime->runtime, runtime, record.opaque[2], *entry)
-        ? 1
-        : 0;
+    const int32_t async =
+        beginRecordExecute(*runtime->runtime, runtime, record.opaque[2], *entry)
+            ? 1
+            : 0;
+    if (!hostTask.finish()) {
+      writeError(out_error, "module execution host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
+    *out_async = async;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (const facebook::jsi::JSError& error) {
     rememberRecordError(
@@ -2409,6 +2531,10 @@ extern "C" int32_t ex_hermes_module_record_run_execute(
     rememberRecordError(*entry, error.what());
   } catch (...) {
     rememberRecordError(*entry, "unknown module evaluation failure");
+  }
+  if (!hostTask.finish()) {
+    writeError(out_error, "module execution host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
   return reportRecordError(*entry, out_error, out_error_token);
 }
@@ -2479,6 +2605,14 @@ extern "C" int32_t ex_hermes_module_record_namespace_json(
   if (!entry->namespace_object || out_json == nullptr) {
     return EXACT_RUNTIME_DRIVE_INVALID;
   }
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeError(out_error, "module namespace host-task boundary is unavailable");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  uint64_t pendingErrorToken = 0;
+  std::string pendingError;
+  std::string text;
   try {
     auto& rt = *runtime->runtime;
     auto json = rt.global().getPropertyAsObject(rt, "JSON");
@@ -2487,23 +2621,30 @@ extern "C" int32_t ex_hermes_module_record_namespace_json(
     if (!value.isString()) {
       throw facebook::jsi::JSError(rt, "module namespace is not serializable");
     }
-    const std::string text = value.asString(rt).utf8(rt);
-    *out_json = static_cast<char*>(std::malloc(text.size() + 1));
-    if (*out_json == nullptr) {
-      throw std::bad_alloc();
-    }
-    std::memcpy(*out_json, text.data(), text.size());
-    (*out_json)[text.size()] = '\0';
-    return EXACT_RUNTIME_DRIVE_OK;
+    text = value.asString(rt).utf8(rt);
   } catch (const facebook::jsi::JSError& error) {
-    if (out_error_token) {
-      *out_error_token = exactRetainStructuredModuleGraphError(runtime, error);
-    }
-    writeError(out_error, "module namespace serialization threw");
+    pendingErrorToken = exactRetainStructuredModuleGraphError(runtime, error);
+    pendingError = "module namespace serialization threw";
   } catch (const std::exception& error) {
-    writeError(out_error, error.what());
+    pendingError = error.what();
   } catch (...) {
-    writeError(out_error, "unknown module namespace serialization failure");
+    pendingError = "unknown module namespace serialization failure";
   }
-  return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  if (!hostTask.finish()) {
+    writeError(out_error, "module namespace host-task checkpoint failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  if (!pendingError.empty()) {
+    if (out_error_token) *out_error_token = pendingErrorToken;
+    writeError(out_error, pendingError);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  *out_json = static_cast<char*>(std::malloc(text.size() + 1));
+  if (*out_json == nullptr) {
+    writeError(out_error, "module namespace result allocation failed");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+  std::memcpy(*out_json, text.data(), text.size());
+  (*out_json)[text.size()] = '\0';
+  return EXACT_RUNTIME_DRIVE_OK;
 }

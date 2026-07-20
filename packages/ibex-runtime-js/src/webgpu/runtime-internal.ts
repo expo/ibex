@@ -44,6 +44,7 @@ const reflectOwnKeys = Reflect.ownKeys.bind(Reflect);
 
 type CanvasAppBundlePhase = 'closed' | 'open' | 'consumed';
 type CanvasAppBundleExpectation = 1 | 2;
+type CanvasAppBundleBeginPhase = 0 | CanvasAppBundleExpectation;
 
 let exactCanvasIntegration:
   | Readonly<ExactGpuCanvasRuntimeIntegration>
@@ -54,6 +55,7 @@ let activeCanvasContextMinter:
 let releaseCanvasContextMinter: (() => void) | undefined;
 let canvasReceiptDeliveryActive = false;
 let canvasReceiptDeliveryCommitted = false;
+let canvasAppBundlePrepared = false;
 let canvasAppBundlePhase: CanvasAppBundlePhase = 'closed';
 let canvasAppBundleCaptureAccepted = false;
 let canvasAppBundleCapture:
@@ -156,18 +158,39 @@ function isExactGpuCanvasRuntimeIntegration(
 }
 
 /**
- * Arm one host-delimited app-bundle transaction. Native retains this closure
- * from the frozen construction result and calls it only immediately before
- * evaluating an Exact app bundle. The previous bundle's integration is
- * revoked before the temporary root is exposed.
+ * Prepare and then arm one host-delimited app-bundle transaction. Native
+ * first calls phase 0 inside a complete host task, so prior app-owned cleanup
+ * drains while the capture root is absent. It calls phase 1 or 2 only after
+ * that checkpoint to publish the next transaction.
  */
 function beginExactGpuCanvasAppBundle(
   globalObject: typeof globalThis,
-  expectation: CanvasAppBundleExpectation,
+  expectation: CanvasAppBundleBeginPhase,
 ): ((candidate: unknown) => void) | undefined {
+  if (expectation === 0) {
+    if (
+      !canvasReceiptDeliveryActive ||
+      canvasAppBundlePrepared ||
+      canvasAppBundlePhase !== 'closed' ||
+      hasOwnProperty(globalObject, CANVAS_INTEGRATION_CAPTURE_NAME)
+    ) {
+      throw new TypeError(
+        'Exact GPU Canvas app-bundle preparation is unavailable',
+      );
+    }
+    // Native checkpoints this private phase before it asks us to publish the
+    // next capture root. An app-owned G(n-1) release may therefore enqueue
+    // work, but that work runs to completion while the reserved root is still
+    // absent and cannot steal G(n)'s one-shot handoff.
+    revokeExactCanvasRuntimeIntegration();
+    canvasReceiptDeliveryCommitted = false;
+    canvasAppBundlePrepared = true;
+    return undefined;
+  }
   if (
     (expectation !== 1 && expectation !== 2) ||
     !canvasReceiptDeliveryActive ||
+    !canvasAppBundlePrepared ||
     canvasAppBundlePhase !== 'closed'
   ) {
     throw new TypeError('Exact GPU Canvas app-bundle transaction is unavailable');
@@ -180,10 +203,7 @@ function beginExactGpuCanvasAppBundle(
     );
   }
 
-  // G(n-1) cannot receive a receipt while G(n) is evaluating, even if the
-  // new bundle never imports the trusted Exact GPU prelude.
-  revokeExactCanvasRuntimeIntegration();
-  canvasReceiptDeliveryCommitted = false;
+  canvasAppBundlePrepared = false;
   canvasAppBundleGlobal = globalObject;
   canvasAppBundleCapture = undefined;
   canvasAppBundleCaptureAccepted = false;
@@ -309,6 +329,7 @@ function finishExactGpuCanvasAppBundle(
   }
 
   canvasAppBundleGlobal = undefined;
+  canvasAppBundlePrepared = false;
   canvasAppBundleCapture = undefined;
   canvasAppBundleCaptureAccepted = false;
   canvasAppBundleExpectation = undefined;
@@ -364,6 +385,9 @@ export function installNativeGpuBridgeCapture(
     return objectFreeze({
       revoke() {
         try {
+          // Terminal reduction closes public globals and every retained
+          // wrapper before invoking an app-owned Canvas minter revoker.
+          installation.revoke();
           if (canvasAppBundlePhase !== 'closed') {
             finishExactGpuCanvasAppBundle(false);
           }
@@ -371,6 +395,7 @@ export function installNativeGpuBridgeCapture(
           activeCanvasContextMinter = undefined;
           canvasReceiptDeliveryActive = false;
           canvasReceiptDeliveryCommitted = false;
+          canvasAppBundlePrepared = false;
           try {
             revokeExactCanvasRuntimeIntegration();
           } finally {
@@ -379,7 +404,8 @@ export function installNativeGpuBridgeCapture(
         }
       },
       canvasReceiptSink,
-      beginCanvasAppBundle(expectation: CanvasAppBundleExpectation) {
+      checkpointHostTask: installation.checkpointHostTask,
+      beginCanvasAppBundle(expectation: CanvasAppBundleBeginPhase) {
         return beginExactGpuCanvasAppBundle(globalObject, expectation);
       },
       finishCanvasAppBundle: finishExactGpuCanvasAppBundle,

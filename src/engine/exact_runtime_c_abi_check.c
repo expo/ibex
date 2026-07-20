@@ -116,6 +116,8 @@ IBEX_C_ABI_ASSERT(canvas_bundle_cleanup_failed_value,
 IBEX_C_ABI_ASSERT(canvas_bundle_required_not_consumed_value,
                   EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1 ==
                       -10);
+IBEX_C_ABI_ASSERT(canvas_bundle_cleanup_pending_value,
+                  EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_PENDING_V1 == -11);
 IBEX_C_ABI_ASSERT(canvas_bundle_consume_required_value,
                   EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 == 1u);
 IBEX_C_ABI_ASSERT(canvas_bundle_unused_valid_value,

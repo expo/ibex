@@ -5,7 +5,7 @@
   "carrierProjectionScope": "operation-specific-native-program-fields-plus-global-v2-carrier-examples-not-a-complete-abi-record",
   "source": {
     "manifestPath": "tests/fixtures/webgpu-production-codec-manifest-v1.generated.json",
-    "manifestSha256": "037542f6b3e9f7498c5b6bf387412308d3677a518236a777f35f06b7f6610082"
+    "manifestSha256": "3883af9f3a3a09f53bf71d49ca183c88f9df78a8c8a25de18d6f56ca4e4da2c9"
   },
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
@@ -27536,6 +27536,95 @@
       }
     },
     {
+      "id": "texture-expire-host-task-current-request",
+      "operationId": "GPUTexture.destroy",
+      "kind": "request",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "trust": "source-affine-wrapper-generation-origin-and-surface-account-comparison-input-only-never-authority",
+      "semanticOwner": "native-canvas-lifecycle-semantic-service-before-provider-admission",
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "operationId": "GPUTexture.destroy",
+        "codec": "gpu-texture-cleanup-service-request-v1",
+        "receiver": {
+          "kind": "GPUTexture",
+          "objectId": "142",
+          "objectGeneration": "1",
+          "logicalDeviceId": "55",
+          "logicalDeviceGeneration": "1",
+          "providerGeneration": "9"
+        },
+        "target": null,
+        "capturedScopeId": "2",
+        "adapterOrdinal": "0",
+        "deviceIngressOrdinal": "30",
+        "queueIngressOrdinal": "0",
+        "sealedLocalTimeline": [],
+        "convertedArguments": null,
+        "canvasService": {
+          "kind": "texture-expire-v1",
+          "receiverTextureRef": {
+            "kind": "GPUTexture",
+            "objectId": "142",
+            "objectGeneration": "1",
+            "logicalDeviceId": "55",
+            "logicalDeviceGeneration": "1",
+            "providerGeneration": "9"
+          },
+          "expiryIntent": "host-task-expiry",
+          "materializationState": "materialized",
+          "origin": {
+            "kind": "canvas-current-v1",
+            "contextRef": {
+              "kind": "GPUCanvasContext",
+              "objectId": "141",
+              "objectGeneration": "2",
+              "logicalDeviceId": "55",
+              "logicalDeviceGeneration": "1",
+              "providerGeneration": "9"
+            },
+            "attachmentGeneration": "3",
+            "contextGeneration": "5",
+            "configurationGeneration": "8",
+            "currentEpoch": "13",
+            "mintOperationProvenance": {
+              "operationInstanceId": "61",
+              "deviceIngressOrdinal": "29"
+            },
+            "textureOriginDigest": "81c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c"
+          }
+        }
+      }
+    },
+    {
       "id": "texture-destroy-repeat-cleanup-noop-request",
       "operationId": "GPUTexture.destroy",
       "kind": "request",
@@ -30217,6 +30306,870 @@
       }
     },
     {
+      "id": "texture-expire-host-task-current-request-carrier-operation-id-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046789,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "operation_id",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-operation-instance-id-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "0",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "operation_instance_id",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-captured-scope-id-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "3",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "captured_scope_id",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-device-ingress-ordinal-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "31",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "device_ingress_ordinal",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-ingress-logical-device-id-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "56",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "ingress_device.logical_device_id",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-ingress-logical-device-generation-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "2",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "ingress_device.logical_device_generation",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-ingress-provider-generation-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "10"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "ingress_device.provider_generation",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-operation-provider-generation-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "10",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "provider_generation",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-receiver-kind-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 3,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "receiver.kind",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-receiver-object-id-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "999",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "receiver.object_id",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-receiver-object-generation-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "3"
+        },
+        "target": {
+          "kind": 0,
+          "flags": 0,
+          "object_id": "0",
+          "object_generation": "0"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "receiver.object_generation",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
+      "id": "texture-expire-host-task-current-request-carrier-non-null-target-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "carrier-rejection",
+      "carrierProjection": {
+        "operation_id": 2933046788,
+        "flags": 0,
+        "topology_id": 1,
+        "ingress_device": {
+          "logical_device_id": "55",
+          "logical_device_generation": "1",
+          "provider_generation": "9"
+        },
+        "provider_generation": "9",
+        "operation_instance_id": "62",
+        "promise_id": "0",
+        "captured_scope_id": "2",
+        "adapter_ordinal": "0",
+        "device_ingress_ordinal": "30",
+        "queue_ingress_ordinal": "0",
+        "receiver": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        },
+        "target": {
+          "kind": 6,
+          "flags": 0,
+          "object_id": "142",
+          "object_generation": "1"
+        }
+      },
+      "authenticatedCarrierMutation": {
+        "field": "target",
+        "originalCarrierProjection": {
+          "operation_id": 2933046788,
+          "flags": 0,
+          "topology_id": 1,
+          "ingress_device": {
+            "logical_device_id": "55",
+            "logical_device_generation": "1",
+            "provider_generation": "9"
+          },
+          "provider_generation": "9",
+          "operation_instance_id": "62",
+          "promise_id": "0",
+          "captured_scope_id": "2",
+          "adapter_ordinal": "0",
+          "device_ingress_ordinal": "30",
+          "queue_ingress_ordinal": "0",
+          "receiver": {
+            "kind": 6,
+            "flags": 0,
+            "object_id": "142",
+            "object_generation": "1"
+          },
+          "target": {
+            "kind": 0,
+            "flags": 0,
+            "object_id": "0",
+            "object_generation": "0"
+          }
+        }
+      },
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000030102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
+      "expected": {
+        "rejection": "authenticated-carrier-mismatch-before-payload-decode-or-provider-admission",
+        "providerTokenCount": 0,
+        "physicalSequenceCount": 0
+      }
+    },
+    {
       "id": "gpucanvascontext-configure-operation-success-result",
       "operationId": "GPUCanvasContext.configure",
       "kind": "result",
@@ -30553,6 +31506,17 @@
       "direction": "request",
       "mutation": "append-trailing-byte",
       "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000020102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3ca5",
+      "expected": {
+        "rejection": "fail-closed-before-provider-or-wrapper-exposure"
+      }
+    },
+    {
+      "id": "texture-expire-unknown-control-tag-rejected",
+      "operationId": "GPUTexture.destroy",
+      "kind": "binary-rejection",
+      "direction": "request",
+      "mutation": "control-tag-255",
+      "bytesHex": "4942475101000d0004bed2ae068e00000000000000010000000000000037000000000000000100000000000000090000000000000000020000000000000000000000000000001e0000000000000000000000000000000600000000068e000000000000000100000000000000370000000000000001000000000000000900000000000000ff0102168d0000000000000002000000000000003700000000000000010000000000000009000000000000000300000000000000050000000000000008000000000000000d000000000000003d000000000000001d0000000000000081c1ddc1883cfd2d0a974d69fefbebc4cbc043e4e55594bbb3790fa4d617da3c",
       "expected": {
         "rejection": "fail-closed-before-provider-or-wrapper-exposure"
       }

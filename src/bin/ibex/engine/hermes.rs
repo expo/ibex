@@ -1140,6 +1140,8 @@ extern "C" {
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_reset_observer();
     #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
+    fn ibex_test_gpu_v2_host_task_checkpoint_calls() -> u64;
+    #[cfg(all(test, feature = "webgpu-binding", feature = "gpu-bridge-test-hooks"))]
     fn ibex_test_gpu_v2_immediate_eval_markers(runtime: *mut HermesRuntimeOpaque) -> u32;
     #[cfg(all(
         test,
@@ -10891,9 +10893,16 @@ module.exports = JSON.stringify({
                     ex_hermes_finish_gpu_canvas_app_bundle_v1(raw, 1),
                     EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
                 );
+                let checkpoints_before_run_app =
+                    ibex_test_gpu_v2_host_task_checkpoint_calls();
                 assert_eq!(
                     ex_hermes_run_prepared_app_v1(raw, &mut out),
                     EXACT_PREPARED_NATIVE_STARTUP_OK_V1
+                );
+                assert_eq!(
+                    ibex_test_gpu_v2_host_task_checkpoint_calls(),
+                    checkpoints_before_run_app + 1,
+                    "prepared runApp must close exactly one outer host task"
                 );
                 assert!(out.is_null());
                 assert_eq!(ex_hermes_finish_app_bundle_evaluation_v1(raw, 1), 0);

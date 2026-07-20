@@ -2261,10 +2261,15 @@ void handlePendingPromiseRejection(
   }
 }
 
+bool hasPendingPromiseRejectionCheckpointWork(
+    const ExactHermesRuntime* runtime) {
+  return structuredWorkPublicationEnabled(runtime) &&
+         (!runtime->structured_pending_promise_rejections.empty() ||
+          runtime->structured_pending_promise_rejection_dropped != 0);
+}
+
 void flushPendingPromiseRejections(ExactHermesRuntime* runtime) {
-  if (!structuredWorkPublicationEnabled(runtime) ||
-      (runtime->structured_pending_promise_rejections.empty() &&
-       runtime->structured_pending_promise_rejection_dropped == 0)) {
+  if (!hasPendingPromiseRejectionCheckpointWork(runtime)) {
     return;
   }
   const uint64_t pendingDropped =
@@ -2361,11 +2366,11 @@ bool configurePromiseRejectionCheckpointTracker(ExactHermesRuntime* runtime) {
 #endif
 }
 
-void drainMicrotasks(facebook::jsi::Runtime& rt) {
+bool drainMicrotasks(facebook::jsi::Runtime& rt) {
 #if defined(_WIN32)
-  rt.drainMicrotasks(1024);
+  return rt.drainMicrotasks(1024);
 #else
-  rt.drainMicrotasks(-1);
+  return rt.drainMicrotasks(-1);
 #endif
 }
 
@@ -2475,14 +2480,21 @@ bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
 // extern "C" boundary and std::terminate the host (ENG-23731 leg 1).
 // Hermes leaves the remaining jobs queued when one throws, so on a consumed
 // error we resume draining rather than strand the rest of the queue.
-void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
+enum class GuardedMicrotaskDrainResult {
+  Drained,
+  BoundedIncomplete,
+  Failed,
+};
+
+GuardedMicrotaskDrainResult drainMicrotasksGuarded(
+    ExactHermesRuntime* runtime) {
   for (;;) {
-    if (runtime->structured_lifecycle_pending) return;
-    ScopedNativeWorkUnit workUnit(
-        runtime, EX_HERMES_WORK_UNIT_MICROTASK_DRAIN);
-    const bool rawCapture =
-        structuredWorkPublicationEnabled(runtime) &&
-        ScopedRawThrowCapture::available();
+    if (runtime->structured_lifecycle_pending) {
+      return GuardedMicrotaskDrainResult::Drained;
+    }
+    ScopedNativeWorkUnit workUnit(runtime, EX_HERMES_WORK_UNIT_MICROTASK_DRAIN);
+    const bool rawCapture = structuredWorkPublicationEnabled(runtime) &&
+                            ScopedRawThrowCapture::available();
     ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get(), rawCapture);
     ScopedAsyncFailureContext failureContext(
         runtime,
@@ -2493,9 +2505,10 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
             workUnit.targetId(),
             exactCurrentAsyncEvaluationAssociation(runtime)});
     try {
-      drainMicrotasks(*runtime->runtime);
+      const bool fullyDrained = drainMicrotasks(*runtime->runtime);
       workUnit.finish();
-      return;
+      return fullyDrained ? GuardedMicrotaskDrainResult::Drained
+                          : GuardedMicrotaskDrainResult::BoundedIncomplete;
     } catch (const facebook::jsi::JSError& err) {
       std::optional<ScopedAsyncFailureContext> failedJobContext;
 #if defined(HERMES_HAS_PROMISE_REJECTION_CHECKPOINT_HOOK) && \
@@ -2518,28 +2531,33 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
                 associatedEvaluation));
       }
 #endif
-      if ((rawCapture
-               ? workUnit.finishRawCapturedJsThrow()
-               : workUnit.finish(err))) return;
-      if (runtime->structured_lifecycle_pending) return;
+      if ((rawCapture ? workUnit.finishRawCapturedJsThrow()
+                      : workUnit.finish(err))) {
+        return GuardedMicrotaskDrainResult::Drained;
+      }
+      if (runtime->structured_lifecycle_pending) {
+        return GuardedMicrotaskDrainResult::Drained;
+      }
       if (!disposeAsyncCallbackError(runtime, err)) {
-        return;
+        return GuardedMicrotaskDrainResult::Drained;
       }
     } catch (const std::exception& err) {
-      if (workUnit.finish()) return;
-      if (runtime->structured_lifecycle_pending) return;
+      if (workUnit.finish()) return GuardedMicrotaskDrainResult::Drained;
+      if (runtime->structured_lifecycle_pending) {
+        return GuardedMicrotaskDrainResult::Drained;
+      }
       // Non-JS failure: no per-job progress guarantee (unlike the JSError
       // arm, which consumes the throwing job), so never loop — leave any
       // remaining jobs for the next poll.
       if (structuredWorkPublicationEnabled(runtime)) {
         recordStructuredAsyncFailureDrop(runtime);
-        return;
+        return GuardedMicrotaskDrainResult::Failed;
       }
       ex_host_console_log(1, err.what());
       if (!runtime->keep_alive_on_async_error) {
         runtime->fatal_async_error = true;
       }
-      return;
+      return GuardedMicrotaskDrainResult::Failed;
     }
   }
 }
@@ -6191,7 +6209,153 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
   }
 }
 
-} // namespace
+GuardedMicrotaskDrainResult drainGpuHostTaskJobsToCheckpoint(
+    ExactHermesRuntime* runtime) {
+  for (;;) {
+    runNextTickQueue(runtime);
+    if (runtime->structured_session_terminated ||
+        runtime->structured_lifecycle_pending) {
+      return GuardedMicrotaskDrainResult::Drained;
+    }
+    const auto drainResult = drainMicrotasksGuarded(runtime);
+    if (drainResult != GuardedMicrotaskDrainResult::Drained) {
+      return drainResult;
+    }
+    if (runtime->structured_session_terminated ||
+        runtime->structured_lifecycle_pending || runtime->next_tick.empty()) {
+      return GuardedMicrotaskDrainResult::Drained;
+    }
+    // A Promise job may enqueue process.nextTick work, and that callback may
+    // enqueue more Promise jobs. Stay in the same host task until both queues
+    // reach a fixed point; only a bounded Windows microtask slice may yield.
+  }
+}
+
+}  // namespace
+
+bool exactResumeGpuHostTaskContinuation(ExactHermesRuntime* runtime) noexcept {
+  if (!runtime || !runtime->runtime ||
+      runtime->gpu_host_task_checkpoint_failed) {
+    return false;
+  }
+  if (!runtime->gpu_host_task_microtask_continuation) return true;
+  if (runtime->gpu_host_task_depth != 0 ||
+      runtime->active_gpu_host_task_id == 0) {
+    runtime->gpu_host_task_checkpoint_failed = true;
+    return false;
+  }
+
+  try {
+    // Keep the logical outer task active while callbacks from the retained
+    // drain run. Any synchronous re-entry joins at depth 2 and cannot allocate
+    // a successor identity or checkpoint independently.
+    runtime->gpu_host_task_depth = 1;
+    const auto drainResult =
+        runtime->runtime_quarantined.load(std::memory_order_acquire)
+            ? GuardedMicrotaskDrainResult::Drained
+            : drainGpuHostTaskJobsToCheckpoint(runtime);
+    if (drainResult == GuardedMicrotaskDrainResult::BoundedIncomplete) {
+      runtime->gpu_host_task_depth = 0;
+      return false;
+    }
+    if (drainResult == GuardedMicrotaskDrainResult::Failed) {
+      runtime->gpu_host_task_depth = 0;
+      runtime->gpu_host_task_microtask_continuation = false;
+      runtime->gpu_host_task_checkpoint_failed = true;
+      (void)exactRuntimeQuarantine(runtime);
+      return false;
+    }
+    runtime->gpu_host_task_depth = 0;
+    runtime->gpu_host_task_microtask_continuation = false;
+    runtime->active_gpu_host_task_id = 0;
+    if (!exactGpuCheckpointHostTask(runtime)) {
+      runtime->gpu_host_task_checkpoint_failed = true;
+      return false;
+    }
+    return true;
+  } catch (...) {
+    runtime->gpu_host_task_depth = 0;
+    runtime->gpu_host_task_checkpoint_failed = true;
+    return false;
+  }
+}
+
+ScopedGpuHostTask::ScopedGpuHostTask(ExactHermesRuntime* runtime) noexcept
+    : runtime_(runtime) {
+  if (!runtime_ || !runtime_->runtime ||
+      runtime_->runtime_thread != std::this_thread::get_id() ||
+      runtime_->gpu_host_task_checkpoint_failed) {
+    return;
+  }
+  if (runtime_->gpu_host_task_depth == 0 &&
+      !exactResumeGpuHostTaskContinuation(runtime_)) {
+    return;
+  }
+  if (runtime_->gpu_host_task_depth == 0) {
+    uint64_t taskId = runtime_->next_gpu_host_task_id++;
+    if (taskId == 0) {
+      taskId = runtime_->next_gpu_host_task_id++;
+    }
+    if (taskId == 0) {
+      runtime_->gpu_host_task_checkpoint_failed = true;
+      return;
+    }
+    runtime_->active_gpu_host_task_id = taskId;
+  }
+  runtime_->gpu_host_task_depth += 1;
+  active_ = true;
+}
+
+ScopedGpuHostTask::~ScopedGpuHostTask() { (void)finish(); }
+
+bool ScopedGpuHostTask::finish() noexcept {
+  if (!active_) {
+    return runtime_ && !runtime_->gpu_host_task_checkpoint_failed &&
+           !runtime_->gpu_host_task_microtask_continuation;
+  }
+  active_ = false;
+  if (!runtime_ || runtime_->gpu_host_task_depth == 0) {
+    if (runtime_) runtime_->gpu_host_task_checkpoint_failed = true;
+    return false;
+  }
+  if (runtime_->gpu_host_task_depth > 1) {
+    runtime_->gpu_host_task_depth -= 1;
+    return true;
+  }
+
+  try {
+    // Depth 1 is a finalizing sentinel until all jobs reach a fixed point.
+    // Re-entrant owner-thread work therefore joins this exact task.
+    const auto drainResult =
+        runtime_->runtime_quarantined.load(std::memory_order_acquire)
+            ? GuardedMicrotaskDrainResult::Drained
+            : drainGpuHostTaskJobsToCheckpoint(runtime_);
+    if (drainResult == GuardedMicrotaskDrainResult::BoundedIncomplete) {
+      runtime_->gpu_host_task_depth = 0;
+      runtime_->gpu_host_task_microtask_continuation = true;
+      return true;
+    }
+    if (drainResult == GuardedMicrotaskDrainResult::Failed) {
+      runtime_->gpu_host_task_depth = 0;
+      runtime_->gpu_host_task_microtask_continuation = false;
+      runtime_->gpu_host_task_checkpoint_failed = true;
+      (void)exactRuntimeQuarantine(runtime_);
+      return false;
+    }
+    runtime_->gpu_host_task_depth = 0;
+    runtime_->gpu_host_task_microtask_continuation = false;
+    runtime_->active_gpu_host_task_id = 0;
+    if (!exactGpuCheckpointHostTask(runtime_)) {
+      runtime_->gpu_host_task_checkpoint_failed = true;
+      return false;
+    }
+    return true;
+  } catch (...) {
+    runtime_->gpu_host_task_depth = 0;
+    runtime_->gpu_host_task_checkpoint_failed = true;
+    return false;
+  }
+}
 
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 void emitNewScripts(ExactHermesRuntime* runtime,
@@ -7156,6 +7320,14 @@ extern "C" int32_t ex_hermes_stage_prepared_native_startup_v1(
     return EXACT_PREPARED_NATIVE_STARTUP_CLEANUP_FAILED_V1;
   }
 
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared startup consume could not enter a host task");
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+
   try {
     auto& rt = *runtime->runtime;
     if (disposition ==
@@ -7176,6 +7348,12 @@ extern "C" int32_t ex_hermes_stage_prepared_native_startup_v1(
       return absence;
     }
     runtime->app_bundle_prepared_staged = true;
+    if (!hostTask.finish()) {
+      (void)exactRuntimeQuarantine(runtime);
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared startup consume host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+    }
     return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
   } catch (const facebook::jsi::JSError& err) {
     (void)exactRuntimeQuarantine(runtime);
@@ -7236,9 +7414,22 @@ extern "C" int32_t ex_hermes_run_prepared_app_v1(
     return absence;
   }
   auto runApp = std::move(runtime->app_bundle_prepared_run_app);
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    (void)exactRuntimeQuarantine(runtime);
+    writePreparedNativeStartupErrorV1(
+        out_error, "Prepared runApp could not enter a host task");
+    return EXACT_RUNTIME_DRIVE_INVALID;
+  }
   try {
     (void)runApp->call(*runtime->runtime);
     runtime->app_bundle_prepared_invoked = true;
+    if (!hostTask.finish()) {
+      (void)exactRuntimeQuarantine(runtime);
+      writePreparedNativeStartupErrorV1(
+          out_error, "Prepared runApp GPU host-task checkpoint failed");
+      return EXACT_RUNTIME_DRIVE_INVALID;
+    }
     return EXACT_PREPARED_NATIVE_STARTUP_OK_V1;
   } catch (const facebook::jsi::JSError& err) {
     (void)exactRuntimeQuarantine(runtime);
@@ -9081,112 +9272,118 @@ int evaluateStructuredSource(
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
-  ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
 
-  try {
-    const std::string label(
-        reinterpret_cast<const char*>(source_label), source_label_length);
-    const char* source_chars = source_length == 0
-        ? ""
-        : reinterpret_cast<const char*>(source);
-    runtime->sources_by_name[label] = std::string(source_chars, source_length);
-
-    static const uint8_t empty = 0;
-    const uint8_t* source_data = source_length == 0 ? &empty : source;
-    auto source_buffer =
-        std::make_shared<MemoryBuffer>(source_data, source_length);
-    auto value = runtime->runtime->evaluateJavaScript(source_buffer, label);
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    bool completion_was_empty = false;
-#ifdef HERMES_HAS_COMPLETION_RECORD
-    if (distinguish_empty) {
-      // Read this immediately: later event-loop work must not become the
-      // completion discriminator for the submitted Script.
-      completion_was_empty =
-          runtime->runtime->lastEvaluationResultWasEmpty();
-    }
-#else
-    (void)distinguish_empty;
-#endif
-    runNextTickQueue(runtime);
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    // The Script completion has already settled. A user-scheduled job drained
-    // at this checkpoint is background work, so publish its throw through the
-    // asynchronous-failure channel instead of turning it into this input's
-    // Throw outcome. @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
-    if (structuredWorkPublicationEnabled(runtime)) {
-      drainMicrotasksGuarded(runtime);
-    } else {
-      // The diagnostic-only seam has no authenticated event channel and keeps
-      // its historical foreground outcome behavior.
-      drainMicrotasks(*runtime->runtime);
-    }
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
-    if (runtime->debugger_attached.load()) {
-      emitNewScripts(runtime, runtime->runtime->getDebugger());
-    }
-#endif
-    if (completion_was_empty) {
-      result->outcome_tag = EX_HERMES_EVAL_OUTCOME_EMPTY;
-      result->fault = EX_HERMES_EVAL_FAULT_NONE;
-      result->capability_flags = capability_flags;
-      return 0;
-    }
-    if (!mintStructuredValueHandle(runtime, value, &result->value)) {
-      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-      return 0;
-    }
-    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
-    result->fault = EX_HERMES_EVAL_FAULT_NONE;
-    result->capability_flags = capability_flags;
-    return 0;
-  } catch (const facebook::jsi::JSError& error) {
-    if (evaluation != nullptr) {
-      evaluation->observeHermesTimeout(error);
-    }
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    try {
-      if (!mintStructuredValueHandle(runtime, error.value(), &result->value)) {
-        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-        return 0;
-      }
-    } catch (const std::bad_alloc&) {
-      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-      return 0;
-    }
-    result->outcome_tag = EX_HERMES_EVAL_OUTCOME_THROW;
-    result->fault = EX_HERMES_EVAL_FAULT_NONE;
-    result->capability_flags = capability_flags;
-    populateStructuredSafeThrowMetadata(runtime, error.value(), result);
-    return 0;
-  } catch (const std::bad_alloc&) {
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-    return 0;
-  } catch (const std::exception&) {
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
-    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-    return 0;
-  } catch (...) {
-    if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
-      return 0;
-    }
+  ScopedGpuHostTask evalTask(runtime);
+  if (!evalTask) {
     structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
     return 0;
   }
+  ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
+
+  auto evaluateBody = [&]() -> int {
+    try {
+      const std::string label(reinterpret_cast<const char*>(source_label),
+                              source_label_length);
+      const char* source_chars =
+          source_length == 0 ? "" : reinterpret_cast<const char*>(source);
+      runtime->sources_by_name[label] =
+          std::string(source_chars, source_length);
+
+      static const uint8_t empty = 0;
+      const uint8_t* source_data = source_length == 0 ? &empty : source;
+      auto source_buffer =
+          std::make_shared<MemoryBuffer>(source_data, source_length);
+      auto value = runtime->runtime->evaluateJavaScript(source_buffer, label);
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      bool completion_was_empty = false;
+#ifdef HERMES_HAS_COMPLETION_RECORD
+      if (distinguish_empty) {
+        // Read this immediately: later event-loop work must not become the
+        // completion discriminator for the submitted Script.
+        completion_was_empty = runtime->runtime->lastEvaluationResultWasEmpty();
+      }
+#else
+      (void)distinguish_empty;
+#endif
+      // The Script completion has already settled. The enclosing host-task
+      // finalizer drains nextTick and Promise jobs as background work before
+      // the staged result becomes observable to the embedder.
+      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+#if EXACT_HAS_HERMES_ASYNC_DEBUGGER
+      if (runtime->debugger_attached.load()) {
+        emitNewScripts(runtime, runtime->runtime->getDebugger());
+      }
+#endif
+      if (completion_was_empty) {
+        result->outcome_tag = EX_HERMES_EVAL_OUTCOME_EMPTY;
+        result->fault = EX_HERMES_EVAL_FAULT_NONE;
+        result->capability_flags = capability_flags;
+        return 0;
+      }
+      if (!mintStructuredValueHandle(runtime, value, &result->value)) {
+        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+        return 0;
+      }
+      result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
+      result->fault = EX_HERMES_EVAL_FAULT_NONE;
+      result->capability_flags = capability_flags;
+      return 0;
+    } catch (const facebook::jsi::JSError& error) {
+      if (evaluation != nullptr) {
+        evaluation->observeHermesTimeout(error);
+      }
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      try {
+        if (!mintStructuredValueHandle(runtime, error.value(),
+                                       &result->value)) {
+          structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+          return 0;
+        }
+      } catch (const std::bad_alloc&) {
+        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+        return 0;
+      }
+      result->outcome_tag = EX_HERMES_EVAL_OUTCOME_THROW;
+      result->fault = EX_HERMES_EVAL_FAULT_NONE;
+      result->capability_flags = capability_flags;
+      populateStructuredSafeThrowMetadata(runtime, error.value(), result);
+      return 0;
+    } catch (const std::bad_alloc&) {
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+      return 0;
+    } catch (const std::exception&) {
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    } catch (...) {
+      if (structuredLifecycleOutcome(runtime, result, capability_flags)) {
+        return 0;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    }
+  };
+
+  const int status = evaluateBody();
+  if (!evalTask.finish()) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
+  if (runtime->structured_lifecycle_pending) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    (void)structuredLifecycleOutcome(runtime, result, capability_flags);
+  }
+  return status;
 }
 
 struct StructuredOwnDescriptor {
@@ -12358,28 +12555,116 @@ extern "C" int ex_hermes_eval_lowered_session(
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
+  ScopedGpuHostTask loweredEvalTask(runtime);
+  if (!loweredEvalTask) {
+    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+    return 0;
+  }
   ScopedRawThrowCapture rawThrowCapture(runtime->runtime.get());
   std::unique_ptr<ScopedStructuredEvaluation> evaluation;
-  try {
-    if (!declarationCollision.empty()) {
-      const auto collision = exactCreateSyntaxError(
-          *runtime->runtime, declarationCollision);
-      structuredThrowValue(
-          runtime,
-          collision.value(),
-          kStructuredEvaluatorCapabilities,
-          result);
-      return 0;
-    }
-    const std::string label(
-        reinterpret_cast<const char*>(source_label), source_label_length);
-    if (commonJsEntry) {
-      const char* sourceChars = lowered_source_length == 0
-          ? ""
-          : reinterpret_cast<const char*>(lowered_source);
-      const std::string source(sourceChars, lowered_source_length);
-      runtime->sources_by_name[label] = source;
-      runtime->source_maps_by_name[label].clear();
+  auto evaluateBody = [&]() -> int {
+    try {
+      if (!declarationCollision.empty()) {
+        const auto collision =
+            exactCreateSyntaxError(*runtime->runtime, declarationCollision);
+        structuredThrowValue(runtime, collision.value(),
+                             kStructuredEvaluatorCapabilities, result);
+        return 0;
+      }
+      const std::string label(reinterpret_cast<const char*>(source_label),
+                              source_label_length);
+      if (commonJsEntry) {
+        const char* sourceChars =
+            lowered_source_length == 0
+                ? ""
+                : reinterpret_cast<const char*>(lowered_source);
+        const std::string source(sourceChars, lowered_source_length);
+        runtime->sources_by_name[label] = source;
+        runtime->source_maps_by_name[label].clear();
+
+        evaluation = std::make_unique<ScopedStructuredEvaluation>(
+            runtime, result, true, credential->ordinal);
+        if (evaluation->invalidTarget()) {
+          structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+          return 0;
+        }
+        activeTarget.transfer();
+        if (evaluation->cancelAtCooperativeBoundary()) return 0;
+        if (!applyStructuredFileArguments(runtime, staticImportPlan)) {
+          structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+          evaluation->close();
+          return 0;
+        }
+        ScopedStructuredEntryCacheReservation entryCache(
+            runtime, result->work_target_id);
+        const bool cacheTransactionReady =
+            generatedCommonJsEntry
+                ? entryCache.beginGenerated()
+                : entryCache.reserve(staticImportPlan, label);
+        if (!cacheTransactionReady) {
+          if (evaluation->cancelAtCooperativeBoundary()) return 0;
+          structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+          evaluation->close();
+          return 0;
+        }
+        if (evaluation->cancelAtCooperativeBoundary()) return 0;
+        auto value = generatedCommonJsEntry
+                         ? evaluateStructuredGeneratedCommonJsEntry(
+                               runtime, source, label, staticImportPlan)
+                         : evaluateStructuredCommonJsEntry(
+                               runtime, source, label, staticImportPlan);
+        if (structuredLifecycleOutcome(runtime, result,
+                                       kStructuredEvaluatorCapabilities)) {
+          entryCache.finalize(result);
+          evaluation->close();
+          return 0;
+        }
+        if (!mintStructuredValueHandle(runtime, value, &result->value)) {
+          structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+        } else {
+          result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
+          result->fault = EX_HERMES_EVAL_FAULT_NONE;
+          result->capability_flags = kStructuredEvaluatorCapabilities;
+          runtime->structured_pending_display_work_target_id =
+              result->work_target_id;
+          runtime->structured_pending_display_handle_id =
+              result->value.handle_id;
+        }
+        entryCache.finalize(result);
+        evaluation->close();
+        return 0;
+      }
+      auto sourceBuffer =
+          std::make_shared<MemoryBuffer>(lowered_source, lowered_source_length);
+      std::shared_ptr<const facebook::jsi::Buffer> sourceMapBuffer;
+      if (lowered_source_map_length != 0) {
+        sourceMapBuffer = std::make_shared<MemoryBuffer>(
+            lowered_source_map, lowered_source_map_length);
+      }
+
+      // `prepareJavaScript` compiles without executing the wrapper expression.
+      // No session mutation occurs unless both compilation and the complete
+      // feasibility vector succeed.
+      auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);
+      const auto initialFeasibility =
+          structuredDeclarationPlanFeasibility(runtime, plan);
+      if (!initialFeasibility.feasible()) {
+        // Feasibility is a JavaScript declaration-instantiation result, not an
+        // invalid lowering payload. Preserve the model's error class: a
+        // restricted lexical is SyntaxError, while CanDeclareGlobal* refusal is
+        // TypeError.
+        // @ref LLP
+        // 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+        structuredDeclarationRefusal(runtime, initialFeasibility, false,
+                                     kStructuredEvaluatorCapabilities, result);
+        return 0;
+      }
+
+      runtime->sources_by_name[label] = std::string(
+          reinterpret_cast<const char*>(lowered_source), lowered_source_length);
+      runtime->source_maps_by_name[label] =
+          std::string(reinterpret_cast<const char*>(lowered_source_map),
+                      lowered_source_map_length);
 
       evaluation = std::make_unique<ScopedStructuredEvaluation>(
           runtime, result, true, credential->ordinal);
@@ -12388,235 +12673,135 @@ extern "C" int ex_hermes_eval_lowered_session(
         return 0;
       }
       activeTarget.transfer();
-      if (evaluation->cancelAtCooperativeBoundary()) return 0;
+      if (evaluation->cancelAtCooperativeBoundary()) {
+        return 0;
+      }
       if (!applyStructuredFileArguments(runtime, staticImportPlan)) {
         structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
         evaluation->close();
         return 0;
       }
-      ScopedStructuredEntryCacheReservation entryCache(
-          runtime, result->work_target_id);
-      const bool cacheTransactionReady = generatedCommonJsEntry
-          ? entryCache.beginGenerated()
-          : entryCache.reserve(staticImportPlan, label);
-      if (!cacheTransactionReady) {
-        if (evaluation->cancelAtCooperativeBoundary()) return 0;
+      ScopedStructuredEntryCacheReservation entryCache(runtime,
+                                                       result->work_target_id);
+      if (!entryCache.reserve(staticImportPlan, label)) {
+        if (evaluation->cancelAtCooperativeBoundary()) {
+          return 0;
+        }
         structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
         evaluation->close();
         return 0;
       }
-      if (evaluation->cancelAtCooperativeBoundary()) return 0;
-      auto value = generatedCommonJsEntry
-          ? evaluateStructuredGeneratedCommonJsEntry(
-                runtime, source, label, staticImportPlan)
-          : evaluateStructuredCommonJsEntry(
-                runtime, source, label, staticImportPlan);
-      if (structuredLifecycleOutcome(
-              runtime,
-              result,
-              kStructuredEvaluatorCapabilities)) {
-        entryCache.finalize(result);
-        evaluation->close();
-        return 0;
-      }
-      if (!mintStructuredValueHandle(runtime, value, &result->value)) {
-        structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-      } else {
-        result->outcome_tag = EX_HERMES_EVAL_OUTCOME_VALUE;
-        result->fault = EX_HERMES_EVAL_FAULT_NONE;
-        result->capability_flags = kStructuredEvaluatorCapabilities;
-        runtime->structured_pending_display_work_target_id =
-            result->work_target_id;
-        runtime->structured_pending_display_handle_id =
-            result->value.handle_id;
-      }
-      entryCache.finalize(result);
-      evaluation->close();
-      return 0;
-    }
-    auto sourceBuffer = std::make_shared<MemoryBuffer>(
-        lowered_source, lowered_source_length);
-    std::shared_ptr<const facebook::jsi::Buffer> sourceMapBuffer;
-    if (lowered_source_map_length != 0) {
-      sourceMapBuffer = std::make_shared<MemoryBuffer>(
-          lowered_source_map, lowered_source_map_length);
-    }
-
-    // `prepareJavaScript` compiles without executing the wrapper expression.
-    // No session mutation occurs unless both compilation and the complete
-    // feasibility vector succeed.
-    auto prepared = runtime->runtime->prepareJavaScript(sourceBuffer, label);
-    const auto initialFeasibility =
-        structuredDeclarationPlanFeasibility(runtime, plan);
-    if (!initialFeasibility.feasible()) {
-      // Feasibility is a JavaScript declaration-instantiation result, not an
-      // invalid lowering payload. Preserve the model's error class: a
-      // restricted lexical is SyntaxError, while CanDeclareGlobal* refusal is
-      // TypeError.
-      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
-      structuredDeclarationRefusal(
-          runtime,
-          initialFeasibility,
-          false,
-          kStructuredEvaluatorCapabilities,
-          result);
-      return 0;
-    }
-
-    runtime->sources_by_name[label] = std::string(
-        reinterpret_cast<const char*>(lowered_source),
-        lowered_source_length);
-    runtime->source_maps_by_name[label] = std::string(
-        reinterpret_cast<const char*>(lowered_source_map),
-        lowered_source_map_length);
-
-    evaluation = std::make_unique<ScopedStructuredEvaluation>(
-        runtime, result, true, credential->ordinal);
-    if (evaluation->invalidTarget()) {
-      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-      return 0;
-    }
-    activeTarget.transfer();
-    if (evaluation->cancelAtCooperativeBoundary()) {
-      return 0;
-    }
-    if (!applyStructuredFileArguments(runtime, staticImportPlan)) {
-      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-      evaluation->close();
-      return 0;
-    }
-    ScopedStructuredEntryCacheReservation entryCache(
-        runtime, result->work_target_id);
-    if (!entryCache.reserve(staticImportPlan, label)) {
       if (evaluation->cancelAtCooperativeBoundary()) {
         return 0;
       }
-      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-      evaluation->close();
-      return 0;
-    }
-    if (evaluation->cancelAtCooperativeBoundary()) {
-      return 0;
-    }
-    std::vector<StructuredMaterializedImportBinding> materializedImports;
-    try {
-      if (!materializeStructuredStaticImports(
-              runtime,
-              staticImportPlan,
-              evaluation.get(),
-              &materializedImports)) {
-        return 0;
-      }
-    } catch (const facebook::jsi::JSError& error) {
-      evaluation->observeHermesTimeout(error);
-      if (structuredLifecycleOutcome(
-              runtime,
-              result,
-              kStructuredEvaluatorCapabilities)) {
+      std::vector<StructuredMaterializedImportBinding> materializedImports;
+      try {
+        if (!materializeStructuredStaticImports(runtime, staticImportPlan,
+                                                evaluation.get(),
+                                                &materializedImports)) {
+          return 0;
+        }
+      } catch (const facebook::jsi::JSError& error) {
+        evaluation->observeHermesTimeout(error);
+        if (structuredLifecycleOutcome(runtime, result,
+                                       kStructuredEvaluatorCapabilities)) {
+          evaluation->close();
+          return 0;
+        }
+        structuredThrowValue(runtime, error.value(),
+                             kStructuredEvaluatorCapabilities, result);
         evaluation->close();
         return 0;
       }
-      structuredThrowValue(
-          runtime,
-          error.value(),
-          kStructuredEvaluatorCapabilities,
-          result);
-      evaluation->close();
-      return 0;
-    }
 
-    // Module evaluation may run arbitrary project code. Repeat the complete
-    // collision/descriptor feasibility vector after every import has loaded
-    // and every named/default Get has completed, but before publishing a
-    // single session declaration.
-    // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
-    const auto recheckedFeasibility =
-        structuredDeclarationPlanFeasibility(runtime, plan);
-    if (!recheckedFeasibility.feasible()) {
-      structuredDeclarationRefusal(
-          runtime,
-          recheckedFeasibility,
-          true,
-          kStructuredEvaluatorCapabilities,
-          result);
-      evaluation->close();
-      return 0;
-    }
-    if (evaluation->cancelAtCooperativeBoundary()) {
-      return 0;
-    }
-    ScopedStructuredCancellationCriticalSection phase5(
-        runtime, result->work_target_id);
-    if (!phase5.entered()) {
-      if (phase5.cancellationPending() &&
-          evaluation->cancelAtCooperativeBoundary()) {
-        return 0;
-      }
-      throw std::logic_error(
-          "phase-5 cancellation critical section could not be entered");
-    }
-    beginStructuredSessionTransaction(runtime, plan);
-    initializeStructuredImportCells(runtime, &materializedImports);
-    phase5.leave();
-    if (evaluation->cancelAtCooperativeBoundary()) {
-      return 0;
-    }
-    const int status = evaluateLoweredPreparedSession(
-        runtime,
-        prepared,
-        sourceBuffer,
-        sourceMapBuffer,
-        label,
-        staticImportPlan.logicalReferrer,
-        asynchronous,
-        kStructuredEvaluatorCapabilities,
-        result,
-        evaluation.get());
-    entryCache.finalize(result);
-    return status;
-  } catch (const facebook::jsi::JSError& error) {
-    if (evaluation) {
-      evaluation->observeHermesTimeout(error);
-      if (structuredLifecycleOutcome(
-              runtime,
-              result,
-              kStructuredEvaluatorCapabilities)) {
+      // Module evaluation may run arbitrary project code. Repeat the complete
+      // collision/descriptor feasibility vector after every import has loaded
+      // and every named/default Get has completed, but before publishing a
+      // single session declaration.
+      // @ref LLP 0024#73-evaluation-phases-collisions-and-the-cross-kind-matrix
+      const auto recheckedFeasibility =
+          structuredDeclarationPlanFeasibility(runtime, plan);
+      if (!recheckedFeasibility.feasible()) {
+        structuredDeclarationRefusal(runtime, recheckedFeasibility, true,
+                                     kStructuredEvaluatorCapabilities, result);
         evaluation->close();
         return 0;
       }
-      finishStructuredSessionTransaction(runtime, false);
-      structuredThrowValue(
-          runtime,
-          error.value(),
-          kStructuredEvaluatorCapabilities,
-          result);
-      evaluation->close();
+      if (evaluation->cancelAtCooperativeBoundary()) {
+        return 0;
+      }
+      ScopedStructuredCancellationCriticalSection phase5(
+          runtime, result->work_target_id);
+      if (!phase5.entered()) {
+        if (phase5.cancellationPending() &&
+            evaluation->cancelAtCooperativeBoundary()) {
+          return 0;
+        }
+        throw std::logic_error(
+            "phase-5 cancellation critical section could not be entered");
+      }
+      beginStructuredSessionTransaction(runtime, plan);
+      initializeStructuredImportCells(runtime, &materializedImports);
+      phase5.leave();
+      if (evaluation->cancelAtCooperativeBoundary()) {
+        return 0;
+      }
+      const int status = evaluateLoweredPreparedSession(
+          runtime, prepared, sourceBuffer, sourceMapBuffer, label,
+          staticImportPlan.logicalReferrer, asynchronous,
+          kStructuredEvaluatorCapabilities, result, evaluation.get());
+      entryCache.finalize(result);
+      return status;
+    } catch (const facebook::jsi::JSError& error) {
+      if (evaluation) {
+        evaluation->observeHermesTimeout(error);
+        if (structuredLifecycleOutcome(runtime, result,
+                                       kStructuredEvaluatorCapabilities)) {
+          evaluation->close();
+          return 0;
+        }
+        finishStructuredSessionTransaction(runtime, false);
+        structuredThrowValue(runtime, error.value(),
+                             kStructuredEvaluatorCapabilities, result);
+        evaluation->close();
+        return 0;
+      }
+      runtime->structured_session_terminated = true;
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
+      return 0;
+    } catch (const std::bad_alloc&) {
+      if (result->work_target_id != 0) {
+        finishStructuredSessionTransaction(runtime, false);
+        runtime->structured_session_terminated = true;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
+      return 0;
+    } catch (...) {
+      if (structuredLifecycleOutcome(runtime, result,
+                                     kStructuredEvaluatorCapabilities)) {
+        return 0;
+      }
+      if (result->work_target_id != 0) {
+        finishStructuredSessionTransaction(runtime, false);
+        runtime->structured_session_terminated = true;
+      }
+      structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
       return 0;
     }
-    runtime->structured_session_terminated = true;
-    structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
-    return 0;
-  } catch (const std::bad_alloc&) {
-    if (result->work_target_id != 0) {
-      finishStructuredSessionTransaction(runtime, false);
-      runtime->structured_session_terminated = true;
-    }
-    structuredFault(result, EX_HERMES_EVAL_FAULT_OUT_OF_MEMORY);
-    return 0;
-  } catch (...) {
-    if (structuredLifecycleOutcome(
-            runtime,
-            result,
-            kStructuredEvaluatorCapabilities)) {
-      return 0;
-    }
-    if (result->work_target_id != 0) {
-      finishStructuredSessionTransaction(runtime, false);
-      runtime->structured_session_terminated = true;
-    }
+  };
+
+  const int status = evaluateBody();
+  if (!loweredEvalTask.finish()) {
+    discardStructuredEvaluationResultPayload(runtime, result);
     structuredFault(result, EX_HERMES_EVAL_FAULT_ENGINE);
     return 0;
   }
+  if (runtime->structured_lifecycle_pending) {
+    discardStructuredEvaluationResultPayload(runtime, result);
+    (void)structuredLifecycleOutcome(runtime, result,
+                                     kStructuredEvaluatorCapabilities);
+  }
+  return status;
 }
 
 // @abi-output ex_hermes_resume_structured_session result role=inout kind=aggregate schema=ExHermesEvaluationResult members=* elements=positions ownership=caller-storage member-ownership=caller-frees:ex_hermes_evaluation_result_dispose
@@ -13201,6 +13386,11 @@ static int evalRuntimeUnchecked(
       return true;
     }
 
+    if (*out_value != nullptr) {
+      free(*out_value);
+      *out_value = nullptr;
+    }
+
     char* heap = static_cast<char*>(malloc(text.size() + 1));
     if (!heap) {
       return false;
@@ -13245,7 +13435,14 @@ static int evalRuntimeUnchecked(
       runtime->attribution_runtime);
 #endif
 
-  std::string source = source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
+  ScopedGpuHostTask evalTask(runtime);
+  if (!evalTask) {
+    writeOutError("Hermes eval could not enter the runtime host-task boundary");
+    return 1;
+  }
+
+  std::string source =
+      source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
   bool traceEval = startup_trace_enabled();
   if (!is_bytecode) {
     runtime->sources_by_name[source] = std::string(reinterpret_cast<const char*>(data), len);
@@ -13281,6 +13478,11 @@ static int evalRuntimeUnchecked(
         // and threw" — only the former may delete a cached .hbc and
         // re-run the JS source (see is_bytecode_load_error, ENG-23484).
         // @ref LLP 0025#2-startup-configuration-is-captured-before-arming
+        if (!evalTask.finish()) {
+          writeOutError(
+              "Hermes host-task checkpoint failed after bytecode refusal");
+          return 1;
+        }
         writeOutError("Bytecode sanity check failed: " + reason);
         return 2;
       }
@@ -13290,6 +13492,11 @@ static int evalRuntimeUnchecked(
           facebook::hermes::makeHermesRootAPI());
       if (root == nullptr ||
           !root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
+        if (!evalTask.finish()) {
+          writeOutError(
+              "Hermes host-task checkpoint failed after bytecode refusal");
+          return 1;
+        }
         writeOutError("Bytecode sanity check failed: " +
                       (root == nullptr ? std::string("Hermes root API unavailable") : reason));
         // A distinct status is the native proof that no program instruction
@@ -13311,18 +13518,6 @@ static int evalRuntimeUnchecked(
     if (traceEval) {
       fprintf(stderr, "[eval] evaluate_end %s\n", source.c_str());
     }
-    if (traceEval) {
-      fprintf(stderr, "[eval] next_tick_start %s\n", source.c_str());
-    }
-    runNextTickQueue(runtime);
-    if (traceEval) {
-      fprintf(stderr, "[eval] next_tick_end %s\n", source.c_str());
-      fprintf(stderr, "[eval] microtasks_start %s\n", source.c_str());
-    }
-    drainMicrotasks(*runtime->runtime);
-    if (traceEval) {
-      fprintf(stderr, "[eval] microtasks_end %s\n", source.c_str());
-    }
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
     if (runtime->debugger_attached.load()) {
       emitNewScripts(runtime, runtime->runtime->getDebugger());
@@ -13336,6 +13531,24 @@ static int evalRuntimeUnchecked(
     // execution, so skip the JS unwrap shim there.
 #if !defined(_WIN32)
     if (result.isObject()) {
+      if (traceEval) {
+        fprintf(stderr, "[eval] host_task_checkpoint_start %s\n",
+                source.c_str());
+      }
+      if (!evalTask.finish()) {
+        writeOutError(
+            "Hermes GPU host-task checkpoint failed after evaluation");
+        return 1;
+      }
+      if (traceEval) {
+        fprintf(stderr, "[eval] host_task_checkpoint_end %s\n", source.c_str());
+      }
+
+      ScopedGpuHostTask unwrapTask(runtime);
+      if (!unwrapTask) {
+        writeOutError("Hermes Promise unwrap could not enter a host task");
+        return 1;
+      }
       auto& rt = *runtime->runtime;
       // Stash the result as a temp global so JS can inspect it
       rt.global().setProperty(rt, "__ex_p",
@@ -13354,26 +13567,37 @@ static int evalRuntimeUnchecked(
           reinterpret_cast<const uint8_t*>(unwrap_code),
           strlen(unwrap_code));
       auto check = rt.evaluateJavaScript(ubuf, "<promise-unwrap>");
-      drainMicrotasks(rt);
+      if (!unwrapTask.finish()) {
+        writeOutError(
+            "Hermes GPU host-task checkpoint failed during Promise unwrap");
+        return 1;
+      }
 
       if (!check.isNull() && check.isObject()) {
         auto promiseState = check.getObject(rt);
         auto resolvePromiseResult = [&]() -> std::optional<bool> {
+          ScopedGpuHostTask advanceTask(runtime);
+          if (!advanceTask) {
+            runtime->gpu_host_task_checkpoint_failed = true;
+            return false;
+          }
           auto doneProp = promiseState.getProperty(rt, "done");
           if (!doneProp.isBool() || !doneProp.getBool()) {
+            if (!advanceTask.finish()) return false;
             return std::nullopt;
           }
 
           auto ok = promiseState.getProperty(rt, "ok");
           if (ok.isBool() && ok.getBool()) {
             result = promiseState.getProperty(rt, "v");
+            if (!advanceTask.finish()) return false;
             return true;
           }
 
           auto errVal = promiseState.getProperty(rt, "v");
-          if (!writeOutString(valueToString(rt, errVal))) {
-            return false;
-          }
+          const auto errorText = valueToString(rt, errVal);
+          if (!advanceTask.finish()) return false;
+          if (!writeOutString(errorText)) return false;
           return false;
         };
 
@@ -13449,24 +13673,56 @@ static int evalRuntimeUnchecked(
     }
 #endif
 
+    const bool resultWasUndefined = result.isUndefined();
+    std::string resultText;
+    auto coerceResult = [&]() {
+      if (!out_value || resultWasUndefined) return;
+      resultText = valueToString(*runtime->runtime, result);
+    };
+
+    if (evalTask) {
+      coerceResult();
+      if (!evalTask.finish()) {
+        writeOutError(
+            "Hermes GPU host-task checkpoint failed after result coercion");
+        return 1;
+      }
+    } else {
+      ScopedGpuHostTask resultTask(runtime);
+      if (!resultTask) {
+        writeOutError("Hermes result coercion could not enter a host task");
+        return 1;
+      }
+      coerceResult();
+      if (!resultTask.finish()) {
+        writeOutError(
+            "Hermes GPU host-task checkpoint failed after result coercion");
+        return 1;
+      }
+    }
+
     if (out_value) {
-      if (result.isUndefined()) {
+      if (resultWasUndefined) {
         *out_value = nullptr;
-      } else {
-        auto text = valueToString(*runtime->runtime, result);
-        auto size = text.size();
-        char* heap = static_cast<char*>(malloc(size + 1));
-        if (!heap) {
-          return 1;
-        }
-        memcpy(heap, text.data(), size);
-        heap[size] = '\0';
-        *out_value = heap;
+      } else if (!writeOutString(resultText)) {
+        writeOutError("Hermes result allocation failed");
+        return 1;
       }
     }
 
     return 0;
   } catch (const facebook::jsi::JSError& err) {
+    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    if (!evalTask) {
+      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+    }
+    if (!evalTask && (!errorTask || !*errorTask)) {
+      writeOutError("Hermes exception disposition host-task boundary failed");
+      return 1;
+    }
+    auto finishErrorTask = [&]() {
+      return evalTask ? evalTask.finish() : errorTask->finish();
+    };
     // Try to call process uncaughtException handler before reporting error
     auto& rt = *runtime->runtime;
     try {
@@ -13479,6 +13735,10 @@ static int evalRuntimeUnchecked(
         auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errObj));
         if (result.isBool() && result.getBool()) {
           // Handler returned true — exception was handled, don't crash
+          if (!finishErrorTask()) {
+            writeOutError("Hermes exception checkpoint failed");
+            return 1;
+          }
           if (out_value) *out_value = nullptr;
           return 0;
         }
@@ -13487,44 +13747,44 @@ static int evalRuntimeUnchecked(
       // If the handler itself throws, fall through to normal error reporting
     }
 
-    if (out_value) {
-      auto message = err.getMessage();
-      auto stack = err.getStack();
-      // Include stack trace if available
-      std::string full;
-      if (!stack.empty()) {
-        full = message + "\n" + stack;
-      } else {
-        full = message;
-      }
-      auto size = full.size();
-      char* heap = static_cast<char*>(malloc(size + 1));
-      if (!heap) {
-        return 1;
-      }
-      memcpy(heap, full.data(), size);
-      heap[size] = '\0';
-      *out_value = heap;
-    }
-    return 1;
-  } catch (const std::exception& err) {
-    if (out_value) {
-      auto message = std::string(err.what());
-      auto size = message.size();
-      char* heap = static_cast<char*>(malloc(size + 1));
-      if (!heap) {
-        return 1;
-      }
-      memcpy(heap, message.data(), size);
-      heap[size] = '\0';
-      *out_value = heap;
-    }
-    return 1;
-  } catch (...) {
-    std::string source_label = source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
-    if (!writeOutError("Unknown non-std exception while evaluating " + source_label)) {
+    auto message = err.getMessage();
+    auto stack = err.getStack();
+    const std::string full = stack.empty() ? message : message + "\n" + stack;
+    if (!finishErrorTask()) {
+      writeOutError("Hermes exception checkpoint failed");
       return 1;
     }
+    (void)writeOutError(full);
+    return 1;
+  } catch (const std::exception& err) {
+    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    if (!evalTask) {
+      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+    }
+    if (!evalTask && (!errorTask || !*errorTask)) return 1;
+    const std::string message(err.what());
+    const bool finished = evalTask ? evalTask.finish() : errorTask->finish();
+    if (!finished) {
+      writeOutError("Hermes exception checkpoint failed");
+      return 1;
+    }
+    (void)writeOutError(message);
+    return 1;
+  } catch (...) {
+    std::unique_ptr<ScopedGpuHostTask> errorTask;
+    if (!evalTask) {
+      errorTask = std::make_unique<ScopedGpuHostTask>(runtime);
+    }
+    if (!evalTask && (!errorTask || !*errorTask)) return 1;
+    const std::string sourceLabel =
+        source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
+    const bool finished = evalTask ? evalTask.finish() : errorTask->finish();
+    if (!finished) {
+      writeOutError("Hermes exception checkpoint failed");
+      return 1;
+    }
+    (void)writeOutError("Unknown non-std exception while evaluating " +
+                        sourceLabel);
     return 1;
   }
 }
@@ -14347,10 +14607,14 @@ static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
   return 0;
 }
 
-static int pollRuntime(
-    ExactHermesRuntime* runtime,
-    uint64_t now_ms,
-    bool external_keep_alive) {
+static int pollRuntime(ExactHermesRuntime* runtime, uint64_t now_ms,
+                       bool external_keep_alive) {
+  if (runtime->gpu_host_task_checkpoint_failed) return -1;
+  if (runtime->gpu_host_task_microtask_continuation) {
+    if (!exactResumeGpuHostTaskContinuation(runtime)) {
+      return runtime->gpu_host_task_checkpoint_failed ? -1 : 0;
+    }
+  }
   if (runtime->structured_session_terminated) {
     return -1;
   }
@@ -14363,6 +14627,9 @@ static int pollRuntime(
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
 #endif
+
+  ScopedGpuHostTask pollBatchTask(runtime);
+  if (!pollBatchTask) return -1;
 
   int executed = 0;
   executed += pollTypedAuthorityGenerations(runtime);
@@ -14464,16 +14731,10 @@ static int pollRuntime(
     return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
   }
 
-  runNextTickQueue(runtime);
-  if (runtime->structured_session_terminated) {
-    return -1;
-  }
-  if (runtime->structured_lifecycle_pending) {
-    return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
-  }
-  // Guarded: a throwing microtask must not escape the extern "C" boundary
-  // (std::terminate → host SIGABRT; ENG-23731 leg 1).
-  drainMicrotasksGuarded(runtime);
+  // The poll-batch boundary owns nextTick/microtask draining in its finally
+  // path. This keeps all callbacks admitted above in one declared Exact task.
+  if (!pollBatchTask.finish()) return -1;
+  if (runtime->gpu_host_task_microtask_continuation) return executed;
   if (runtime->structured_session_terminated) {
     return -1;
   }
@@ -14569,6 +14830,8 @@ static int pollRuntime(
       }
       continue;
     }
+    ScopedGpuHostTask timerTask(runtime);
+    if (!timerTask) return -1;
     consumeStructuredTimerDue(runtime, id);
     // Retire or reschedule the fired timer. Must run before any error return
     // below: otherwise a throwing one-shot timer stays due and refires on
@@ -14631,34 +14894,15 @@ static int pollRuntime(
         retireTimer();
         return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
       }
-      runNextTickQueue(runtime);
-      if (runtime->structured_session_terminated) {
-        retireTimer();
-        return -1;
-      }
-      if (runtime->structured_lifecycle_pending) {
-        retireTimer();
-        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
-      }
-      // Guarded: a microtask throw here must neither escape (SIGABRT) nor be
-      // misattributed to the timer catch below (which would retire an
-      // innocent timer and, for the CLI, return -1). (ENG-23731)
-      drainMicrotasksGuarded(runtime);
-      if (runtime->structured_session_terminated) {
-        retireTimer();
-        return -1;
-      }
-      if (runtime->structured_lifecycle_pending) {
-        retireTimer();
-        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
-      }
     } catch (const facebook::jsi::JSError& err) {
       executed += 1;
       if ((rawCapture
                ? workUnit.finishRawCapturedJsThrow()
                : workUnit.finish(err))) {
         retireTimer();
+        if (!timerTask.finish()) return -1;
         if (runtime->structured_session_terminated) return -1;
+        if (runtime->gpu_host_task_microtask_continuation) return executed;
         continue;
       }
       if (runtime->structured_lifecycle_pending) {
@@ -14675,32 +14919,16 @@ static int pollRuntime(
           // leaving the flag set would report it again on the next poll.
           runtime->fatal_async_error = false;
         }
+        (void)timerTask.finish();
         return -1;
-      }
-      // Continue processing remaining timers after a consumed exception
-      runNextTickQueue(runtime);
-      if (runtime->structured_session_terminated) {
-        retireTimer();
-        return -1;
-      }
-      if (runtime->structured_lifecycle_pending) {
-        retireTimer();
-        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
-      }
-      drainMicrotasksGuarded(runtime);
-      if (runtime->structured_session_terminated) {
-        retireTimer();
-        return -1;
-      }
-      if (runtime->structured_lifecycle_pending) {
-        retireTimer();
-        return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
       }
     } catch (const std::exception& err) {
       if (workUnit.finish()) {
         retireTimer();
+        if (!timerTask.finish()) return -1;
         if (runtime->structured_session_terminated) return -1;
         executed += 1;
+        if (runtime->gpu_host_task_microtask_continuation) return executed;
         continue;
       }
       retireTimer();
@@ -14710,6 +14938,8 @@ static int pollRuntime(
       if (structuredWorkPublicationEnabled(runtime)) {
         recordStructuredAsyncFailureDrop(runtime);
         executed += 1;
+        if (!timerTask.finish()) return -1;
+        if (runtime->gpu_host_task_microtask_continuation) return executed;
         continue;
       }
       ex_host_console_log(1, err.what());
@@ -14719,13 +14949,25 @@ static int pollRuntime(
     }
 
     retireTimer();
+    if (!timerTask.finish()) return -1;
+    if (runtime->gpu_host_task_microtask_continuation) return executed;
+    if (runtime->structured_session_terminated) return -1;
+    if (runtime->structured_lifecycle_pending) {
+      return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
+    }
   }
 
   // Pinned rejection-determination checkpoint: all work admitted to this poll
   // iteration has run, so a still-pending promise is now reportable. A handler
   // attached anywhere above removed its exact promise record first.
   // @ref LLP 0024#9-asynchronous-failures
-  flushPendingPromiseRejections(runtime);
+  if (hasPendingPromiseRejectionCheckpointWork(runtime)) {
+    ScopedGpuHostTask rejectionCheckpointTask(runtime);
+    if (!rejectionCheckpointTask) return -1;
+    flushPendingPromiseRejections(runtime);
+    if (!rejectionCheckpointTask.finish()) return -1;
+    if (runtime->gpu_host_task_microtask_continuation) return executed;
+  }
   if (runtime->structured_session_terminated) return -1;
   if (runtime->structured_lifecycle_pending) {
     return EX_HERMES_POLL_LIFECYCLE_REQUESTED;
@@ -14745,9 +14987,33 @@ static int pollRuntime(
   return executed;
 }
 
+static std::optional<int> pollAppBundleHostTaskContinuation(
+    ExactHermesRuntime* runtime) {
+  if (!runtime->app_bundle_evaluation_open.load(std::memory_order_acquire)) {
+    return std::nullopt;
+  }
+  // The only ordinary poll admitted while the outer bundle transaction is
+  // open resumes phase 0's retained Windows microtask slice. Even when that
+  // slice completes, return before admitting a successor callback or timer;
+  // the host must retry begin with the same expectation first.
+  if (!runtime->gpu_host_task_microtask_continuation.load(
+          std::memory_order_acquire)) {
+    return EXACT_RUNTIME_DRIVE_APP_BUNDLE_OPEN;
+  }
+  if (!exactResumeGpuHostTaskContinuation(runtime) &&
+      runtime->gpu_host_task_checkpoint_failed.load(
+          std::memory_order_acquire)) {
+    return -1;
+  }
+  return 0;
+}
+
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
-  ExactRuntimeDriveGuard drive(runtime);
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
   if (!drive) return drive.status();
+  if (auto appBundlePoll = pollAppBundleHostTaskContinuation(runtime)) {
+    return *appBundlePoll;
+  }
   // Poll can invoke queued callbacks, nextTick, microtasks, and timers. During
   // a construction transaction it must preserve those queues without exposing
   // provisional capabilities; after any ordinary poll, begin() is permanently
@@ -14759,8 +15025,11 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
 extern "C" int ex_hermes_poll_with_external_keep_alive(
     ExactHermesRuntime* runtime,
     uint64_t now_ms) {
-  ExactRuntimeDriveGuard drive(runtime);
+  ExactRuntimeDriveGuard drive(runtime, 0, false, true);
   if (!drive) return drive.status();
+  if (auto appBundlePoll = pollAppBundleHostTaskContinuation(runtime)) {
+    return *appBundlePoll;
+  }
   if (!exactRuntimeEnterUserExecution(runtime)) return 0;
   return pollRuntime(runtime, now_ms, true);
 }
@@ -14799,6 +15068,12 @@ static int hasPendingTasksUnchecked(ExactHermesRuntime* runtime) {
     return 0;
   }
   if (runtime->structured_lifecycle_pending) {
+    return 1;
+  }
+  if (runtime->gpu_host_task_microtask_continuation.load(
+          std::memory_order_acquire) ||
+      runtime->gpu_host_task_checkpoint_failed.load(
+          std::memory_order_acquire)) {
     return 1;
   }
   if (!runtime->structured_pending_promise_rejections.empty() ||
@@ -14872,12 +15147,16 @@ extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
         runtimeIt->second.state != RuntimeLifecycleState::Running) {
       return 0;
     }
-    if (exactGpuOwnerDrainPending(runtime)) {
-      backlog = 1;
+    if (exactGpuOwnerDrainPending(runtime) ||
+        runtime->gpu_host_task_microtask_continuation.load(
+            std::memory_order_acquire) ||
+        runtime->gpu_host_task_checkpoint_failed.load(
+            std::memory_order_acquire)) {
+      backlog += 1;
     }
     {
       std::lock_guard<std::mutex> callbackLock(runtime->callbackMutex);
-      backlog = runtime->callbackQueue.size();
+      backlog += runtime->callbackQueue.size();
     }
     {
       std::lock_guard<std::mutex> finalizerLock(runtime->finalizerMutex);

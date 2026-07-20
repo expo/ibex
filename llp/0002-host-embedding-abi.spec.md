@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-20 (adds the explicit Exact-owned `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` construction mode through separate Ibex artifact-builder and armed-host installer symbols: it raw-pins and derives exactly 58 private WebGPU target cells and 20 typed-positive `gpu:operation` selectors from the checked private registry, admits no app selector/cell/wildcard input, closes every ordinary target cell, leaves canonical arming and target advertisements unchanged, and still publishes the runtime wrapper only after authenticated V2 construction capture)
+**Revised:** 2026-07-20 (adds an owner-thread outer host-task checkpoint to the construction-private V2 result: eval/result coercion, explicit promise advance, Exact poll callback batches, each timer, prepared runApp, native module/view/dispatch, structured evaluation, and debugger evaluation retain one Canvas epoch through nextTick and complete microtask drain; bounded Windows drains retain the same task across slices; the fifth exact frozen callback emits a distinct authenticated `texture-expire-v1` control under `GPUTexture.destroy`, while manual destroy remains orthogonal; ambiguous checkpoint failure quarantines the realm); 2026-07-20 (adds the explicit Exact-owned `EXACT_EXPERIMENTAL_WEBGPU_PRE1A` construction mode through separate Ibex artifact-builder and armed-host installer symbols: it raw-pins and derives exactly 58 private WebGPU target cells and 20 typed-positive `gpu:operation` selectors from the checked private registry, admits no app selector/cell/wildcard input, closes every ordinary target cell, leaves canonical arming and target advertisements unchanged, and still publishes the runtime wrapper only after authenticated V2 construction capture)
 **Revised:** 2026-07-20 (adds the owner-thread outer app-bundle evaluation and irreversible quarantine ABI around the nested GPU Canvas handoff: debugger admission closes and pre-admitted queued commands are cancelled/settled before construction fencing and generated preparation; immediate source or prelude+HBC evaluation has no pump/coercion/mutable-handler hooks, with HBC sanity before prelude and status 2 as the sole source-fallback signal; native pristine-reflection classification caches an exact frozen carrier before Canvas root publication, staging deletes it and invokes only consume, runApp is admitted only after Canvas finish, final absence is re-proved before the outer gate opens, and every execution/cleanup/sequence ambiguity quarantines the generation for destruction; feature-off UNUSED startup retains the same outer/immediate/native-staging path)
 **Revised:** 2026-07-19 (publishes the source-derived WebGPU provider root set only from an authenticated V2 construction capture, publishes `createImageBitmap` only when decoded-image authority was attached, and requires an exact descriptor-only root-global sweep after publication and sealing but before user execution in either Apple bootstrap order; any mismatch revokes the wrapper and fails the runtime closed, while target advertisements, public grant issuance, and platform-support claims remain absent)
 **Revised:** 2026-07-19 (adds the source-derived construction-private WebGPU CapSec authority session: native-random bounded session identities, exact V2 Requested/Commit/Repeat and retire callbacks, full realm/account/device/object/handle and actor/effect-owner/scheduler/generation binding, typed `gpu:operation` positive decisions over generated private edge/cell mappings, structural authority-reducing decisions without positive grants, fail-closed service-admission enforcement, and teardown purge; `navigator.gpu`, embedded executable codecs, public grant issuance, target advertisement, and platform support claims remain absent)
@@ -844,6 +844,59 @@ The production-private WebGPU factory imports this same bundled slot and binds
 the wrapper revoker to the native bridge revoker rather than acquiring a
 second bridge or extending bridge lifetime.
 
+The V2 construction capture's typed result is one exact frozen five-function
+record: `revoke`, `canvasReceiptSink`, `checkpointHostTask`,
+`beginCanvasAppBundle`, and `finishCanvasAppBundle`. Native retains those
+identities only on the runtime owner thread and clears all five before Hermes
+teardown. The legacy function-only capture has no typed Canvas minter and may
+therefore omit the checkpoint; a partially typed result is rejected or reduces
+the realm. `checkpointHostTask` is never a root-global property and cannot be
+looked up again after construction.
+
+Every runtime-owner entry that may reach app WebGPU executes inside one
+outermost host-task scope. The scope includes nested coercions, callbacks,
+`process.nextTick`, and every Promise job until Hermes reports the microtask
+queue fully drained. Its required inventory covers bare and structured eval,
+explicit top-level Promise attachment/advance, the Exact poll batch (typed
+authority callbacks, fetch cleanup, JSI finalizers, callback queue, and pending
+native-task batch), each due timer separately, prepared `runApp`, native
+module/module-view/dispatch events, lowered/CommonJS evaluation, and debugger
+evaluation. Restricted UI-worklet runtimes are the explicit no-GPU row: their
+construction refuses the app runtime's host wiring and never receives the V2
+bridge or Canvas objects. A future user-code ingress without either the scope
+or that structural proof is incomplete.
+
+The scope's finally path covers normal return, early return, JSI/native throw,
+and consumed asynchronous error. On Windows the Hermes completion boolean is
+normative: a false result retains the same nonzero host-task identity and
+Canvas epoch for another bounded poll slice, and admits no successor callback
+or timer. Only a complete drain, terminal task cancellation/teardown, or realm
+quarantine checkpoints. The initial top-level eval task checkpoints before the
+bounded wait for a never-settling Promise, so awaiting cannot retain a current
+texture indefinitely.
+
+Synchronous ABI functions stage their output handles, strings, and success
+tags until their C++ scope has explicitly handed off its finalizer; a failed
+finalizer overwrites the staged result with a stable engine failure. A
+successful bounded-incomplete Windows handoff may return the staged non-JSI
+result while the logical task remains retained, but the drive gate must resume
+that task before any successor user callback or timer. Sequencing barriers that
+publish new authority, such as Canvas app-bundle phase 0, use an explicit
+pending/retry status and cannot use that relaxed output handoff.
+
+At a successful checkpoint runtime-js sorts every live current texture by its
+canonical wrapper identity and submits one distinct `texture-expire-v1`
+control body through the existing authenticated `GPUTexture.destroy` operation
+cell. The body carries `expiryIntent: host-task-expiry`, exact receiver,
+materialization state, and immutable canvas-current origin. It cannot carry a
+device-created origin or a manual terminal intent. Only after native accepts
+all controls does the wrapper mark those textures expired and clear each
+context's current identity. Manual `texture-destroy-v1` remains logical write
+destruction: it neither ends the same-epoch identity nor substitutes for task
+expiry. A bridge throw or rejected checkpoint leaves the wrapper state
+retryable only long enough to reduce/quarantine the realm; Ibex never guesses
+whether presentation was admitted.
+
 The later per-app-bundle Canvas integration is nested inside the additive
 `ex_hermes_begin_app_bundle_evaluation_v1` /
 `ex_hermes_finish_app_bundle_evaluation_v1` owner-thread transaction. Outer
@@ -861,16 +914,30 @@ the same permanent user-execution fence before its controller may expose the
 temporary Canvas capture root. It cannot leave construction mutation open
 while immediate project code executes.
 
+Begin is internally two-phase. Phase 0 revokes G(n-1) while the reserved
+capture root is absent, closes the public wrapper realm before any app-owned
+Canvas-minter release callback, and drains that release task to its checkpoint.
+Only then may phase 1/2 publish G(n)'s capture or prove UNUSED_VALID. A bounded
+Windows drain returns `EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_PENDING_V1`; the host
+polls and retries the same expectation, and native retains the prepared state
+without invoking phase 0 twice. A different expectation, failed checkpoint, or
+root publication before completion quarantines rather than guessing.
+
 The host then uses either
 `ex_hermes_eval_gpu_canvas_app_bundle_immediate_v1` for one concatenated source
 artifact or
 `ex_hermes_eval_gpu_canvas_app_bundle_with_prelude_immediate_v1` for an optional
 trusted source context prelude followed by one source/HBC artifact. Both discard
 raw results and perform no job drain, debugger publication, thenable inspection,
-result coercion, mutable uncaught-handler call, or post-evaluation hook. The HBC
-form completes native bytecode sanity before running its prelude; status 2 is
-therefore the sole pre-instruction result and the sole same-transaction source
-fallback signal. Every other evaluation failure quarantines before return.
+result coercion, mutable uncaught-handler call, or post-evaluation hook **before**
+native has proved that a consume-required capture was synchronously consumed
+and deleted (or that UNUSED_VALID exposed no capture). After that proof, their
+enclosing host-task scope performs the ordinary nextTick/microtask fixed-point
+drain and Canvas checkpoint; a terminal quarantine skips app jobs and retires
+the realm instead. The HBC form completes native bytecode sanity before running
+its prelude; status 2 is therefore the sole pre-instruction result and the sole
+same-transaction source fallback signal. Every other evaluation failure
+quarantines before return.
 
 Generated startup publishes one exact frozen prepared carrier while only the
 outer gate is open. Native pristine reflection validates and caches its two
@@ -940,6 +1007,13 @@ context/generation/epoch/mint/digest subset of its immutable canvas-current
 origin. Explicit provider non-admission leaves unconfigure and destroy
 retryable. A thrown bridge return has ambiguous admission and closes the realm,
 so retry never guesses whether cleanup already ran.
+
+Host-task expiry uses the separate body above even though it shares the
+operation ID and completion codec with `GPUTexture.destroy`. This preserves one
+authenticated route/cell while preventing a provider from inferring
+presentation expiry from manual-destroy state. Unknown control tags, a
+device-created expiry origin, mixed expiry/manual intent fields, and trailing
+or truncated bytes fail before provider admission.
 
 Every wrapper-local `getCurrentTexture` record carries the complete immutable
 origin whose digest binds its wrapper-allocated texture target. Repeated calls

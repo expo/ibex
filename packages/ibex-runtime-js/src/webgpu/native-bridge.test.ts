@@ -101,9 +101,11 @@ describe('construction-private GPU bridge capture', () => {
     expect(Reflect.ownKeys(captureResult).sort()).toEqual([
       'beginCanvasAppBundle',
       'canvasReceiptSink',
+      'checkpointHostTask',
       'finishCanvasAppBundle',
       'revoke',
     ]);
+    expect(() => captureResult.checkpointHostTask()).not.toThrow();
 
     expect(Reflect.ownKeys(constructionGlobal)).toContain('GPUDevice');
     expect('gpu' in constructionGlobal.navigator).toBe(true);
@@ -126,6 +128,7 @@ describe('construction-private GPU bridge capture', () => {
     expect(() => captureResult.canvasReceiptSink(Object.freeze({}))).toThrow(
       'receipt integration is unavailable',
     );
+    expect(captureResult.beginCanvasAppBundle(0)).toBeUndefined();
     expect(captureResult.beginCanvasAppBundle(2)).toBeUndefined();
     expect('__ibexCaptureGpuCanvasRuntimeIntegration' in constructionGlobal)
       .toBe(false);
@@ -137,7 +140,7 @@ describe('construction-private GPU bridge capture', () => {
     expect('createImageBitmap' in constructionGlobal).toBe(false);
   });
 
-  test('rearms the exact Canvas integration once per app bundle', () => {
+  test('rearms the exact Canvas integration once per app bundle', async () => {
       const constructionGlobal = { navigator: {} } as unknown as typeof globalThis;
       const bridge: NativeGpuBridge = {
         abiVersion: 0x0002_0000,
@@ -163,11 +166,39 @@ describe('construction-private GPU bridge capture', () => {
       const minters: object[] = [];
       const receipts: Array<{ bundle: number; receipt: unknown }> = [];
       let minterReleases = 0;
+      let expectTerminalReduction = false;
+      let terminalGlobalsClosed = false;
+      let retainedWrapperClosed: Promise<boolean> | undefined;
+      let priorReleaseSawCaptureAbsent: Promise<boolean> | undefined;
       const integration = (bundle: number) => Object.freeze({
         installCanvasContextMinter(minter) {
           minters.push(minter);
+          const retainedGpu = constructionGlobal.navigator.gpu;
           return () => {
             minterReleases += 1;
+            if (!expectTerminalReduction) {
+              priorReleaseSawCaptureAbsent = Promise.resolve().then(
+                () => !(
+                  '__ibexCaptureGpuCanvasRuntimeIntegration' in
+                  constructionGlobal
+                ),
+              );
+            }
+            if (expectTerminalReduction) {
+              terminalGlobalsClosed =
+                !('gpu' in constructionGlobal.navigator) &&
+                !('GPUDevice' in constructionGlobal);
+              try {
+                retainedWrapperClosed = Promise.resolve(
+                  retainedGpu.requestAdapter(),
+                ).then(
+                  () => false,
+                  () => true,
+                );
+              } catch {
+                retainedWrapperClosed = Promise.resolve(true);
+              }
+            }
           };
         },
         deliverCanvasAttachmentReceipt(receipt) {
@@ -187,6 +218,7 @@ describe('construction-private GPU bridge capture', () => {
         throw new Error('runtime capture unexpectedly returned legacy shape');
       }
 
+      expect(captureResult.beginCanvasAppBundle(0)).toBeUndefined();
       const firstCapture = captureResult.beginCanvasAppBundle(1)!;
       expect(Object.getOwnPropertyDescriptor(
         constructionGlobal,
@@ -212,6 +244,8 @@ describe('construction-private GPU bridge capture', () => {
       captureResult.canvasReceiptSink(firstReceipt);
       expect(receipts).toEqual([{ bundle: 1, receipt: firstReceipt }]);
 
+      expect(captureResult.beginCanvasAppBundle(0)).toBeUndefined();
+      await expect(priorReleaseSawCaptureAbsent).resolves.toBe(true);
       const secondCapture = captureResult.beginCanvasAppBundle(1)!;
       expect(minterReleases).toBe(1);
       expect(() => captureResult.canvasReceiptSink(firstReceipt)).toThrow(
@@ -230,9 +264,12 @@ describe('construction-private GPU bridge capture', () => {
         { bundle: 2, receipt: secondReceipt },
       ]);
 
+      expectTerminalReduction = true;
       captureResult.revoke();
       captureResult.revoke();
       expect(minterReleases).toBe(2);
+      expect(terminalGlobalsClosed).toBe(true);
+      await expect(retainedWrapperClosed).resolves.toBe(true);
       expect(() => captureResult.canvasReceiptSink(secondReceipt)).toThrow(
         'receipt integration is unavailable',
       );
@@ -273,6 +310,7 @@ describe('construction-private GPU bridge capture', () => {
       throw new Error('runtime capture unexpectedly returned legacy shape');
     }
 
+    expect(captureResult.beginCanvasAppBundle(0)).toBeUndefined();
     const malformedCapture = captureResult.beginCanvasAppBundle(1)!;
     expect(() => malformedCapture(Object.freeze({
       installCanvasContextMinter: () => () => undefined,
@@ -283,12 +321,14 @@ describe('construction-private GPU bridge capture', () => {
     expect('__ibexCaptureGpuCanvasRuntimeIntegration' in constructionGlobal)
       .toBe(false);
 
+    expect(captureResult.beginCanvasAppBundle(0)).toBeUndefined();
     captureResult.beginCanvasAppBundle(1);
     expect(() => captureResult.beginCanvasAppBundle(1)).toThrow(
       'app-bundle transaction is unavailable',
     );
     expect(captureResult.finishCanvasAppBundle(true)).toBe(false);
 
+    expect(captureResult.beginCanvasAppBundle(0)).toBeUndefined();
     const replacedCapture = captureResult.beginCanvasAppBundle(1)!;
     expect(Reflect.deleteProperty(
       constructionGlobal,
@@ -311,6 +351,7 @@ describe('construction-private GPU bridge capture', () => {
       .toBe(false);
 
     let releaseCalls = 0;
+    expect(captureResult.beginCanvasAppBundle(0)).toBeUndefined();
     const failedEvaluationCapture = captureResult.beginCanvasAppBundle(1)!;
     failedEvaluationCapture(Object.freeze({
       installCanvasContextMinter: () => () => {
@@ -332,8 +373,8 @@ describe('construction-private GPU bridge capture', () => {
         configurable: true,
       },
     );
-    expect(() => captureResult.beginCanvasAppBundle(1)).toThrow(
-      'capture name is already occupied',
+    expect(() => captureResult.beginCanvasAppBundle(0)).toThrow(
+      'preparation is unavailable',
     );
     Reflect.deleteProperty(
       constructionGlobal,

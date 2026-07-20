@@ -664,6 +664,15 @@ struct ExactHermesRuntime {
   uint64_t next_timer_id{1};
   std::unordered_map<uint64_t, TimerEntry> timers;
   std::deque<NextTickEntry> next_tick;
+  // One Canvas acquisition epoch spans the complete outer runtime-owner task,
+  // including nextTick and every microtask slice. Windows can bound one drain
+  // to 1024 jobs, so the active identity survives between poll calls until a
+  // slice reports completion. These fields are owner-thread-only.
+  uint64_t next_gpu_host_task_id{1};
+  uint64_t active_gpu_host_task_id{0};
+  uint32_t gpu_host_task_depth{0};
+  std::atomic<bool> gpu_host_task_microtask_continuation{false};
+  std::atomic<bool> gpu_host_task_checkpoint_failed{false};
   std::mutex task_mutex;
   std::vector<std::function<void(facebook::jsi::Runtime&)>> pending_tasks;
   std::atomic<int> active_spawn_processes{0};
@@ -840,6 +849,32 @@ class ExactRuntimeDriveGuard {
   bool dynamic_scope_active_{false};
   int32_t status_{EXACT_RUNTIME_DRIVE_INVALID};
 };
+
+/// Outermost runtime-owner user-code scope used by the typed Canvas current-
+/// texture lifetime. Destruction is the finally path: it drains nextTick and
+/// microtasks, retaining the same task identity across a bounded Windows
+/// continuation, then invokes the construction-captured GPU checkpoint once.
+/// Nested coercions/callbacks join the existing scope.
+/// @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+class ScopedGpuHostTask {
+ public:
+  explicit ScopedGpuHostTask(ExactHermesRuntime* runtime) noexcept;
+  ~ScopedGpuHostTask();
+  ScopedGpuHostTask(const ScopedGpuHostTask&) = delete;
+  ScopedGpuHostTask& operator=(const ScopedGpuHostTask&) = delete;
+
+  explicit operator bool() const { return active_; }
+  bool finish() noexcept;
+
+ private:
+  ExactHermesRuntime* runtime_{nullptr};
+  bool active_{false};
+};
+
+/// Resume a bounded microtask continuation before admitting a new outer task.
+/// Returns false while another slice is still required or after checkpoint
+/// quarantine. A true result means a fresh task may begin.
+bool exactResumeGpuHostTaskContinuation(ExactHermesRuntime* runtime) noexcept;
 
 /// Irreversibly close all ordinary runtime drive and producer ingress while
 /// retaining only cleanup/query/destruction access to the exact generation.
@@ -2084,6 +2119,7 @@ bool exactGpuAuthenticatedV2ProviderGlobalsActive(
     const ExactHermesRuntime* runtime);
 bool exactGpuAuthenticatedDecodedImageGlobalActive(
     const ExactHermesRuntime* runtime);
+bool exactGpuCheckpointHostTask(ExactHermesRuntime* runtime);
 bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime);
 int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime);
 int32_t exactGpuActivateInstall(ExactHermesRuntime* runtime);
@@ -2098,6 +2134,7 @@ void exactGpuBeginRuntimeTeardown(ExactHermesRuntime* runtime);
 int32_t exactGpuV2ActivateInstall(ExactHermesRuntime* runtime);
 bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime);
 bool exactGpuV2SealPrivateBridge(ExactHermesRuntime* runtime);
+bool exactGpuV2CheckpointHostTask(ExactHermesRuntime* runtime);
 bool exactGpuV2OwnerDrainPending(const ExactHermesRuntime* runtime);
 int exactGpuV2DrainOwnerFallback(ExactHermesRuntime* runtime);
 void exactGpuV2RollbackInstall(ExactHermesRuntime* runtime);

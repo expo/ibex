@@ -1646,6 +1646,7 @@ std::atomic<uint64_t> gGpuV2DeviceLossCalls{0};
 std::atomic<uint64_t> gGpuV2RealmReductionCalls{0};
 std::atomic<uint64_t> gGpuV2WrapperEventCalls{0};
 std::atomic<uint64_t> gGpuV2CanvasReceiptObserverCalls{0};
+std::atomic<uint64_t> gGpuV2HostTaskCheckpointCalls{0};
 std::atomic<uint64_t> gGpuV2LastRejectedPromiseId{0};
 std::atomic<uint64_t> gGpuV2ObserverOrderClock{0};
 std::atomic<uint64_t> gGpuV2LastRawEventOrder{0};
@@ -1730,6 +1731,10 @@ struct ExactGpuRuntimeBindingV2 {
   // revoker by runtime-js. Like every JSI root here it is realm-bound,
   // owner-thread-only, and cleared before Hermes teardown.
   std::shared_ptr<facebook::jsi::Function> canvas_receipt_sink;
+  // Construction-captured, owner-thread-only host-task checkpoint. This is
+  // invoked only after the outer user task and its nextTick/microtask closure
+  // have drained; runtime-js uses it to expire current Canvas textures.
+  std::shared_ptr<facebook::jsi::Function> host_task_checkpoint;
   // Frozen construction-result identities which native invokes around each
   // host-controlled Exact app-bundle evaluation. The temporary root capture
   // itself exists only between those two calls.
@@ -1738,6 +1743,7 @@ struct ExactGpuRuntimeBindingV2 {
   std::shared_ptr<facebook::jsi::Function> canvas_app_bundle_capture;
   uint64_t canvas_app_bundle_generation{0};
   uint32_t canvas_app_bundle_expectation{0};
+  bool canvas_app_bundle_prepared{false};
   bool canvas_app_bundle_open{false};
   bool canvas_app_bundle_committed{false};
   bool service_retained{false};
@@ -2744,10 +2750,12 @@ void revokeGpuV2BridgeCapture(
   }
   binding.revoke_capture.reset();
   binding.canvas_receipt_sink.reset();
+  binding.host_task_checkpoint.reset();
   binding.canvas_app_bundle_begin.reset();
   binding.canvas_app_bundle_finish.reset();
   binding.canvas_app_bundle_capture.reset();
   binding.canvas_app_bundle_expectation = 0;
+  binding.canvas_app_bundle_prepared = false;
   binding.canvas_app_bundle_open = false;
   binding.canvas_app_bundle_committed = false;
   binding.private_bridge.reset();
@@ -4368,10 +4376,12 @@ void ExactGpuRuntimeBindingV2::detach(
   }
   revoke_capture.reset();
   canvas_receipt_sink.reset();
+  host_task_checkpoint.reset();
   canvas_app_bundle_begin.reset();
   canvas_app_bundle_finish.reset();
   canvas_app_bundle_capture.reset();
   canvas_app_bundle_expectation = 0;
+  canvas_app_bundle_prepared = false;
   canvas_app_bundle_open = false;
   canvas_app_bundle_committed = false;
   private_bridge.reset();
@@ -4997,10 +5007,11 @@ bool gpuCanvasAppBundleControllerAvailableV1(
     ExactHermesRuntime* runtime,
     const std::shared_ptr<ExactGpuRuntimeBindingV2>& binding) {
   return runtime && runtime->runtime && !runtime->restricted &&
-      runtime->exact_host_context != EXACT_EMBEDDER_CONTEXT_AGENT && binding &&
-      !binding->detached && binding->realm_open && binding->bridge_captured &&
-      binding->bridge_sealed && binding->canvas_receipt_sink &&
-      binding->canvas_app_bundle_begin && binding->canvas_app_bundle_finish;
+         runtime->exact_host_context != EXACT_EMBEDDER_CONTEXT_AGENT &&
+         binding && !binding->detached && binding->realm_open &&
+         binding->bridge_captured && binding->bridge_sealed &&
+         binding->canvas_receipt_sink && binding->host_task_checkpoint &&
+         binding->canvas_app_bundle_begin && binding->canvas_app_bundle_finish;
 }
 
 }  // namespace
@@ -5037,54 +5048,93 @@ extern "C" int32_t ex_hermes_begin_gpu_canvas_app_bundle_v1(
     return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
   }
 
-  const bool outerEvaluationOpen = runtime->app_bundle_evaluation_open.load(
-      std::memory_order_acquire);
-  if (outerEvaluationOpen) {
-    const uint32_t preparedDisposition =
-        runtime->app_bundle_expected_prepared_disposition;
-    if (!runtime->gpu_canvas_app_bundle_debugger_blocked.load(
-            std::memory_order_acquire) ||
-        (preparedDisposition != 0 &&
-         (preparedDisposition != expectation ||
-          !runtime->app_bundle_prepared_classified ||
-          runtime->app_bundle_prepared_staged ||
-          runtime->app_bundle_prepared_invoked ||
-          !runtime->app_bundle_prepared_consume_gpu_integration ||
-          !runtime->app_bundle_prepared_run_app))) {
+  if (!binding->canvas_app_bundle_prepared) {
+    const bool outerEvaluationOpen =
+        runtime->app_bundle_evaluation_open.load(std::memory_order_acquire);
+    if (outerEvaluationOpen) {
+      const uint32_t preparedDisposition =
+          runtime->app_bundle_expected_prepared_disposition;
+      if (!runtime->gpu_canvas_app_bundle_debugger_blocked.load(
+              std::memory_order_acquire) ||
+          (preparedDisposition != 0 &&
+           (preparedDisposition != expectation ||
+            !runtime->app_bundle_prepared_classified ||
+            runtime->app_bundle_prepared_staged ||
+            runtime->app_bundle_prepared_invoked ||
+            !runtime->app_bundle_prepared_consume_gpu_integration ||
+            !runtime->app_bundle_prepared_run_app))) {
+        (void)exactRuntimeQuarantine(runtime);
+        return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+      }
+      runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
+    } else {
+      runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = true;
+      runtime->app_bundle_immediate_evaluation_completed = false;
+      runtime->app_bundle_immediate_source_fallback_allowed = false;
+    }
+
+    // A legacy standalone transaction closes debugger ingress here. The
+    // staged protocol arrives with the stronger outer exclusion already held.
+    // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
+    if (!outerEvaluationOpen &&
+        !exactRuntimeBeginGpuCanvasDebuggerExclusion(runtime)) {
+      runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
       (void)exactRuntimeQuarantine(runtime);
       return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
     }
-    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
-  } else {
-    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = true;
-    runtime->app_bundle_immediate_evaluation_completed = false;
-    runtime->app_bundle_immediate_source_fallback_allowed = false;
-  }
+    if (!outerEvaluationOpen && (!exactRuntimeEnterUserExecution(runtime) ||
+                                 !runtime->user_execution_started)) {
+      runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+    }
 
-  // A legacy standalone transaction closes debugger ingress here. The staged
-  // protocol arrives with the stronger outer exclusion already held from
-  // before prepared-carrier publication; nested Canvas finish must not reopen
-  // it before runApp cleanup and outer finish.
-  // @ref LLP 0002#the-optional-exact-gpu-service-registration-seam
-  if (!outerEvaluationOpen &&
-      !exactRuntimeBeginGpuCanvasDebuggerExclusion(runtime)) {
-    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
-    (void)exactRuntimeQuarantine(runtime);
-    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
-  }
-  if (!outerEvaluationOpen &&
-      (!exactRuntimeEnterUserExecution(runtime) ||
-       !runtime->user_execution_started)) {
-    // Legacy callers have no outer transaction to seal the construction-only
-    // runtime-js handoff. Do that permanently after debugger ingress closes
-    // and before the Canvas controller can expose its temporary capture root.
-    runtime->gpu_canvas_app_bundle_owns_debugger_exclusion = false;
-    (void)exactRuntimeQuarantine(runtime);
-    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+    // Phase 0 invokes any app-owned release from G(n-1) while the reserved
+    // root is absent. A bounded Windows drain retains this prepared state and
+    // requires the host to poll/retry before phase 1/2 can publish G(n).
+    ScopedGpuHostTask cleanupTask(runtime);
+    if (!cleanupTask) {
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+    }
+    try {
+      auto prepared =
+          binding->canvas_app_bundle_begin->call(*runtime->runtime, 0.0);
+      if (!prepared.isUndefined() || !cleanupTask.finish()) {
+        (void)exactRuntimeQuarantine(runtime);
+        return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+      }
+      binding->canvas_app_bundle_prepared = true;
+      binding->canvas_app_bundle_expectation = expectation;
+      if (runtime->gpu_host_task_microtask_continuation.load(
+              std::memory_order_acquire)) {
+        return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_PENDING_V1;
+      }
+    } catch (...) {
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+    }
+  } else {
+    if (binding->canvas_app_bundle_expectation != expectation) {
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+    }
+    if (runtime->gpu_host_task_microtask_continuation.load(
+            std::memory_order_acquire) &&
+        !exactResumeGpuHostTaskContinuation(runtime)) {
+      if (runtime->gpu_host_task_microtask_continuation.load(
+              std::memory_order_acquire) &&
+          !runtime->gpu_host_task_checkpoint_failed.load(
+              std::memory_order_acquire)) {
+        return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_PENDING_V1;
+      }
+      (void)exactRuntimeQuarantine(runtime);
+      return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+    }
   }
 
   binding->canvas_app_bundle_committed = false;
-  binding->canvas_app_bundle_expectation = expectation;
+  binding->canvas_app_bundle_prepared = false;
   try {
     auto captureValue = binding->canvas_app_bundle_begin->call(
         *runtime->runtime, static_cast<double>(expectation));
@@ -5156,6 +5206,9 @@ void writeGpuCanvasImmediateEvalRefusal(
     char** outError,
     const char* message) noexcept {
   if (outError == nullptr) return;
+  if (*outError != nullptr) {
+    std::free(*outError);
+  }
   *outError = nullptr;
   *outError = copyMallocString(message);
 }
@@ -5215,16 +5268,18 @@ static int32_t evalGpuCanvasAppBundleImmediateV1(
     return EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1;
   }
 
-  const int32_t status = exactHermesEvalImmediateNoJobs(
-      runtime,
-      data,
-      len,
-      source_url,
-      is_bytecode,
-      out_error,
-      prelude_data,
-      prelude_len,
-      prelude_source_url);
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    writeGpuCanvasImmediateEvalRefusal(
+        out_error,
+        "GPU Canvas immediate eval host-task boundary is unavailable");
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
+  }
+
+  int32_t status = exactHermesEvalImmediateNoJobs(
+      runtime, data, len, source_url, is_bytecode, out_error, prelude_data,
+      prelude_len, prelude_source_url);
   if (status == 2 && is_bytecode != 0) {
     runtime->app_bundle_immediate_source_fallback_allowed = true;
   } else {
@@ -5237,6 +5292,30 @@ static int32_t evalGpuCanvasAppBundleImmediateV1(
     // pump callbacks while physical retirement is merely queued. Status 2 is
     // the sole pre-instruction bytecode rejection and may retry source.
     (void)exactRuntimeQuarantine(runtime);
+  }
+#if defined(IBEX_ENABLE_WEBGPU_BINDING)
+  if (status == 0 && canvasOpen) {
+    auto binding = runtime->gpu_binding_v2;
+    if (binding &&
+        binding->canvas_app_bundle_expectation ==
+            EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
+        !gpuCanvasAppBundleCaptureAbsentV1(runtime)) {
+      // A consume-required bundle must take and delete the one-shot handoff
+      // synchronously. Never drain app jobs while that root is exposed: a
+      // queued callback could otherwise steal it after evaluation returns.
+      writeGpuCanvasImmediateEvalRefusal(
+          out_error,
+          "GPU Canvas app bundle did not consume its capture synchronously");
+      (void)exactRuntimeQuarantine(runtime);
+      status = EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1;
+    }
+  }
+#endif
+  if (!hostTask.finish()) {
+    writeGpuCanvasImmediateEvalRefusal(
+        out_error, "GPU Canvas immediate eval host-task checkpoint failed");
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   }
   return status;
 }
@@ -5316,6 +5395,17 @@ extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
     return EXACT_GPU_CANVAS_APP_BUNDLE_INVALID_STATE_V1;
   }
 
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) {
+    (void)exactRuntimeQuarantine(runtime);
+    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+  }
+  auto finishHostTask = [&]() noexcept {
+    if (hostTask.finish()) return true;
+    (void)exactRuntimeQuarantine(runtime);
+    return false;
+  };
+
   if (evaluation_succeeded == 0) {
     // Legacy raw evaluators may report failure here without having used the
     // immediate ABI. Close their world before invoking even trusted controller
@@ -5355,6 +5445,7 @@ extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
     binding->canvas_app_bundle_committed = false;
     failGpuCanvasAppBundleCleanupV1(runtime);
     (void)exactRuntimeQuarantine(runtime);
+    (void)finishHostTask();
     return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
   }
   const bool ownsDebuggerExclusion =
@@ -5365,23 +5456,30 @@ extern "C" int32_t ex_hermes_finish_gpu_canvas_app_bundle_v1(
     binding->canvas_app_bundle_committed = false;
     failGpuCanvasAppBundleCleanupV1(runtime);
     (void)exactRuntimeQuarantine(runtime);
+    (void)finishHostTask();
     return EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1;
   }
   if (controllerFailed) {
     binding->canvas_app_bundle_committed = false;
     (void)exactRuntimeQuarantine(runtime);
+    (void)finishHostTask();
     return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
   }
   if (evaluation_succeeded != 0 &&
       expectation == EXACT_GPU_CANVAS_APP_BUNDLE_CONSUME_REQUIRED_V1 &&
       !consumed) {
     (void)exactRuntimeQuarantine(runtime);
+    (void)finishHostTask();
     return EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1;
   }
   if (evaluation_succeeded != 0 &&
       expectation == EXACT_GPU_CANVAS_APP_BUNDLE_UNUSED_VALID_V1 &&
       consumed) {
     (void)exactRuntimeQuarantine(runtime);
+    (void)finishHostTask();
+    return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
+  }
+  if (!finishHostTask()) {
     return EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1;
   }
   return consumed ? EXACT_GPU_CANVAS_APP_BUNDLE_OK_V1
@@ -5415,10 +5513,13 @@ extern "C" int32_t ex_hermes_deliver_gpu_canvas_attachment_receipt_v1(
       binding->realm.runtime.runtime_nonce != receipt->runtime_generation) {
     return EXACT_RUNTIME_DRIVE_STALE;
   }
+  ScopedGpuHostTask hostTask(runtime);
+  if (!hostTask) return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
   try {
     auto value = makeCanvasAttachmentReceiptValueV1(
         *runtime->runtime, *receipt);
     binding->canvas_receipt_sink->call(*runtime->runtime, value);
+    if (!hostTask.finish()) return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
     return EXACT_RUNTIME_DRIVE_OK;
   } catch (...) {
     return EXACT_RUNTIME_DRIVE_ENGINE_ERROR;
@@ -5521,10 +5622,11 @@ bool exactGpuV2CaptureResultFunctions(
     const facebook::jsi::Value& result,
     std::shared_ptr<facebook::jsi::Function>* outRevoke,
     std::shared_ptr<facebook::jsi::Function>* outCanvasReceiptSink,
+    std::shared_ptr<facebook::jsi::Function>* outHostTaskCheckpoint,
     std::shared_ptr<facebook::jsi::Function>* outCanvasAppBundleBegin,
     std::shared_ptr<facebook::jsi::Function>* outCanvasAppBundleFinish) {
-  if (!runtime || !runtime->runtime || !outRevoke ||
-      !outCanvasReceiptSink || !outCanvasAppBundleBegin ||
+  if (!runtime || !runtime->runtime || !outRevoke || !outCanvasReceiptSink ||
+      !outHostTaskCheckpoint || !outCanvasAppBundleBegin ||
       !outCanvasAppBundleFinish || !result.isObject() ||
       !runtime->root_global_get_own_property_names ||
       !runtime->root_global_get_own_property_symbols ||
@@ -5552,9 +5654,10 @@ bool exactGpuV2CaptureResultFunctions(
   }
   auto names = namesValue.asObject(rt).asArray(rt);
   auto symbols = symbolsValue.asObject(rt).asArray(rt);
-  if (names.size(rt) != 4 || symbols.size(rt) != 0) return false;
+  if (names.size(rt) != 5 || symbols.size(rt) != 0) return false;
   bool sawRevoke = false;
   bool sawCanvasReceiptSink = false;
+  bool sawHostTaskCheckpoint = false;
   bool sawCanvasAppBundleBegin = false;
   bool sawCanvasAppBundleFinish = false;
   for (size_t index = 0; index < names.size(rt); ++index) {
@@ -5565,8 +5668,9 @@ bool exactGpuV2CaptureResultFunctions(
       sawRevoke = true;
     } else if (text == "canvasReceiptSink" && !sawCanvasReceiptSink) {
       sawCanvasReceiptSink = true;
-    } else if (text == "beginCanvasAppBundle" &&
-               !sawCanvasAppBundleBegin) {
+    } else if (text == "checkpointHostTask" && !sawHostTaskCheckpoint) {
+      sawHostTaskCheckpoint = true;
+    } else if (text == "beginCanvasAppBundle" && !sawCanvasAppBundleBegin) {
       sawCanvasAppBundleBegin = true;
     } else if (text == "finishCanvasAppBundle" &&
                !sawCanvasAppBundleFinish) {
@@ -5575,8 +5679,8 @@ bool exactGpuV2CaptureResultFunctions(
       return false;
     }
   }
-  if (!sawRevoke || !sawCanvasReceiptSink || !sawCanvasAppBundleBegin ||
-      !sawCanvasAppBundleFinish) {
+  if (!sawRevoke || !sawCanvasReceiptSink || !sawHostTaskCheckpoint ||
+      !sawCanvasAppBundleBegin || !sawCanvasAppBundleFinish) {
     return false;
   }
 
@@ -5618,14 +5722,16 @@ bool exactGpuV2CaptureResultFunctions(
 
   auto revoke = readFrozenFunction("revoke");
   auto canvasReceiptSink = readFrozenFunction("canvasReceiptSink");
+  auto hostTaskCheckpoint = readFrozenFunction("checkpointHostTask");
   auto canvasAppBundleBegin = readFrozenFunction("beginCanvasAppBundle");
   auto canvasAppBundleFinish = readFrozenFunction("finishCanvasAppBundle");
-  if (!revoke || !canvasReceiptSink || !canvasAppBundleBegin ||
-      !canvasAppBundleFinish) {
+  if (!revoke || !canvasReceiptSink || !hostTaskCheckpoint ||
+      !canvasAppBundleBegin || !canvasAppBundleFinish) {
     return false;
   }
   *outRevoke = std::move(revoke);
   *outCanvasReceiptSink = std::move(canvasReceiptSink);
+  *outHostTaskCheckpoint = std::move(hostTaskCheckpoint);
   *outCanvasAppBundleBegin = std::move(canvasAppBundleBegin);
   *outCanvasAppBundleFinish = std::move(canvasAppBundleFinish);
   return true;
@@ -5818,6 +5924,7 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
     }
     std::shared_ptr<facebook::jsi::Function> revokeCapture;
     std::shared_ptr<facebook::jsi::Function> canvasReceiptSink;
+    std::shared_ptr<facebook::jsi::Function> hostTaskCheckpoint;
     std::shared_ptr<facebook::jsi::Function> canvasAppBundleBegin;
     std::shared_ptr<facebook::jsi::Function> canvasAppBundleFinish;
     if (revokeValue.isObject() &&
@@ -5827,16 +5934,14 @@ bool exactGpuV2PublishPrivateBridge(ExactHermesRuntime* runtime) {
       revokeCapture = std::make_shared<facebook::jsi::Function>(
           revokeValue.getObject(rt).asFunction(rt));
     } else if (!exactGpuV2CaptureResultFunctions(
-                   runtime,
-                   revokeValue,
-                   &revokeCapture,
-                   &canvasReceiptSink,
-                   &canvasAppBundleBegin,
+                   runtime, revokeValue, &revokeCapture, &canvasReceiptSink,
+                   &hostTaskCheckpoint, &canvasAppBundleBegin,
                    &canvasAppBundleFinish)) {
       return false;
     }
     binding.revoke_capture = std::move(revokeCapture);
     binding.canvas_receipt_sink = std::move(canvasReceiptSink);
+    binding.host_task_checkpoint = std::move(hostTaskCheckpoint);
     binding.canvas_app_bundle_begin = std::move(canvasAppBundleBegin);
     binding.canvas_app_bundle_finish = std::move(canvasAppBundleFinish);
     binding.private_bridge = std::move(captured);
@@ -5888,6 +5993,55 @@ bool exactGpuAuthenticatedDecodedImageGlobalActive(
 #else
   return exactGpuAuthenticatedV2ProviderGlobalsActive(runtime) &&
       runtime->gpu_binding_v2->decoded_image_authority_attached;
+#endif
+}
+
+bool exactGpuV2CheckpointHostTask(ExactHermesRuntime* runtime) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  return true;
+#else
+  if (!runtime || !runtime->runtime || !runtime->gpu_binding_v2) return true;
+  auto binding = runtime->gpu_binding_v2;
+  if (binding->detached || !binding->realm_open || !binding->bridge_captured ||
+      !binding->bridge_sealed) {
+    return true;
+  }
+
+  // The legacy function-only construction capture has neither typed Canvas
+  // sink nor task checkpoint. It cannot mint a Canvas current texture, so it
+  // remains a valid no-op compatibility path. A partial typed result is an
+  // invariant failure and must reduce the realm before more user code runs.
+  if (!binding->canvas_receipt_sink && !binding->host_task_checkpoint) {
+    return true;
+  }
+  if (!binding->canvas_receipt_sink || !binding->host_task_checkpoint) {
+    reduceGpuV2Realm(
+        *binding, *runtime->runtime, "protocol-violation",
+        EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION, {},
+        "Exact GPU V2 typed Canvas checkpoint capture is incomplete", true);
+    return false;
+  }
+
+  auto checkpoint = binding->host_task_checkpoint;
+  try {
+    checkpoint->call(*runtime->runtime);
+#ifdef IBEX_GPU_BRIDGE_TEST_HOOKS
+    gGpuV2HostTaskCheckpointCalls.fetch_add(1, std::memory_order_seq_cst);
+#endif
+    return true;
+  } catch (...) {
+    // The wrapper closes its realm when a checkpoint control submission is
+    // rejected. Reduce the native realm too so no later task can retain or
+    // reuse a current texture whose expiry outcome is ambiguous.
+    if (!binding->detached) {
+      reduceGpuV2Realm(*binding, *runtime->runtime,
+                       "host-task-checkpoint-failed",
+                       EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION, {},
+                       "Exact GPU V2 host-task checkpoint failed", true);
+    }
+    return false;
+  }
 #endif
 }
 
@@ -5947,6 +6101,7 @@ extern "C" void ibex_test_gpu_v2_reset_observer(void) {
   gGpuV2RealmReductionCalls.store(0, std::memory_order_seq_cst);
   gGpuV2WrapperEventCalls.store(0, std::memory_order_seq_cst);
   gGpuV2CanvasReceiptObserverCalls.store(0, std::memory_order_seq_cst);
+  gGpuV2HostTaskCheckpointCalls.store(0, std::memory_order_seq_cst);
   gGpuV2LastRejectedPromiseId.store(0, std::memory_order_seq_cst);
   gGpuV2ObserverOrderClock.store(0, std::memory_order_seq_cst);
   gGpuV2LastRawEventOrder.store(0, std::memory_order_seq_cst);
@@ -5973,8 +6128,12 @@ extern "C" int32_t ibex_test_gpu_v2_validate_event(
   return validEventPrefixV2(event) ? 1 : 0;
 }
 
-extern "C" int32_t
-ibex_test_gpu_v2_recent_terminal_rotation_releases_payloads(void) {
+extern "C" uint64_t ibex_test_gpu_v2_host_task_checkpoint_calls() {
+  return gGpuV2HostTaskCheckpointCalls.load(std::memory_order_seq_cst);
+}
+
+extern "C" int32_t ibex_test_gpu_v2_recent_terminal_rotation_releases_payloads(
+    void) {
   try {
     auto mailbox =
         std::make_unique<ExactGpuClientMailboxV2>(RuntimeCallbackTarget{});

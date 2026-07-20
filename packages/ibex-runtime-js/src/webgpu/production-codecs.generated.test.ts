@@ -572,6 +572,26 @@ function textureDestroyServiceBody(
   });
 }
 
+function textureExpireServiceBody(): ProductionGpuCanvasServiceEncoding {
+  const currentOrigin = completeTextureViewCurrentOrigin();
+  return Object.freeze({
+    kind: 'texture-expire-v1',
+    receiverTextureRef: reference('GPUTexture'),
+    expiryIntent: 'host-task-expiry',
+    materializationState: 'materialized',
+    origin: Object.freeze({
+      kind: 'canvas-current-v1',
+      contextRef: currentOrigin.contextRef,
+      attachmentGeneration: currentOrigin.attachmentGeneration,
+      contextGeneration: currentOrigin.contextGeneration,
+      configurationGeneration: currentOrigin.configurationGeneration,
+      currentEpoch: currentOrigin.currentEpoch,
+      mintOperationProvenance: currentOrigin.mintOperationProvenance,
+      textureOriginDigest: currentOrigin.textureOriginDigest,
+    }),
+  });
+}
+
 function serviceInput(
   operationId: string,
   convertedArguments: unknown = operationId === 'GPU.requestAdapter'
@@ -3376,6 +3396,26 @@ describe('generated injection-only WebGPU executable codecs', () => {
       canvasService: expiredDestroyInput.canvasService,
     });
 
+    const hostTaskExpiryInput = Object.freeze({
+      ...serviceInput('GPUTexture.destroy'),
+      canvasService: textureExpireServiceBody(),
+    });
+    const hostTaskExpiryPayload = WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION
+      .encodeServiceRequest(hostTaskExpiryInput) as Uint8Array;
+    expect(WEBGPU_EXECUTABLE_CODEC_TEST_SUPPORT.inspectServiceRequest(
+      hostTaskExpiryPayload,
+    )).toMatchObject({
+      operationId: 'GPUTexture.destroy',
+      codec: 'gpu-texture-cleanup-service-request-v1',
+      convertedArguments: null,
+      canvasService: {
+        kind: 'texture-expire-v1',
+        expiryIntent: 'host-task-expiry',
+        materializationState: 'materialized',
+        origin: { kind: 'canvas-current-v1' },
+      },
+    });
+
     for (const terminalIntent of [
       'first-cleanup',
       'repeat-cleanup-noop',
@@ -3499,6 +3539,27 @@ describe('generated injection-only WebGPU executable codecs', () => {
         'device-created',
       ),
     })).toThrow('cannot carry canvas expiry');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...serviceInput('GPUTexture.destroy'),
+      canvasService: {
+        ...textureExpireServiceBody(),
+        origin: { kind: 'device-created-v1' },
+      } as never,
+    })).toThrow('requires a canvas-current origin');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...serviceInput('GPUTexture.destroy'),
+      canvasService: {
+        ...textureExpireServiceBody(),
+        terminalIntent: 'first-expired-cleanup',
+      } as never,
+    })).toThrow('closed lifecycle body');
+    expect(() => WEBGPU_EXECUTABLE_CODECS_FOR_INJECTION.encodeServiceRequest({
+      ...serviceInput('GPUTexture.destroy'),
+      canvasService: {
+        ...textureExpireServiceBody(),
+        expiryIntent: 'manual-destroy',
+      } as never,
+    })).toThrow('invalid intent');
     const canvasDestroyBody = textureDestroyServiceBody(
       'first-expired-cleanup',
       'canvas-current',
@@ -3538,6 +3599,10 @@ describe('generated injection-only WebGPU executable codecs', () => {
       textureBodyTagOffset,
       textureBodyTagOffset + 3,
     ))).toEqual([2, 1, 2]);
+    expect(Array.from(hostTaskExpiryPayload.slice(
+      textureBodyTagOffset,
+      textureBodyTagOffset + 3,
+    ))).toEqual([3, 1, 2]);
     for (const offset of [
       textureBodyTagOffset,
       textureBodyTagOffset + 1,

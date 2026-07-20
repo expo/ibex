@@ -1852,6 +1852,16 @@ bool exactGpuBindingInstalled(const ExactHermesRuntime* runtime) {
       (runtime->gpu_binding != nullptr || runtime->gpu_binding_v2 != nullptr);
 }
 
+bool exactGpuCheckpointHostTask(ExactHermesRuntime* runtime) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  return true;
+#else
+  if (!runtime || !runtime->gpu_binding_v2) return true;
+  return exactGpuV2CheckpointHostTask(runtime);
+#endif
+}
+
 bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime) {
 #if !defined(IBEX_ENABLE_WEBGPU_BINDING)
   (void)runtime;

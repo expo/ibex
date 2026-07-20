@@ -798,13 +798,13 @@ const REVIEWED_INGRESS_SOURCE_RANGES = Object.freeze({
       "structured-session-ingress",
       'extern "C" uint32_t ex_hermes_structured_session_bind(',
       'extern "C" int ex_hermes_resume_structured_session(',
-      "sha256-WbA5fEcEl_c29Qx-X8Vc4P6mLXVn8DldcT_yrVxF37I",
+      "sha256-LS-Wfp-yswj3U2lZjGS8iGrgrph1Dl7eO_Y-gb1n7_0",
     ),
     freezeReviewedRange(
       "sealed-bare-evaluator",
       'extern "C" int ex_hermes_eval(',
       'extern "C" int ibex_test_install_capsec_context_observer(',
-      "sha256-AYsCE9oCOmwR1lbYo3H6ZKmsgJ73F2Gv_cBkY7vrQyY",
+      "sha256-AMHa5TwtzTfKJhOD5j362cwp-wiwElAvd1jKBobXEUU",
     ),
   ]),
   "src/engine/hermes_structured.rs": Object.freeze([

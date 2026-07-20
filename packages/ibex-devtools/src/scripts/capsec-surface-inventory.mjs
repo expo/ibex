@@ -12009,8 +12009,9 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
   processNode = (node, environment) => {
     if (!node) return;
     observeReviewedPrefixRead(node, environment);
-    // Native retains these two callbacks from the exact frozen V2
-    // construction result and invokes them around a later app-bundle eval.
+    // Native retains these callbacks from the exact frozen V2 construction
+    // result and invokes them around later app-bundle evals or at an outer
+    // host-task checkpoint.
     // Follow that returned controller object just as we follow the original
     // construction capture, otherwise its phase-limited root mutation would
     // disappear from the authored source inventory.
@@ -12036,6 +12037,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
           if (
             !names.some((name) =>
               new Set([
+                "checkpointHostTask",
                 "beginCanvasAppBundle",
                 "finishCanvasAppBundle",
               ]).has(name),

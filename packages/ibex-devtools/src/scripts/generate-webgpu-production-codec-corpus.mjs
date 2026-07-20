@@ -6020,6 +6020,13 @@ function buildCorpus() {
     materializationState,
     origin,
   });
+  const textureExpireBody = (materializationState, origin) => Object.freeze({
+    kind: "texture-expire-v1",
+    receiverTextureRef: canvasTextureRef,
+    expiryIntent: "host-task-expiry",
+    materializationState,
+    origin,
+  });
   const encodeCanvasLifecycleRequest = (
     canvasOperationId,
     receiver,
@@ -6100,6 +6107,16 @@ function buildCorpus() {
           "materialized",
           canvasDestroyCurrentOrigin,
         ),
+      ),
+    }),
+    Object.freeze({
+      id: "texture-expire-host-task-current-request",
+      operationId: textureDestroyOperationId,
+      encoded: encodeCanvasLifecycleRequest(
+        textureDestroyOperationId,
+        canvasTextureRef,
+        convertedTextureDestroy,
+        textureExpireBody("materialized", canvasDestroyCurrentOrigin),
       ),
     }),
     Object.freeze({
@@ -6186,6 +6203,7 @@ function buildCorpus() {
     canvasRequestById.get("canvas-configure-next-generation-request"),
     canvasRequestById.get("canvas-unconfigure-retiring-generation-request"),
     canvasRequestById.get("texture-destroy-expired-canvas-current-request"),
+    canvasRequestById.get("texture-expire-host-task-current-request"),
   ];
   const canvasCarrierMutationCases = Object.freeze([
     Object.freeze({
@@ -6354,6 +6372,9 @@ function buildCorpus() {
   const expiredTextureDestroyBytes = canvasRequestById.get(
     "texture-destroy-expired-canvas-current-request",
   ).encoded.bytes;
+  const hostTaskTextureExpireBytes = canvasRequestById.get(
+    "texture-expire-host-task-current-request",
+  ).encoded.bytes;
   const canvasConfigureEnumOffset = 12 + 41 + 1 + 32 + 5 + 41 + 24 +
     41 + 4 + "bgra8unorm".length + 4 + 4 +
     canvasConfigureBody.viewFormats.reduce(
@@ -6428,6 +6449,14 @@ function buildCorpus() {
       operationId: textureDestroyOperationId,
       mutation: "append-trailing-byte",
       bytes: withTrailingByte(expiredTextureDestroyBytes),
+    },
+    {
+      id: "texture-expire-unknown-control-tag-rejected",
+      operationId: textureDestroyOperationId,
+      mutation: "control-tag-255",
+      bytes: mutatedBytes(hostTaskTextureExpireBytes, (bytes) => {
+        bytes[132] = 0xff;
+      }),
     },
   ]);
   for (const rejection of canvasBinaryRejections) {

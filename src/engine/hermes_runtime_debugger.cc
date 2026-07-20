@@ -17,6 +17,39 @@
 #define EXACT_COMPILE_HERMES_DEBUGGER 0
 #endif
 
+#if EXACT_COMPILE_HERMES_DEBUGGER
+namespace {
+
+constexpr const char* kDebuggerHostTaskUnavailable =
+    "{\"exceptionDetails\":{\"text\":\"Debugger host-task boundary is unavailable\"}}";
+constexpr const char* kDebuggerHostTaskCheckpointFailed =
+    "{\"exceptionDetails\":{\"text\":\"Debugger host-task checkpoint failed\"}}";
+
+struct DebuggerPausedEvalPublishState {
+  std::mutex mutex;
+  bool outer_task_open{true};
+  bool callback_claimed{false};
+  bool has_staged_result{false};
+  std::string staged_result;
+};
+
+std::string debuggerExceptionResult(const std::string& message) {
+  std::ostringstream out;
+  out << "{\"exceptionDetails\":{\"text\":" << jsonString(message) << "}}";
+  return out.str();
+}
+
+std::string debuggerValueResult(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  std::ostringstream out;
+  out << "{\"result\":" << makeRemoteObject(runtime, value) << "}";
+  return out.str();
+}
+
+}  // namespace
+#endif
+
 // ---------------------------------------------------------------------------
 // Debugger API
 // ---------------------------------------------------------------------------
@@ -372,11 +405,12 @@ extern "C" char* ex_hermes_debugger_eval(
     auto pending =
         exactRuntimeAdmitDebuggerCommand(runtime, &admittedDebugger);
     if (!pending || !admittedDebugger) return nullptr;
+    auto publishState = std::make_shared<DebuggerPausedEvalPublishState>();
     std::weak_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debuggerWeak =
         admittedDebugger;
     try {
       admittedDebugger->triggerInterrupt_TS(
-        [runtime, debuggerWeak, pending, expr, frame_index](
+        [runtime, debuggerWeak, pending, publishState, expr, frame_index](
             facebook::hermes::HermesRuntime& rt) {
           if (exactRuntimeDebuggerCommandCancelled(pending)) return;
           if (!exactRuntimeDebuggerIngressAllowed(runtime)) {
@@ -393,49 +427,142 @@ extern "C" char* ex_hermes_debugger_eval(
                 "{\"exceptionDetails\":{\"text\":\"Hermes embedder capability transaction is not finalized\"}}");
             return;
           }
-          auto debugger = debuggerWeak.lock();
-          if (!debugger) {
-            exactRuntimeSettleDebuggerCommand(runtime, pending);
+          ScopedGpuHostTask hostTask(runtime);
+          if (!hostTask) {
+            exactRuntimeSettleDebuggerCommand(
+                runtime, pending, kDebuggerHostTaskUnavailable);
             return;
           }
-          auto ok = debugger->evalWhilePaused(
-              expr,
-              frame_index,
-              [runtime, pending](
-                  facebook::hermes::HermesRuntime& callbackRuntime,
-                  const facebook::hermes::debugger::EvalResult& result) {
-                if (exactRuntimeDebuggerCommandCancelled(pending)) return;
-                std::ostringstream out;
-                if (result.isException) {
-                  out << "{\"exceptionDetails\":{\"text\":"
-                      << jsonString(result.exceptionDetails.text) << "}}";
-                } else {
-                  out << "{\"result\":"
-                      << makeRemoteObject(callbackRuntime, result.value) << "}";
-                }
-                exactRuntimeSettleDebuggerCommand(
-                    runtime, pending, out.str());
-              });
 
-          if (!ok) {
+          auto claimOuterResult =
+              [publishState](std::string result) {
+                std::lock_guard<std::mutex> lock(publishState->mutex);
+                if (publishState->callback_claimed) return;
+                publishState->callback_claimed = true;
+                publishState->has_staged_result = true;
+                publishState->staged_result = std::move(result);
+              };
+
+          auto debugger = debuggerWeak.lock();
+          if (!debugger) {
+            claimOuterResult({});
+          } else {
+            bool pausedEvalAccepted = false;
             try {
-              auto buffer = std::make_shared<facebook::jsi::StringBuffer>(expr);
-              auto result = rt.evaluateJavaScript(buffer, "<cdp>");
-              std::ostringstream out;
-              out << "{\"result\":" << makeRemoteObject(rt, result) << "}";
-              exactRuntimeSettleDebuggerCommand(
-                  runtime, pending, out.str());
+              pausedEvalAccepted = debugger->evalWhilePaused(
+                  expr,
+                  frame_index,
+                  [runtime, pending, publishState](
+                      facebook::hermes::HermesRuntime& callbackRuntime,
+                      const facebook::hermes::debugger::EvalResult& result) {
+                    if (exactRuntimeDebuggerCommandCancelled(pending)) return;
+                    {
+                      std::lock_guard<std::mutex> lock(publishState->mutex);
+                      if (publishState->callback_claimed) return;
+                      publishState->callback_claimed = true;
+                    }
+
+                    ScopedGpuHostTask callbackTask(runtime);
+                    std::string stagedResult;
+                    if (!callbackTask) {
+                      stagedResult = kDebuggerHostTaskUnavailable;
+                    } else {
+                      try {
+                        stagedResult = result.isException
+                            ? debuggerExceptionResult(
+                                  result.exceptionDetails.text)
+                            : debuggerValueResult(
+                                  callbackRuntime, result.value);
+                      } catch (const facebook::jsi::JSError& error) {
+                        stagedResult = debuggerExceptionResult(
+                            error.getMessage());
+                      } catch (const std::exception& error) {
+                        stagedResult = debuggerExceptionResult(error.what());
+                      } catch (...) {
+                        stagedResult = debuggerExceptionResult(
+                            "Unknown debugger result conversion failure");
+                      }
+                      if (!callbackTask.finish()) {
+                        stagedResult = kDebuggerHostTaskCheckpointFailed;
+                      }
+                    }
+
+                    bool publishDirectly = false;
+                    {
+                      std::lock_guard<std::mutex> lock(publishState->mutex);
+                      if (publishState->outer_task_open) {
+                        publishState->has_staged_result = true;
+                        publishState->staged_result = std::move(stagedResult);
+                      } else {
+                        publishDirectly = true;
+                      }
+                    }
+                    if (publishDirectly) {
+                      exactRuntimeSettleDebuggerCommand(
+                          runtime, pending, std::move(stagedResult));
+                    }
+                  });
             } catch (const facebook::jsi::JSError& err) {
-              std::ostringstream out;
-              out << "{\"exceptionDetails\":{\"text\":" << jsonString(err.getMessage()) << "}}";
-              exactRuntimeSettleDebuggerCommand(
-                  runtime, pending, out.str());
+              claimOuterResult(debuggerExceptionResult(err.getMessage()));
             } catch (const std::exception& err) {
-              std::ostringstream out;
-              out << "{\"exceptionDetails\":{\"text\":" << jsonString(err.what()) << "}}";
-              exactRuntimeSettleDebuggerCommand(
-                  runtime, pending, out.str());
+              claimOuterResult(debuggerExceptionResult(err.what()));
+            } catch (...) {
+              claimOuterResult(debuggerExceptionResult(
+                  "Unknown paused debugger evaluation failure"));
             }
+
+            if (!pausedEvalAccepted) {
+              bool runFallback = false;
+              {
+                std::lock_guard<std::mutex> lock(publishState->mutex);
+                if (!publishState->callback_claimed) {
+                  publishState->callback_claimed = true;
+                  runFallback = true;
+                }
+              }
+              if (runFallback) {
+                std::string fallbackResult;
+                try {
+                  auto buffer =
+                      std::make_shared<facebook::jsi::StringBuffer>(expr);
+                  auto result = rt.evaluateJavaScript(buffer, "<cdp>");
+                  fallbackResult = debuggerValueResult(rt, result);
+                } catch (const facebook::jsi::JSError& err) {
+                  fallbackResult = debuggerExceptionResult(err.getMessage());
+                } catch (const std::exception& err) {
+                  fallbackResult = debuggerExceptionResult(err.what());
+                } catch (...) {
+                  fallbackResult = debuggerExceptionResult(
+                      "Unknown debugger evaluation failure");
+                }
+                std::lock_guard<std::mutex> lock(publishState->mutex);
+                publishState->has_staged_result = true;
+                publishState->staged_result = std::move(fallbackResult);
+              }
+            }
+          }
+
+          const bool checkpointSucceeded = hostTask.finish();
+          bool publishStagedResult = false;
+          std::string stagedResult;
+          {
+            std::lock_guard<std::mutex> lock(publishState->mutex);
+            publishState->outer_task_open = false;
+            if (!checkpointSucceeded) {
+              publishState->callback_claimed = true;
+              publishState->has_staged_result = true;
+              publishState->staged_result =
+                  kDebuggerHostTaskCheckpointFailed;
+            }
+            if (publishState->has_staged_result) {
+              publishStagedResult = true;
+              stagedResult = std::move(publishState->staged_result);
+              publishState->has_staged_result = false;
+            }
+          }
+          if (publishStagedResult) {
+            exactRuntimeSettleDebuggerCommand(
+                runtime, pending, std::move(stagedResult));
           }
         });
       exactRuntimeDebuggerInterruptQueuedTestPause(runtime, pending);
@@ -465,22 +592,26 @@ extern "C" char* ex_hermes_debugger_eval(
     if (!exactRuntimeEnterUserExecution(handle)) {
       return std::string();
     }
+    ScopedGpuHostTask hostTask(handle);
+    if (!hostTask) return std::string(kDebuggerHostTaskUnavailable);
     auto& rt = *handle->runtime;
+    std::string stagedResult;
     try {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(expr);
       auto result = rt.evaluateJavaScript(buffer, "<cdp>");
-      std::ostringstream out;
-      out << "{\"result\":" << makeRemoteObject(rt, result) << "}";
-      return out.str();
+      stagedResult = debuggerValueResult(rt, result);
     } catch (const facebook::jsi::JSError& err) {
-      std::ostringstream out;
-      out << "{\"exceptionDetails\":{\"text\":" << jsonString(err.getMessage()) << "}}";
-      return out.str();
+      stagedResult = debuggerExceptionResult(err.getMessage());
     } catch (const std::exception& err) {
-      std::ostringstream out;
-      out << "{\"exceptionDetails\":{\"text\":" << jsonString(err.what()) << "}}";
-      return out.str();
+      stagedResult = debuggerExceptionResult(err.what());
+    } catch (...) {
+      stagedResult = debuggerExceptionResult(
+          "Unknown debugger evaluation failure");
     }
+    if (!hostTask.finish()) {
+      return std::string(kDebuggerHostTaskCheckpointFailed);
+    }
+    return stagedResult;
   });
 
   if (json.empty()) {

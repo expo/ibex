@@ -379,6 +379,11 @@ export interface ProductionWebGpuPrivateBinding {
       authority: ProductionGpuCanvasContextAuthority;
     }>,
   ) => object;
+  /**
+   * Construction-private end-of-host-task control. Native invokes it only
+   * after the outer runtime-owner task has fully drained its continuations.
+   */
+  readonly checkpointHostTask: () => void;
   readonly revoke: () => void;
   readonly inspectForTest?: () => Readonly<{
     current: ProductionWebGpuPrivateBindingInspection;
@@ -460,6 +465,7 @@ export type ProductionWebGpuInstallResult =
     status: 'installed';
     revoke: () => void;
     canvasContextMinter: Readonly<ProductionGpuCanvasContextMinter>;
+    checkpointHostTask: () => void;
   }>;
 
 const U64_MAX_DECIMAL = '18446744073709551615';
@@ -2067,6 +2073,30 @@ export function createProductionWebGpuPrivateBinding(
     context.currentTexture = undefined;
   };
 
+  const encodeCanvasCurrentOrigin = (
+    texture: WrapperState,
+  ): ProductionGpuCanvasCurrentTextureOriginEncoding => {
+    const currentOrigin = texture.currentOrigin;
+    if (texture.kind !== 'GPUTexture' || currentOrigin === undefined) {
+      throw new TypeError('Canvas current texture lacks immutable origin');
+    }
+    return Object.freeze({
+      kind: 'canvas-current-v1',
+      contextRef: currentOrigin.contextRef,
+      attachmentGeneration: currentOrigin.attachmentGeneration,
+      contextGeneration: currentOrigin.contextGeneration,
+      configurationGeneration: currentOrigin.configurationGeneration,
+      currentEpoch: currentOrigin.currentEpoch,
+      mintOperationProvenance: Object.freeze({
+        operationInstanceId:
+          currentOrigin.mintOperationProvenance.operationInstanceId,
+        deviceIngressOrdinal:
+          currentOrigin.mintOperationProvenance.deviceIngressOrdinal,
+      }),
+      textureOriginDigest: currentOrigin.textureOriginDigest,
+    });
+  };
+
   const unlinkConfiguredCanvasContext = (context: WrapperState): void => {
     context.configuredDevice?.configuredCanvasContexts.delete(context);
   };
@@ -2737,6 +2767,107 @@ export function createProductionWebGpuPrivateBinding(
         throw error;
       },
     );
+  };
+
+  const checkpointHostTask = (): void => {
+    if (!realm.active || realm.closeReason !== undefined) {
+      throw namedError('SecurityError', 'WebGPU realm is revoked');
+    }
+    const currentTextures = [...realm.hostCanvasContextsByIdentity.values()]
+      .filter((context) => context.currentTexture !== undefined)
+      .map((context) => {
+        if (
+          context.canvasContextLifecycle !== 'configured' ||
+          !context.currentTexture ||
+          !context.configuredDevice
+        ) {
+          closeRealmCounterIndependently(
+            'canvas-host-task-checkpoint-state',
+            'The WebGPU realm closed after an inconsistent Canvas host-task checkpoint',
+          );
+          throw namedError(
+            'OperationError',
+            'GPUCanvasContext host-task checkpoint state is inconsistent',
+          );
+        }
+        const texture = requireState(context.currentTexture, 'GPUTexture');
+        if (
+          texture.device !== context.configuredDevice ||
+          texture.currentOrigin === undefined ||
+          texture.textureExpired
+        ) {
+          closeRealmCounterIndependently(
+            'canvas-host-task-checkpoint-origin',
+            'The WebGPU realm closed after a Canvas host-task origin mismatch',
+          );
+          throw namedError(
+            'OperationError',
+            'GPUCanvasContext host-task checkpoint origin is inconsistent',
+          );
+        }
+        const expiryAuthority: ProductionGpuCanvasServiceEncoding =
+          Object.freeze({
+            kind: 'texture-expire-v1',
+            receiverTextureRef: reference(texture.wrapper, 'GPUTexture'),
+            expiryIntent: 'host-task-expiry',
+            materializationState: texture.materialized
+              ? 'materialized'
+              : 'unmaterialized',
+            origin: encodeCanvasCurrentOrigin(texture),
+          });
+        return Object.freeze({ context, texture, expiryAuthority });
+      })
+      .sort((left, right) => {
+        const objectOrder = compareCanonicalU64Decimal(
+          left.texture.objectId,
+          right.texture.objectId,
+        );
+        return objectOrder !== 0
+          ? objectOrder
+          : compareCanonicalU64Decimal(
+            left.texture.objectGeneration,
+            right.texture.objectGeneration,
+          );
+      });
+
+    // Validate and encode the complete deterministic set before the first
+    // service submission. Native may have accepted an earlier expiry when a
+    // later one rejects, so the wrapper commits no local epoch transition
+    // until every source-affine control is accepted; the native caller then
+    // reduces the realm if this function throws.
+    const convertedArguments = currentTextures.map(() =>
+      convert('GPUTexture.destroy', [])
+    );
+    for (let index = 0; index < currentTextures.length; index += 1) {
+      const { texture, expiryAuthority } = currentTextures[index]!;
+      submitService(
+        'GPUTexture.destroy',
+        texture,
+        undefined,
+        convertedArguments[index],
+        false,
+        undefined,
+        undefined,
+        (failure) => {
+          if (failure === 'bridge-threw') {
+            closeRealmCounterIndependently(
+              'canvas-host-task-checkpoint-threw',
+              'The WebGPU realm closed because Canvas host-task expiry threw',
+            );
+          }
+        },
+        expiryAuthority,
+      );
+    }
+    for (const { context, texture } of currentTextures) {
+      // Native accepted the source-affine expiry before the wrapper drops its
+      // current identity. Manual destroy is orthogonal: an already-destroyed
+      // current texture still reaches this branch and preserves its immutable
+      // drawing buffer until this exact checkpoint.
+      texture.textureExpired = true;
+      texture.destroyed = true;
+      context.currentTexture = undefined;
+    }
   };
 
   const materializeObject = (
@@ -5778,21 +5909,7 @@ export function createProductionWebGpuPrivateBinding(
     if (currentOrigin === undefined) {
       origin = Object.freeze({ kind: 'device-created-v1' });
     } else {
-      origin = Object.freeze({
-        kind: 'canvas-current-v1',
-        contextRef: currentOrigin.contextRef,
-        attachmentGeneration: currentOrigin.attachmentGeneration,
-        contextGeneration: currentOrigin.contextGeneration,
-        configurationGeneration: currentOrigin.configurationGeneration,
-        currentEpoch: currentOrigin.currentEpoch,
-        mintOperationProvenance: Object.freeze({
-          operationInstanceId:
-            currentOrigin.mintOperationProvenance.operationInstanceId,
-          deviceIngressOrdinal:
-            currentOrigin.mintOperationProvenance.deviceIngressOrdinal,
-        }),
-        textureOriginDigest: currentOrigin.textureOriginDigest,
-      });
+      origin = encodeCanvasCurrentOrigin(texture);
     }
     const textureDestroyServiceAuthority = Object.freeze({
       kind: 'texture-destroy-v1',
@@ -6195,6 +6312,7 @@ export function createProductionWebGpuPrivateBinding(
       );
       return context.wrapper;
     },
+    checkpointHostTask,
     revoke() {
       if (revoked) return;
       revoked = true;
@@ -6328,6 +6446,7 @@ export function installProductionWebGpu(
   return Object.freeze({
     status: 'installed',
     canvasContextMinter,
+    checkpointHostTask: binding.checkpointHostTask,
     revoke() {
       if (revoked) return;
       revoked = true;

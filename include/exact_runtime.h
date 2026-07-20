@@ -158,6 +158,7 @@ typedef enum ExactGpuCanvasAppBundleStatusV1 {
     EXACT_GPU_CANVAS_APP_BUNDLE_HANDOFF_FAILED_V1 = -8,
     EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_FAILED_V1 = -9,
     EXACT_GPU_CANVAS_APP_BUNDLE_REQUIRED_NOT_CONSUMED_V1 = -10,
+    EXACT_GPU_CANVAS_APP_BUNDLE_CLEANUP_PENDING_V1 = -11,
 } ExactGpuCanvasAppBundleStatusV1;
 
 /// Trusted bundle-manifest disposition for one app evaluation. REQUIRED arms

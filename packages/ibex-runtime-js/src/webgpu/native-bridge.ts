@@ -243,8 +243,9 @@ export type NativeGpuBridge = NativeGpuBridgeV1 | NativeGpuBridgeV2;
 export interface NativeGpuCanvasCaptureInstallation {
   readonly revoke: () => void;
   readonly canvasReceiptSink: (receipt: unknown) => void;
+  readonly checkpointHostTask: () => void;
   readonly beginCanvasAppBundle: (
-    expectation: 1 | 2,
+    expectation: 0 | 1 | 2,
   ) => ((candidate: unknown) => void) | undefined;
   readonly finishCanvasAppBundle: (evaluationSucceeded: boolean) => boolean;
 }
@@ -269,9 +270,10 @@ function isExactCanvasCaptureInstallation(
   }
   const keys = Reflect.ownKeys(value);
   if (
-    keys.length !== 4 ||
+    keys.length !== 5 ||
     !keys.includes('revoke') ||
     !keys.includes('canvasReceiptSink') ||
+    !keys.includes('checkpointHostTask') ||
     !keys.includes('beginCanvasAppBundle') ||
     !keys.includes('finishCanvasAppBundle')
   ) {
@@ -281,6 +283,7 @@ function isExactCanvasCaptureInstallation(
     const key of [
       'revoke',
       'canvasReceiptSink',
+      'checkpointHostTask',
       'beginCanvasAppBundle',
       'finishCanvasAppBundle',
     ] as const
@@ -386,6 +389,7 @@ export function installNativeGpuBridgeCapture(
       ? Object.freeze({
         revoke: revokeCapture,
         canvasReceiptSink: installedSurface.canvasReceiptSink,
+        checkpointHostTask: installedSurface.checkpointHostTask,
         beginCanvasAppBundle: installedSurface.beginCanvasAppBundle,
         finishCanvasAppBundle: installedSurface.finishCanvasAppBundle,
       })
