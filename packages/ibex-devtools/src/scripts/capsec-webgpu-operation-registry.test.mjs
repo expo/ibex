@@ -48,13 +48,13 @@ describe("construction-private WebGPU CapSec operation registry", () => {
       authenticated.routes.filter(
         (route) => webGpuOperationSemantics(route).classification === "closed",
       ),
-    ).toHaveLength(19);
+    ).toHaveLength(20);
     expect(
       authenticated.routes.filter(
         (route) =>
           webGpuOperationSemantics(route).classification === "non-capability",
       ),
-    ).toHaveLength(38);
+    ).toHaveLength(37);
   });
 
   test("rejects removed, mutated, and staged-only route identities", () => {

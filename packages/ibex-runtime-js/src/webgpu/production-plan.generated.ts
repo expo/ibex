@@ -6,13 +6,13 @@ export const WEBGPU_PRODUCTION_PLAN = {
   "profileId": "exact-webgpu-v1-draft",
   "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
   "maxPayloadBytes": 16777216,
-  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-queue-write-buffer-queue-write-texture-queue-submit-payload-codegen-input-native-codec-not-installed",
+  "codecReadiness": "generated-injection-and-request-adapter-request-device-create-bind-group-create-bind-group-layout-create-buffer-create-pipeline-layout-create-compute-pipeline-create-render-pipeline-create-sampler-create-texture-create-texture-view-create-command-encoder-create-shader-module-device-destroy-buffer-destroy-map-async-unmap-canvas-configure-canvas-unconfigure-texture-destroy-queue-write-buffer-queue-write-texture-queue-submit-native-codec-not-installed",
   "digests": {
-    "operationSet": "d5f5725c56d9e32890c005f207c2e2c0f43818cf0f21a3b12183d00ae38ccfbb",
-    "semanticProgramSet": "7907857eae018f2c0fe34c224d08d289303397f29f000b672560c651bf979a3a",
-    "runtimeRouting": "e19b24c1db7e34062dcccda48ae7390bde4adc833100da4a328c7fd10d61ff3e",
-    "webgpuCVocabulary": "59a03320bfde1e339ee99425118c9637eaa252ccba236c4a7b053fe02cea8826",
-    "projection": "91dbf635d48069741a4fff75bfd3f0278a99b91fb40820fe558357867fb47e06"
+    "operationSet": "41b52e49656266936aba84237cf5cbdea1003b2c9620e6fa2f8566f30b2f8a2e",
+    "semanticProgramSet": "af41da4035644008c340abd9f62d0e17320ee908f8d0337ce5989e2bb9adbd25",
+    "runtimeRouting": "1a8467941a397d8722e1121d87d4d68e416858f29953feb6f197f0a173e7e61b",
+    "webgpuCVocabulary": "4bf8bed436a8e91c8013fb9ecc9d9efd18c87c6da03c4690e51901439d8ff7c9",
+    "projection": "bd7285fbfe1ae29921ec38ad8f08edd51810823a04486ed6807403d082a509fb"
   },
   "webIdlVocabulary": {
     "bindingPackage": "@webgpu/types",
@@ -290,7 +290,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
   },
   "activeRouteSubset": {
     "scopeId": "native-triangle-plus-typegpu-graduates-plus-product-extensions-v1",
-    "operationCount": 46,
+    "operationCount": 57,
     "operationIds": [
       "GPU.getPreferredCanvasFormat",
       "GPU.requestAdapter",
@@ -300,7 +300,11 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUCanvasContext.getConfiguration",
       "GPUCanvasContext.getCurrentTexture",
       "GPUCanvasContext.unconfigure",
+      "GPUCommandEncoder.beginComputePass",
       "GPUCommandEncoder.beginRenderPass",
+      "GPUCommandEncoder.clearBuffer",
+      "GPUCommandEncoder.copyBufferToBuffer",
+      "GPUCommandEncoder.copyTextureToTexture",
       "GPUCommandEncoder.finish",
       "GPUBuffer.destroy",
       "GPUBuffer.getMappedRange",
@@ -315,6 +319,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUDevice.createSampler",
       "GPUDevice.createTexture",
       "GPUDevice.createCommandEncoder",
+      "GPUDevice.createComputePipeline",
       "GPUDevice.createRenderPipeline",
       "GPUDevice.createShaderModule",
       "GPUDevice.destroy",
@@ -327,9 +332,15 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "GPUQueue.writeBuffer",
       "GPUQueue.writeTexture",
       "GPUQueue.submit",
+      "GPUComputePassEncoder.dispatchWorkgroups",
+      "GPUComputePassEncoder.end",
+      "GPUComputePassEncoder.setBindGroup",
+      "GPUComputePassEncoder.setPipeline",
       "GPURenderPassEncoder.draw",
       "GPURenderPassEncoder.end",
+      "GPURenderPassEncoder.setBindGroup",
       "GPURenderPassEncoder.setPipeline",
+      "GPURenderPassEncoder.setVertexBuffer",
       "GPUTexture.depthOrArrayLayers",
       "GPUTexture.dimension",
       "GPUTexture.format",
@@ -353,100 +364,117 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     "typegpuVersion": "0.11.9",
     "operationCount": 51,
-    "additionalOperationCount": 12,
+    "sourceAdditionalOperationCount": 12,
+    "additionalOperationCount": 1,
     "additionalOperations": [
-      {
-        "operationId": "GPUCommandEncoder.beginComputePass",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 3972379000,
-        "recordIdentitySha256": "78b1c5ec959456d753b7e069c05fbad63bccf2c38f6f1344493a37dbac5aa05c"
-      },
-      {
-        "operationId": "GPUCommandEncoder.clearBuffer",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 2733786132,
-        "recordIdentitySha256": "1444f2a270409c21371a63b12a198326421a0efe8d3bbeb44d1f9f9530c4c1ed"
-      },
-      {
-        "operationId": "GPUCommandEncoder.copyBufferToBuffer",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 3780386829,
-        "recordIdentitySha256": "0d2054e1f453d4da12854ecbfd53b9f50e72523f84ce215e6a954ca95cebf117"
-      },
-      {
-        "operationId": "GPUCommandEncoder.copyTextureToTexture",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 1093035147,
-        "recordIdentitySha256": "8b6426411e4687ef0101458c6cbf4027644377a30a04bd67502c44f0adae9351"
-      },
-      {
-        "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 798975729,
-        "recordIdentitySha256": "f1669f2f242031f01751e6fe6a9c46c9b45202d9352c260103681697e490a48e"
-      },
-      {
-        "operationId": "GPUComputePassEncoder.end",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 2606083284,
-        "recordIdentitySha256": "d4ac559b4e01c07b75295819f1ca676a57babf7674bc3df96346b0e47b4556f0"
-      },
-      {
-        "operationId": "GPUComputePassEncoder.setBindGroup",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 3255367035,
-        "recordIdentitySha256": "7bf508c2ea974f8b92473f5aab528422f0e9c52c18e371b71e6976971c4d0114"
-      },
-      {
-        "operationId": "GPUComputePassEncoder.setPipeline",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 239771785,
-        "recordIdentitySha256": "89a04a0e46b88cbbb2318f3708977ef6c630224c715bb0bb874aa168e29de8e6"
-      },
-      {
-        "operationId": "GPUDevice.createComputePipeline",
-        "memberKind": "method",
-        "disposition": "staged-unroutable-no-prototype-member"
-      },
       {
         "operationId": "GPUQueue.copyExternalImageToTexture",
         "memberKind": "method",
         "disposition": "staged-unroutable-no-prototype-member"
+      }
+    ],
+    "authenticatedPromotions": [
+      {
+        "operationId": "GPUDevice.createComputePipeline",
+        "sourceDisposition": "staged-unroutable-no-prototype-member",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 2342501516,
+        "sourceOperationSemanticSha256": "26b046d57388a595abc66ac3c96e2722ea737b5f80fce67f6a34c8a79d77d590",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-route-and-native-codec-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPUCommandEncoder.beginComputePass",
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 3517777017,
+        "sourceOperationSemanticSha256": "d91e16ba3ccd1430d0d4dba9c2ba5dc4da74ffc38a95b9e956fefdd92e0fce38",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPUCommandEncoder.clearBuffer",
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 3930891724,
+        "sourceOperationSemanticSha256": "fd8c82c5a16bbef0833ca708621cc33bac84c7b600f97f1a8cc6bf82412e7502",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPUCommandEncoder.copyBufferToBuffer",
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 441347126,
+        "sourceOperationSemanticSha256": "d71af2f10f9c12681f2b231a321ea5112405ab07b37d3c4f8a8448a92e3b72c6",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPUCommandEncoder.copyTextureToTexture",
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 2453223652,
+        "sourceOperationSemanticSha256": "685fae3807884b4896021d4da93d72a199060b1415bf115ef45ad3fe3770f43a",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 1945140237,
+        "sourceOperationSemanticSha256": "f543a5c110f0df54a5de9124c87785badee6ef767ef292479aedce5660bbf465",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.end",
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 1131879253,
+        "sourceOperationSemanticSha256": "9816838bf47017a498e417d5ec2f58868a3fa40ea623f0abea6bb01e176aa5d7",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.setBindGroup",
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 2288750516,
+        "sourceOperationSemanticSha256": "202a2b9eab9c3b4c7c4892e86dabb67c4dc86edc7cf86a1908561a10b95d838f",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
+      },
+      {
+        "operationId": "GPUComputePassEncoder.setPipeline",
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 3982602559,
+        "sourceOperationSemanticSha256": "024a5923cfe46a782116c9a434e31ae799b83568813907af9021e5fa23dcadc0",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
       },
       {
         "operationId": "GPURenderPassEncoder.setBindGroup",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 2060088642,
-        "recordIdentitySha256": "4275ca7ab6045fbeb9b5ab1811d121d101e071ae365500ec4f2623073b3e97f0"
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 1203119164,
+        "sourceOperationSemanticSha256": "7aa6c60bcb2ee1a560c96311f1a34c2565b716ea0ea5df66d56098a15049b082",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
       },
       {
         "operationId": "GPURenderPassEncoder.setVertexBuffer",
-        "memberKind": "method",
-        "disposition": "private-wrapper-local-recording-no-dispatch",
-        "localRecordId": 2349223254,
-        "recordIdentitySha256": "564d068ca63aee652e7571913e8a9a3dc13f764a907bdb0546fa8b98710a212c"
+        "sourceDisposition": "private-wrapper-local-recording-no-dispatch",
+        "activeDisposition": "active-private-graduated-route",
+        "sourceOperationWireId": 4000042239,
+        "sourceOperationSemanticSha256": "bac5309e4e26e54dbba62f9885e544920638907a7ddf2d197f44f67871e690b4",
+        "sourceWorkloadCohortSha256": "ec8b168944cc45636078973d06554916d730084f000926bf3e4c51ef5b11f6fe",
+        "disposition": "construction-private-command-program-route-and-queue-submit-codec-public-install-and-support-absent"
       }
     ],
-    "postWebIdlPayloadCodegenInputs": [
-      {
-        "operationId": "GPUDevice.createComputePipeline",
-        "memberKind": "method",
-        "publicArgumentCodec": "gpu-compute-pipeline-descriptor-v1",
-        "resultHandleKind": "GPUComputePipeline",
-        "wireShape": "GPUComputePipelineDescriptor post-Web-IDL owned copy with a full pipeline-layout reference or layout:auto plus one full shader-module reference",
-        "ownership": "construction-private-conversion-only-no-prototype-no-service-route",
-        "disposition": "payload-codegen-input-native-decoder-executor-and-install-absent"
-      }
-    ],
+    "postWebIdlPayloadCodegenInputs": [],
     "localRecordingSubset": {
       "scopeId": "typegpu-private-wrapper-local-recording-v1",
       "identityDomain": "exact/webgpu-staged-local-record/v1",
@@ -729,7 +757,7 @@ export const WEBGPU_PRODUCTION_PLAN = {
     },
     {
       "operationId": "GPUCanvasContext.configure",
-      "wireId": 3865035710,
+      "wireId": 56177326,
       "interfaceName": "GPUCanvasContext",
       "memberName": "configure",
       "memberKind": "method",
@@ -836,6 +864,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "promiseIdentity": "zero-non-applicable"
     },
     {
+      "operationId": "GPUCommandEncoder.beginComputePass",
+      "wireId": 3517777017,
+      "interfaceName": "GPUCommandEncoder",
+      "memberName": "beginComputePass",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUCommandEncoder",
+      "wrapperAllocatedTargetHandleKind": "GPUComputePassEncoder",
+      "resultHandleKind": "GPUComputePassEncoder",
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-compute-pass-descriptor-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "gpu-compute-pass-encoder-handle-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
       "operationId": "GPUCommandEncoder.beginRenderPass",
       "wireId": 1908549907,
       "interfaceName": "GPUCommandEncoder",
@@ -859,6 +914,87 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "gpu-render-pass-encoder-handle-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPUCommandEncoder.clearBuffer",
+      "wireId": 3930891724,
+      "interfaceName": "GPUCommandEncoder",
+      "memberName": "clearBuffer",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUCommandEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-clear-buffer-arguments-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPUCommandEncoder.copyBufferToBuffer",
+      "wireId": 441347126,
+      "interfaceName": "GPUCommandEncoder",
+      "memberName": "copyBufferToBuffer",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUCommandEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-copy-buffer-to-buffer-arguments-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPUCommandEncoder.copyTextureToTexture",
+      "wireId": 2453223652,
+      "interfaceName": "GPUCommandEncoder",
+      "memberName": "copyTextureToTexture",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUCommandEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-copy-texture-to-texture-arguments-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
       "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
     },
@@ -1241,6 +1377,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "promiseIdentity": "zero-non-applicable"
     },
     {
+      "operationId": "GPUDevice.createComputePipeline",
+      "wireId": 2342501516,
+      "interfaceName": "GPUDevice",
+      "memberName": "createComputePipeline",
+      "memberKind": "method",
+      "dispatchClass": "service-submit",
+      "logicalExecutionKind": "service-enqueue",
+      "resultTiming": "synchronous-logical-identity-service-enqueued",
+      "providerSubmission": "semantic-call-device-timeline",
+      "receiverHandleKind": "GPUDevice",
+      "wrapperAllocatedTargetHandleKind": "GPUComputePipeline",
+      "resultHandleKind": "GPUComputePipeline",
+      "serviceReceiverProjection": {
+        "source": "wrapper-full-reference",
+        "kind": "GPUDevice",
+        "flags": 0,
+        "objectIdSource": "wrapperReceiver.logicalHandle",
+        "objectGenerationSource": "wrapperReceiver.lifecycleGeneration"
+      },
+      "publicArgumentCodec": "gpu-compute-pipeline-descriptor-v1",
+      "serviceArgumentCodec": "gpu-create-compute-pipeline-service-request-v1",
+      "serviceCompletionCodec": "terminal-receipt-service-completion-v1",
+      "publicResultCodec": "gpu-compute-pipeline-handle-v1",
+      "operationInstanceIdentity": "required-nonzero-monotonic-per-realm",
+      "promiseIdentity": "zero-non-applicable"
+    },
+    {
       "operationId": "GPUDevice.createRenderPipeline",
       "wireId": 2407151159,
       "interfaceName": "GPUDevice",
@@ -1565,6 +1728,114 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "promiseIdentity": "zero-non-applicable"
     },
     {
+      "operationId": "GPUComputePassEncoder.dispatchWorkgroups",
+      "wireId": 1945140237,
+      "interfaceName": "GPUComputePassEncoder",
+      "memberName": "dispatchWorkgroups",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUComputePassEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-dispatch-workgroups-arguments-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPUComputePassEncoder.end",
+      "wireId": 1131879253,
+      "interfaceName": "GPUComputePassEncoder",
+      "memberName": "end",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUComputePassEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "none-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPUComputePassEncoder.setBindGroup",
+      "wireId": 2288750516,
+      "interfaceName": "GPUComputePassEncoder",
+      "memberName": "setBindGroup",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUComputePassEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-set-bind-group-arguments-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPUComputePassEncoder.setPipeline",
+      "wireId": 3982602559,
+      "interfaceName": "GPUComputePassEncoder",
+      "memberName": "setPipeline",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPUComputePassEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-compute-pipeline-handle-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
       "operationId": "GPURenderPassEncoder.draw",
       "wireId": 3054695767,
       "interfaceName": "GPURenderPassEncoder",
@@ -1619,6 +1890,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
       "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
     },
     {
+      "operationId": "GPURenderPassEncoder.setBindGroup",
+      "wireId": 1203119164,
+      "interfaceName": "GPURenderPassEncoder",
+      "memberName": "setBindGroup",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPURenderPassEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-set-bind-group-arguments-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
       "operationId": "GPURenderPassEncoder.setPipeline",
       "wireId": 551383281,
       "interfaceName": "GPURenderPassEncoder",
@@ -1639,6 +1937,33 @@ export const WEBGPU_PRODUCTION_PLAN = {
         "objectGenerationSource": null
       },
       "publicArgumentCodec": "gpu-render-pipeline-handle-v1",
+      "serviceArgumentCodec": "none-service-request-v1",
+      "serviceCompletionCodec": "none-service-completion-v1",
+      "publicResultCodec": "undefined-v1",
+      "operationInstanceIdentity": "wrapper-allocated-nonzero-carried-in-sealed-local-timeline-record",
+      "promiseIdentity": "zero-non-applicable-sealed-local-timeline-record"
+    },
+    {
+      "operationId": "GPURenderPassEncoder.setVertexBuffer",
+      "wireId": 4000042239,
+      "interfaceName": "GPURenderPassEncoder",
+      "memberName": "setVertexBuffer",
+      "memberKind": "method",
+      "dispatchClass": "wrapper-recording",
+      "logicalExecutionKind": "wrapper-recording",
+      "resultTiming": "synchronous-recording",
+      "providerSubmission": "none",
+      "receiverHandleKind": "GPURenderPassEncoder",
+      "wrapperAllocatedTargetHandleKind": null,
+      "resultHandleKind": null,
+      "serviceReceiverProjection": {
+        "source": "not-carried",
+        "kind": null,
+        "flags": 0,
+        "objectIdSource": null,
+        "objectGenerationSource": null
+      },
+      "publicArgumentCodec": "gpu-set-vertex-buffer-arguments-v1",
       "serviceArgumentCodec": "none-service-request-v1",
       "serviceCompletionCodec": "none-service-completion-v1",
       "publicResultCodec": "undefined-v1",

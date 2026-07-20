@@ -6506,8 +6506,8 @@ function buildCorpus() {
     !queueWriteTextureRequestCodec.executableFromCurrentAuthenticatedInputs ||
     queueWriteTextureRequestCodec.unavailableSemanticFields.length !== 0 ||
     !queueWriteTextureCompletionCodec ||
-    queueWriteTextureRequestCodec.wireTag !== 25 ||
-    queueWriteTextureNativeRoute.request.catalog.wireTag !== 25 ||
+    queueWriteTextureRequestCodec.wireTag !== 26 ||
+    queueWriteTextureNativeRoute.request.catalog.wireTag !== 26 ||
     queueWriteTextureNativeRoute.completion.catalog.wireTag !==
       queueWriteTextureCompletionCodec.wireTag ||
     !queueSubmitRoute ||

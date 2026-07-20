@@ -1716,7 +1716,7 @@ function buildCodecManifest(
         codec?.executableFromCurrentAuthenticatedInputs !== true ||
         codec?.unavailableSemanticFields.length !== 0,
     ) ||
-    nativeCodecPrograms.routes.length !== 22
+    nativeCodecPrograms.routes.length !== 23
   ) {
     throw new Error(
       "canvas configure/unconfigure/texture-destroy native codec boundary drifted",

@@ -93,7 +93,7 @@ interface NativeCodecField {
   readonly constants?: Readonly<{
     magic: 'IBGQ' | 'IBGR';
     version: 1;
-    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25;
+    codecTag: 2 | 3 | 4 | 5 | 6 | 7 | 9 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 | 24 | 25 | 26;
     operationWireId:
       | 1660448199
       | 194635792
@@ -1057,7 +1057,7 @@ const EXPECTED_BUFFER_LIFECYCLE_NATIVE_CODEC_SHA256 =
 const EXPECTED_QUEUE_WRITE_BUFFER_NATIVE_CODEC_SHA256 =
   'a04a12cd84364bc18fd85f4aa9d786aa89d1a06abb4110c7b794b2d9404cc104';
 const EXPECTED_QUEUE_WRITE_TEXTURE_NATIVE_CODEC_SHA256 =
-  '37c01b30cac6f74185db56c7afbce58c17d772daa8b0147ebffd82b0809c6ad6';
+  '6f351b9a6fb152bc15e0c34cc1b5e4fc21bfbb51e1e08e3589f53bca91fe59ba';
 const EXPECTED_QUEUE_SUBMIT_NATIVE_CODEC_SHA256 =
   '7384eadbb32ba1bdbf6986661155b6fc5ce91804d78c90c85b491c05e5ce1bf6';
 const EXPECTED_CANVAS_NATIVE_CODEC_SHA256 =
@@ -3662,11 +3662,16 @@ function validateNativeCodecProgram(
       (candidate) => candidate.operationId === QUEUE_WRITE_TEXTURE_OPERATION_ID,
     ),
   };
+  const queueWriteTextureProgramSha256 = sha256HexUtf8(
+    canonicalManifestJson(queueWriteTextureProgram),
+  );
   if (
-    sha256HexUtf8(canonicalManifestJson(queueWriteTextureProgram)) !==
+    queueWriteTextureProgramSha256 !==
       EXPECTED_QUEUE_WRITE_TEXTURE_NATIVE_CODEC_SHA256
   ) {
-    throw new Error('Invalid authenticated GPUQueue.writeTexture codec program');
+    throw new Error(
+      `Invalid authenticated GPUQueue.writeTexture codec program: ${queueWriteTextureProgramSha256}`,
+    );
   }
   const queueSubmitProgram = {
     types: {
@@ -5031,7 +5036,26 @@ function validateNativeCodecProgram(
     queueSubmitRoute.completion.commonCarrierConstraints.at(-1)?.value !==
       manifest.carrierConstants.EXACT_GPU_RESULT_NONE_V2
   ) {
-    throw new Error('Generated WebGPU native codec program cross-link drifted');
+    throw new Error(
+      `Generated WebGPU native codec program cross-link drifted: ${canonicalManifestJson({
+        manifestObjectKindTags: manifest.objectKindTags,
+        expectedObjectKindTags: Object.fromEntries(
+          Object.entries(expectedObjectKindTags).map(([name, value]) => [
+            name,
+            value ?? null,
+          ]),
+        ),
+        nullResultKind: nullVariant?.resultKind,
+        objectResultKind: objectVariant?.resultKind,
+        carrierConstants: manifest.carrierConstants,
+        completionResultKinds: Object.fromEntries(
+          manifest.nativeCodecPrograms.routes.map((candidate) => [
+            candidate.operationId,
+            candidate.completion.commonCarrierConstraints.at(-1)?.value ?? null,
+          ]),
+        ),
+      })}`,
+    );
   }
   return Object.freeze({
     route,

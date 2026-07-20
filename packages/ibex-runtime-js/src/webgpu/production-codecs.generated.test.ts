@@ -958,7 +958,7 @@ describe('generated injection-only WebGPU executable codecs', () => {
       ],
     });
     expect(WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes)
-      .toHaveLength(22);
+      .toHaveLength(23);
     const destroyProgram = WEBGPU_EXECUTABLE_CODEC_MANIFEST.nativeCodecPrograms.routes.find(
       (route) => route.operationId === 'GPUDevice.destroy',
     )!;
