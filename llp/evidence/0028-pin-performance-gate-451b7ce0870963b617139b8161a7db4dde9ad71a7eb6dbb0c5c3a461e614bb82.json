@@ -1,0 +1,26 @@
+{
+  "schema": "ibex/module-runner-performance-gate/1",
+  "platform": {
+    "os": "macos",
+    "arch": "aarch64"
+  },
+  "advertised": true,
+  "budgets": {
+    "runtimeRatio": 1.25,
+    "checkedCellRatio": 20,
+    "binarySizeRatio": 1.25,
+    "cleanBuildRatio": 1.5
+  },
+  "ratios": {
+    "sourceCold": 0.7909870515008879,
+    "sourceWarm": 0.8099781918871395,
+    "preparedCold": 0.0540946357410591,
+    "preparedWarm": 0.14137303030303028,
+    "checkedCellSetterNamespace": 14.194455462824866,
+    "coldRequireEsm": 0.1730360351040535,
+    "binarySize": 1.0671555028352406,
+    "cleanBuild": 1.037802785774521
+  },
+  "passed": true,
+  "failures": []
+}

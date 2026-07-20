@@ -1,0 +1,3122 @@
+{
+  "artifacts": {
+    "new": {
+      "bundleDigest": "sha256-vpIXQYLev-1Edf-5V6zUx31aiQb01UV_UEh-v22GC5I",
+      "realHermes": {
+        "exitCode": 0,
+        "passedFixtureIds": [
+          "live-mutation",
+          "direct-cycle",
+          "tdz-cycle",
+          "star-ambiguity",
+          "named-re-export",
+          "import-meta",
+          "top-level-await",
+          "dynamic-import",
+          "typescript-jsx",
+          "hermes-for-of-capture",
+          "composed-source-map",
+          "module-goal-strictness"
+        ],
+        "stderrDigest": "sha256-47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+        "stdoutDigest": "sha256-Ho95NcSTn_V5QSKI1gNGdY4kw2U_YSjgUZfKBtw1e3k",
+        "summary": "module-runner spike: 12/12 canonical artifacts ok (real Hermes: /Users/ccheever/projects/ibex/tools/hermes/hermes)"
+      },
+      "sourceMaps": [
+        {
+          "factoryDigest": "sha256-bLGl6BojD9XnVd5RbT8Z9H1VpyOl_hdiTeQtIzJen5A",
+          "fixtureId": "live-mutation",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-IU_qFKHAfiDWJ5S97KDmCCvl4syTzM3r7g3J9iwqo-A",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { count, increment } from \"./counter.js\";\nprint(count);\nincrement();\nprint(count);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-nvS-LYxeGslky0dJvxubbn3aEly5GgyjOCCM9A1QR1I",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-Cjnna0ZE5TIsJsgBeDC1xGgU6sH0843pB6Opnf94SOc",
+          "fixtureId": "live-mutation",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "counter.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "counter.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-968LEWtsoXSOUW42oW4XaN_veROv8PnhYWPUpsYKZ60",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 17,
+              "file": "counter.js.factory.js",
+              "names": [],
+              "sources": [
+                "counter.js"
+              ],
+              "sourcesContent": [
+                "export let count = 0;\nexport function increment() {\n  count += 1;\n}\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-2Dq_zxXfqSVHm75VLvVgLVUdhH9qcGNjWfbNF5_DLbo",
+            "sourceLineOracle": null
+          },
+          "sourceName": "counter.js"
+        },
+        {
+          "factoryDigest": "sha256-jcr9RV7CI3DV68Z81s-aMItGBbI-usk9PIw_hQLRx5k",
+          "fixtureId": "direct-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { result } from \"./a.js\";\nprint(result);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-bWEz4wT9gVzIVlDKecx8EytplbS5nWAsTv-7vlHPr2I",
+          "fixtureId": "direct-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "a.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "a.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-SO4jrFP2NvzKIeJVNNK0KOBgU_LF-nzzIpLaf2L7pJ4",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 17,
+              "file": "a.js.factory.js",
+              "names": [],
+              "sources": [
+                "a.js"
+              ],
+              "sourcesContent": [
+                "import { fromA } from \"./b.js\";\nexport function getA() {\n  return \"A\";\n}\nexport const result = fromA;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-NexRDX447TJWVOFwqXQAA-7OjUE_bmsN38VEgB3bQqY",
+            "sourceLineOracle": null
+          },
+          "sourceName": "a.js"
+        },
+        {
+          "factoryDigest": "sha256-RPxdY65eDDVp4BC4H9yVVfmlbb48gcOWnUR7FkIevXU",
+          "fixtureId": "direct-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "b.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "b.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-fbLq5OJ6JX8VYhm7VZCBhA8og-KEyZ0rh4bIrCHJKf0",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "b.js.factory.js",
+              "names": [],
+              "sources": [
+                "b.js"
+              ],
+              "sourcesContent": [
+                "import { getA } from \"./a.js\";\nexport const fromA = getA() + \":B\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-hSMxVSoqQUtdiqJAxBNAlzAUx07gdfiRvWTXbpLHbqU",
+            "sourceLineOracle": null
+          },
+          "sourceName": "b.js"
+        },
+        {
+          "factoryDigest": "sha256-AzbM9VHHO57UQN2R3z4RdUSbho_ia7kGZqRvN-m2Ioc",
+          "fixtureId": "tdz-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { observed } from \"./a.js\";\nprint(observed);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-VPt8BHFfgSOCeNnxgmx6tSfw4kF5U_5QKbzgDRhRs5c",
+          "fixtureId": "tdz-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "a.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "a.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "a.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "a.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-183-F5mN_-WQ2ib7v7Da6dV65-_myGwkTabusNDHppE",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 16,
+              "file": "a.js.factory.js",
+              "names": [],
+              "sources": [
+                "a.js"
+              ],
+              "sourcesContent": [
+                "import { valueB } from \"./b.js\";\nexport const valueA = \"A\";\nexport const observed = valueB;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-6fsdoEFThEACGkGijhmfwYsMxS0OURp_j0O5fbVT0rE",
+            "sourceLineOracle": null
+          },
+          "sourceName": "a.js"
+        },
+        {
+          "factoryDigest": "sha256-yT-jk-2enrYWBP34kv1VvGkBFhe-pH5H_2w2XndgWuo",
+          "fixtureId": "tdz-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "b.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "b.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-fbLq5OJ6JX8VYhm7VZCBhA8og-KEyZ0rh4bIrCHJKf0",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "b.js.factory.js",
+              "names": [],
+              "sources": [
+                "b.js"
+              ],
+              "sourcesContent": [
+                "import { valueA } from \"./a.js\";\nexport const valueB = valueA;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-hSMxVSoqQUtdiqJAxBNAlzAUx07gdfiRvWTXbpLHbqU",
+            "sourceLineOracle": null
+          },
+          "sourceName": "b.js"
+        },
+        {
+          "factoryDigest": "sha256-9baDlJ6pzI-aSJi1v7fQchDxFdp7Puacbg9edzzK9BM",
+          "fixtureId": "star-ambiguity",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import * as namespace from \"./hub.js\";\nprint(Object.keys(namespace).join(\",\"));\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-iiZGkxlz-2VBBrOwR2eKeHvmKZNwtHx2TAkeH8_XOQY",
+          "fixtureId": "star-ambiguity",
+          "sourceMap": {
+            "decodedSegments": [],
+            "decodedSegmentsDigest": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "hub.js.factory.js",
+              "names": [],
+              "sources": [
+                "hub.js"
+              ],
+              "sourcesContent": [
+                "export * from \"./left.js\";\nexport * from \"./right.js\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+            "sourceLineOracle": null
+          },
+          "sourceName": "hub.js"
+        },
+        {
+          "factoryDigest": "sha256-hsgPd2LxKv0tVMR6s1B9ucKt3Qcx0iuQkoCQoNFoX_o",
+          "fixtureId": "star-ambiguity",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "left.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "left.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "left.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "left.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-V0ysgIzQRPTgzPWV2sqig2-pUkA3cN4F9D3S5pYZDhE",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 16,
+              "file": "left.js.factory.js",
+              "names": [],
+              "sources": [
+                "left.js"
+              ],
+              "sourcesContent": [
+                "export const shared = \"left-shared\";\nexport const left = \"left\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-3t7SYFqYg8plPmjCCSh3_SX68qTflLRvUj6_aIwTEjA",
+            "sourceLineOracle": null
+          },
+          "sourceName": "left.js"
+        },
+        {
+          "factoryDigest": "sha256-TGZeYH_zCGUNR-yHv3uTef6hdjuA-lTUJoqJFNQOHc0",
+          "fixtureId": "star-ambiguity",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "right.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "right.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "right.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "right.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-Ch5tDDxQZpBD1vsggKEcPNwD_9-NSoucJ8Sb-NhzchM",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 16,
+              "file": "right.js.factory.js",
+              "names": [],
+              "sources": [
+                "right.js"
+              ],
+              "sourcesContent": [
+                "export const shared = \"right-shared\";\nexport const right = \"right\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-3t7SYFqYg8plPmjCCSh3_SX68qTflLRvUj6_aIwTEjA",
+            "sourceLineOracle": null
+          },
+          "sourceName": "right.js"
+        },
+        {
+          "factoryDigest": "sha256-JyD5zJqOEANnsSW5Eh1XxYZfv5YY6gK35k3bnscJHOY",
+          "fixtureId": "named-re-export",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { renamed } from \"./hub.js\";\nprint(\"named:\" + renamed);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-iiZGkxlz-2VBBrOwR2eKeHvmKZNwtHx2TAkeH8_XOQY",
+          "fixtureId": "named-re-export",
+          "sourceMap": {
+            "decodedSegments": [],
+            "decodedSegmentsDigest": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "hub.js.factory.js",
+              "names": [],
+              "sources": [
+                "hub.js"
+              ],
+              "sourcesContent": [
+                "export { value as renamed } from \"./dep.js\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+            "sourceLineOracle": null
+          },
+          "sourceName": "hub.js"
+        },
+        {
+          "factoryDigest": "sha256-UrGD7E4Jsuko1bSdWMUFaCiDtp0qUT6l76M7ogJd744",
+          "fixtureId": "named-re-export",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-zCR2q1dhQZwuUzsg1Xh7a1uio6FT4z4R5bZRUxv2V38",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "dep.js.factory.js",
+              "names": [],
+              "sources": [
+                "dep.js"
+              ],
+              "sourcesContent": [
+                "export const value = 41;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-1YTcnoYaozQ8Q4mkII1eSlfuQb2ALbZar3mYufj0fJ8",
+            "sourceLineOracle": null
+          },
+          "sourceName": "dep.js"
+        },
+        {
+          "factoryDigest": "sha256-5hlm2ohT6cMOVY6Auwl8whg087OEFDNkAUCkvj0nN60",
+          "fixtureId": "import-meta",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-x5DGgxvo15fKGmAjeU6Ovs0OMNoOAIMDjCIV0yXVZFs",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 12,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "print(import.meta.url);\nprint(import.meta.main);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-FbSQ1dDeAEzz9K-Q_SHhW16ROQMRFEh8RvM6v3Ov-Qc",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-kPxjhTyubh8CWGxAQjI63mm110entYIt-vFjWNf4BA8",
+          "fixtureId": "top-level-await",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { value } from \"./dep.js\";\nprint(value);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-HgtzWms7yFKsGHFr9c6DjXv4xDvP4LdICbgxEtdEBs8",
+          "fixtureId": "top-level-await",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-zCR2q1dhQZwuUzsg1Xh7a1uio6FT4z4R5bZRUxv2V38",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "dep.js.factory.js",
+              "names": [],
+              "sources": [
+                "dep.js"
+              ],
+              "sourcesContent": [
+                "export const value = await Promise.resolve(42);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-1YTcnoYaozQ8Q4mkII1eSlfuQb2ALbZar3mYufj0fJ8",
+            "sourceLineOracle": null
+          },
+          "sourceName": "dep.js"
+        },
+        {
+          "factoryDigest": "sha256-CYHdwNmScw6IZcIh_ltia4RC0ULdPhY34b9I8CjFtIQ",
+          "fixtureId": "dynamic-import",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-x5DGgxvo15fKGmAjeU6Ovs0OMNoOAIMDjCIV0yXVZFs",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 12,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "const namespace = await import(\"./dep.js\");\nprint(\"dynamic:\" + namespace.value);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-FbSQ1dDeAEzz9K-Q_SHhW16ROQMRFEh8RvM6v3Ov-Qc",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-psrazESuF_qlfErk2oC8PeL4BeAT8GT4jdD54gawOjs",
+          "fixtureId": "dynamic-import",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-zCR2q1dhQZwuUzsg1Xh7a1uio6FT4z4R5bZRUxv2V38",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "dep.js.factory.js",
+              "names": [],
+              "sources": [
+                "dep.js"
+              ],
+              "sourcesContent": [
+                "export const value = 7;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-1YTcnoYaozQ8Q4mkII1eSlfuQb2ALbZar3mYufj0fJ8",
+            "sourceLineOracle": null
+          },
+          "sourceName": "dep.js"
+        },
+        {
+          "factoryDigest": "sha256-G44Sy-QwqyD-kZHAk6LZjF9tofEDw6tP_fpdXa6_u88",
+          "fixtureId": "typescript-jsx",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 7,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-3e6m5c0QSDVX4xylQKVjCThkM662U9ryNL1gs7UTc28",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 17,
+              "file": "entry.tsx.factory.js",
+              "names": [],
+              "sources": [
+                "entry.tsx"
+              ],
+              "sourcesContent": [
+                "const React = {\n  createElement(tag: string, _props: unknown, child: string) {\n    return tag + \":\" + child;\n  },\n};\nexport const view: string = <section>ok</section>;\nprint(view);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-3q4rnV6CbiWQBlBZcLQbBm1jEHmsNLkLFH8ArGoDzkU",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.tsx"
+        },
+        {
+          "factoryDigest": "sha256-XmXJHlyQteVp3lubtqI_GWVjH-T-Mhmr9bA6VsbT-Vk",
+          "fixtureId": "hermes-for-of-capture",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 15,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 16,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 17,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 18,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 19,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-F_s21buoKbaOdjEgP2TgMq93Hi2hZcBHfWY5HSfW4uY",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 22,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "const callbacks = [];\nfor (const item of [\"a\", \"b\"]) {\n  callbacks.push(() => item);\n}\nexport const joined = callbacks.map((callback) => callback()).join(\",\");\nprint(joined);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-Rf1z8SufLmQTyZ9gnYeevaiUiyx-S8q-VNVhFyGEXSg",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-Iw9ieH-mENBo8Conek2lzvlUB4Er5_y4ng7WhnhU4rc",
+          "fixtureId": "composed-source-map",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-vIZx68rZAe2yPetu5qHAPJlLvrIyvRzriW6u9ZmDlLQ",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 15,
+              "file": "entry.ts.factory.js",
+              "names": [],
+              "sources": [
+                "entry.ts"
+              ],
+              "sourcesContent": [
+                "function explode(): never {\n  const detail: string = \"mapped failure\";\n  throw new Error(detail);\n}\nexplode();\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-DvQs5Xl-gMgTqq7mEV3KCWtYgsa-ABU8VXTuRWTnXAg",
+            "sourceLineOracle": {
+              "expectedOriginalLine": 3,
+              "generatedLine": 10,
+              "observedOriginalLine": 3
+            }
+          },
+          "sourceName": "entry.ts"
+        },
+        {
+          "factoryDigest": "sha256-yFlmtnOk-dfiGBYK4xHoVGQHxXn9eV8wiz8_CwVHo0I",
+          "fixtureId": "module-goal-strictness",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 7,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-ufCajz57N3l63dpJjY9H024iGX0DVou8V0BjZC3AZZA",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 17,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "print(String(this));\nprint(typeof arguments);\ntry {\n  accidentalGlobal = 1;\n} catch (error) {\n  print(error.name);\n}\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-ll0cAdlvu3YNhGZzXs-n496uQfHT01hBsUCMsfXeAhA",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        }
+      ],
+      "transformFingerprint": "ibex-module-runner-spike/3+config/sha256-nktvy-N0m45bAF1gYjj-lT0JqF40F8zYQLQCzQRFvbw"
+    },
+    "old": {
+      "bundleDigest": "sha256-7FTwwMXQep1clb3xpg2gXrsWHRoWi_hvJQAeR6F0grQ",
+      "realHermes": {
+        "exitCode": 0,
+        "passedFixtureIds": [
+          "live-mutation",
+          "direct-cycle",
+          "tdz-cycle",
+          "star-ambiguity",
+          "named-re-export",
+          "import-meta",
+          "top-level-await",
+          "dynamic-import",
+          "typescript-jsx",
+          "hermes-for-of-capture",
+          "composed-source-map",
+          "module-goal-strictness"
+        ],
+        "stderrDigest": "sha256-47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+        "stdoutDigest": "sha256-Ho95NcSTn_V5QSKI1gNGdY4kw2U_YSjgUZfKBtw1e3k",
+        "summary": "module-runner spike: 12/12 canonical artifacts ok (real Hermes: /Users/ccheever/projects/ibex/tools/hermes/hermes)"
+      },
+      "sourceMaps": [
+        {
+          "factoryDigest": "sha256-bLGl6BojD9XnVd5RbT8Z9H1VpyOl_hdiTeQtIzJen5A",
+          "fixtureId": "live-mutation",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-IU_qFKHAfiDWJ5S97KDmCCvl4syTzM3r7g3J9iwqo-A",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { count, increment } from \"./counter.js\";\nprint(count);\nincrement();\nprint(count);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-nvS-LYxeGslky0dJvxubbn3aEly5GgyjOCCM9A1QR1I",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-Cjnna0ZE5TIsJsgBeDC1xGgU6sH0843pB6Opnf94SOc",
+          "fixtureId": "live-mutation",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "counter.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "counter.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-c9sMLv8KFe9nTucCHu-EK2lgHZbypVGieoi8jqhI8eI",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 17,
+              "file": "counter.js.factory.js",
+              "names": [],
+              "sources": [
+                "counter.js"
+              ],
+              "sourcesContent": [
+                "export let count = 0;\nexport function increment() {\n  count += 1;\n}\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-ucHdHYe2jG0LncDLxGCGYhCvPBCyxlc1dL8ry6WHvxs",
+            "sourceLineOracle": null
+          },
+          "sourceName": "counter.js"
+        },
+        {
+          "factoryDigest": "sha256-jcr9RV7CI3DV68Z81s-aMItGBbI-usk9PIw_hQLRx5k",
+          "fixtureId": "direct-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { result } from \"./a.js\";\nprint(result);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-bWEz4wT9gVzIVlDKecx8EytplbS5nWAsTv-7vlHPr2I",
+          "fixtureId": "direct-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "a.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "a.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-d_a-d0LbuwBxfoWTSpKle6Q5TfDH52LnzMczSLOMcqc",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 17,
+              "file": "a.js.factory.js",
+              "names": [],
+              "sources": [
+                "a.js"
+              ],
+              "sourcesContent": [
+                "import { fromA } from \"./b.js\";\nexport function getA() {\n  return \"A\";\n}\nexport const result = fromA;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-3xpGHtqDOfWrOgLSvBPwIEw7mZIh4ywEnTju7ayOubo",
+            "sourceLineOracle": null
+          },
+          "sourceName": "a.js"
+        },
+        {
+          "factoryDigest": "sha256-RPxdY65eDDVp4BC4H9yVVfmlbb48gcOWnUR7FkIevXU",
+          "fixtureId": "direct-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "b.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "b.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-CR0MdHOmp40GZ_xafeV2p_8hCH_e-LdU_8QgL-NH8WE",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "b.js.factory.js",
+              "names": [],
+              "sources": [
+                "b.js"
+              ],
+              "sourcesContent": [
+                "import { getA } from \"./a.js\";\nexport const fromA = getA() + \":B\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-d0nRrWgX69E8vHaS3iR3zym3s-KiER7VNFyZkZA0WEo",
+            "sourceLineOracle": null
+          },
+          "sourceName": "b.js"
+        },
+        {
+          "factoryDigest": "sha256-AzbM9VHHO57UQN2R3z4RdUSbho_ia7kGZqRvN-m2Ioc",
+          "fixtureId": "tdz-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { observed } from \"./a.js\";\nprint(observed);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-VPt8BHFfgSOCeNnxgmx6tSfw4kF5U_5QKbzgDRhRs5c",
+          "fixtureId": "tdz-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "a.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "a.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "a.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "a.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-rw30BzTcZ5A4S89su9Zsk8JB6UglQY90dVoCP5wck4g",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 16,
+              "file": "a.js.factory.js",
+              "names": [],
+              "sources": [
+                "a.js"
+              ],
+              "sourcesContent": [
+                "import { valueB } from \"./b.js\";\nexport const valueA = \"A\";\nexport const observed = valueB;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-z7t5-hdHs3P_Wl0J6W3u9k_Fj8tklUtXLmTi7uQRoK4",
+            "sourceLineOracle": null
+          },
+          "sourceName": "a.js"
+        },
+        {
+          "factoryDigest": "sha256-yT-jk-2enrYWBP34kv1VvGkBFhe-pH5H_2w2XndgWuo",
+          "fixtureId": "tdz-cycle",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "b.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "b.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-CR0MdHOmp40GZ_xafeV2p_8hCH_e-LdU_8QgL-NH8WE",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "b.js.factory.js",
+              "names": [],
+              "sources": [
+                "b.js"
+              ],
+              "sourcesContent": [
+                "import { valueA } from \"./a.js\";\nexport const valueB = valueA;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-d0nRrWgX69E8vHaS3iR3zym3s-KiER7VNFyZkZA0WEo",
+            "sourceLineOracle": null
+          },
+          "sourceName": "b.js"
+        },
+        {
+          "factoryDigest": "sha256-9baDlJ6pzI-aSJi1v7fQchDxFdp7Puacbg9edzzK9BM",
+          "fixtureId": "star-ambiguity",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import * as namespace from \"./hub.js\";\nprint(Object.keys(namespace).join(\",\"));\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-iiZGkxlz-2VBBrOwR2eKeHvmKZNwtHx2TAkeH8_XOQY",
+          "fixtureId": "star-ambiguity",
+          "sourceMap": {
+            "decodedSegments": [],
+            "decodedSegmentsDigest": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "hub.js.factory.js",
+              "names": [],
+              "sources": [
+                "hub.js"
+              ],
+              "sourcesContent": [
+                "export * from \"./left.js\";\nexport * from \"./right.js\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+            "sourceLineOracle": null
+          },
+          "sourceName": "hub.js"
+        },
+        {
+          "factoryDigest": "sha256-hsgPd2LxKv0tVMR6s1B9ucKt3Qcx0iuQkoCQoNFoX_o",
+          "fixtureId": "star-ambiguity",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "left.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "left.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "left.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "left.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-8AasmMM0vTy4nr66H1tWxcUMpXend26m_S_nMtdMW_w",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 16,
+              "file": "left.js.factory.js",
+              "names": [],
+              "sources": [
+                "left.js"
+              ],
+              "sourcesContent": [
+                "export const shared = \"left-shared\";\nexport const left = \"left\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-Vwv15hw39yhXWxcG9NWgB-rdaPbyAsgNsTVZxEf1kd8",
+            "sourceLineOracle": null
+          },
+          "sourceName": "left.js"
+        },
+        {
+          "factoryDigest": "sha256-TGZeYH_zCGUNR-yHv3uTef6hdjuA-lTUJoqJFNQOHc0",
+          "fixtureId": "star-ambiguity",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "right.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "right.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "right.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "right.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-bnX0opdafEnpMVNPFoC6YkY40UL5aRIYk03lG5C339I",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 16,
+              "file": "right.js.factory.js",
+              "names": [],
+              "sources": [
+                "right.js"
+              ],
+              "sourcesContent": [
+                "export const shared = \"right-shared\";\nexport const right = \"right\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-Vwv15hw39yhXWxcG9NWgB-rdaPbyAsgNsTVZxEf1kd8",
+            "sourceLineOracle": null
+          },
+          "sourceName": "right.js"
+        },
+        {
+          "factoryDigest": "sha256-JyD5zJqOEANnsSW5Eh1XxYZfv5YY6gK35k3bnscJHOY",
+          "fixtureId": "named-re-export",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { renamed } from \"./hub.js\";\nprint(\"named:\" + renamed);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-iiZGkxlz-2VBBrOwR2eKeHvmKZNwtHx2TAkeH8_XOQY",
+          "fixtureId": "named-re-export",
+          "sourceMap": {
+            "decodedSegments": [],
+            "decodedSegmentsDigest": "sha256-T1PNoYwrqgwDVLtfmj7L5e0Sq02OEbqHPC8RFhICuUU",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "hub.js.factory.js",
+              "names": [],
+              "sources": [
+                "hub.js"
+              ],
+              "sourcesContent": [
+                "export { value as renamed } from \"./dep.js\";\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+            "sourceLineOracle": null
+          },
+          "sourceName": "hub.js"
+        },
+        {
+          "factoryDigest": "sha256-UrGD7E4Jsuko1bSdWMUFaCiDtp0qUT6l76M7ogJd744",
+          "fixtureId": "named-re-export",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "dep.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-ZmJAXsJ-cjRyM8MhT6M_xRwd3-L--kKSIetveQyqPZQ",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "dep.js.factory.js",
+              "names": [],
+              "sources": [
+                "dep.js"
+              ],
+              "sourcesContent": [
+                "export const value = 41;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-z5s6PqTjZYf8S4OqP2Zeq6ogdR1K6-2bnnBV2zHnYDc",
+            "sourceLineOracle": null
+          },
+          "sourceName": "dep.js"
+        },
+        {
+          "factoryDigest": "sha256-5hlm2ohT6cMOVY6Auwl8whg087OEFDNkAUCkvj0nN60",
+          "fixtureId": "import-meta",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-x5DGgxvo15fKGmAjeU6Ovs0OMNoOAIMDjCIV0yXVZFs",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 12,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "print(import.meta.url);\nprint(import.meta.main);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-FbSQ1dDeAEzz9K-Q_SHhW16ROQMRFEh8RvM6v3Ov-Qc",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-kPxjhTyubh8CWGxAQjI63mm110entYIt-vFjWNf4BA8",
+          "fixtureId": "top-level-await",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-tOmb_Tx_GcIKIDuvvCjpprQbiiJyTayZqRWkkD1SCFo",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 11,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "import { value } from \"./dep.js\";\nprint(value);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-jYWIkpeTSGge-TF50TvEPLyvimbZYMNaaN67QqKjEgk",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-HgtzWms7yFKsGHFr9c6DjXv4xDvP4LdICbgxEtdEBs8",
+          "fixtureId": "top-level-await",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "dep.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-ZmJAXsJ-cjRyM8MhT6M_xRwd3-L--kKSIetveQyqPZQ",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "dep.js.factory.js",
+              "names": [],
+              "sources": [
+                "dep.js"
+              ],
+              "sourcesContent": [
+                "export const value = await Promise.resolve(42);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-z5s6PqTjZYf8S4OqP2Zeq6ogdR1K6-2bnnBV2zHnYDc",
+            "sourceLineOracle": null
+          },
+          "sourceName": "dep.js"
+        },
+        {
+          "factoryDigest": "sha256-CYHdwNmScw6IZcIh_ltia4RC0ULdPhY34b9I8CjFtIQ",
+          "fixtureId": "dynamic-import",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-x5DGgxvo15fKGmAjeU6Ovs0OMNoOAIMDjCIV0yXVZFs",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 12,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "const namespace = await import(\"./dep.js\");\nprint(\"dynamic:\" + namespace.value);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-FbSQ1dDeAEzz9K-Q_SHhW16ROQMRFEh8RvM6v3Ov-Qc",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-psrazESuF_qlfErk2oC8PeL4BeAT8GT4jdD54gawOjs",
+          "fixtureId": "dynamic-import",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "dep.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "dep.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-ZmJAXsJ-cjRyM8MhT6M_xRwd3-L--kKSIetveQyqPZQ",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 13,
+              "file": "dep.js.factory.js",
+              "names": [],
+              "sources": [
+                "dep.js"
+              ],
+              "sourcesContent": [
+                "export const value = 7;\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-z5s6PqTjZYf8S4OqP2Zeq6ogdR1K6-2bnnBV2zHnYDc",
+            "sourceLineOracle": null
+          },
+          "sourceName": "dep.js"
+        },
+        {
+          "factoryDigest": "sha256-G44Sy-QwqyD-kZHAk6LZjF9tofEDw6tP_fpdXa6_u88",
+          "fixtureId": "typescript-jsx",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 7,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 7,
+                "source": "entry.tsx",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-jgmccJG7FonP87qjmY0kciUfOClhtYV9mrw6wZljWY4",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 17,
+              "file": "entry.tsx.factory.js",
+              "names": [],
+              "sources": [
+                "entry.tsx"
+              ],
+              "sourcesContent": [
+                "const React = {\n  createElement(tag: string, _props: unknown, child: string) {\n    return tag + \":\" + child;\n  },\n};\nexport const view: string = <section>ok</section>;\nprint(view);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-cjQa_f_9oKMzgTtOKIvn3sH_5TQog3XW9dCRfk48gsY",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.tsx"
+        },
+        {
+          "factoryDigest": "sha256-XmXJHlyQteVp3lubtqI_GWVjH-T-Mhmr9bA6VsbT-Vk",
+          "fixtureId": "hermes-for-of-capture",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 15,
+                "originalColumn": 0,
+                "originalLine": 7,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 16,
+                "originalColumn": 0,
+                "originalLine": 8,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 17,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 18,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 19,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-iKI4luFA6hs-os4SneX9fdnqusXORZBiMLgXmieHt6k",
+            "invariantDefects": [
+              {
+                "defect": "original-line-out-of-range",
+                "embeddedSourceLineCount": 7,
+                "fixtureId": "hermes-for-of-capture",
+                "generatedColumn": 0,
+                "generatedLine": 16,
+                "originalColumn": 0,
+                "originalLine": 8,
+                "sourceName": "entry.js"
+              }
+            ],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 22,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "const callbacks = [];\nfor (const item of [\"a\", \"b\"]) {\n  callbacks.push(() => item);\n}\nexport const joined = callbacks.map((callback) => callback()).join(\",\");\nprint(joined);\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-qxICx3CVIWwJFo8s9aJkj49JiFxhE0RhjZFY-KYWglM",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        },
+        {
+          "factoryDigest": "sha256-Iw9ieH-mENBo8Conek2lzvlUB4Er5_y4ng7WhnhU4rc",
+          "fixtureId": "composed-source-map",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "entry.ts",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-vIZx68rZAe2yPetu5qHAPJlLvrIyvRzriW6u9ZmDlLQ",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 15,
+              "file": "entry.ts.factory.js",
+              "names": [],
+              "sources": [
+                "entry.ts"
+              ],
+              "sourcesContent": [
+                "function explode(): never {\n  const detail: string = \"mapped failure\";\n  throw new Error(detail);\n}\nexplode();\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-DvQs5Xl-gMgTqq7mEV3KCWtYgsa-ABU8VXTuRWTnXAg",
+            "sourceLineOracle": {
+              "expectedOriginalLine": 3,
+              "generatedLine": 10,
+              "observedOriginalLine": 3
+            }
+          },
+          "sourceName": "entry.ts"
+        },
+        {
+          "factoryDigest": "sha256-yFlmtnOk-dfiGBYK4xHoVGQHxXn9eV8wiz8_CwVHo0I",
+          "fixtureId": "module-goal-strictness",
+          "sourceMap": {
+            "decodedSegments": [
+              {
+                "generatedColumn": 0,
+                "generatedLine": 8,
+                "originalColumn": 0,
+                "originalLine": 1,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 9,
+                "originalColumn": 0,
+                "originalLine": 2,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 10,
+                "originalColumn": 0,
+                "originalLine": 3,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 11,
+                "originalColumn": 0,
+                "originalLine": 4,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 12,
+                "originalColumn": 0,
+                "originalLine": 5,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 13,
+                "originalColumn": 0,
+                "originalLine": 6,
+                "source": "entry.js",
+                "sourceIndex": 0
+              },
+              {
+                "generatedColumn": 0,
+                "generatedLine": 14,
+                "originalColumn": 0,
+                "originalLine": 7,
+                "source": "entry.js",
+                "sourceIndex": 0
+              }
+            ],
+            "decodedSegmentsDigest": "sha256-ufCajz57N3l63dpJjY9H024iGX0DVou8V0BjZC3AZZA",
+            "invariantDefects": [],
+            "metadata": {
+              "composed": true,
+              "factoryLines": 17,
+              "file": "entry.js.factory.js",
+              "names": [],
+              "sources": [
+                "entry.js"
+              ],
+              "sourcesContent": [
+                "print(String(this));\nprint(typeof arguments);\ntry {\n  accidentalGlobal = 1;\n} catch (error) {\n  print(error.name);\n}\n"
+              ],
+              "version": 3
+            },
+            "rawMappingsDigest": "sha256-ll0cAdlvu3YNhGZzXs-n496uQfHT01hBsUCMsfXeAhA",
+            "sourceLineOracle": null
+          },
+          "sourceName": "entry.js"
+        }
+      ],
+      "transformFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1"
+    }
+  },
+  "comparison": {
+    "allNewFixturesPassed": true,
+    "allOldFixturesPassed": true,
+    "differences": [
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "live-mutation",
+        "newDecodedSegmentsDigest": "sha256-968LEWtsoXSOUW42oW4XaN_veROv8PnhYWPUpsYKZ60",
+        "newFactoryDigest": "sha256-Cjnna0ZE5TIsJsgBeDC1xGgU6sH0843pB6Opnf94SOc",
+        "newRawMappingsDigest": "sha256-2Dq_zxXfqSVHm75VLvVgLVUdhH9qcGNjWfbNF5_DLbo",
+        "oldDecodedSegmentsDigest": "sha256-c9sMLv8KFe9nTucCHu-EK2lgHZbypVGieoi8jqhI8eI",
+        "oldFactoryDigest": "sha256-Cjnna0ZE5TIsJsgBeDC1xGgU6sH0843pB6Opnf94SOc",
+        "oldRawMappingsDigest": "sha256-ucHdHYe2jG0LncDLxGCGYhCvPBCyxlc1dL8ry6WHvxs",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "counter.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "direct-cycle",
+        "newDecodedSegmentsDigest": "sha256-SO4jrFP2NvzKIeJVNNK0KOBgU_LF-nzzIpLaf2L7pJ4",
+        "newFactoryDigest": "sha256-bWEz4wT9gVzIVlDKecx8EytplbS5nWAsTv-7vlHPr2I",
+        "newRawMappingsDigest": "sha256-NexRDX447TJWVOFwqXQAA-7OjUE_bmsN38VEgB3bQqY",
+        "oldDecodedSegmentsDigest": "sha256-d_a-d0LbuwBxfoWTSpKle6Q5TfDH52LnzMczSLOMcqc",
+        "oldFactoryDigest": "sha256-bWEz4wT9gVzIVlDKecx8EytplbS5nWAsTv-7vlHPr2I",
+        "oldRawMappingsDigest": "sha256-3xpGHtqDOfWrOgLSvBPwIEw7mZIh4ywEnTju7ayOubo",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "a.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "direct-cycle",
+        "newDecodedSegmentsDigest": "sha256-fbLq5OJ6JX8VYhm7VZCBhA8og-KEyZ0rh4bIrCHJKf0",
+        "newFactoryDigest": "sha256-RPxdY65eDDVp4BC4H9yVVfmlbb48gcOWnUR7FkIevXU",
+        "newRawMappingsDigest": "sha256-hSMxVSoqQUtdiqJAxBNAlzAUx07gdfiRvWTXbpLHbqU",
+        "oldDecodedSegmentsDigest": "sha256-CR0MdHOmp40GZ_xafeV2p_8hCH_e-LdU_8QgL-NH8WE",
+        "oldFactoryDigest": "sha256-RPxdY65eDDVp4BC4H9yVVfmlbb48gcOWnUR7FkIevXU",
+        "oldRawMappingsDigest": "sha256-d0nRrWgX69E8vHaS3iR3zym3s-KiER7VNFyZkZA0WEo",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "b.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "tdz-cycle",
+        "newDecodedSegmentsDigest": "sha256-183-F5mN_-WQ2ib7v7Da6dV65-_myGwkTabusNDHppE",
+        "newFactoryDigest": "sha256-VPt8BHFfgSOCeNnxgmx6tSfw4kF5U_5QKbzgDRhRs5c",
+        "newRawMappingsDigest": "sha256-6fsdoEFThEACGkGijhmfwYsMxS0OURp_j0O5fbVT0rE",
+        "oldDecodedSegmentsDigest": "sha256-rw30BzTcZ5A4S89su9Zsk8JB6UglQY90dVoCP5wck4g",
+        "oldFactoryDigest": "sha256-VPt8BHFfgSOCeNnxgmx6tSfw4kF5U_5QKbzgDRhRs5c",
+        "oldRawMappingsDigest": "sha256-z7t5-hdHs3P_Wl0J6W3u9k_Fj8tklUtXLmTi7uQRoK4",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "a.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "tdz-cycle",
+        "newDecodedSegmentsDigest": "sha256-fbLq5OJ6JX8VYhm7VZCBhA8og-KEyZ0rh4bIrCHJKf0",
+        "newFactoryDigest": "sha256-yT-jk-2enrYWBP34kv1VvGkBFhe-pH5H_2w2XndgWuo",
+        "newRawMappingsDigest": "sha256-hSMxVSoqQUtdiqJAxBNAlzAUx07gdfiRvWTXbpLHbqU",
+        "oldDecodedSegmentsDigest": "sha256-CR0MdHOmp40GZ_xafeV2p_8hCH_e-LdU_8QgL-NH8WE",
+        "oldFactoryDigest": "sha256-yT-jk-2enrYWBP34kv1VvGkBFhe-pH5H_2w2XndgWuo",
+        "oldRawMappingsDigest": "sha256-d0nRrWgX69E8vHaS3iR3zym3s-KiER7VNFyZkZA0WEo",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "b.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "star-ambiguity",
+        "newDecodedSegmentsDigest": "sha256-V0ysgIzQRPTgzPWV2sqig2-pUkA3cN4F9D3S5pYZDhE",
+        "newFactoryDigest": "sha256-hsgPd2LxKv0tVMR6s1B9ucKt3Qcx0iuQkoCQoNFoX_o",
+        "newRawMappingsDigest": "sha256-3t7SYFqYg8plPmjCCSh3_SX68qTflLRvUj6_aIwTEjA",
+        "oldDecodedSegmentsDigest": "sha256-8AasmMM0vTy4nr66H1tWxcUMpXend26m_S_nMtdMW_w",
+        "oldFactoryDigest": "sha256-hsgPd2LxKv0tVMR6s1B9ucKt3Qcx0iuQkoCQoNFoX_o",
+        "oldRawMappingsDigest": "sha256-Vwv15hw39yhXWxcG9NWgB-rdaPbyAsgNsTVZxEf1kd8",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "left.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "star-ambiguity",
+        "newDecodedSegmentsDigest": "sha256-Ch5tDDxQZpBD1vsggKEcPNwD_9-NSoucJ8Sb-NhzchM",
+        "newFactoryDigest": "sha256-TGZeYH_zCGUNR-yHv3uTef6hdjuA-lTUJoqJFNQOHc0",
+        "newRawMappingsDigest": "sha256-3t7SYFqYg8plPmjCCSh3_SX68qTflLRvUj6_aIwTEjA",
+        "oldDecodedSegmentsDigest": "sha256-bnX0opdafEnpMVNPFoC6YkY40UL5aRIYk03lG5C339I",
+        "oldFactoryDigest": "sha256-TGZeYH_zCGUNR-yHv3uTef6hdjuA-lTUJoqJFNQOHc0",
+        "oldRawMappingsDigest": "sha256-Vwv15hw39yhXWxcG9NWgB-rdaPbyAsgNsTVZxEf1kd8",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "right.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "named-re-export",
+        "newDecodedSegmentsDigest": "sha256-zCR2q1dhQZwuUzsg1Xh7a1uio6FT4z4R5bZRUxv2V38",
+        "newFactoryDigest": "sha256-UrGD7E4Jsuko1bSdWMUFaCiDtp0qUT6l76M7ogJd744",
+        "newRawMappingsDigest": "sha256-1YTcnoYaozQ8Q4mkII1eSlfuQb2ALbZar3mYufj0fJ8",
+        "oldDecodedSegmentsDigest": "sha256-ZmJAXsJ-cjRyM8MhT6M_xRwd3-L--kKSIetveQyqPZQ",
+        "oldFactoryDigest": "sha256-UrGD7E4Jsuko1bSdWMUFaCiDtp0qUT6l76M7ogJd744",
+        "oldRawMappingsDigest": "sha256-z5s6PqTjZYf8S4OqP2Zeq6ogdR1K6-2bnnBV2zHnYDc",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "dep.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "top-level-await",
+        "newDecodedSegmentsDigest": "sha256-zCR2q1dhQZwuUzsg1Xh7a1uio6FT4z4R5bZRUxv2V38",
+        "newFactoryDigest": "sha256-HgtzWms7yFKsGHFr9c6DjXv4xDvP4LdICbgxEtdEBs8",
+        "newRawMappingsDigest": "sha256-1YTcnoYaozQ8Q4mkII1eSlfuQb2ALbZar3mYufj0fJ8",
+        "oldDecodedSegmentsDigest": "sha256-ZmJAXsJ-cjRyM8MhT6M_xRwd3-L--kKSIetveQyqPZQ",
+        "oldFactoryDigest": "sha256-HgtzWms7yFKsGHFr9c6DjXv4xDvP4LdICbgxEtdEBs8",
+        "oldRawMappingsDigest": "sha256-z5s6PqTjZYf8S4OqP2Zeq6ogdR1K6-2bnnBV2zHnYDc",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "dep.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "dynamic-import",
+        "newDecodedSegmentsDigest": "sha256-zCR2q1dhQZwuUzsg1Xh7a1uio6FT4z4R5bZRUxv2V38",
+        "newFactoryDigest": "sha256-psrazESuF_qlfErk2oC8PeL4BeAT8GT4jdD54gawOjs",
+        "newRawMappingsDigest": "sha256-1YTcnoYaozQ8Q4mkII1eSlfuQb2ALbZar3mYufj0fJ8",
+        "oldDecodedSegmentsDigest": "sha256-ZmJAXsJ-cjRyM8MhT6M_xRwd3-L--kKSIetveQyqPZQ",
+        "oldFactoryDigest": "sha256-psrazESuF_qlfErk2oC8PeL4BeAT8GT4jdD54gawOjs",
+        "oldRawMappingsDigest": "sha256-z5s6PqTjZYf8S4OqP2Zeq6ogdR1K6-2bnnBV2zHnYDc",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "dep.js"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "typescript-jsx",
+        "newDecodedSegmentsDigest": "sha256-3e6m5c0QSDVX4xylQKVjCThkM662U9ryNL1gs7UTc28",
+        "newFactoryDigest": "sha256-G44Sy-QwqyD-kZHAk6LZjF9tofEDw6tP_fpdXa6_u88",
+        "newRawMappingsDigest": "sha256-3q4rnV6CbiWQBlBZcLQbBm1jEHmsNLkLFH8ArGoDzkU",
+        "oldDecodedSegmentsDigest": "sha256-jgmccJG7FonP87qjmY0kciUfOClhtYV9mrw6wZljWY4",
+        "oldFactoryDigest": "sha256-G44Sy-QwqyD-kZHAk6LZjF9tofEDw6tP_fpdXa6_u88",
+        "oldRawMappingsDigest": "sha256-cjQa_f_9oKMzgTtOKIvn3sH_5TQog3XW9dCRfk48gsY",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "entry.tsx"
+      },
+      {
+        "decodedSegmentsChanged": true,
+        "factoryChanged": false,
+        "fixtureId": "hermes-for-of-capture",
+        "newDecodedSegmentsDigest": "sha256-F_s21buoKbaOdjEgP2TgMq93Hi2hZcBHfWY5HSfW4uY",
+        "newFactoryDigest": "sha256-XmXJHlyQteVp3lubtqI_GWVjH-T-Mhmr9bA6VsbT-Vk",
+        "newRawMappingsDigest": "sha256-Rf1z8SufLmQTyZ9gnYeevaiUiyx-S8q-VNVhFyGEXSg",
+        "oldDecodedSegmentsDigest": "sha256-iKI4luFA6hs-os4SneX9fdnqusXORZBiMLgXmieHt6k",
+        "oldFactoryDigest": "sha256-XmXJHlyQteVp3lubtqI_GWVjH-T-Mhmr9bA6VsbT-Vk",
+        "oldRawMappingsDigest": "sha256-qxICx3CVIWwJFo8s9aJkj49JiFxhE0RhjZFY-KYWglM",
+        "rawMappingsChanged": true,
+        "sourceMapMetadataChanged": false,
+        "sourceName": "entry.js"
+      }
+    ],
+    "factoryDifferenceCount": 0,
+    "newSourceMapInvariantDefects": [],
+    "oldBaselineDefectsExactlyDispositioned": true,
+    "oldSourceMapInvariantDefects": [
+      {
+        "defect": "original-line-out-of-range",
+        "embeddedSourceLineCount": 7,
+        "fixtureId": "hermes-for-of-capture",
+        "generatedColumn": 0,
+        "generatedLine": 16,
+        "originalColumn": 0,
+        "originalLine": 8,
+        "sourceName": "entry.js"
+      }
+    ],
+    "realHermesOutcomesEqual": true,
+    "semanticProjectionDigest": "sha256-h0tknVO4AMQXd9IWE36QJhnAdM_mVVxVjJPxpf98SrQ",
+    "semanticProjectionEqual": true,
+    "sourceMapDifferenceCount": 12,
+    "transformFingerprintRotated": true
+  },
+  "contract": {
+    "allowedDifferenceTypes": [
+      "transform-fingerprint-rotation",
+      "factory-spelling-or-formatting",
+      "source-map-layout-or-precision"
+    ],
+    "dispositionDigest": "sha256-CRpW1EVPxJvnrndGK089GQHRoWJK7gouXStWCoHMCyU",
+    "issueDigest": "sha256-pch3p95jSbdPhjcRDGybJgT8D0zpkjg37P5JCDtkfPs",
+    "issuePath": "issues/20260717-oxc-dual-produce-report.md",
+    "newFingerprint": "ibex-module-runner-spike/3+config/sha256-nktvy-N0m45bAF1gYjj-lT0JqF40F8zYQLQCzQRFvbw",
+    "oldFingerprint": "ibex-module-runner-spike/2+oxc-0.121.0+module-goal+hermes-abi-draft-1",
+    "oldRevision": "9329a9123a10e379d6253afb6a90a33de5de928e",
+    "precommittedContractFailure": "old-side-source-map-invariant",
+    "precommittedContractSatisfied": false,
+    "semanticFields": [
+      "bundle.schema",
+      "bundle.manifestSchema",
+      "fixture.id",
+      "fixture.entry",
+      "fixture.expected",
+      "fixture.tags",
+      "module.fixtureId",
+      "module.sourceName",
+      "module.dialect",
+      "module.sourceIntegrity",
+      "module.staticEdges",
+      "module.dynamicEdges",
+      "module.exportDescriptors",
+      "module.hasTopLevelAwait",
+      "module.hermesCompatPasses"
+    ]
+  },
+  "environment": {
+    "architecture": "arm64",
+    "hermes": {
+      "binaryDigest": "sha256-FaRnA8S4MoOwzjZCWHC4kt5wpIZLFBshlSISsih_F78",
+      "versionOutput": "LLVM (http://llvm.org/):\n  LLVH version 8.0.0svn\n  Optimized build\n\nHermes JavaScript compiler and Virtual Machine.\n  Hermes release version: 1.0.0\n  HBC bytecode version: 99\n\n  Features:\n    Unicode RegExp Property Escapes\n    Zip file input"
+    },
+    "nodeVersion": "v24.14.0",
+    "platform": "darwin"
+  },
+  "fixtureInputs": {
+    "files": [
+      {
+        "bytes": 2556,
+        "digest": "sha256-NAUa5XavhbHVQza0OXxgzwQw7sWcjUj68Xf5F3blBLM",
+        "path": "manifest.json"
+      },
+      {
+        "bytes": 111,
+        "digest": "sha256-L-0-wXsNg1robah7HvqZ7koLIxpeHx8yHD5whpMP0fM",
+        "path": "sources/composed-source-map/entry.ts"
+      },
+      {
+        "bytes": 102,
+        "digest": "sha256--71hY_LwEcDcD291JumB_CD_9q0fZwkBfk8yGFgDEXc",
+        "path": "sources/direct-cycle/a.js"
+      },
+      {
+        "bytes": 67,
+        "digest": "sha256-wOTZFvuekNyb5SEFXRPB0wt0Divq1UE-BVosPcrIF_8",
+        "path": "sources/direct-cycle/b.js"
+      },
+      {
+        "bytes": 48,
+        "digest": "sha256-BKCzjEyXm8b-huYxKZAIk18EEaaEInaUXVXt3Vv4TSw",
+        "path": "sources/direct-cycle/entry.js"
+      },
+      {
+        "bytes": 24,
+        "digest": "sha256-26VSXyIMhBQImOE5xjcR_0XtvrPuDCnqE97xLJcgEQY",
+        "path": "sources/dynamic-import/dep.js"
+      },
+      {
+        "bytes": 81,
+        "digest": "sha256-cUE-hOwO8wpHTIP5ucq41OmKiHvCUxscFvvrbrQTIvs",
+        "path": "sources/dynamic-import/entry.js"
+      },
+      {
+        "bytes": 175,
+        "digest": "sha256-eyYuOkJcVTRj72nYIyzv86gr0Wt0W_4HBk4texv4OOQ",
+        "path": "sources/hermes-for-of-capture/entry.js"
+      },
+      {
+        "bytes": 49,
+        "digest": "sha256-aX6fgOfkUVHgtmZdaau3p-SDr2wvPe5C2StDC6fDdSk",
+        "path": "sources/import-meta/entry.js"
+      },
+      {
+        "bytes": 68,
+        "digest": "sha256-KHhsYWHujWB9o99oaWwkYWfETaLQ7_6kkEYvyLK8hqo",
+        "path": "sources/live-mutation/counter.js"
+      },
+      {
+        "bytes": 90,
+        "digest": "sha256-m-uy11FtBZgvzguwxZrmYjUP4QQX0CPxl0-GzvnZ9Lc",
+        "path": "sources/live-mutation/entry.js"
+      },
+      {
+        "bytes": 117,
+        "digest": "sha256-vQxhZc-2hWaiAyReWddaHoFW7jfb8JfxI0MmiWRKIKo",
+        "path": "sources/module-goal-strictness/entry.js"
+      },
+      {
+        "bytes": 25,
+        "digest": "sha256-abd218qpn92ZlvqQyiBMn4Q_QC-jldJnI0yVtjpjYZY",
+        "path": "sources/named-re-export/dep.js"
+      },
+      {
+        "bytes": 63,
+        "digest": "sha256-4SHeXtivRqg1tnDU69CSmYPUGYVqFr2q9NwGcdFYlao",
+        "path": "sources/named-re-export/entry.js"
+      },
+      {
+        "bytes": 45,
+        "digest": "sha256-QblZfTObbC1tDQBUak7uP6dFZDBCO1HK0bCIeJ7Flm8",
+        "path": "sources/named-re-export/hub.js"
+      },
+      {
+        "bytes": 80,
+        "digest": "sha256-P3jmvAZ1pl7T7bQgOyc2OqMIYzW9VvQEWJ9x5DkCp5E",
+        "path": "sources/star-ambiguity/entry.js"
+      },
+      {
+        "bytes": 55,
+        "digest": "sha256-xjqeTmgeV1KeONFEQreR_I2KWKcGb8gyio22EWyKGcc",
+        "path": "sources/star-ambiguity/hub.js"
+      },
+      {
+        "bytes": 65,
+        "digest": "sha256-Fa0S6nvvJc-ddD8R7LHJZYfmTm6gmJ1NzjNsLxVbW5c",
+        "path": "sources/star-ambiguity/left.js"
+      },
+      {
+        "bytes": 68,
+        "digest": "sha256-L0v9P5FJLsrgyb3_CXdeDB-ldtfifLBigAHcsRkfZcI",
+        "path": "sources/star-ambiguity/right.js"
+      },
+      {
+        "bytes": 92,
+        "digest": "sha256-QyymVyZxZjJo_wNtvpYZynFf7AU13Ps-9j1g7q165FE",
+        "path": "sources/tdz-cycle/a.js"
+      },
+      {
+        "bytes": 63,
+        "digest": "sha256-Qrb9vuysGYpGxUsNqAqFsoP0DtASCXqCuOQ-KjVcn-k",
+        "path": "sources/tdz-cycle/b.js"
+      },
+      {
+        "bytes": 52,
+        "digest": "sha256-FrxzgZiAxxspmyPH99642G_jOhT_moc4YM0Q_nOIhgM",
+        "path": "sources/tdz-cycle/entry.js"
+      },
+      {
+        "bytes": 48,
+        "digest": "sha256-S0RFfXsYm5AkpMHEVFYFtszJKZXZCgQ7h-LrPBg5rlQ",
+        "path": "sources/top-level-await/dep.js"
+      },
+      {
+        "bytes": 48,
+        "digest": "sha256-q4NQaYo3dmtSWu3ocoQca6ze347iCAUu8VCnakcSOwg",
+        "path": "sources/top-level-await/entry.js"
+      },
+      {
+        "bytes": 181,
+        "digest": "sha256-S2Ea0f0sl8wnyTWlayEvb1czDPiInhxjrV6gYLYMaeg",
+        "path": "sources/typescript-jsx/entry.tsx"
+      }
+    ],
+    "manifestAndSourceTreeDigest": "sha256-CX6XVs56Xr5pAez3LE1yT3m0XxD_cEMFn1xfpI5iSJA"
+  },
+  "producers": {
+    "new": {
+      "oxcLockPackages": [
+        {
+          "checksum": "0f8245ba555b465d3577732d5f9d9306babb0aaa7b80e97a2ce21f74fae442a3",
+          "name": "oxc_allocator",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "3305400b90fff2a30b272b58fe6080d25369407b2ac37c4ac652996a9677efe0",
+          "name": "oxc_ast",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "ef089097e96b74388a8025a9247bdb12774b99f5971926d9dafbe84a78f9efb7",
+          "name": "oxc_ast_macros",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "4640e6d0de2e0f6c820d1444a468d070c710111df76ce90a1694ac386641e133",
+          "name": "oxc_ast_visit",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "316d3f320fab2647d2657f1016de952baa196b566e0eaa704d224e3fc25ccd9a",
+          "name": "oxc_codegen",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "0f8ecc06571912f29113f7e5669f7bd2915d3932270b0d877a3679686f5f4c7d",
+          "name": "oxc_compat",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "acfb6e704f95e115c0e9ea8bef791c3d915cd2fcd1643661cf0bf5172c818097",
+          "name": "oxc_data_structures",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "0b33d8c59c55e2c581ff692468a6a7ff1f12477f0e687b52e27fc6f6346a5d77",
+          "name": "oxc_diagnostics",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "2b3321b606c9217e8e5527cd01906b98e17f232acbb6fab7eac05236e7731d9a",
+          "name": "oxc_ecmascript",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "ad383009532dc6504973f02f68892b98f64be1c17e86115166b0a1223c7511e7",
+          "name": "oxc_estree",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "191884bee6c3744909a51acc7d78d4ae370d817b25875b10642f632327b6296e",
+          "name": "oxc_index",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "5.0.0"
+        },
+        {
+          "checksum": "8abd68f81349d37ea79f1d99d2370e15f282cc9fbe66e8544d072595744ab38e",
+          "name": "oxc_parser",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "4eba6a56b1c633963c09c383062e47fb8a99ff4a4ded6bd883fcf554f8e1a48f",
+          "name": "oxc_regular_expression",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "4fa374d03b255c070a32ae65b8a05231b8e658104d6ef22034c09da8fa0c2fd9",
+          "name": "oxc_resolver",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "11.24.2"
+        },
+        {
+          "checksum": "5967f96881e1694d10b453311fa681b4df0f38760628e1de613b046566cd8c8e",
+          "name": "oxc_semantic",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "b3a667d6fc9c079aae3d650fb4c3db3a8b6f14f7918e56854a94a0de5d7469dd",
+          "name": "oxc_sourcemap",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "8.1.1"
+        },
+        {
+          "checksum": "e83fa0a0fe6e5e2f5abb173a64afe8db711bb612acbc002c663fd13b08a8cbf3",
+          "name": "oxc_span",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "d9e9531af3bc70e5eb75d196c01011d5bc0de1f6de73f0fc8bf343384353794f",
+          "name": "oxc_str",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "1f81863cdf973b6bcdcdbbae225619c08966be41efb64dc0ee0fd4b574f4ec18",
+          "name": "oxc_syntax",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "c8bb6f328641800296233b28448f32e5ebb5e72854b3e329f20447d5331c9216",
+          "name": "oxc_transformer",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        },
+        {
+          "checksum": "3ab67032768715dda6647be4043e6a8f9762a3a9090ca7a5d3795339ce87e18f",
+          "name": "oxc_traverse",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.140.0"
+        }
+      ],
+      "producerBinaryDigest": "sha256-H31Kw0KjeDl4feLD0IaWJdmOFce6Ex8iY8xh4w-82nc",
+      "producerSourcePaths": [
+        {
+          "bytes": 104119,
+          "digest": "sha256-WchjQck_aVKTwLGb9eHPCducEdo35YyML4z6aFPMp_s",
+          "path": "Cargo.lock"
+        },
+        {
+          "bytes": 6954,
+          "digest": "sha256-OIslUHTQiPPy-HDD7PDyoXDqYU6MUorxs94_L-ig12A",
+          "path": "Cargo.toml"
+        },
+        {
+          "bytes": 109193,
+          "digest": "sha256-DgZOS-8Wk8DOy7IWkgNomtUuU3Zq-P6QuzfnGJ5QMJc",
+          "path": "build.rs"
+        },
+        {
+          "bytes": 1353,
+          "digest": "sha256-emVKf8FH-rmyP2QBeAVsUtPbNeqk031GKv-T5Reu0Xc",
+          "path": "config/module-transform.json"
+        },
+        {
+          "bytes": 822,
+          "digest": "sha256-I_3VtbqJdya8enZp2mPtPUU70dGAU5rF4BIK5XxkUsY",
+          "path": "examples/module_runner_spike.rs"
+        },
+        {
+          "bytes": 98,
+          "digest": "sha256-_Kzm5-dpF72uKOeNHzdOWnVDVBFgDhbAbKcErKx9FBM",
+          "path": "rust-toolchain.toml"
+        },
+        {
+          "bytes": 50813,
+          "digest": "sha256-2wJwJQGBxpJQsE4Ddnahww30TxpwvFZshEgLu5rxzOc",
+          "path": "src/module_loader/artifact.rs"
+        },
+        {
+          "bytes": 10257,
+          "digest": "sha256-cXlTA7C_gjwF31c5Wo5zOps7a1oOZrm3Ga0q4QT9-Fg",
+          "path": "src/module_loader/commonjs_lexer.rs"
+        },
+        {
+          "bytes": 102192,
+          "digest": "sha256-vje4_-W2mlwQagtCtCx1pjOBoFDmaiCmtfwp-0-tz-0",
+          "path": "src/module_loader/producer_spike.rs"
+        },
+        {
+          "bytes": 2470,
+          "digest": "sha256-klgFBNoKgAfm7_FMUBaiwEyxQ2uqnQPSO7-ukUVgyh8",
+          "path": "src/module_loader/transform_config_generated.rs"
+        }
+      ],
+      "producerSourceTreeDigest": "sha256-G2TAIpQUjEfray0K0B6N09WvxWayeoHDPyHjmh5EaB0",
+      "revision": "9329a9123a10e379d6253afb6a90a33de5de928e",
+      "rustToolchain": "1.97.0"
+    },
+    "old": {
+      "oxcLockPackages": [
+        {
+          "checksum": "c17ece0d1edc5e92822be95428460bc6b12f0dce8f95a9efabf751189a75f9f2",
+          "name": "oxc_allocator",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "06ec0e9560cce8917197c7b13be7288707177f48a6f0ca116d0b53689e18bbc3",
+          "name": "oxc_ast",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "f266c05258e76cb84d7eee538e4fc75e2687f4220e1b2f141c490b35025a6443",
+          "name": "oxc_ast_macros",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "3477ca0b6dd5bebcb1d3bf4c825b65999975d6ca91d6f535bf067e979fad113a",
+          "name": "oxc_ast_visit",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "a8b9da0a190c379ff816917b25338c4a47e9ed00201c67c209db5d4cca71a81c",
+          "name": "oxc_codegen",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "ffaad2e6c6f4279f653f5938f17dea1e650a8934479eecc11d01d18248be0c7e",
+          "name": "oxc_compat",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "d8701946f2acbd655610a331cf56f0aa58349ef792e6bf2fb65c56785b87fe8e",
+          "name": "oxc_data_structures",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "b04ea16e6016eceb281fb61bbac5f860f075864e93ae15ec18b6c2d0b152e435",
+          "name": "oxc_diagnostics",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "f4b107cae9b8bce541a45463623e1c4b1bb073e81d966483720f0e831facdcb1",
+          "name": "oxc_ecmascript",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "57b79c9e9684eab83293d67dcbbfd2b1a1f062d27a8188411eb700c6e17983fa",
+          "name": "oxc_estree",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "eb3e6120999627ec9703025eab7c9f410ebb7e95557632a8902ca48210416c2b",
+          "name": "oxc_index",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "4.1.0"
+        },
+        {
+          "checksum": "487f41bdacb3ef9afd8c5b0cb5beceec3ac4ecd0c348804aa1907606d370c731",
+          "name": "oxc_parser",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "d495c085efbde1d65636497f9d3e3e58151db614a97e313e2e7a837d81865419",
+          "name": "oxc_regular_expression",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "70d6e5e3ac3224a72faa04ce1d7266ba2dbed67f37d561fd268a58aee7f4e271",
+          "name": "oxc_resolver",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "11.21.0"
+        },
+        {
+          "checksum": "6ac7034e3d2f5a73b39b5a0873bb3d38a504657c95cd1a8682b0d424a4bd3b77",
+          "name": "oxc_semantic",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "6d378eb8bad20e89d66276aebab51f6a5408571092cac94abdd3eabb773713d6",
+          "name": "oxc_sourcemap",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "6.1.1"
+        },
+        {
+          "checksum": "3edcf2bc8bc73cd8d252650737ef48a482484a91709b7f7a5c5ce49305f247e8",
+          "name": "oxc_span",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "a0c60f1570f04257d5678a16391f6d18dc805325e7f876b8e176a3a36fe897be",
+          "name": "oxc_str",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "5a10c19c89298c0b126d12c5f545786405efbad9012d956ebb3190b64b29905a",
+          "name": "oxc_syntax",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "5d3966e736e55390f892eeadde256c54fd561bc6b553e1d6f6ac81ebd7ecf9f7",
+          "name": "oxc_transformer",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        },
+        {
+          "checksum": "5f3c673e1da0044eab261a9b10a2d1c4eaa10c1fc809a1e4f9b6ac44b6948118",
+          "name": "oxc_traverse",
+          "source": "registry+https://github.com/rust-lang/crates.io-index",
+          "version": "0.121.0"
+        }
+      ],
+      "producerBinaryDigest": "sha256-AepqQNiqsAYjIz-2O6bHDNZvg4bthJGJ7K2N_MUU8Ng",
+      "producerSourcePaths": [
+        {
+          "bytes": 103989,
+          "digest": "sha256-fonph4xx3GfB4oh3zVg97idXJjGfqZHXEbCFVSgGwrk",
+          "path": "Cargo.lock"
+        },
+        {
+          "bytes": 6450,
+          "digest": "sha256-Ep93FHWllaefR3G6GgmIScrHozWCptz4MSFRVFtN6jg",
+          "path": "Cargo.toml"
+        },
+        {
+          "bytes": 107272,
+          "digest": "sha256-zMtXPdPscBSASHLQW62aYKhoLVx4JuIRFZDROwMOr2w",
+          "path": "build.rs"
+        },
+        {
+          "bytes": 822,
+          "digest": "sha256-I_3VtbqJdya8enZp2mPtPUU70dGAU5rF4BIK5XxkUsY",
+          "path": "examples/module_runner_spike.rs"
+        },
+        {
+          "bytes": 98,
+          "digest": "sha256-8GYDFlPYh7f27k2eXq3Oej-tOViRuEnxZeEADl21ym4",
+          "path": "rust-toolchain.toml"
+        },
+        {
+          "bytes": 50567,
+          "digest": "sha256-IdsaOtY322N9gydyWpoYJ5U6yg-4zo-nDKPlpKBhz9U",
+          "path": "src/module_loader/artifact.rs"
+        },
+        {
+          "bytes": 10200,
+          "digest": "sha256-7NJ15Qwn4x1ouQ-gIfgXU0CRFEh8TbVhuE687a6jVjk",
+          "path": "src/module_loader/commonjs_lexer.rs"
+        },
+        {
+          "bytes": 79945,
+          "digest": "sha256-BAKxyuvzKwf025Jkko9s1vxjBPVPoI58ecPLSgZ5TH4",
+          "path": "src/module_loader/producer_spike.rs"
+        }
+      ],
+      "producerSourceTreeDigest": "sha256-s8G9LSOW-i2Y7xX4aBmArnnQtdWHGDxqTVoL0mTpNFY",
+      "revision": "9329a9123a10e379d6253afb6a90a33de5de928e",
+      "rustToolchain": "1.93.1"
+    }
+  },
+  "schema": "ibex/oxc-old-new-dual-produce-report/1",
+  "status": "pass-with-dispositioned-old-baseline-defect"
+}

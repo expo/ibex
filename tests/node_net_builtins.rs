@@ -718,6 +718,11 @@ function runListenPath(next) {
 }
 
 runUpgrade(function() {
+  if (process.platform === 'win32') {
+    console.log(JSON.stringify(results));
+    process.exit(0);
+    return;
+  }
   runListenPath(function() {
     console.log(JSON.stringify(results));
     process.exit(0);
@@ -745,6 +750,7 @@ setTimeout(function() {
         Value::Bool(true),
         "server.close callback should fire after upgraded socket closes: {parsed}"
     );
+    #[cfg(unix)]
     assert!(
         parsed["listenPathAddress"]
             .as_str()
@@ -752,11 +758,13 @@ setTimeout(function() {
             .unwrap_or(false),
         "listen({{path}}) should bind a Unix socket and address() should return the path: {parsed}"
     );
+    #[cfg(unix)]
     assert_eq!(
         parsed["maxConnections"].as_i64(),
         Some(3),
         "http maxConnections should proxy to net server: {parsed}"
     );
+    #[cfg(unix)]
     assert_eq!(
         parsed["listenPathBody"],
         Value::String("ok".to_string()),

@@ -1,0 +1,33 @@
+{
+  "schema": "ibex/legacy-required-telemetry-report/1",
+  "population": {
+    "id": "ibex-native-tier3-controlled-fixtures",
+    "boundary": "Only the checked Ibex native Tier-3 and Hermes-target fixture population; this is not released-user field usage.",
+    "controlledTestPopulation": true,
+    "advisoryOnly": true,
+    "moduleCount": 11,
+    "executions": 22,
+    "authenticatedTreeDigest": "sha256--1oPhrbkjmRSE-Q5qjvFIB74j5j-r_FBeLi-96F9yMs"
+  },
+  "events": {
+    "count": 8,
+    "byCategory": {
+      "hermes-syntax": 6,
+      "tier3-for-of": 2
+    },
+    "byShape": {
+      "async-generator": 2,
+      "await-loop": 2,
+      "await-using-declaration": 2,
+      "using-declaration": 2
+    },
+    "digest": "sha256-o-mQKvmmwuIIAcnXVzX0mAMZ2XoL1C4RfQ8xhrziICM"
+  },
+  "staticScan": {
+    "scanner": "pinned-rolldown-oxc-estree-syntactic-upper-bound-v1",
+    "computedDynamicImportOccurrences": 0,
+    "computedCommonJsRequireOccurrences": 0,
+    "denominatorModules": 11,
+    "note": "Counts are an advisory syntactic upper bound; shadowed CommonJS require identifiers remain in the denominator."
+  }
+}

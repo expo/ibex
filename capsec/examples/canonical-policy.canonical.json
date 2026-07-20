@@ -1,11 +1,87 @@
 {
-  "policySchema": "ibex/capsec-policy/1",
+  "policySchema": "ibex/capsec-policy/2",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-Bnni0MPeD14Jq69cCSHWO1VdUW1QOC7KhenPqNZNa5M",
-  "policyDigest": "sha256-Daux9yanfViWm5vPgjNarNqvmLQiE9n1iGduku3zAlQ",
+  "vocabDigest": "sha256-Yda8iI7kMfivaArotDBeNiCsmZSKh3BATcXw4P94DzY",
+  "policyDigest": "sha256-6CAhGN7rSjuIIMbgJU0l3T9U3yZJOP1VJ3AcVaJ09Ec",
   "purpose": "production",
   "mode": "enforce",
+  "graphIdentity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "entryIdentity": {
+    "root": "project",
+    "components": [
+      {
+        "encoding": "utf8",
+        "value": "src"
+      },
+      {
+        "encoding": "utf8",
+        "value": "app.mjs"
+      }
+    ],
+    "sourceIntegrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "targetProfile": {
+    "kind": "source",
+    "profile": "portable-v1"
+  },
+  "mountProfile": "project-v1",
+  "rootCeiling": [
+    {
+      "authority": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": []
+          }
+        }
+      },
+      "provenance": [
+        {
+          "kind": "direct",
+          "source": "package.json#ibex.rootAuthorityCeiling"
+        }
+      ]
+    }
+  ],
+  "computedCandidates": {
+    "schema": "ibex/computed-candidate-manifest/1",
+    "declarations": [
+      {
+        "requester": "src/app.mjs",
+        "label": "plugins",
+        "specifiers": [
+          "image-lib/plugin"
+        ],
+        "packageClosures": [
+          "image-lib@2.4.1"
+        ]
+      }
+    ],
+    "packageClosureOptIns": [
+      {
+        "package": "image-lib@2.4.1",
+        "provenance": [
+          {
+            "kind": "direct",
+            "source": "image-lib@2.4.1/package.json#ibex.computedCandidateClosure"
+          }
+        ]
+      }
+    ],
+    "materializedSites": [
+      {
+        "requester": "src/app.mjs",
+        "label": "plugins",
+        "candidates": [
+          "image-lib",
+          "image-lib/plugin"
+        ]
+      }
+    ]
+  },
   "rootImports": [
     "image-lib@2.4.1"
   ],
@@ -133,5 +209,5 @@
       ]
     }
   ],
-  "registryDigest": "sha256-BeEgMRzgpVeP-3Q3_JwvKGAgxI9YCIgsr-I4wXAWXJ8"
+  "registryDigest": "sha256-cTcHQEBEe_woyHyVBfP03ixM_wRiOZhBvfJU2cR3z2Y"
 }

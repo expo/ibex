@@ -5,6 +5,8 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-18 (Windows namespace and separator spellings of one
+resolved filesystem object share one host-boundary authorization identity)
 **Revised:** 2026-07-16 (ENG-24933 adds target-local Exact manifest validation/materialization and the public Exact-bound artifact preparer)
 **Revised:** 2026-07-15 (ENG-25061 adds live indirect/star/namespace export links to native ModuleRecords); 2026-07-15 (ENG-25060 adds the generation-bearing native module-runner ABI and common eval/poll/runner/destroy drive gate); 2026-07-15 (LLP 0026 adopts owner-thread-only serialized runtime-driving entry points); 2026-07-15 (structured throw metadata now carries a closed, trap-free native Error class derived from the JSError's internal direct-prototype identity); 2026-07-15 (the independent C11 consumer now executes the adversarial structured-value and cancellation ABI cases at runtime in the conformance profile); 2026-07-14 (named aggregate/member output schemas and direction-exact nested callback contracts close ABI output membership); 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment); 2026-07-14 (source-derived ABI output signatures, roles, selectors, buffer pairs, ownership, Java/JNI declaration reconciliation, and opaque input-handle accounting); 2026-07-14 (Hermes-safe Error metadata and poll-checkpoint Promise rejection publication complete asynchronous-failure ABI v1, including schedule-time job provenance and top-level-await de-duplication); 2026-07-14 (owner-thread structured asynchronous-failure publication ABI v1 with rooted values, authenticated schedule-time attribution, and explicit bounded loss); 2026-07-14 (structured-evaluation result ABI v2 adds owned, length-bearing source-position records while keeping unimplemented safe-throw/source-position capability bits off); 2026-07-14 (source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (bounded any-thread work-unit publication ABI, including timer due/undue scheduling identities); 2026-07-13 (structured-session import plan v2 carries the authenticated entry SourceId used by the private module cache); 2026-07-13 (normative structured-evaluation result ABI v1, migration rules, and the lowered-session extension's versioned static-import plan); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge); LLP 0026 (module-runner owner-thread contract)
@@ -690,8 +692,13 @@ embedding API):
 
 - `root_dir`: every `fs:*` capability value must name a path inside this root
   (compared symlink-resolved on both sides, same normalization as path-scoped
-  grants). Module loading is included: the `module-loader` principal's reads
-  are fenced like everyone else's.
+  grants). On Windows, authorization text folds the verbatim `\\?\` drive and
+  `\\?\UNC\` namespace spellings to their ordinary equivalents and uses `/` as
+  its platform-independent separator after resolving the object, so the same
+  object cannot acquire two policy or fence identities and descendant matching
+  has one component boundary syntax.
+  Module loading is included: the `module-loader` principal's reads are fenced
+  like everyone else's.
 - `allowed_hosts`: every outbound `network:*` capability value must name a
   listed remote host. Entries are `host` or `host:port`; a port-less entry
   covers the host across ports via the same scope-specific endpoint matcher

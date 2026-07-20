@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/embedded-module-graph-v1.schema.json",
+  "title": "Ibex path-independent embedded module graph v1",
+  "type": "object",
+  "required": ["schema", "graphIdentity", "entry", "records"],
+  "properties": {
+    "schema": { "const": "ibex/embedded-module-graph/1" },
+    "graphIdentity": { "$ref": "#/$defs/digest" },
+    "entry": { "$ref": "#/$defs/sourceId" },
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/record" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "sourceId": {
+      "type": "string",
+      "pattern": "^ibex-source-id-v1:[A-Za-z0-9_-]+$"
+    },
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "record": {
+      "type": "object",
+      "required": [
+        "sourceId",
+        "sourceIntegrity",
+        "semanticDigest",
+        "carrier",
+        "edges",
+        "virtualSource"
+      ],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/sourceId" },
+        "sourceIntegrity": { "$ref": "#/$defs/digest" },
+        "semanticDigest": { "$ref": "#/$defs/digest" },
+        "carrier": { "$ref": "#/$defs/carrier" },
+        "edges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/edge" }
+        },
+        "virtualSource": { "$ref": "#/$defs/virtualSource" },
+        "candidateTableRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmpty" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "carrier": {
+      "type": "object",
+      "required": ["pairId", "entryId"],
+      "properties": {
+        "pairId": { "$ref": "#/$defs/nonEmpty" },
+        "entryId": { "$ref": "#/$defs/nonEmpty" }
+      },
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "required": ["specifier", "resolutionKind", "conditions", "attributes", "target"],
+      "properties": {
+        "specifier": { "$ref": "#/$defs/nonEmpty" },
+        "resolutionKind": {
+          "enum": ["esm-static", "dynamic-import", "common-js-require"]
+        },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonEmpty" }
+        },
+        "attributes": {
+          "type": "object",
+          "properties": { "type": { "const": "json" } },
+          "additionalProperties": false
+        },
+        "target": { "$ref": "#/$defs/sourceId" }
+      },
+      "additionalProperties": false
+    },
+    "virtualSource": {
+      "type": "object",
+      "required": ["path", "importMetaUrl", "filename", "dirname", "sourceMapLabel"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/app/.+" },
+        "importMetaUrl": { "type": "string", "pattern": "^file:///app/" },
+        "filename": { "type": "string", "pattern": "^/app/" },
+        "dirname": { "type": "string", "pattern": "^/app(?:/.*)?$" },
+        "sourceMapLabel": { "type": "string", "pattern": "^file:///app/" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

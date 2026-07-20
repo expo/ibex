@@ -7,7 +7,8 @@ authors = ["Ibex Runtime Team"]
 license = "MIT"
 
 [workspace]
-members = ["crates/capsec-semantics", "crates/windows-dll-staging"]
+members = ["crates/capsec-semantics", "crates/compiled-stub", "crates/sfe-catalog", "crates/sfe-format", "crates/windows-dll-staging"]
+exclude = ["tools/oxc-latest-canary"]
 resolver = "2"
 
 [lib]
@@ -17,6 +18,11 @@ crate-type = ["staticlib", "rlib"]
 [[bin]]
 name = "ibex"
 path = "src/bin/ibex/main.rs"
+
+[[bin]]
+name = "ibex-sfe-dev-pack"
+path = "src/bin/ibex_sfe_dev_pack.rs"
+required-features = ["sfe-dev-spike"]
 
 [[example]]
 name = "module_runner_spike"
@@ -28,9 +34,12 @@ required-features = ["module-runner-spike"]
 
 [dependencies]
 capsec-semantics = { path = "crates/capsec-semantics" }
+ibex-sfe-format = { path = "crates/sfe-format" }
+ibex-sfe-catalog = { path = "crates/sfe-catalog" }
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
+tempfile = "3"
 
 # CLI argument parsing and shell completions for the `ibex` binary.
 clap = { version = "4.4", features = ["derive"] }
@@ -50,16 +59,16 @@ getrandom = "0.2"
 rusqlite = { version = "0.31", features = ["bundled", "column_decltype", "hooks"] }
 
 # Module resolution (Node/ESM)
-oxc_resolver = "11.17.0"
-oxc_ast = "=0.121.0"
-oxc_ast_visit = "=0.121.0"
-oxc_allocator = "=0.121.0"
-oxc_codegen = "=0.121.0"
-oxc_parser = "=0.121.0"
-oxc_semantic = "=0.121.0"
-oxc_sourcemap = "=6.1.1"
-oxc_span = "=0.121.0"
-oxc_transformer = "=0.121.0"
+oxc_resolver = "=11.24.2"
+oxc_ast = "=0.140.0"
+oxc_ast_visit = "=0.140.0"
+oxc_allocator = "=0.140.0"
+oxc_codegen = "=0.140.0"
+oxc_parser = "=0.140.0"
+oxc_semantic = "=0.140.0"
+oxc_sourcemap = "=8.1.1"
+oxc_span = "=0.140.0"
+oxc_transformer = "=0.140.0"
 
 # Async trait support
 async-trait = "0.1"
@@ -129,6 +138,9 @@ app-host = []
 module-runner-spike = []
 # LLP 0026 authenticated graph producer, linker, and Hermes evaluator.
 module-runner = []
+# Phase-0 LLP 0029 development stub. This exposes an explicitly diagnostic
+# Hermes constructor and must never be used as the release compiled profile.
+sfe-dev-spike = ["module-runner"]
 # Compiles the hyper-based localhost HTTP server backing `exact:http` and the
 # agent endpoints (the `ex_host_http_*` C symbols). App hosts and the full
 # `ibex` CLI profile enable this; without it build.rs compiles no-op stubs
@@ -157,7 +169,7 @@ openssl = { version = "0.10.81", features = ["vendored"] }
 # Windows does not ship a C zlib development package. Build zlib from source so
 # the native deflate/inflate host functions can be registered deterministically.
 libz-sys = { version = "1.1", features = ["static"] }
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 
 [build-dependencies]
 cc = "1.0"
@@ -168,7 +180,6 @@ sha2 = "0.10"
 [dev-dependencies]
 libc = "0.2"
 sha1 = "0.10"
-tempfile = "3"
 
 # LLP 0013 Goal 3 steady-state overhead benchmark. `harness = false` because the
 # unit of work is a whole `ibex` subprocess (not an in-process microbenchmark),

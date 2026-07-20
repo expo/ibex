@@ -726,6 +726,38 @@ impl Host {
         )
     }
 
+    /// Construct the armed host used by the real-binary native module-runner
+    /// conformance harness. This deliberately skips only report-derived target
+    /// promotion: the exact loaded engine, protected artifacts, and root
+    /// bindings still pass the production authenticators before any source is
+    /// evaluated.
+    ///
+    /// The constructor is absent from release binaries and from builds that do
+    /// not explicitly enable the CapSec conformance-observer feature.
+    /// @ref LLP 0019#tier-3-the-rustoxc-module-artifact-producer — native
+    /// source/prepared receipts need the real CLI binary before a product
+    /// target is eligible for CapSec advertisement.
+    #[cfg(all(debug_assertions, feature = "capsec-conformance-observer"))]
+    #[doc(hidden)]
+    pub fn new_armed_for_native_module_runner_conformance(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        validate_loaded_engine_identity(&armed_snapshot)?;
+        validate_snapshot_protected_artifacts(&armed_snapshot)?;
+        validate_snapshot_root_bindings(&armed_snapshot)?;
+        let cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Complete,
+                )
+            })
+            .collect();
+        Self::new_armed_with_target_cells(config, armed_snapshot, cells)
+    }
+
     fn target_cell(&self, edge: &str) -> capsec_semantics::decision::TargetCellDisposition {
         self.target_cells
             .get(edge)
@@ -1802,6 +1834,14 @@ impl Host {
         &self,
     ) -> Option<&Arc<RwLock<capsec_semantics::decision::VerifiedDecisionContext>>> {
         self.decision_context.as_ref()
+    }
+
+    /// Irreversibly end evaluator-owned bootstrap authority for this armed
+    /// Host. Every retained decision-context clone observes the same token.
+    /// @ref LLP 0029#4-compiled-mode-authority — application evaluation begins only after bootstrap authority is destroyed
+    pub fn seal_bootstrap_phase(&self) -> Option<bool> {
+        let context = self.decision_context.as_deref()?.read().ok()?;
+        Some(context.seal_bootstrap_phase())
     }
 
     pub fn typed_principal_for_module(
@@ -4493,6 +4533,51 @@ impl Host {
         self.load_authenticated_module_source_mode(meta, true)
     }
 
+    /// Re-admit a prepared record against the current immutable root binding
+    /// without parsing or transforming its source. Runtime caches are
+    /// untrusted: path ownership, object identity, SourceId, and source digest
+    /// must all still match before carrier bytes can execute.
+    #[cfg(any(test, feature = "module-runner"))]
+    pub(crate) fn authenticate_prepared_module_record(
+        &self,
+        path: &std::path::Path,
+        expected_source_id: &crate::module_loader::identity::SourceId,
+        expected_source_integrity: &capsec_semantics::model::Digest,
+    ) -> anyhow::Result<()> {
+        let snapshot = self.armed_snapshot.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("prepared module admission requires an armed snapshot")
+        })?;
+        let canonical = lexical_absolute_path(path)?;
+        let components = host_path_components(&canonical)?;
+        let root_principal = self
+            .typed_imports
+            .keys()
+            .find(|principal| principal.is_root())
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("armed root principal is absent"))?;
+        let principal = snapshot
+            .owner_for_host_components(&components)?
+            .unwrap_or(root_principal);
+        let binding = snapshot.root_binding_for_host_components(&principal, &components)?;
+        validate_armed_binding_object(&binding)?;
+        let relative = components
+            .strip_prefix(binding.host_path.components.as_slice())
+            .ok_or_else(|| anyhow::anyhow!("prepared module is outside its authenticated binding"))?
+            .to_vec();
+        let observed_source_id =
+            crate::module_loader::identity::SourceId::file(principal, relative)?;
+        if &observed_source_id != expected_source_id {
+            anyhow::bail!("prepared module path no longer authenticates its SourceId");
+        }
+        let source = authenticated_source_beneath_binding(&binding, &canonical)?;
+        if &crate::module_loader::artifact::source_integrity(&source.bytes)?
+            != expected_source_integrity
+        {
+            anyhow::bail!("prepared module source integrity changed");
+        }
+        Ok(())
+    }
+
     fn load_authenticated_module_source_mode(
         &self,
         meta: ResolvedModule,
@@ -5163,6 +5248,42 @@ impl Host {
                         meta.package_integrity = Some(integrity.as_str().to_owned());
                         meta.package_root = Some(host_path_from_binding(&binding)?);
                     }
+                    capsec_semantics::model::Principal::Root { .. } => {
+                        if meta.package_name.is_some() {
+                            anyhow::bail!(
+                                "unbound package metadata cannot be stamped as trusted root for {}",
+                                path.display()
+                            );
+                        }
+                        if let Some(resolved_package_root) = meta
+                            .package_root
+                            .as_deref()
+                            .map(std::fs::canonicalize)
+                            .transpose()
+                            .with_context(|| {
+                                format!(
+                                    "failed to authenticate root package manifest for {}",
+                                    path.display()
+                                )
+                            })?
+                        {
+                            let authenticated_root = host_path_from_binding(&binding)?;
+                            if !resolved_package_root.starts_with(&authenticated_root) {
+                                anyhow::bail!(
+                                    "root package manifest escapes its authenticated binding for {}",
+                                    path.display()
+                                );
+                            }
+                        }
+                        // A root-owned package.json controls language/resolution semantics and
+                        // carries reviewed app declarations, but it cannot turn first-party code
+                        // into a self-asserted package principal. Keep only the binding-derived
+                        // root identity after resolution.
+                        // @ref LLP 0014#the-generated-artifact
+                        meta.package_root = None;
+                        meta.package_version = None;
+                        meta.package_integrity = None;
+                    }
                     _ => {
                         if meta.package_name.is_some() {
                             anyhow::bail!(
@@ -5737,7 +5858,9 @@ fn absolute_host_path_components(
     host_path_components(&path)
 }
 
-fn host_path_components(
+/// Encode a host path using the platform-aware component model consumed by
+/// authenticated root bindings.
+pub fn host_path_components(
     path: &std::path::Path,
 ) -> capsec_semantics::Result<Vec<capsec_semantics::model::PathComponent>> {
     use std::path::Component;
@@ -5979,15 +6102,22 @@ fn host_path_from_logical_path(
             "{label} is not an absolute host binding"
         )));
     }
-    let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
-    for component in &host_path.components {
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            path.push(std::ffi::OsStr::from_bytes(component.bytes()));
-        }
-        #[cfg(not(unix))]
-        {
+
+    #[cfg(windows)]
+    {
+        let mut components = host_path.components.iter();
+        let prefix = components.next().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "{label} lacks a Windows volume or namespace prefix"
+            ))
+        })?;
+        let prefix = std::str::from_utf8(prefix.bytes()).map_err(|_| {
+            capsec_semantics::Error::ArmRefused(
+                "non-Unicode armed root cannot be represented on this target".into(),
+            )
+        })?;
+        let mut path = std::path::PathBuf::from(format!("{prefix}{}", std::path::MAIN_SEPARATOR));
+        for component in components {
             let text = std::str::from_utf8(component.bytes()).map_err(|_| {
                 capsec_semantics::Error::ArmRefused(
                     "non-Unicode armed root cannot be represented on this target".into(),
@@ -5995,8 +6125,32 @@ fn host_path_from_logical_path(
             })?;
             path.push(text);
         }
+        return Ok(path);
     }
-    Ok(path)
+
+    #[cfg(unix)]
+    {
+        let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+        for component in &host_path.components {
+            use std::os::unix::ffi::OsStrExt;
+            path.push(std::ffi::OsStr::from_bytes(component.bytes()));
+        }
+        return Ok(path);
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+        for component in &host_path.components {
+            let text = std::str::from_utf8(component.bytes()).map_err(|_| {
+                capsec_semantics::Error::ArmRefused(
+                    "non-Unicode armed root cannot be represented on this target".into(),
+                )
+            })?;
+            path.push(text);
+        }
+        Ok(path)
+    }
 }
 
 /// The macOS candidate deliberately implements a single-volume-subtree seam:
@@ -6513,7 +6667,151 @@ fn authenticated_source_beneath_binding(
         unreachable!("nonempty authenticated source path returns on its final component")
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::io::Read as _;
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        use std::os::windows::io::{AsRawHandle, FromRawHandle};
+        use std::ptr::{null, null_mut};
+        use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
+        use windows_sys::Wdk::Storage::FileSystem::{
+            NtCreateFile, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN,
+            FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
+        };
+        use windows_sys::Win32::Foundation::{
+            HANDLE, INVALID_HANDLE_VALUE, OBJ_CASE_INSENSITIVE, UNICODE_STRING,
+        };
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, SYNCHRONIZE,
+        };
+        use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
+
+        // @ref LLP 0021#module-initialization-and-trusted-source-acquisition — trusted source bytes are opened one component at a time beneath the authenticated root handle without following reparse points.
+        let mut options = std::fs::OpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS);
+        let mut current = options
+            .open(&root)
+            .with_context(|| format!("cannot open authenticated root {}", root.display()))?;
+        let root_metadata = current.metadata()?;
+        if !root_metadata.is_dir()
+            || root_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        {
+            anyhow::bail!(
+                "authenticated root is not a regular directory: {}",
+                root.display()
+            );
+        }
+        let actual_root = object_identity_for_open_file(&current)?;
+        if actual_root != binding.object {
+            anyhow::bail!(
+                "authenticated root object changed before module source read: {}",
+                root.display()
+            );
+        }
+
+        for (index, component) in components.iter().enumerate() {
+            let mut wide = component.encode_wide().collect::<Vec<_>>();
+            if wide.contains(&0) {
+                anyhow::bail!("module source contains a NUL path component");
+            }
+            let byte_length = wide
+                .len()
+                .checked_mul(std::mem::size_of::<u16>())
+                .and_then(|length| u16::try_from(length).ok())
+                .ok_or_else(|| anyhow::anyhow!("module source path component is too long"))?;
+            let name = UNICODE_STRING {
+                Length: byte_length,
+                MaximumLength: byte_length,
+                Buffer: wide.as_mut_ptr(),
+            };
+            let attributes = OBJECT_ATTRIBUTES {
+                Length: std::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+                RootDirectory: current.as_raw_handle(),
+                ObjectName: &name,
+                Attributes: OBJ_CASE_INSENSITIVE,
+                SecurityDescriptor: null(),
+                SecurityQualityOfService: null(),
+            };
+            let last = index + 1 == components.len();
+            let desired_access = FILE_READ_ATTRIBUTES
+                | SYNCHRONIZE
+                | if last {
+                    FILE_READ_DATA
+                } else {
+                    FILE_LIST_DIRECTORY | FILE_TRAVERSE
+                };
+            let create_options = FILE_OPEN_REPARSE_POINT
+                | FILE_SYNCHRONOUS_IO_NONALERT
+                | if last {
+                    FILE_NON_DIRECTORY_FILE
+                } else {
+                    FILE_DIRECTORY_FILE
+                };
+            let mut handle: HANDLE = INVALID_HANDLE_VALUE;
+            let mut io_status = IO_STATUS_BLOCK::default();
+            let status = unsafe {
+                NtCreateFile(
+                    &mut handle,
+                    desired_access,
+                    &attributes,
+                    &mut io_status,
+                    null(),
+                    0,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    FILE_OPEN,
+                    create_options,
+                    null_mut(),
+                    0,
+                )
+            };
+            if status < 0 || handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                anyhow::bail!(
+                    "cannot open authenticated module source {} relative to its root (NTSTATUS {status:#010x})",
+                    source_path.display()
+                );
+            }
+            let opened = unsafe { std::fs::File::from_raw_handle(handle) };
+            let metadata = opened.metadata()?;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                anyhow::bail!(
+                    "authenticated module source traverses a reparse point: {}",
+                    source_path.display()
+                );
+            }
+            if last {
+                if !metadata.is_file() {
+                    anyhow::bail!(
+                        "authenticated module source is not a regular file: {}",
+                        source_path.display()
+                    );
+                }
+                let mut bytes = Vec::new();
+                let mut opened = opened;
+                opened.read_to_end(&mut bytes).with_context(|| {
+                    format!(
+                        "cannot read authenticated module source {}",
+                        source_path.display()
+                    )
+                })?;
+                return Ok(bytes);
+            }
+            if !metadata.is_dir() {
+                anyhow::bail!(
+                    "authenticated module source parent is not a directory: {}",
+                    source_path.display()
+                );
+            }
+            current = opened;
+        }
+        unreachable!("nonempty authenticated source path returns on its final component")
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (binding, source_path);
         anyhow::bail!(
@@ -7240,7 +7538,7 @@ mod tests {
         assert!(!fd_descends_from_object(substituted_parent.as_raw_fd(), &expected).unwrap());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn first_party_source_read_rejects_root_swap_at_open() {
         let temp = tempfile::tempdir().unwrap();
@@ -9363,6 +9661,7 @@ mod tests {
                     }
                 })
                 .collect(),
+            embedded_protected_artifacts: Vec::new(),
         };
         ArmedSnapshot::load(&bytes, &expected).unwrap()
     }
@@ -9930,29 +10229,41 @@ mod tests {
         let dependency = fixture.path().join("dependency.cjs");
         let data = fixture.path().join("data.json");
         std::fs::write(
+            fixture.path().join("package.json"),
+            r#"{"ibex":{"computedCandidates":{"sites":[{"requester":"entry.mjs","label":"prepared-routes","specifiers":["./candidate-a.mjs","./candidate-b.mjs"]}]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
             &entry,
-            "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100);\n",
+            "import { value } from './dependency.cjs'; import data from './data.json' with { type: 'json' }; import path from 'node:path'; export const result = value + data.bump + (path.basename('/tmp/check.txt') === 'check.txt' ? 0 : 100); export function loadCandidate(name) { return import(name, { with: { 'ibex:site': 'prepared-routes' } }); }\n",
         )
         .unwrap();
         std::fs::write(&dependency, "exports.value = 41;\n").unwrap();
         std::fs::write(&data, "{\"bump\":2}\n").unwrap();
+        std::fs::write(
+            fixture.path().join("candidate-a.mjs"),
+            "export const candidate = 'a';\n",
+        )
+        .unwrap();
+        std::fs::write(
+            fixture.path().join("candidate-b.mjs"),
+            "export const candidate = 'b';\n",
+        )
+        .unwrap();
         crate::host::abi::install_host(example_armed_host_with(|value| {
             value["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
         }));
         let producer = digest_bytes("prepared-source-graph-test", b"producer").unwrap();
-        let graph =
-            match build_authenticated_source_graph_v1(&entry, producer.clone(), "hermes-test")
-                .unwrap()
-            {
-                SourceModuleGraphBuildV1::Native(graph) => graph,
-                SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                    panic!(
-                        "fixture unexpectedly required legacy loader: {}",
-                        requirement.reason
-                    )
-                }
-            };
-        assert_eq!(graph.records().count(), 4);
+        let graph = match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
+            SourceModuleGraphBuildV1::Native(graph) => graph,
+            SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                panic!(
+                    "fixture unexpectedly required legacy loader: {}",
+                    requirement
+                )
+            }
+        };
+        assert_eq!(graph.records().count(), 6);
         let deployment = digest_bytes("prepared-source-graph-test", b"deployment").unwrap();
         let artifact_dir = fixture.path().join("bundle-artifact");
         std::fs::create_dir(&artifact_dir).unwrap();
@@ -10133,19 +10444,10 @@ mod tests {
 
         crate::host::abi::install_host(example_armed_host());
         let producer = digest_bytes("module-runner-performance", b"producer").unwrap();
-        let initial = match build_authenticated_source_graph_v1(
-            &entry,
-            producer.clone(),
-            "hermes-performance",
-        )
-        .unwrap()
-        {
+        let initial = match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
             SourceModuleGraphBuildV1::Native(graph) => graph,
             SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                panic!(
-                    "performance graph required legacy loader: {}",
-                    requirement.reason
-                )
+                panic!("performance graph required legacy loader: {}", requirement)
             }
         };
         assert_eq!(initial.records().count(), DEPENDENCY_MODULES + 1);
@@ -10159,21 +10461,13 @@ mod tests {
             let mut collected = Vec::with_capacity(samples);
             for sample in 0..samples {
                 let started = Instant::now();
-                let graph = match build_authenticated_source_graph_v1(
-                    &entry,
-                    producer.clone(),
-                    "hermes-performance",
-                )
-                .unwrap()
-                {
-                    SourceModuleGraphBuildV1::Native(graph) => graph,
-                    SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
-                        panic!(
-                            "source sample required legacy loader: {}",
-                            requirement.reason
-                        )
-                    }
-                };
+                let graph =
+                    match build_authenticated_source_graph_v1(&entry, producer.clone()).unwrap() {
+                        SourceModuleGraphBuildV1::Native(graph) => graph,
+                        SourceModuleGraphBuildV1::LegacyRequired(requirement) => {
+                            panic!("source sample required legacy loader: {}", requirement)
+                        }
+                    };
                 let generation = generation_offset + sample + 1;
                 let (configs, contexts) = graph.native_execution_inputs(generation as u64).unwrap();
                 collected.push((

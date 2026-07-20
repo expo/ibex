@@ -64,7 +64,7 @@ the matching `hermesc` into HBC. Both representations retain the same
 `ModuleSemanticsV1`, semantic digest, original `SourceId`, typed edges, and
 source map; only the separately authenticated carrier encoding/digest changes.
 The existing Rolldown cache now emits that contract as a canonical
-`ibex/prepared-module-graph/1` index with one JavaScript factory carrier per
+`ibex/prepared-module-graph/2` index with one JavaScript factory carrier per
 defining principal. A warm load re-authenticates the deployment graph,
 original source identities, bindings, artifacts, and carrier bytes before the
 full native linker runs; it does not parse the application graph. This is an

@@ -6,9 +6,13 @@
 
 pub mod artifact;
 pub mod carrier;
+pub mod catalog_compiler;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod commonjs;
 pub mod commonjs_lexer;
+pub mod compatibility;
+pub mod computed_candidates;
+pub mod embedded_graph;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod generation;
 #[cfg(any(test, feature = "module-runner"))]
@@ -17,8 +21,10 @@ pub mod identity;
 pub mod producer_spike;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod runner_pipeline;
+pub mod script_frontend;
 #[cfg(any(test, feature = "module-runner"))]
 pub mod security;
+pub(crate) mod transform_config_generated;
 pub mod transpile;
 
 use anyhow::{anyhow, Context, Result};
@@ -1493,12 +1499,11 @@ impl ModuleLoader {
         if specifier.is_empty() {
             return Err(anyhow!("Empty module specifier"));
         }
-        // A query or fragment decorates a file-module request; it is not part
-        // of the authenticated file identity or the resolver lookup. Keep
-        // package imports/builtins untouched so `#imports` and authored
-        // builtin names cannot be reinterpreted as paths.
-        // @ref LLP 0023#23-module-identity-is-a-tagged-algebra-keyed-on-the-defining-principal
-        let specifier = strip_file_module_decorations(specifier);
+        let specifier = strip_file_specifier_decorations(specifier);
+        #[cfg(windows)]
+        let normalized_specifier = normalize_windows_verbatim_path_text(specifier);
+        #[cfg(windows)]
+        let specifier = normalized_specifier.as_ref();
         if !attributes.is_empty() && kind == ResolutionKind::CommonJsRequire {
             return Err(anyhow!(
                 "CommonJS require does not accept import attributes"
@@ -1740,7 +1745,11 @@ impl ModuleLoader {
         Ok(module)
     }
 
-    pub(crate) fn load_runner_source(&self, mut module: ResolvedModule) -> Result<ResolvedModule> {
+    /// Capture unmodified source bytes for a graph producer. This deliberately
+    /// bypasses the compatibility loader's file-at-a-time lowering; callers
+    /// must feed the returned bytes through the authenticated artifact producer.
+    /// @ref LLP 0026#1-source-admission-and-resolution
+    pub fn load_runner_source(&self, mut module: ResolvedModule) -> Result<ResolvedModule> {
         if module.source.is_some() {
             return Ok(module);
         }
@@ -2318,6 +2327,11 @@ impl ModuleLoader {
         } else {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
+        #[cfg(windows)]
+        let base_dir = {
+            let value = base_dir.to_string_lossy();
+            PathBuf::from(normalize_windows_verbatim_path_text(&value).as_ref())
+        };
 
         self.resolve_with_oxc_at(specifier, &base_dir, true, kind)
     }
@@ -2377,6 +2391,16 @@ impl ModuleLoader {
         }
 
         let full_path = resolution.full_path().to_path_buf();
+        // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution —
+        // Oxc resolves an ordinary Windows spelling; restore the canonical
+        // object identity before authentication and authorization consume it.
+        #[cfg(windows)]
+        let full_path = full_path.canonicalize().with_context(|| {
+            format!(
+                "Failed to canonicalize resolved Windows module {}",
+                full_path.display()
+            )
+        })?;
         // Oxc reports addon/Wasm candidates inconsistently across direct-file
         // and package resolution (a direct `.node` file can arrive as
         // CommonJS). The filename is therefore an independent fail-closed
@@ -2754,7 +2778,14 @@ fn package_tree_integrity_and_source(
             membership,
         )
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        if expected_root.is_none() {
+            return package_tree_integrity_and_source_path(root, source_path);
+        }
+        package_tree_integrity_and_source_windows(root, source_path, expected_root)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         if capture_inventory {
             anyhow::bail!(
@@ -2763,9 +2794,7 @@ fn package_tree_integrity_and_source(
         }
         let _ = membership;
         if expected_root.is_some() {
-            anyhow::bail!(
-                "armed package source authentication requires a root-relative object handle on this target"
-            );
+            anyhow::bail!("armed package source authentication is unavailable on this target");
         }
         let (integrity, source) = package_tree_integrity_and_source_path(root, source_path)?;
         Ok((integrity, source, None))
@@ -3504,6 +3533,332 @@ fn package_tree_integrity_and_source_unix(
     Ok((integrity, captured_source, inventory))
 }
 
+#[cfg(windows)]
+fn package_tree_integrity_and_source_windows(
+    root: &Path,
+    source_path: Option<&Path>,
+    expected_root: Option<&capsec_semantics::model::ObjectIdentity>,
+) -> Result<(String, Option<Vec<u8>>)> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
+    use std::ptr::{null, null_mut};
+    use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
+    use windows_sys::Wdk::Storage::FileSystem::{
+        NtCreateFile, FILE_DIRECTORY_FILE, FILE_NON_DIRECTORY_FILE, FILE_OPEN,
+        FILE_OPEN_REPARSE_POINT, FILE_SYNCHRONOUS_IO_NONALERT,
+    };
+    use windows_sys::Win32::Foundation::{
+        HANDLE, INVALID_HANDLE_VALUE, OBJ_CASE_INSENSITIVE, UNICODE_STRING,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, SYNCHRONIZE,
+    };
+    use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct ObjectStamp {
+        object: capsec_semantics::model::ObjectIdentity,
+        attributes: u32,
+        creation_time: u64,
+        last_write_time: u64,
+        length: u64,
+    }
+
+    fn stamp(file: &std::fs::File) -> Result<ObjectStamp> {
+        let metadata = file.metadata()?;
+        Ok(ObjectStamp {
+            object: crate::host::object_identity_for_open_file(file)?,
+            attributes: metadata.file_attributes(),
+            creation_time: metadata.creation_time(),
+            last_write_time: metadata.last_write_time(),
+            length: metadata.file_size(),
+        })
+    }
+
+    fn open_relative(
+        parent: &std::fs::File,
+        name: &OsStr,
+        directory: bool,
+    ) -> Result<std::fs::File> {
+        let mut wide = name.encode_wide().collect::<Vec<_>>();
+        if wide.contains(&0) {
+            return Err(anyhow!("Package path contains a NUL component"));
+        }
+        let byte_length = wide
+            .len()
+            .checked_mul(std::mem::size_of::<u16>())
+            .and_then(|length| u16::try_from(length).ok())
+            .ok_or_else(|| anyhow!("Package path component is too long"))?;
+        let name = UNICODE_STRING {
+            Length: byte_length,
+            MaximumLength: byte_length,
+            Buffer: wide.as_mut_ptr(),
+        };
+        let attributes = OBJECT_ATTRIBUTES {
+            Length: std::mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+            RootDirectory: parent.as_raw_handle(),
+            ObjectName: &name,
+            Attributes: OBJ_CASE_INSENSITIVE,
+            SecurityDescriptor: null(),
+            SecurityQualityOfService: null(),
+        };
+        let mut handle: HANDLE = INVALID_HANDLE_VALUE;
+        let mut io_status = IO_STATUS_BLOCK::default();
+        let desired_access = FILE_READ_ATTRIBUTES
+            | SYNCHRONIZE
+            | if directory {
+                FILE_LIST_DIRECTORY | FILE_TRAVERSE
+            } else {
+                FILE_READ_DATA
+            };
+        let create_options = FILE_OPEN_REPARSE_POINT
+            | FILE_SYNCHRONOUS_IO_NONALERT
+            | if directory {
+                FILE_DIRECTORY_FILE
+            } else {
+                FILE_NON_DIRECTORY_FILE
+            };
+        let status = unsafe {
+            NtCreateFile(
+                &mut handle,
+                desired_access,
+                &attributes,
+                &mut io_status,
+                null(),
+                0,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                FILE_OPEN,
+                create_options,
+                null_mut(),
+                0,
+            )
+        };
+        if status < 0 || handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            return Err(anyhow!(
+                "package entry changed while opening it relative to its authenticated parent (NTSTATUS {status:#010x})"
+            ));
+        }
+        Ok(unsafe { std::fs::File::from_raw_handle(handle) })
+    }
+
+    fn directory_entries(path: &Path) -> Result<Vec<(std::ffi::OsString, bool)>> {
+        // `ReadDir` supplies names only. Every named object is opened against
+        // the retained parent handle below; a path swap can therefore only
+        // make a name fail to open or change the two-pass/expected integrity
+        // inventory, never redirect the bytes or object metadata we accept.
+        let mut entries = std::fs::read_dir(path)
+            .with_context(|| format!("Failed to enumerate package directory {}", path.display()))?
+            .map(|entry| {
+                entry.and_then(|entry| {
+                    let directory = entry.file_type()?.is_dir();
+                    Ok((entry.file_name(), directory))
+                })
+            })
+            .collect::<std::io::Result<Vec<_>>>()?;
+        entries
+            .retain(|(name, _)| name != OsStr::new("node_modules") && name != OsStr::new(".git"));
+        entries.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(entries)
+    }
+
+    fn walk(
+        root: &Path,
+        directory: &std::fs::File,
+        relative_directory: &Path,
+        source_relative: Option<&Path>,
+        capture_source: bool,
+        records: &mut Vec<(String, String)>,
+        captured_source: &mut Option<Vec<u8>>,
+    ) -> Result<()> {
+        let before = stamp(directory)?;
+        let entries = directory_entries(&root.join(relative_directory))?;
+        for (name, directory_entry) in entries {
+            let relative_path = relative_directory.join(&name);
+            let capture =
+                capture_source && source_relative.is_some_and(|source| source == relative_path);
+            #[cfg(test)]
+            if capture {
+                pause_before_authenticated_source_open(&root.join(&relative_path));
+            }
+            let mut opened =
+                open_relative(directory, &name, directory_entry).with_context(|| {
+                    format!(
+                        "package entry changed while opening {}",
+                        root.join(&relative_path).display()
+                    )
+                })?;
+            let metadata = opened.metadata()?;
+            let relative = relative_path
+                .to_str()
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Package path is not valid UTF-8: {}",
+                        relative_path.display()
+                    )
+                })?
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return Err(anyhow!(
+                    "Package content contains an unauthenticated reparse point: {relative}"
+                ));
+            }
+            if metadata.is_dir() {
+                walk(
+                    root,
+                    &opened,
+                    &relative_path,
+                    source_relative,
+                    capture_source,
+                    records,
+                    captured_source,
+                )?;
+            } else if metadata.is_file() {
+                let before_file = stamp(&opened)?;
+                let mut digest = Sha256::new();
+                let mut bytes = capture.then(Vec::new);
+                let mut buffer = [0u8; 64 * 1024];
+                loop {
+                    let read = opened.read(&mut buffer).with_context(|| {
+                        format!("Failed to read package file {}", relative_path.display())
+                    })?;
+                    if read == 0 {
+                        break;
+                    }
+                    digest.update(&buffer[..read]);
+                    if let Some(captured) = bytes.as_mut() {
+                        captured.extend_from_slice(&buffer[..read]);
+                    }
+                }
+                if stamp(&opened)? != before_file {
+                    return Err(anyhow!(
+                        "Package file changed while authenticating {}",
+                        relative_path.display()
+                    ));
+                }
+                if let Some(bytes) = bytes {
+                    if captured_source.replace(bytes).is_some() {
+                        return Err(anyhow!("Package source appeared more than once"));
+                    }
+                }
+                records.push((
+                    relative,
+                    format!("sha256-{}", URL_SAFE_NO_PAD.encode(digest.finalize())),
+                ));
+            } else {
+                return Err(anyhow!(
+                    "Package content contains an unsupported file type: {relative}"
+                ));
+            }
+        }
+        if stamp(directory)? != before {
+            return Err(anyhow!(
+                "Package directory changed while authenticating {}",
+                root.join(relative_directory).display()
+            ));
+        }
+        Ok(())
+    }
+
+    let root = std::fs::canonicalize(root)
+        .with_context(|| format!("Failed to canonicalize package root {}", root.display()))?;
+    let source_relative = source_path
+        .map(|source| {
+            let normalized = match (source.parent(), source.file_name()) {
+                (Some(parent), Some(name)) => std::fs::canonicalize(parent)
+                    .map(|parent| parent.join(name))
+                    .with_context(|| {
+                        format!("Failed to authenticate module parent {}", parent.display())
+                    })?,
+                _ => source.to_path_buf(),
+            };
+            normalized
+                .strip_prefix(&root)
+                .map(Path::to_path_buf)
+                .with_context(|| {
+                    format!(
+                        "Authenticated module source {} is outside package root {}",
+                        source.display(),
+                        root.display()
+                    )
+                })
+        })
+        .transpose()?;
+    if source_relative.as_ref().is_some_and(|path| {
+        path.components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    }) {
+        return Err(anyhow!(
+            "Authenticated package source is not a relative file path"
+        ));
+    }
+
+    let mut options = std::fs::OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS);
+    #[cfg(test)]
+    pause_package_hook(&PACKAGE_ROOT_OPEN_HOOK, &root);
+    let root_handle = options
+        .open(&root)
+        .with_context(|| format!("Failed to pin package root {}", root.display()))?;
+    let root_metadata = root_handle.metadata()?;
+    if !root_metadata.is_dir()
+        || root_metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    {
+        return Err(anyhow!(
+            "Authenticated package root is not a regular directory: {}",
+            root.display()
+        ));
+    }
+    if let Some(expected) = expected_root {
+        if crate::host::object_identity_for_open_file(&root_handle)? != *expected {
+            return Err(anyhow!(
+                "Authenticated package root object changed before traversal: {}",
+                root.display()
+            ));
+        }
+    }
+
+    // @ref LLP 0021#module-initialization-and-trusted-source-acquisition — package bytes are inventoried twice and opened relative to the authenticated root handle without following reparse points.
+    let inventory = |capture_source: bool| -> Result<(Vec<(String, String)>, Option<Vec<u8>>)> {
+        let mut records = Vec::new();
+        let mut captured = None;
+        walk(
+            &root,
+            &root_handle,
+            Path::new(""),
+            source_relative.as_deref(),
+            capture_source,
+            &mut records,
+            &mut captured,
+        )?;
+        records.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+        Ok((records, captured))
+    };
+    let (first, _) = inventory(false)?;
+    #[cfg(test)]
+    pause_package_hook(&PACKAGE_INVENTORY_PASS_HOOK, &root);
+    let (second, captured_source) = inventory(source_relative.is_some())?;
+    if first != second {
+        return Err(anyhow!(
+            "Package content changed between authenticated inventory passes"
+        ));
+    }
+    if source_relative.is_some() && captured_source.is_none() {
+        return Err(anyhow!(
+            "Authenticated module source disappeared during package traversal"
+        ));
+    }
+    let bytes = serde_json::to_vec(&second)?;
+    Ok((
+        format!("sha256-{}", URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))),
+        captured_source,
+    ))
+}
+
 /// Authenticate the complete package tree and optionally retain the exact
 /// bytes of one source file from the same pinned file handle that contributed
 /// its digest record.
@@ -3742,6 +4097,38 @@ fn package_name_from_bare_specifier(specifier: &str) -> Option<String> {
         return Some(format!("{first}/{second}"));
     }
     Some(first.to_string())
+}
+
+fn strip_file_specifier_decorations(specifier: &str) -> &str {
+    // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — a Windows verbatim namespace `?` is path syntax, not a module query delimiter.
+    let windows_verbatim_prefix_len = specifier.starts_with("\\\\?\\").then_some(4);
+    let file_like = windows_verbatim_prefix_len.is_some()
+        || specifier.starts_with('.')
+        || specifier.starts_with('/')
+        || Path::new(specifier).is_absolute();
+    if !file_like {
+        return specifier;
+    }
+    let search_start = windows_verbatim_prefix_len.unwrap_or(0);
+    let end = specifier[search_start..]
+        .char_indices()
+        .find_map(|(index, character)| {
+            matches!(character, '?' | '#').then_some(search_start + index)
+        })
+        .unwrap_or(specifier.len());
+    &specifier[..end]
+}
+
+#[cfg(any(windows, test))]
+fn normalize_windows_verbatim_path_text(value: &str) -> std::borrow::Cow<'_, str> {
+    // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Oxc receives ordinary Windows drive/UNC spellings while authorization retains canonical verbatim paths.
+    if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+        return std::borrow::Cow::Owned(format!(r"\\{rest}"));
+    }
+    if let Some(rest) = value.strip_prefix(r"\\?\") {
+        return std::borrow::Cow::Borrowed(rest);
+    }
+    std::borrow::Cow::Borrowed(value)
 }
 
 fn find_package_root(start: &Path) -> Option<PathBuf> {
@@ -5753,6 +6140,24 @@ mod tests {
     }
 
     #[test]
+    fn windows_verbatim_file_specifier_preserves_namespace_question_mark() {
+        let path = r"\\?\D:\a\ibex\entry.mjs";
+        assert_eq!(strip_file_specifier_decorations(path), path);
+        assert_eq!(
+            strip_file_specifier_decorations(r"\\?\D:\a\ibex\entry.mjs?cache=one#section"),
+            path
+        );
+        assert_eq!(
+            normalize_windows_verbatim_path_text(path),
+            r"D:\a\ibex\entry.mjs"
+        );
+        assert_eq!(
+            normalize_windows_verbatim_path_text(r"\\?\UNC\server\share\entry.mjs"),
+            r"\\server\share\entry.mjs"
+        );
+    }
+
+    #[test]
     fn ambiguous_js_source_goal_follows_authenticated_package_type() {
         let dir = tempdir().unwrap();
         let esm = dir.path().join("esm");
@@ -7571,7 +7976,7 @@ fs.writeFileSync(__MARKER_PATH__, 'authenticated-cache-route-ok');
         assert!(error.to_string().contains("changed"), "{error:#}");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_package_source_rejects_same_content_root_object_swap() {
         let _race_guard = package_race_test_lock();
@@ -7609,7 +8014,7 @@ fs.writeFileSync(__MARKER_PATH__, 'authenticated-cache-route-ok');
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn authenticated_package_source_rejects_add_remove_and_directory_swap_between_passes() {
         for mutation in ["add", "remove", "directory-swap"] {

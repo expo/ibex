@@ -9,7 +9,11 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #endif
-#if defined(__has_include)
+// Header presence is not debugger availability: no-debugger Hermes installs
+// the same public header with inert declarations but omits the implementation.
+// @ref LLP 0029#2-executable-layout-stub-envelope-footer — release stubs bind a lean/static engine profile without inheriting debugger linkage
+#if !defined(EXACT_HAS_HERMES_ASYNC_DEBUGGER) && defined(HERMES_ENABLE_DEBUGGER) && \
+    defined(__has_include)
 #if __has_include(<hermes/AsyncDebuggerAPI.h>)
 #define EXACT_HAS_HERMES_ASYNC_DEBUGGER 1
 #endif
@@ -243,6 +247,8 @@ struct NativeModuleRecordEntry {
       import_bindings;
   std::set<uint64_t> evaluation_dependencies;
   std::map<std::string, uint64_t> dynamic_import_bindings;
+  std::map<std::pair<uint32_t, std::string>, uint64_t>
+      computed_dynamic_import_bindings;
   std::shared_ptr<facebook::jsi::Object> namespace_object;
   std::shared_ptr<facebook::jsi::Function> declare_function;
   std::shared_ptr<facebook::jsi::Function> execute_function;
@@ -281,6 +287,8 @@ struct NativeCommonJsRecordEntry {
   NativeCommonJsRecordState state{NativeCommonJsRecordState::New};
   std::map<std::string, NativeCommonJsRequireBinding> require_bindings;
   std::map<std::string, uint64_t> dynamic_import_bindings;
+  std::map<std::pair<uint32_t, std::string>, uint64_t>
+      computed_dynamic_import_bindings;
   std::set<std::string> detected_exports;
   std::string filename;
   std::string dirname;

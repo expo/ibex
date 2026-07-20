@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { GENERATED_POLICY_CHECKS } from "./check-generated-policies.mjs";
+
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
 
 test("generated policy drift covers the LLP example and every rev2 demo policy", () => {
   expect(GENERATED_POLICY_CHECKS).toEqual([
@@ -20,4 +28,30 @@ test("generated policy drift covers the LLP example and every rev2 demo policy",
       "examples/capsec-demo/04-defense-in-depth/ibex-policy.json",
     ],
   ]);
+});
+
+test("checked portable policy trees retain canonical source bytes", () => {
+  for (const [entry] of GENERATED_POLICY_CHECKS) {
+    const projectRoot = path.dirname(entry);
+    const trackedFiles = execFileSync(
+      "git",
+      ["ls-files", "-z", "--", projectRoot],
+      {
+        cwd: repoRoot,
+      },
+    )
+      .toString("utf8")
+      .split("\0")
+      .filter(Boolean);
+    expect(trackedFiles.length).toBeGreaterThan(0);
+
+    const attributes = execFileSync(
+      "git",
+      ["check-attr", "eol", "--", ...trackedFiles],
+      { cwd: repoRoot, encoding: "utf8" },
+    );
+    for (const file of trackedFiles) {
+      expect(attributes).toContain(`${file}: eol: lf`);
+    }
+  }
 });

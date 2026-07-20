@@ -626,6 +626,11 @@ impl<'de> Deserialize<'de> for PathComponent {
 pub enum LogicalRoot {
     Project,
     Package,
+    // Compiled executables use a distinct namespace: `/app` is diagnostic
+    // metadata and optional `/work` is the only host-backed filesystem mount.
+    // @ref LLP 0023#13-compiled-mount-profile-app-optional-work-and-unset-cwd
+    App,
+    Work,
     Home,
     Tmp,
     Absolute,
@@ -1160,28 +1165,32 @@ impl SelectorResource {
         }
     }
 
-    pub fn contains_package_logical_root(&self) -> bool {
-        fn path_has_package(path: &LogicalPath) -> bool {
-            path.root == LogicalRoot::Package
+    pub fn contains_logical_root(&self, root: LogicalRoot) -> bool {
+        fn path_has_root(path: &LogicalPath, root: LogicalRoot) -> bool {
+            path.root == root
         }
-        fn unix_has_package(address: &UnixAddress) -> bool {
-            matches!(address, UnixAddress::Path { path } if path_has_package(path))
+        fn unix_has_root(address: &UnixAddress, root: LogicalRoot) -> bool {
+            matches!(address, UnixAddress::Path { path } if path_has_root(path, root))
         }
         match self {
-            Self::PathExact { path } | Self::PathTree { path } => path_has_package(path),
+            Self::PathExact { path } | Self::PathTree { path } => path_has_root(path, root),
             Self::ConnectUnix { address, .. } | Self::ListenUnix { address, .. } => {
-                unix_has_package(address)
+                unix_has_root(address, root)
             }
             Self::Executable {
                 path, interpreter, ..
             } => {
-                path_has_package(path)
+                path_has_root(path, root)
                     || interpreter
                         .as_ref()
-                        .is_some_and(|value| path_has_package(&value.path))
+                        .is_some_and(|value| path_has_root(&value.path, root))
             }
             _ => false,
         }
+    }
+
+    pub fn contains_package_logical_root(&self) -> bool {
+        self.contains_logical_root(LogicalRoot::Package)
     }
 
     pub fn is_closed_surface(&self) -> bool {

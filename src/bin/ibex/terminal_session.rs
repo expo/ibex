@@ -171,6 +171,8 @@ pub fn selected_execution_route(cli: &Cli, stdin_is_tty: bool) -> Option<Selecte
         }),
         Some(
             Commands::Build { .. }
+            | Commands::Compile { .. }
+            | Commands::InspectExecutable { .. }
             | Commands::Completions { .. }
             | Commands::Version
             | Commands::Debug { .. }

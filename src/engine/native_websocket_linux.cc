@@ -800,6 +800,17 @@ extern "C" uint32_t native_ws_connect(
     io_thread.detach();
 
     return entry->ws_id;
+#elif defined(EXACT_DISABLE_LINUX_NETWORK)
+    (void)url;
+    (void)protocols;
+    (void)open_cb;
+    (void)message_cb;
+    (void)close_cb;
+    (void)bytes_sent_cb;
+    if (error_cb) {
+        error_cb(0, "network is unavailable in the compiled Linux release profile", context);
+    }
+    return 0;
 #else
     (void)url;
     (void)protocols;

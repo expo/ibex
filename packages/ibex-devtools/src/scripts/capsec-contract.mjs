@@ -369,7 +369,7 @@ export function parseJsonStrict(bytes, label = "<json>") {
 }
 
 export function readJsonStrict(filePath) {
-  const label = path.relative(repoRoot, filePath);
+  const label = path.relative(repoRoot, filePath).split(path.sep).join("/");
   return parseJsonStrict(fs.readFileSync(filePath), label);
 }
 
@@ -470,7 +470,7 @@ const EXPECTED_DIGEST_PROJECTIONS = {
   },
   policy: {
     status: "available",
-    inputSchema: "ibex/capsec-policy/1",
+    inputSchema: "ibex/capsec-policy/2",
     memberOrder: "not-applicable",
     members: ["canonical-policy-object"],
     omitFields: ["policyDigest"],
@@ -501,7 +501,7 @@ const EXPECTED_DIGEST_VECTOR_BINDINGS = {
     payloadRef: null,
   },
   policy: {
-    domain: "ibex:capsec:policy:1",
+    domain: "ibex:capsec:policy:2",
     payloadRef: "examples/canonical-policy.canonical.json",
   },
   registry: {
@@ -1224,7 +1224,7 @@ function walkLogicalPaths(value, label = "$") {
   }
   if (!value || typeof value !== "object") return;
   if (
-    ["project", "package", "home", "tmp", "absolute"].includes(value.root) &&
+    ["project", "package", "app", "work", "home", "tmp", "absolute"].includes(value.root) &&
     Array.isArray(value.components)
   ) {
     validateLogicalPath(value, label);
@@ -2292,6 +2292,24 @@ function walkArmedRows(snapshot, definitionsById, prefix) {
       ),
     );
   }
+  if (snapshot.rootAuthorityCeiling.kind === "bounded") {
+    snapshot.rootAuthorityCeiling.authorities.forEach((selector, index) =>
+      validateSelectorSemantics(
+        selector,
+        definitionsById,
+        `${prefix}.rootAuthorityCeiling.authorities[${index}]`,
+        { positive: true },
+      ),
+    );
+  }
+  snapshot.bootstrapAuthorityFloor.forEach((selector, index) =>
+    validateSelectorSemantics(
+      selector,
+      definitionsById,
+      `${prefix}.bootstrapAuthorityFloor[${index}]`,
+      { positive: true },
+    ),
+  );
 }
 
 function collectLogicalPaths(value, result = []) {
@@ -2301,7 +2319,7 @@ function collectLogicalPaths(value, result = []) {
   }
   if (!value || typeof value !== "object") return result;
   if (
-    ["project", "package", "home", "tmp", "absolute"].includes(value.root) &&
+    ["project", "package", "app", "work", "home", "tmp", "absolute"].includes(value.root) &&
     Array.isArray(value.components)
   ) {
     result.push(value);
@@ -2337,6 +2355,28 @@ export function armedTargetPathEntries(snapshot) {
         entries.push({ logicalPath, namespace: `logical:${logicalPath.root}` });
       }
     }
+  }
+  if (snapshot.rootAuthorityCeiling.kind === "bounded") {
+    for (const logicalPath of collectLogicalPaths(
+      snapshot.rootAuthorityCeiling.authorities,
+    )) {
+      if (logicalPath.root === "package") {
+        throw new Error(
+          "rootAuthorityCeiling cannot contain a package logical root",
+        );
+      }
+      entries.push({ logicalPath, namespace: `logical:${logicalPath.root}` });
+    }
+  }
+  for (const logicalPath of collectLogicalPaths(
+    snapshot.bootstrapAuthorityFloor,
+  )) {
+    if (logicalPath.root === "package") {
+      throw new Error(
+        "bootstrapAuthorityFloor cannot contain a package logical root",
+      );
+    }
+    entries.push({ logicalPath, namespace: `logical:${logicalPath.root}` });
   }
   snapshot.rootBindings.forEach((binding) => {
     const namespace = `volume:${binding.object.platform}:${binding.object.volume}`;
@@ -2726,6 +2766,46 @@ export function validateArmedSnapshotSemantics(snapshot, label, context = {}) {
       }
     }
   }
+  if (snapshot.rootAuthorityCeiling.kind === "bounded") {
+    for (const logicalPath of collectLogicalPaths(
+      snapshot.rootAuthorityCeiling.authorities,
+    )) {
+      if (logicalPath.root === "package") {
+        throw new Error(
+          `${label}.rootAuthorityCeiling: package logical root is forbidden`,
+        );
+      }
+      if (
+        (logicalPath.root === "absolute" &&
+          !absoluteBindings.has(canonicalJson(logicalPath))) ||
+        (logicalPath.root !== "absolute" &&
+          !ordinaryBindings.has(logicalPath.root))
+      ) {
+        throw new Error(
+          `${label}.rootAuthorityCeiling: unresolved ${logicalPath.root} logical root`,
+        );
+      }
+    }
+  }
+  for (const logicalPath of collectLogicalPaths(
+    snapshot.bootstrapAuthorityFloor,
+  )) {
+    if (logicalPath.root === "package") {
+      throw new Error(
+        `${label}.bootstrapAuthorityFloor: package logical root is forbidden`,
+      );
+    }
+    if (
+      (logicalPath.root === "absolute" &&
+        !absoluteBindings.has(canonicalJson(logicalPath))) ||
+      (logicalPath.root !== "absolute" &&
+        !ordinaryBindings.has(logicalPath.root))
+    ) {
+      throw new Error(
+        `${label}.bootstrapAuthorityFloor: unresolved ${logicalPath.root} logical root`,
+      );
+    }
+  }
 
   const requiredProtectedRoles = [
     "armed-policy",
@@ -2740,6 +2820,33 @@ export function validateArmedSnapshotSemantics(snapshot, label, context = {}) {
     canonicalJson(requiredProtectedRoles)
   ) {
     throw new Error(`${label}: protected object roles are incomplete`);
+  }
+  const hostProtectedObjects = snapshot.protectedObjects.filter(
+    (entry) => entry.embeddedRange === undefined,
+  );
+  assertUnique(
+    hostProtectedObjects.map((entry) => canonicalJson(entry.object)),
+    `${label}.hostProtectedObjects`,
+  );
+  const embedded = snapshot.protectedObjects
+    .filter((entry) => entry.embeddedRange !== undefined)
+    .map((entry) => ({
+      object: canonicalJson(entry.object),
+      offset: entry.embeddedRange.offset,
+      end: entry.embeddedRange.offset + entry.embeddedRange.length,
+    }))
+    .sort((left, right) =>
+      left.object === right.object
+        ? left.offset - right.offset
+        : utf8Compare(left.object, right.object),
+    );
+  for (let index = 1; index < embedded.length; index += 1) {
+    if (
+      embedded[index - 1].object === embedded[index].object &&
+      embedded[index - 1].end > embedded[index].offset
+    ) {
+      throw new Error(`${label}: embedded protected object ranges overlap`);
+    }
   }
   if (
     canonicalJson(snapshot.networkPosture.alwaysDeniedPeerClasses) !==

@@ -33,9 +33,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        run: |
-          rustup toolchain install 1.93.1 --profile minimal
-          rustup default 1.93.1
+        run: scripts/install-rust-toolchain.sh
 
       - name: Install Bun
         uses: oven-sh/setup-bun@v2
@@ -233,6 +231,12 @@ jobs:
           if ($exports -match 'CDPAgent|CDPDebugAPI') {
             throw "Hermes DLL exports debugger symbols"
           }
+
+      - name: Bind exact Hermes compatibility engine
+        shell: pwsh
+        run: |
+          $hermes = (Resolve-Path -LiteralPath "tools\hermes\windows-x64\bin\hermes.exe").Path
+          "IBEX_HERMES_BIN=$hermes" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Run the complete CapSec matrix and bind evidence
         shell: pwsh

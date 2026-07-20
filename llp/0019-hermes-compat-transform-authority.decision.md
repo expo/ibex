@@ -5,8 +5,16 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-06
-**Revised:** 2026-07-19 (LLP 0034 makes the engine premise mode-aware while the compatibility transform tiers remain in place for the adoption checkpoint); 2026-07-15 (ENG-25066 made Tier 3 canonical for ordinary ESM; Tier 2 remains only for the bounded unsupported-shape window); 2026-07-15 (LLP 0026 adoption adds the Rust/Oxc in-process zero-divergence mirror as a migration tier)
-**Related:** LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0007 (transform convergence RFC); LLP 0009 (runtime transform scope); LLP 0018 (fail-loud tooling); LLP 0026 (module runner); LLP 0034 (ES6 block scoping)
+**Revised:** 2026-07-17 (the native source/prepared real-binary gate and
+exhaustive Hermes target matrix pin every Tier 3 for-of corpus row to a pass
+or stable typed quarantine; unsupported Hermes syntax and BigInt/source-map
+expectations join the same executable contract); 2026-07-17 (LLP 0028 Phase 0
+quarantines unproven Tier 3 `for...of` shapes behind typed `LegacyRequired`
+categories); 2026-07-15 (ENG-25066 made Tier 3 canonical for ordinary ESM;
+Tier 2 remains only for the bounded unsupported-shape window); 2026-07-15
+(LLP 0026 adoption adds the Rust/Oxc in-process zero-divergence mirror as a
+migration tier)
+**Related:** LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0007 (transform convergence RFC); LLP 0009 (runtime transform scope); LLP 0018 (fail-loud tooling); LLP 0026 (module runner)
 
 ## Decision
 
@@ -56,6 +64,26 @@ the bounded 0.1 compatibility path for unsupported interop shapes and retires
 with that path. Any non-zero divergence requires an explicit revision here
 rather than an expected result hidden in the runner.
 
+**Dated compatibility disposition (2026-07-17).** The first Tier 3 `for...of` mirror used
+an ordinary-function IIFE without the canonical pass's control-flow, lexical
+`this`/`arguments`, hoisting, redeclaration, or nested-loop analysis. Until a
+complete Oxc pass lands, every unproven row is classified by an AST-derived
+`Tier3ForOfQuarantineReason` and returns typed `LegacyRequired` to the bounded
+0.1 compatibility loader. The simple identifier-bound block-capture row stays
+native only when none of those hazards is present. Deleting the fallback does
+not resolve a row: each quarantine must become a proven pass or a stable,
+documented unsupported diagnostic before the window closes.
+
+The Phase-0 gate closes the unclassified part of that exception.
+`config/llp0019-native-tier3-corpus.json` covers all 31 shared-corpus rows:
+four proven for-of rows execute natively; every other row has an exact typed
+code and reason. The broader `config/llp0019-hermes-target-matrix.json` pins
+the native contract for for-of, async generators, `for await`, explicit
+resource management, BigInt, decorators, and source maps. A quarantine still
+uses Tier 2 during the bounded window, but it can no longer disappear by
+accident: window close must preserve its stable unsupported diagnostic or
+land a proven pass.
+
 ## Why multiple implementations exist during migration
 
 The loader scanner runs *inside the Hermes bootstrap*: it executes on the
@@ -103,7 +131,7 @@ in ENG-22567.
 
 ## The enforced conformance seam
 
-One corpus, one oracle, two systems under test:
+One corpus, one oracle, three systems under test:
 
 - `hermes-compat-corpus.mjs` — implementation-neutral fixtures recording
   observable behavior facts (`rewrites`, `hermesMatchesOracle`,
@@ -121,6 +149,14 @@ One corpus, one oracle, two systems under test:
 - `tests/hermes_compat_conformance.rs` — wires both runners into
   `cargo test` / `scripts/run-tests.sh`, parsing non-empty pass counts so the
   gate cannot silently run nothing (LLP 0018).
+- `run-native-tier3-conformance.mjs` plus
+  `tests/native_tier3_conformance.rs` — drives the real CLI binary through
+  source and prepared native profiles. Passing rows must match the oracle and
+  emit one authenticated execution receipt; quarantined rows must emit their
+  stable code/reason and no receipt. The named macOS-arm64 and Linux-x64 CI
+  cells run this gate. Its debug-only CapSec conformance constructor skips
+  only report promotion while retaining exact-engine, protected-artifact,
+  root-binding, and bounded project/stdout authorization checks.
 
 `bun run test:hermes-compat` is the standalone entrypoint;
 `bun test packages` covers the AST path plus the async-generator corpus.

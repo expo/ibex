@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/sfe-catalog-v1.schema.json",
+  "title": "Ibex release-pinned single-file executable catalog v1",
+  "type": "object",
+  "required": ["schema", "release", "sequence", "entries"],
+  "properties": {
+    "schema": { "const": "ibex/sfe-catalog/1" },
+    "release": { "type": "string", "minLength": 1 },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "target",
+          "minimumPlatform",
+          "contractDigest",
+          "engineCompatibilityIdentity",
+          "hermescIdentity",
+          "hbcVersion",
+          "contract",
+          "stubUnsignedCore",
+          "hermesc"
+        ],
+        "properties": {
+          "target": { "type": "string", "minLength": 1 },
+          "minimumPlatform": {
+            "type": "string",
+            "pattern": "^(macos-[0-9]+\\.[0-9]+-arm64|linux-glibc-[0-9]+\\.[0-9]+-x86-64-v1)$"
+          },
+          "contractDigest": { "$ref": "#/$defs/digest" },
+          "engineCompatibilityIdentity": { "$ref": "#/$defs/digest" },
+          "hermescIdentity": { "$ref": "#/$defs/digest" },
+          "hbcVersion": { "type": "integer", "minimum": 1 },
+          "contract": { "$ref": "#/$defs/artifact" },
+          "stubUnsignedCore": { "$ref": "#/$defs/artifact" },
+          "hermesc": { "$ref": "#/$defs/artifact" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    },
+    "artifact": {
+      "type": "object",
+      "required": ["role", "digest", "size", "mediaType"],
+      "properties": {
+        "role": { "enum": ["stub-contract", "stub-unsigned-core", "hermesc"] },
+        "digest": { "$ref": "#/$defs/digest" },
+        "size": { "type": "integer", "minimum": 1 },
+        "mediaType": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

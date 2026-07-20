@@ -641,6 +641,47 @@ describe("source-bound builtin public probes", () => {
     }
   });
 
+  test("binds shared Windows crypto probes but leaves native KDFs residual", () => {
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "createHash",
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        target: "x86_64-pc-windows-msvc",
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "exact-crypto-bounded-v1",
+      },
+    });
+
+    for (const exportName of ["hkdfSync", "pbkdf2Sync", "scryptSync"]) {
+      expect(
+        probeFor({
+          sourceKey: "exact_crypto",
+          exportName,
+          moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+          target: "x86_64-pc-windows-msvc",
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
+  });
+
+  test("does not schedule Brotli calls without the Windows native codec", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_zlib",
+        exportName: "BrotliCompress._processChunk",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:zlib", "zlib"],
+        target: "x86_64-pc-windows-msvc",
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+  });
+
   test("authors pure IP, module, clock, URL, and version helpers", () => {
     expect(
       probeFor({

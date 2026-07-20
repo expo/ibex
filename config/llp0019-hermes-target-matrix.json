@@ -1,0 +1,71 @@
+{
+  "schema": "ibex/llp0019-hermes-target-matrix/1",
+  "profiles": ["source", "prepared"],
+  "rows": [
+    {
+      "id": "for-of-per-iteration-binding",
+      "family": "for-of",
+      "source": "const values = []; for (const value of [1, 2]) { values.push(() => value); } print(values.map((read) => read()).join(','));\n",
+      "disposition": "pass",
+      "expectedOutput": "1,2"
+    },
+    {
+      "id": "async-generator",
+      "family": "async-generator",
+      "source": "async function* values() { yield 1; } print('unreachable');\n",
+      "disposition": "quarantine",
+      "stableCode": "IBEX_LEGACY_HERMES_SYNTAX",
+      "reason": "async-generator"
+    },
+    {
+      "id": "for-await-of",
+      "family": "for-await",
+      "source": "async function consume() { for await (const value of []) { print(value); } } consume();\n",
+      "disposition": "quarantine",
+      "stableCode": "IBEX_LEGACY_TIER3_FOR_OF",
+      "reason": "await-loop"
+    },
+    {
+      "id": "using-declaration",
+      "family": "explicit-resource-management",
+      "source": "using resource = { [Symbol.dispose]() {} }; print('unreachable');\n",
+      "disposition": "quarantine",
+      "stableCode": "IBEX_LEGACY_HERMES_SYNTAX",
+      "reason": "using-declaration"
+    },
+    {
+      "id": "await-using-declaration",
+      "family": "explicit-resource-management",
+      "source": "async function consume() { await using resource = { [Symbol.asyncDispose]: async function () {} }; } consume();\n",
+      "disposition": "quarantine",
+      "stableCode": "IBEX_LEGACY_HERMES_SYNTAX",
+      "reason": "await-using-declaration"
+    },
+    {
+      "id": "bigint-literal",
+      "family": "bigint",
+      "source": "print(String(1_000n + 2n));\n",
+      "disposition": "pass",
+      "expectedOutput": "1002",
+      "requiredPass": "llp0019-bigint-constructor-v1"
+    },
+    {
+      "id": "decorators",
+      "family": "decorators",
+      "extension": "ts",
+      "source": "function mark(value: unknown) { return value; } @mark class Example {} print(Example.name);\n",
+      "disposition": "quarantine",
+      "stableCode": "IBEX_LEGACY_HERMES_SYNTAX",
+      "reason": "decorator"
+    },
+    {
+      "id": "source-map-v3",
+      "family": "source-maps",
+      "source": "const answer: number = 42; print(String(answer));\n",
+      "extension": "ts",
+      "disposition": "pass",
+      "expectedOutput": "42",
+      "sourceMapExpectation": "v3-source-id-bound-nonempty-mappings"
+    }
+  ]
+}

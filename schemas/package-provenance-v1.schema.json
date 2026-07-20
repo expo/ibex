@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schemas/package-provenance-v1.schema.json",
+  "title": "Ibex embedded package provenance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "compilePlan",
+    "compilePlanDigest",
+    "catalogSequence",
+    "catalogEntryTarget",
+    "stubCoreDigest",
+    "producerIdentity"
+  ],
+  "properties": {
+    "schema": { "const": "ibex/package-provenance/1" },
+    "compilePlan": { "$ref": "compile-plan-v1.schema.json" },
+    "compilePlanDigest": { "$ref": "#/$defs/digest" },
+    "catalogSequence": { "type": "integer", "minimum": 1 },
+    "catalogEntryTarget": { "type": "string", "minLength": 1 },
+    "stubCoreDigest": { "$ref": "#/$defs/digest" },
+    "producerIdentity": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

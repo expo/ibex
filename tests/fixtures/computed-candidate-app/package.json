@@ -1,0 +1,15 @@
+{
+  "name": "computed-candidate-app",
+  "private": true,
+  "ibex": {
+    "computedCandidates": {
+      "sites": [
+        {
+          "requester": "entry.mjs",
+          "label": "routes",
+          "specifiers": ["./left.mjs", "./right.mjs"]
+        }
+      ]
+    }
+  }
+}

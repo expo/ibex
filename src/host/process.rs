@@ -4,15 +4,75 @@
 //! Note: spawn is not available on iOS (no child processes).
 
 use anyhow::Result;
-use std::collections::HashMap;
+use capsec_semantics::model::EnvironmentName;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
 
 type EnvOverlay = HashMap<String, Option<String>>;
 
+static COMPILED_ENVIRONMENT_BASE: OnceLock<CompiledEnvironmentBase> = OnceLock::new();
+
 fn env_overlay() -> &'static RwLock<EnvOverlay> {
     static OVERLAY: OnceLock<RwLock<EnvOverlay>> = OnceLock::new();
     OVERLAY.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+/// Immutable compiled-application broker base. Installation is process-wide
+/// and one-shot because a compiled image owns exactly one captured launch
+/// environment; individual reads are still authorized against the active
+/// principal stack by the native adapter before these bytes are disclosed.
+/// @ref LLP 0029#4-compiled-mode-authority
+#[derive(Debug)]
+pub struct CompiledEnvironmentBase {
+    entries: BTreeMap<EnvironmentName, Vec<u8>>,
+}
+
+impl CompiledEnvironmentBase {
+    pub fn new(entries: Vec<(EnvironmentName, Vec<u8>)>) -> Result<Self> {
+        let mut ordered = BTreeMap::new();
+        for (name, value) in entries {
+            if ordered.insert(name, value).is_some() {
+                anyhow::bail!("compiled environment broker base contains a duplicate name");
+            }
+        }
+        Ok(Self { entries: ordered })
+    }
+
+    fn value(&self, key: &str) -> Option<&[u8]> {
+        let name = EnvironmentName::new(key).ok()?;
+        self.entries.get(&name).map(Vec::as_slice)
+    }
+
+    fn key(&self, index: usize) -> Option<&str> {
+        self.entries.keys().nth(index).map(EnvironmentName::as_str)
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+fn compiled_environment_base() -> Option<&'static CompiledEnvironmentBase> {
+    COMPILED_ENVIRONMENT_BASE.get()
+}
+
+pub fn install_compiled_environment_base(base: CompiledEnvironmentBase) -> Result<()> {
+    COMPILED_ENVIRONMENT_BASE
+        .set(base)
+        .map_err(|_| anyhow::anyhow!("compiled environment broker base is already installed"))
+}
+
+pub fn compiled_environment_value(key: &str) -> Option<Option<Vec<u8>>> {
+    compiled_environment_base().map(|base| base.value(key).map(<[u8]>::to_vec))
+}
+
+pub fn compiled_environment_key_count() -> Option<usize> {
+    compiled_environment_base().map(CompiledEnvironmentBase::len)
+}
+
+pub fn compiled_environment_key(index: usize) -> Option<&'static str> {
+    compiled_environment_base()?.key(index)
 }
 
 /// Get the current working directory
@@ -145,4 +205,33 @@ pub struct SystemInfo {
     pub arch: String,
     pub hostname: String,
     pub cpus: usize,
+}
+
+#[cfg(test)]
+mod compiled_environment_tests {
+    use super::*;
+
+    #[test]
+    fn compiled_environment_base_is_canonical_and_byte_preserving() {
+        let base = CompiledEnvironmentBase::new(vec![
+            (EnvironmentName::new("ZED").unwrap(), vec![0xff, 0x00]),
+            (EnvironmentName::new("ALPHA").unwrap(), b"value".to_vec()),
+        ])
+        .unwrap();
+        assert_eq!(base.len(), 2);
+        assert_eq!(base.key(0), Some("ALPHA"));
+        assert_eq!(base.key(1), Some("ZED"));
+        assert_eq!(base.value("ALPHA"), Some(b"value".as_slice()));
+        assert_eq!(base.value("lowercase"), None);
+    }
+
+    #[test]
+    fn compiled_environment_base_refuses_duplicate_names() {
+        let duplicate = EnvironmentName::new("DUPLICATE").unwrap();
+        assert!(CompiledEnvironmentBase::new(vec![
+            (duplicate.clone(), b"first".to_vec()),
+            (duplicate, b"second".to_vec()),
+        ])
+        .is_err());
+    }
 }

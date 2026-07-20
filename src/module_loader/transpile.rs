@@ -19,6 +19,8 @@ use oxc_transformer::{
     JsxOptions as OxcJsxOptions, JsxRuntime as OxcJsxRuntime, Module as OxcModule,
     TransformOptions as OxcTransformOptions, Transformer as OxcTransformer,
 };
+
+use super::transform_config_generated as transform_config;
 use swc_common::comments::SingleThreadedComments;
 use swc_common::sync::Lrc;
 use swc_common::{Globals, Mark, SourceMap, GLOBALS};
@@ -48,7 +50,7 @@ impl TransformEngine {
     pub(crate) fn cache_tag(self) -> &'static str {
         match self {
             Self::Swc => "in-process-swc-v2",
-            Self::Oxc => "in-process-oxc-0.121.0-v1",
+            Self::Oxc => transform_config::TRANSFORM_CACHE_TAG,
         }
     }
 
@@ -212,11 +214,11 @@ fn transpile_with_oxc(source: &str, path: &Path, target: &str) -> Result<String>
     let allocator = Allocator::default();
     let source_type = SourceType::from_path(path).unwrap_or_else(|_| SourceType::mjs());
     let parse_return = OxcParser::new(&allocator, source, source_type).parse();
-    if !parse_return.errors.is_empty() {
+    if !parse_return.diagnostics.is_empty() {
         bail!(
             "Failed to parse {} with Oxc:\n{}",
             path.display(),
-            format_oxc_errors(&parse_return.errors)
+            format_oxc_errors(&parse_return.diagnostics)
         );
     }
 
@@ -230,12 +232,16 @@ fn transpile_with_oxc(source: &str, path: &Path, target: &str) -> Result<String>
 
     let semantic_return = SemanticBuilder::new()
         .with_check_syntax_error(true)
+        // Match the canonical producer prerequisite while this bounded Oxc
+        // file-at-a-time candidate remains compiled.
+        // @ref LLP 0028#5-conformance-gates-telemetry-and-rollout
+        .with_enum_eval(true)
         .build(&program);
-    if !semantic_return.errors.is_empty() {
+    if !semantic_return.diagnostics.is_empty() {
         bail!(
             "Failed semantic analysis for {} with Oxc:\n{}",
             path.display(),
-            format_oxc_errors(&semantic_return.errors)
+            format_oxc_errors(&semantic_return.diagnostics)
         );
     }
 
@@ -254,11 +260,11 @@ fn transpile_with_oxc(source: &str, path: &Path, target: &str) -> Result<String>
 
     let transform_return = OxcTransformer::new(&allocator, path, &options)
         .build_with_scoping(semantic_return.semantic.into_scoping(), &mut program);
-    if !transform_return.errors.is_empty() {
+    if !transform_return.diagnostics.is_empty() {
         bail!(
             "Failed to transform {} with Oxc:\n{}",
             path.display(),
-            format_oxc_errors(&transform_return.errors)
+            format_oxc_errors(&transform_return.diagnostics)
         );
     }
 

@@ -144,9 +144,9 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(23_665);
-    expect(recipes.summary.fullyExecutableFixtures).toBe(2_469);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_196);
+    expect(recipes.summary.requiredFixtures).toBe(23_857);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(2_475);
+    expect(recipes.summary.unresolvedFixtures).toBe(21_382);
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(
@@ -242,9 +242,78 @@ describe("exact-target CapSec executable recipes", () => {
     expect(windowsRecipes.summary.requiredFixtures).toBe(
       windowsExpectedFixtureIds.length,
     );
-    expect(windowsRecipes.summary.requiredFixtures).toBe(23_550);
-    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_327);
-    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_223);
+    expect(windowsRecipes.summary.requiredFixtures).toBe(23_742);
+    expect(windowsRecipes.summary.fullyExecutableFixtures).toBe(2_119);
+    expect(windowsRecipes.summary.unresolvedFixtures).toBe(21_623);
+    const replacedWindowsCryptoRecipes = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.residualReasons.includes(
+          "builtin-export-source-replaced-on-target",
+        ),
+    );
+    expect(replacedWindowsCryptoRecipes).toHaveLength(0);
+    const windowsCryptoRecipes = windowsRecipes.recipes.filter((recipe) =>
+      recipe.terminalObservedKey.startsWith("builtin:export:exact_crypto:"),
+    );
+    expect(windowsCryptoRecipes).toHaveLength(201);
+    expect(
+      windowsCryptoRecipes.filter(
+        (recipe) => recipe.status === "fully-executable",
+      ),
+    ).toHaveLength(56);
+    const unavailableWindowsNativeRecipes = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.residualReasons.includes(
+          "builtin-export-native-prerequisite-not-installed-on-target",
+        ),
+    );
+    expect(unavailableWindowsNativeRecipes).toHaveLength(49);
+    const unavailableWindowsBrotliRecipes =
+      unavailableWindowsNativeRecipes.filter((recipe) =>
+        recipe.terminalObservedKey.startsWith("builtin:export:node_zlib:"),
+      );
+    expect(unavailableWindowsBrotliRecipes).toHaveLength(46);
+    expect(
+      unavailableWindowsBrotliRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.terminalObservedKey.startsWith(
+            "builtin:export:node_zlib:",
+          ),
+      ),
+    ).toBe(true);
+    const unavailableWindowsKdfs = unavailableWindowsNativeRecipes.filter(
+      (recipe) =>
+        [
+          "builtin:export:exact_crypto:hkdfSync",
+          "builtin:export:exact_crypto:pbkdf2Sync",
+          "builtin:export:exact_crypto:scryptSync",
+        ].includes(recipe.terminalObservedKey),
+    );
+    expect(unavailableWindowsKdfs).toHaveLength(3);
+    expect(
+      unavailableWindowsKdfs.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null,
+      ),
+    ).toBe(true);
+    const unsupportedWindowsFilesystemRecipes = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.actionIds.some((actionId) => actionId.startsWith("fs:")) &&
+        recipe.residualReasons.includes(
+          "public-surface-filesystem-not-typed-on-target",
+        ),
+    );
+    expect(unsupportedWindowsFilesystemRecipes).toHaveLength(123);
+    expect(
+      unsupportedWindowsFilesystemRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null,
+      ),
+    ).toBe(true);
     expect(
       windowsRecipes.recipes.filter(
         (recipe) =>
@@ -252,6 +321,137 @@ describe("exact-target CapSec executable recipes", () => {
           "__exactFsOpenAsync",
       ),
     ).toHaveLength(0);
+    const windowsFsClose = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactFsClose" &&
+        recipe.scenario === "non-capability",
+    );
+    expect(windowsFsClose.publicSurfaceProbe).toBeNull();
+    expect(windowsFsClose.residualReasons).toContain(
+      "native-public-prerequisite-not-typed-on-target",
+    );
+    const unsupportedWindowsNetworkRecipes = windowsRecipes.recipes.filter(
+      (recipe) =>
+        recipe.actionIds.some((actionId) => actionId.startsWith("network:")) &&
+        recipe.residualReasons.includes(
+          "public-surface-network-not-typed-on-target",
+        ),
+    );
+    expect(unsupportedWindowsNetworkRecipes).toHaveLength(5);
+    expect(
+      unsupportedWindowsNetworkRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.terminalObservedKey === "native-op:__exactTcpConnect",
+      ),
+    ).toBe(true);
+    expect(
+      windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactTcpConnect",
+      ),
+    ).toHaveLength(0);
+    for (const globalName of [
+      "__exactTcpClose",
+      "__exactTcpReset",
+      "__exactTcpShutdown",
+    ]) {
+      const recipe = windowsRecipes.recipes.find(
+        (candidate) =>
+          candidate.terminalObservedKey === `native-op:${globalName}` &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe.publicSurfaceProbe).toBeNull();
+      expect(recipe.residualReasons).toContain(
+        "native-public-prerequisite-not-typed-on-target",
+      );
+    }
+    for (const globalName of ["__exactUdpClose", "__exactUdpSocket"]) {
+      const recipe = windowsRecipes.recipes.find(
+        (candidate) =>
+          candidate.terminalObservedKey === `native-op:${globalName}` &&
+          candidate.scenario === "non-capability",
+      );
+      expect(recipe.publicSurfaceProbe).toBeNull();
+      expect(recipe.residualReasons).toContain(
+        "native-public-operation-not-installed-on-target",
+      );
+    }
+    const windowsExcludedDefaultGlobals = new Set([
+      "__exactAesCbcDecrypt",
+      "__exactAesCbcEncrypt",
+      "__exactAesCtrEncrypt",
+      "__exactAesGcmDecrypt",
+      "__exactAesGcmEncrypt",
+      "__exactBrotliCompressSync",
+      "__exactBrotliDecompressSync",
+      "__exactEcdhDeriveBits",
+      "__exactEcdsaSign",
+      "__exactEcdsaVerify",
+      "__exactEd25519Sign",
+      "__exactEd25519Verify",
+      "__exactEvpCipherDecrypt",
+      "__exactEvpCipherEncrypt",
+      "__exactExportKeyPkcs8",
+      "__exactExportKeySpki",
+      "__exactFsCloseAsync",
+      "__exactGenerateKeyPairSync",
+      "__exactGetProcessRSS",
+      "__exactHkdf",
+      "__exactImportKeyPkcs8",
+      "__exactImportKeySpki",
+      "__exactPbkdf2",
+      "__exactPerformanceNow",
+      "__exactPerformanceTimeOrigin",
+      "__exactRsaOaepDecrypt",
+      "__exactRsaOaepEncrypt",
+      "__exactScryptSync",
+      "__exactSignSync",
+      "__exactSignalNumbers",
+      "__exactVerifySync",
+      "__exactX25519DeriveBits",
+    ]);
+    const windowsExcludedDefaultRecipes = windowsRecipes.recipes.filter(
+      (recipe) => {
+        const globalName = recipe.terminalObservedKey.replace(
+          "native-op:",
+          "",
+        );
+        return (
+          windowsExcludedDefaultGlobals.has(globalName) &&
+          (globalName === "__exactGetProcessRSS"
+            ? [
+                "allow",
+                "deny",
+                "malformed",
+                "missing-attribution",
+                "wrong-principal",
+              ].includes(recipe.scenario)
+            : recipe.scenario === "non-capability")
+        );
+      },
+    );
+    expect(windowsExcludedDefaultGlobals.size).toBe(32);
+    expect(windowsExcludedDefaultRecipes).toHaveLength(36);
+    expect(
+      windowsExcludedDefaultRecipes.every(
+        (recipe) =>
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            "native-public-operation-not-installed-on-target",
+          ),
+      ),
+    ).toBe(true);
+    const windowsBytesToUtf8 = windowsRecipes.recipes.find(
+      (recipe) =>
+        recipe.terminalObservedKey === "native-op:__exactBytesToUtf8String" &&
+        recipe.scenario === "non-capability",
+    );
+    expect(windowsBytesToUtf8.status).toBe("fully-executable");
+    expect(windowsBytesToUtf8.publicSurfaceProbe).not.toBeNull();
     const windowsAbsenceRecipes = windowsRecipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
@@ -504,7 +704,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rationaleOnly = recipes.recipes.filter((recipe) =>
       rationaleScenarios.includes(recipe.scenario),
     );
-    expect(rationaleOnly).toHaveLength(2_830);
+    expect(rationaleOnly).toHaveLength(2_922);
     expect(
       Object.fromEntries(
         rationaleScenarios.map((scenario) => [
@@ -517,8 +717,8 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 510,
       "principal-restore": 510,
       "snapshot-mismatch-deny": 510,
-      "cannot-widen-authority": 395,
-      "post-lockdown-invariant": 395,
+      "cannot-widen-authority": 441,
+      "post-lockdown-invariant": 441,
     });
     expect(
       rationaleOnly.every(
@@ -1471,46 +1671,56 @@ describe("exact-target CapSec executable recipes", () => {
       ["__exactFsFsyncSync", "target/ibex-capsec-fsync"],
       ["__exactFsFdatasyncSync", "target/ibex-capsec-fdatasync"],
     ]) {
-      for (const catalog of [recipes, windowsRecipes]) {
-        const rows = catalog.recipes.filter(
-          (recipe) =>
-            recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      const rows = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(rows).toHaveLength(4);
+      for (const recipe of rows) {
+        const invocation = recipe.publicSurfaceProbe.invocation;
+        expect(invocation.arguments).toEqual([
+          { kind: "harness-fs-file-descriptor" },
+        ]);
+        expect(invocation.setup).toHaveLength(1);
+        expect(invocation.setup[0]).toMatchObject({
+          kind: "fs-write-file",
+          globalName: "__exactFsOpen",
+          path,
+        });
+        expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
+        expect(
+          invocation.requiredFloor.map((selector) => selector.cap),
+        ).toEqual(["fs:list", "fs:write"]);
+        expect(invocation.expectedActionIds).toEqual(["fs:write"]);
+        expect(invocation.expectedTypedStages).toEqual(["repeat"]);
+        expect(invocation.expectedTypedDecisionCount).toBe(1);
+        expect(invocation.expectedCleanup).toBe(
+          "closed-fs-file-descriptor-removed-owned-file",
         );
-        expect(rows).toHaveLength(4);
-        for (const recipe of rows) {
-          const invocation = recipe.publicSurfaceProbe.invocation;
-          expect(invocation.arguments).toEqual([
-            { kind: "harness-fs-file-descriptor" },
-          ]);
-          expect(invocation.setup).toHaveLength(1);
-          expect(invocation.setup[0]).toMatchObject({
-            kind: "fs-write-file",
-            globalName: "__exactFsOpen",
-            path,
-          });
-          expect(invocation.allowedCoverageEdgeIds).toHaveLength(2);
-          expect(
-            invocation.requiredFloor.map((selector) => selector.cap),
-          ).toEqual(["fs:list", "fs:write"]);
-          expect(invocation.expectedActionIds).toEqual(["fs:write"]);
-          expect(invocation.expectedTypedStages).toEqual(["repeat"]);
-          expect(invocation.expectedTypedDecisionCount).toBe(1);
-          expect(invocation.expectedCleanup).toBe(
-            "closed-fs-file-descriptor-removed-owned-file",
-          );
-          expect(recipe.residualReasons).toEqual([]);
-          expect(recipe.status).toBe("fully-executable");
-        }
-        const denied = catalog.recipes.find(
+        expect(recipe.residualReasons).toEqual([]);
+        expect(recipe.status).toBe("fully-executable");
+      }
+      const denied = recipes.recipes.find(
+        (recipe) =>
+          recipe.terminalObservedKey === `native-op:${globalName}` &&
+          recipe.scenario === "deny",
+      );
+      expect(denied.publicSurfaceProbe).toBeNull();
+      expect(denied.residualReasons).toContain(
+        "native-public-deny-scenario-not-authored",
+      );
+      const windowsRows = windowsRecipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(windowsRows).toHaveLength(0);
+      expect(
+        windowsRecipes.recipes.find(
           (recipe) =>
             recipe.terminalObservedKey === `native-op:${globalName}` &&
-            recipe.scenario === "deny",
-        );
-        expect(denied.publicSurfaceProbe).toBeNull();
-        expect(denied.residualReasons).toContain(
-          "native-public-deny-scenario-not-authored",
-        );
-      }
+            recipe.scenario === "allow",
+        ).residualReasons,
+      ).toContain("public-surface-filesystem-not-typed-on-target");
     }
   });
 
@@ -1908,14 +2118,17 @@ describe("exact-target CapSec executable recipes", () => {
       implementation.surfaces
         .filter((surface) => surface.edgeId === windowsCryptoId)
         .map((surface) => surface.targetVariant),
-    ).toEqual(["all"]);
+    ).toEqual([]);
     const loaderSource = fs.readFileSync(
       path.join(repoRoot, "src/engine/bootstrap/module-loader.js"),
       "utf8",
     );
-    expect(loaderSource).toContain("function makeWindowsCryptoModule() {");
+    expect(loaderSource).not.toContain("function makeWindowsCryptoModule() {");
+    expect(loaderSource).not.toContain(
+      "internalModules.crypto = makeWindowsCryptoModule();",
+    );
     expect(loaderSource).toContain(
-      "if (isWindowsRuntime()) {\n    internalModules.crypto = makeWindowsCryptoModule();",
+      "Public builtins always resolve through the authenticated manifest.",
     );
   });
 
@@ -2087,7 +2300,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.classification === "effects" &&
         recipe.terminalObservedKey.startsWith("startup:env:"),
     );
-    expect(startupEnvironmentRecipes).toHaveLength(665);
+    expect(startupEnvironmentRecipes).toHaveLength(670);
     expect(
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.terminalObservedKey === "startup:env:CLICOLOR_FORCE",
@@ -2192,7 +2405,7 @@ describe("exact-target CapSec executable recipes", () => {
       startupEnvironmentRecipes.filter(
         (recipe) => recipe.status === "unresolved",
       ),
-    ).toHaveLength(656);
+    ).toHaveLength(661);
     for (const environmentName of expectedSources.keys()) {
       const residual = startupEnvironmentRecipes.filter(
         (recipe) =>
@@ -3917,7 +4130,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "module-runner-source-graph",
     );
-    expect(rows).toHaveLength(19);
+    expect(rows).toHaveLength(25);
     expect(
       rows.map((recipe) => recipe.publicSurfaceProbe.invocation.functionName),
     ).toEqual([
@@ -3925,6 +4138,10 @@ describe("exact-target CapSec executable recipes", () => {
       "ex_hermes_commonjs_record_create_esm_adapter",
       "ex_hermes_commonjs_record_declare_export",
       "ex_hermes_commonjs_record_evaluate",
+      "ex_hermes_commonjs_record_link_computed_dynamic_import",
+      "ex_hermes_commonjs_record_link_dynamic_import",
+      "ex_hermes_commonjs_record_link_require",
+      "ex_hermes_commonjs_record_link_require_esm",
       "ex_hermes_graph_context_create",
       "ex_hermes_graph_context_retain",
       "ex_hermes_module_compile_factory",
@@ -3933,7 +4150,9 @@ describe("exact-target CapSec executable recipes", () => {
       "ex_hermes_module_pin_generation",
       "ex_hermes_module_record_declare_export",
       "ex_hermes_module_record_instantiate",
+      "ex_hermes_module_record_link_computed_dynamic_import",
       "ex_hermes_module_record_link_dependency",
+      "ex_hermes_module_record_link_dynamic_import",
       "ex_hermes_module_record_link_export",
       "ex_hermes_module_record_link_import",
       "ex_hermes_module_record_poll_evaluation",
@@ -3959,19 +4178,10 @@ describe("exact-target CapSec executable recipes", () => {
       ),
     ).toBe(true);
 
-    const compatibilityDeferredEdgeFunctions = [
-      "ex_hermes_commonjs_record_link_dynamic_import",
-      "ex_hermes_commonjs_record_link_require",
-      "ex_hermes_commonjs_record_link_require_esm",
-      "ex_hermes_module_record_link_dynamic_import",
-    ];
     const runtimeTeardownOnlyFunctions = [
       "ex_hermes_module_unpin_generation",
     ];
-    const nonNativeLifecycleFunctions = [
-      ...compatibilityDeferredEdgeFunctions,
-      ...runtimeTeardownOnlyFunctions,
-    ];
+    const nonNativeLifecycleFunctions = [...runtimeTeardownOnlyFunctions];
     const deferredRows = recipes.recipes.filter(
       (recipe) =>
         recipe.scenario === "non-capability" &&

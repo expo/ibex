@@ -226,7 +226,17 @@ Object.keys(__records).forEach(function (name) {
     importValue: function (specifier, imported) {
       return __read(__target(record, specifier), imported);
     },
-    dynamicImport: function (specifier) {
+    dynamicImport: function () {
+      // @ref LLP 0026#6-top-level-await-and-dynamic-import — execute both the current source-site ABI and pre-site spike artifacts during producer rotation.
+      var siteBearing = arguments.length >= 5 &&
+        typeof arguments[0] === "number" &&
+        typeof arguments[1] === "number" &&
+        typeof arguments[2] === "number" &&
+        typeof arguments[3] === "number";
+      var legacyComputed = !siteBearing && arguments.length >= 2 &&
+        typeof arguments[0] === "number";
+      var specifierIndex = siteBearing ? 4 : (legacyComputed ? 1 : 0);
+      var specifier = arguments[specifierIndex];
       var target = __target(record, specifier);
       try {
         return Promise.resolve(__evaluate(target)).then(function () { return __namespace(target); });

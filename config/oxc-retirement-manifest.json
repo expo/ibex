@@ -1,0 +1,421 @@
+{
+  "retirementManifestSchema": "ibex/oxc-retirement-manifest/1",
+  "llp": "0028",
+  "frozenOn": "2026-07-17",
+  "phase": "inventory",
+  "provenance": {
+    "capsecSurfaceInventory": "capsec/generated/implementation-manifest.json#surfaces",
+    "capsecSymbolTable": "capsec/generated/implementation-manifest.json#surfaces[*].sourceRefs",
+    "dependencyGraph": "cargo metadata --locked --format-version 1",
+    "lockfile": "Cargo.lock"
+  },
+  "surfaceInventory": {
+    "expectedState": "present",
+    "exactIds": [
+      "surface.loader.route.cache.rust.transpile.with.swc.0rgaalc",
+      "surface.loader.route.cache.rust.transpile.with.swc.0rgaalc.main",
+      "surface.loader.route.load.rust.transpile.with.swc.1lgra5o",
+      "surface.loader.route.load.rust.transpile.with.swc.1lgra5o.main",
+      "surface.loader.route.resolution.rust.transpile.with.swc.16nbp3i",
+      "surface.loader.route.resolution.rust.transpile.with.swc.16nbp3i.main",
+      "surface.loader.route.transform.rust.transpile.with.swc.1ca8zxe",
+      "surface.loader.route.transform.rust.transpile.with.swc.1ca8zxe.main",
+      "surface.loader.transform.engine.swc.034cv30",
+      "surface.loader.transform.engine.swc.034cv30.main"
+    ],
+    "implementationSymbolRefs": [
+      "src/module_loader/transpile.rs#selected_transform_engine",
+      "src/module_loader/transpile.rs#transpile_source_to_cjs",
+      "src/module_loader/transpile.rs#transpile_with_swc"
+    ]
+  },
+  "sourceNeedles": [
+    {
+      "category": "symbol",
+      "identity": "TransformEngine",
+      "file": "src/module_loader/transpile.rs",
+      "needle": "enum TransformEngine",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "symbol",
+      "identity": "transpile_to_cjs",
+      "file": "src/module_loader/transpile.rs",
+      "needle": "pub fn transpile_to_cjs",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "symbol",
+      "identity": "transpile_esm_to_script",
+      "file": "src/bin/ibex/runtime.rs",
+      "needle": "fn transpile_esm_to_script",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "cache-namespace",
+      "identity": "in-process-swc-v2",
+      "file": "src/module_loader/transpile.rs",
+      "needle": "in-process-swc-v2",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "cache-namespace",
+      "identity": "loader-transpile-v14-content-addressed",
+      "file": "src/module_loader/mod.rs",
+      "needle": "loader-transpile-v14-content-addressed",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "cache-namespace",
+      "identity": "transpile-tool-directory-v1",
+      "file": "src/module_loader/mod.rs",
+      "needle": "transpile-tool-directory-v1",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "cache-namespace",
+      "identity": "subprocess-transpile-toolchain-v2",
+      "file": "src/module_loader/mod.rs",
+      "needle": "subprocess-transpile-toolchain-v2",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "cache-namespace",
+      "identity": "subprocess-transpile-script",
+      "file": "src/module_loader/mod.rs",
+      "needle": "subprocess-transpile-script",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "cache-namespace",
+      "identity": "in-process-transpile-engine",
+      "file": "src/module_loader/mod.rs",
+      "needle": "in-process-transpile-engine",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "cache-namespace",
+      "identity": "in-process-oxc-0.121.0-v1",
+      "file": "src/module_loader/transpile.rs",
+      "needle": "in-process-oxc-0.121.0-v1",
+      "disposition": "migrate",
+      "expectedState": "absent"
+    },
+    {
+      "category": "environment-contract",
+      "identity": "IBEX_RUNTIME_TRANSFORM",
+      "file": "src/module_loader/transpile.rs",
+      "needle": "IBEX_RUNTIME_TRANSFORM",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "environment-contract",
+      "identity": "EXACT_RUNTIME_TRANSFORM",
+      "file": "src/module_loader/transpile.rs",
+      "needle": "EXACT_RUNTIME_TRANSFORM",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "environment-contract",
+      "identity": "EXACT_TRANSPILE_SCRIPT",
+      "file": "src/module_loader/mod.rs",
+      "needle": "EXACT_TRANSPILE_SCRIPT",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "environment-contract",
+      "identity": "IBEX_LEGACY_MODULE_LOADER",
+      "file": "src/bin/ibex/runtime.rs",
+      "needle": "IBEX_LEGACY_MODULE_LOADER",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "environment-contract",
+      "identity": "IBEX_COMPAT_LOADER_TEST",
+      "file": "src/bin/ibex/runtime.rs",
+      "needle": "IBEX_COMPAT_LOADER_TEST",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "environment-contract",
+      "identity": "IBEX_TRANSPILE_CACHE_MAX_BYTES",
+      "file": "src/module_loader/mod.rs",
+      "needle": "IBEX_TRANSPILE_CACHE_MAX_BYTES",
+      "disposition": "retire",
+      "expectedState": "present"
+    },
+    {
+      "category": "environment-contract",
+      "identity": "IBEX_TEST_TRANSPILE_INPUT_BARRIER",
+      "file": "src/module_loader/mod.rs",
+      "needle": "IBEX_TEST_TRANSPILE_INPUT_BARRIER",
+      "disposition": "retire",
+      "expectedState": "present"
+    }
+  ],
+  "compatSelectorInventory": [
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "producer",
+      "identity": "compat-runner",
+      "file": "src/bin/ibex/compat/runner.rs",
+      "needle": "cmd.env(\"EXACT_COMPAT_TEST\", \"1\");",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "producer",
+      "identity": "module-semantics-baseline",
+      "file": "packages/ibex-devtools/src/scripts/run-module-semantics-baseline.mjs",
+      "needle": "EXACT_COMPAT_TEST: '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "producer",
+      "identity": "hermes-compat-loader",
+      "file": "packages/ibex-devtools/src/scripts/run-hermes-compat-loader.mjs",
+      "needle": "EXACT_COMPAT_TEST: '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "producer",
+      "identity": "bootstrap-loader-tests",
+      "file": "tests/bootstrap_loader.rs",
+      "needle": ".env(\"EXACT_COMPAT_TEST\", \"1\")",
+      "expectedOccurrences": 2,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "producer",
+      "identity": "llp0013-compartment-tests",
+      "file": "tests/llp0013_compartments.rs",
+      "needle": ".env(\"EXACT_COMPAT_TEST\", \"1\")",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "runtime-polyfill-reapply",
+      "file": "src/bin/ibex/runtime.rs",
+      "needle": "std::env::var_os(\"EXACT_COMPAT_TEST\").is_some()",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "bootstrap-compat-polyfills",
+      "file": "src/engine/bootstrap/compat-polyfills.js",
+      "needle": "return env.EXACT_COMPAT_TEST === '1'",
+      "expectedOccurrences": 2,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "process-fixture-identity",
+      "file": "packages/ibex-runtime-js/src/node/process.ts",
+      "needle": "return !!(env && env.EXACT_COMPAT_TEST);",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "fetch/Headers.ts",
+      "file": "packages/ibex-runtime-js/src/fetch/Headers.ts",
+      "needle": "readRuntimeEnv('EXACT_COMPAT_TEST') === '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "fetch/Request.ts",
+      "file": "packages/ibex-runtime-js/src/fetch/Request.ts",
+      "needle": "readRuntimeEnv('EXACT_COMPAT_TEST') === '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "fetch/Response.ts",
+      "file": "packages/ibex-runtime-js/src/fetch/Response.ts",
+      "needle": "readRuntimeEnv('EXACT_COMPAT_TEST') === '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "fetch/body.ts",
+      "file": "packages/ibex-runtime-js/src/fetch/body.ts",
+      "needle": "readRuntimeEnv('EXACT_COMPAT_TEST') === '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "fetch/fetch.ts",
+      "file": "packages/ibex-runtime-js/src/fetch/fetch.ts",
+      "needle": "readRuntimeEnv('EXACT_COMPAT_TEST') === '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "EXACT_COMPAT_TEST",
+      "semantic": "fixture-fidelity",
+      "role": "reader",
+      "identity": "streams/ReadableStream.ts",
+      "file": "packages/ibex-runtime-js/src/streams/ReadableStream.ts",
+      "needle": "readRuntimeEnv('EXACT_COMPAT_TEST') === '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retain"
+    },
+    {
+      "selector": "IBEX_COMPAT_LOADER_TEST",
+      "semantic": "loader-selection",
+      "role": "reader",
+      "identity": "runtime-preparation-bypass",
+      "file": "src/bin/ibex/runtime.rs",
+      "needle": "std::env::var_os(\"IBEX_COMPAT_LOADER_TEST\").is_some()",
+      "expectedOccurrences": 1,
+      "disposition": "retire"
+    },
+    {
+      "selector": "IBEX_COMPAT_LOADER_TEST",
+      "semantic": "loader-selection",
+      "role": "producer",
+      "identity": "compat-runner",
+      "file": "src/bin/ibex/compat/runner.rs",
+      "needle": "cmd.env(\"IBEX_COMPAT_LOADER_TEST\", \"1\");",
+      "expectedOccurrences": 1,
+      "disposition": "retire"
+    },
+    {
+      "selector": "IBEX_COMPAT_LOADER_TEST",
+      "semantic": "loader-selection",
+      "role": "producer",
+      "identity": "module-loader-benchmark",
+      "file": "packages/ibex-devtools/src/scripts/benchmark-module-loader-baseline.mjs",
+      "needle": "env.IBEX_COMPAT_LOADER_TEST = '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retire"
+    },
+    {
+      "selector": "IBEX_COMPAT_LOADER_TEST",
+      "semantic": "loader-selection",
+      "role": "producer",
+      "identity": "run-module-semantics-baseline.mjs",
+      "file": "packages/ibex-devtools/src/scripts/run-module-semantics-baseline.mjs",
+      "needle": "IBEX_COMPAT_LOADER_TEST: '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retire"
+    },
+    {
+      "selector": "IBEX_COMPAT_LOADER_TEST",
+      "semantic": "loader-selection",
+      "role": "producer",
+      "identity": "run-hermes-compat-loader.mjs",
+      "file": "packages/ibex-devtools/src/scripts/run-hermes-compat-loader.mjs",
+      "needle": "IBEX_COMPAT_LOADER_TEST: '1'",
+      "expectedOccurrences": 1,
+      "disposition": "retire"
+    },
+    {
+      "selector": "IBEX_COMPAT_LOADER_TEST",
+      "semantic": "loader-selection",
+      "role": "producer",
+      "identity": "bootstrap-loader-tests",
+      "file": "tests/bootstrap_loader.rs",
+      "needle": ".env(\"IBEX_COMPAT_LOADER_TEST\", \"1\")",
+      "expectedOccurrences": 2,
+      "disposition": "retire"
+    },
+    {
+      "selector": "IBEX_COMPAT_LOADER_TEST",
+      "semantic": "loader-selection",
+      "role": "producer",
+      "identity": "llp0013-compartment-tests",
+      "file": "tests/llp0013_compartments.rs",
+      "needle": ".env(\"IBEX_COMPAT_LOADER_TEST\", \"1\")",
+      "expectedOccurrences": 1,
+      "disposition": "retire"
+    }
+  ],
+  "dependencyGate": {
+    "mode": "inventory",
+    "rejectedNamePrefix": "swc_",
+    "cargoProfiles": [
+      {
+        "name": "default",
+        "cargoMetadataArgs": []
+      },
+      {
+        "name": "no-default-features",
+        "cargoMetadataArgs": [
+          "--no-default-features"
+        ]
+      }
+    ],
+    "exactCurrentNames": [
+      "swc_allocator",
+      "swc_atoms",
+      "swc_common",
+      "swc_config",
+      "swc_config_macro",
+      "swc_ecma_ast",
+      "swc_ecma_codegen",
+      "swc_ecma_codegen_macros",
+      "swc_ecma_hooks",
+      "swc_ecma_loader",
+      "swc_ecma_parser",
+      "swc_ecma_transforms_base",
+      "swc_ecma_transforms_module",
+      "swc_ecma_transforms_react",
+      "swc_ecma_transforms_typescript",
+      "swc_ecma_utils",
+      "swc_ecma_visit",
+      "swc_eq_ignore_macros",
+      "swc_macros_common",
+      "swc_sourcemap",
+      "swc_visit"
+    ]
+  }
+}

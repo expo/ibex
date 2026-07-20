@@ -5,65 +5,8 @@
 **Systems:** Runtime, Filesystem, Security, Module Loader, Host ABI
 **Author:** Charlie Cheever / Claude / Codex
 **Date:** 2026-07-12
-**Revised:** 2026-07-17 (the metadata-mutation contract now records the narrow armed worker-backed `chmod`/`utime` exception implemented under retained-object commit/Repeat authorization; synchronous, link, ownership, descriptor variants and `mkdtemp` remain closed)
-**Revised:** 2026-07-17 (authenticated route-cache reuse now revalidates the exact cross-principal typed graph edge, including request spelling and resolution kind, rather than treating a matching package locator as sufficient authority)
-**Revised:** 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation)
-**Revised:** 2026-07-15 (resolver race closure: unknown manifest probes now
-drive an authenticated capture fixed point; every symlink check covers the
-substituted target plus pending tail; resolve-only metadata uses the exact VFS
-stage namespace and retained objects; and a selected package target is checked
-against the armed object set and package integrity before disclosure.)
-**Revised:** 2026-07-15 (armed module resolution now retains the exact defining
-root object, probes descriptor-relatively, and consumes only strict typed-VFS
-manifest bytes/absence bounded to that project/package binding; package integrity,
-cross-principal symlink, `NODE_PATH`, and direct-entry kind-evidence rules are
-explicit.)
-**Revised:** 2026-07-15 (armed runtime TypeScript/JSX lowering now bypasses
-persistent transpile storage entirely: each armed ModuleLoader is switched
-before publication to fresh in-memory in-process lowering, while cache and
-subprocess-override paths remain diagnostic-only.)
-**Revised:** 2026-07-15 (internal binary executable-cache topology is now an
-armed invariant over the actual cache root, not an inference from an optional
-`home` binding: exact filesystem-object ancestry and canonical components are
-disjoint from every JavaScript-mounted backing tree in both directions; armed
-runtime disk fallback is closed; and checked binary roots plus real cache
-subroots are reused.)
-**Revised:** 2026-07-15 (output-disposition promotion now publishes one
-content-addressed v3 evidence artifact per exact target. Reports and target
-attestations bind its raw bytes; publication reopens and revalidates those
-bytes against the current row and surface-account universe without admitting
-the artifact into source-derived registry or implementation identities.)
-**Revised:** 2026-07-15 (host-session/error-union implementation audit: the
-armed constructor, structured evaluator, typed Host filesystem ABI, and VFS
-registry now carry one native runtime/session identity; filesystem work has an
-explicit cancelable-queued versus committed lease and teardown protocol; and
-the v1 13-reason result dataset pins C/Rust discriminants, JavaScript codes,
-precedence ranks, and the generated 78-pair declaration corpus. Live adapter
-evidence is named separately from that model-level all-pairs proof.)
-**Revised:** 2026-07-15 (ledger reconciliation: sibling module identity and
-error-order edits are present, production target state is advertisement-derived,
-and the v1 `Exact.resolve`/`Bun.resolve` route is explicitly lexical and
-classified as `path:cwd-observe`.)
-**Revised:** 2026-07-15 (implementation sync: filesystem path decisions now
-carry an exact per-constrained-principal projection sidecar through the host,
-decision evaluator, and cache; Unix-family package objects now use Apple
-`st_gen` when usable and otherwise a Host-lifetime retained-descriptor
-generation. Non-filesystem package-root deputies and non-Unix target adapters
-remain fail-closed rather than being counted as target acceptance.)
-**Revised:** 2026-07-14 (the Bun path aliases are conditional armed surfaces:
-the facade is absent by default and aliases the exact same `Exact` object only
-when the digest-bound bootstrap compatibility set includes `bun`.)
-**Revised:** 2026-07-14 (armed Android storage roots are now confined to native
-initialization: JavaScript receives immutable empty compatibility descriptors,
-the seeded environment aliases are absent, and persistent Web Storage/IndexedDB
-refuse before path construction; the output vocabulary now distinguishes a raw
-host path confined to authenticated native Host-ABI glue from every JavaScript projection;
-production generated-form narrowing and cache-authorship correction: the
-authenticated runtime admits only a freshly compiled, non-reusable,
-source-backed single-original CJS form; persistent cache hashes are freshness data,
-not proof of compiler authorship; flattened multi-original chunks and provenance-
-bearing HBC remain closed and use the already-authenticated raw source route).
-2026-07-12 (round-8 dual-model review, **terminal** — both NOT READY,
+**Revised:** 2026-07-17 (LLP 0029 compiled mount profile adds typed `app`/`work` roots, metadata-only `/app`, optional authenticated `/work`, the `ibex:cwd:unset` sentinel, and stable compiled path errors in §1.3); 2026-07-17 (LLP 0029 carrier v2 changes only physical engine binding and preserves original-module SourceId provenance); 2026-07-15 (ENG-25064 landed runtime publication and admission of digest-bound per-original-module prepared graphs); 2026-07-15 (ENG-25065 scoped development module incarnations by execution generation without changing SourceId); 2026-07-15 (ENG-25064 landed the digest-bound per-original-module carrier manifest); 2026-07-15 (ENG-25058 obligation-ledger reconciliation); 2026-07-12
+(round-8 dual-model review, **terminal** — both NOT READY,
 reconciled as a **ledger-and-stop**, the honest end of the loop. Fable and Codex
 converged on substance ("everything architectural, safety-relevant, and ledger-relevant
 verifies") and on the same fixable trio: **AC 18a** still mandated the shared hard-link
@@ -215,9 +158,10 @@ module runner and execution generations); LLP 0027 (module artifacts and interop
 
 ## Summary
 
-Armed Ibex gives JavaScript a **virtual absolute path namespace** rooted at
-`/`, with `/project` as its only initial mount, backed by the authenticated
-project-root binding. JavaScript never sees a host path. Relative paths resolve
+Source-mode armed Ibex gives JavaScript a **virtual absolute path namespace** rooted at
+`/`, with `/project` as the `project-v1` profile's only initial mount, backed by the authenticated
+project-root binding. Compiled executables use the distinct `compiled-app-work-v1`
+profile in §1.3. JavaScript never sees a host path. Relative paths resolve
 from a virtual **resolution base** that is per-runtime session state owned by the
 root principal, held natively as a retained platform identity rather than as a
 mutable JavaScript value.
@@ -302,7 +246,7 @@ paths, they must adopt this contract rather than invent a second one.
 
 ### 1. The mount table, the project root, and package bindings
 
-The armed namespace has one initial mount:
+The source-execution `project-v1` namespace has one initial mount:
 
 | Virtual path | Armed binding | Purpose |
 | --- | --- | --- |
@@ -322,84 +266,7 @@ to code that project will later execute), and under the spelling `/home` it woul
 additionally shadow the most common Linux host-path prefix, turning a habitual
 host spelling into an in-mount `ENOENT` instead of a clear namespace error.
 
-`home` is an **optional private coordinate**, not the authority for safe cache
-placement. An externally supplied canonical snapshot may omit it. When it is
-present, the binary launcher requires its canonical host coordinate and exact
-directory object to equal the independently selected binary runtime cache; the
-semantic loader also rejects an obvious canonical-component overlap between
-`home` and `project`. Neither rule substitutes for checking the actual cache:
-an omitted coordinate, a case-folding alias, a symlink, or a mount point must
-not weaken the boundary. `absolute` bindings are likewise private and are not
-included among JavaScript mounts.
-
-The exact armed invariant is therefore over **real backing trees**:
-
-1. The public/addressable backing set is every authenticated `project` and
-   `package` root (and every future mounted root). Package roots are checked
-   explicitly as defense in depth even though v1 requires them to be contained
-   by the project root.
-2. The binary's selected Ibex cache root is made existing and authenticated
-   immediately after project-root discovery, before protected artifacts are
-   materialized. The exact checked canonical path is retained through Runtime
-   construction and reused by authenticated generated ingress; it is not
-   re-derived from the environment. A persistent `bundles` child must itself be
-   a real directory whose canonical parent is that root, never a symlink.
-3. Before an armed Host is published, its `ModuleLoader` is permanently switched
-   to fresh in-memory transpilation. TypeScript, TSX/JSX, and scanner-selected
-   JavaScript lowering calls the captured in-process transform directly on the
-   source bytes already read by the loader. It does not resolve, probe, read,
-   write, or fall back through a persistent transpile-cache directory. The
-   persistent cache and `EXACT_TRANSPILE_SCRIPT` subprocess override are
-   diagnostic-only; a prior diagnostic Host cannot seed another loader's mode,
-   path, tooling identity, or output.
-4. For each actual internal root and public backing root, neither root's exact
-   filesystem directory object may appear in the other's ancestry, including
-   equality. Every ancestor from each root through the filesystem root must be
-   identifiable or arming fails. Canonical component-prefix overlap is rejected
-   as an additional conservative check. The object walk is authoritative on
-   case-folding APFS, for symlink-resolved endpoint aliases, and when an ancestry
-   walk itself crosses a nested mount boundary where `Path` spelling alone is
-   not.
-5. An armed Hermes engine evaluates only the runtime bytes embedded in its
-   authenticated engine. `load_runtime_from_disk` independently refuses armed
-   callers before lookup, so a mutable checkout JS file, an adjacent mtime-only
-   HBC, and its background adjacent-file warmer are diagnostic-only paths.
-   Windows armed shared-runtime installation remains fail-closed and unsupported
-   under ENG-24933; this invariant does not promote that target or pretend the
-   Rust embedded-byte branch bypasses its missing native install seam.
-
-Implementation evidence is
-`src/cache_topology.rs::authenticate_internal_cache_root`,
-`Host::new_armed_with_target_cells`,
-`ModuleLoader::arm_fresh_transpilation`,
-`authenticate_launch_entry`, `validate_optional_home_cache_binding`,
-`ensure_real_internal_cache_subdirectory`, and
-`HermesEngine::load_runtime_from_disk`. Focused tests pin equality, both ancestry
-directions, project-plus-package composition, symlink aliases, case-insensitive
-macOS aliases, armed rejection of a forged self-consistent transpile cache,
-an unusable preferred cache whose fallback remains untouched, diagnostic-first
-loader isolation, the `bundles` symlink refusal, and the armed disk-fallback
-guard.
-
-Runtime module lowering is distinct from the generated-bundle admission path in
-§2.3. An armed direct-loader transform returns newly produced owned output from
-the captured in-process engine for that load. No persistent transpile artifact
-is eligible, even when its source and output SHA-256 fields are self-consistent:
-those public hashes establish neither compiler authorship nor permission to
-execute the cached bytes.
-
-This endpoint/ancestry proof does **not** recursively inventory both trees. A
-pre-existing bind mount of an internal-cache subtree *inside* `/project`, or a
-pre-existing hard-linked cache file also reachable from project source, can
-therefore alias a descendant without making either root an ancestor of the
-other. That is an external OS-level topology residual: armed v1 exposes no API
-that creates hard links or mounts, and its cache constructors refuse their own
-final-component symlink redirects, but the launcher does not yet prove the
-absence of every operator-created descendant alias. Closing the residual needs
-a retained recursive object inventory or an authenticated mount/link policy;
-the root check above must not be cited as that stronger proof.
-
-Any future mount — `/tmp`, `/state`, or another — requires an update to this
+Any future source-profile mount — `/tmp`, `/state`, or another — requires an update to this
 document specifying its isolation, lifecycle, write policy, and relationship to
 internal caches. Adding a mount is a security decision, not a configuration
 detail.
@@ -619,6 +486,49 @@ the mount table.
 Note that an in-project content-addressed store means two *different* packages
 can contain byte-identical files that the store hard-links to **one inode**.
 §2.3's module identity is built to survive that.
+
+#### 1.3 Compiled mount profile: `/app`, optional `/work`, and unset cwd
+
+`compiled-app-work-v1` is a distinct mount profile, not a reinterpretation of
+`project-v1`. Its typed logical-root vocabulary adds `app` and `work`; a canonical
+compiled policy may use only `app`, `work`, or an explicit host-bound `absolute`
+root. A `project`, `package`, `home`, or `tmp` logical root in any positive,
+denial, or ceiling authority is a packaging refusal. In particular, a reviewed
+project-root grant is never silently translated to the launch directory.
+
+The compiled namespace table is:
+
+| Virtual path | Binding | Attributes | Purpose |
+| --- | --- | --- | --- |
+| `/app` | authenticated embedded graph/source labels | immutable, metadata-only, no host object, no symlinks | module identity, diagnostics, `import.meta.url`, `__filename`/`__dirname`, and source maps |
+| `/work` | authenticated launch-directory object, when admitted | optional, ordinary LLP 0023 containment and symlink rules | application filesystem effects and the only compiled relative-resolution base |
+
+`/app` is present as namespace metadata but is **not a filesystem mount** in v1.
+The envelope has no asset inventory, so every filesystem operation whose normalized
+path falls at or below `/app` fails before host access with
+`ERR_IBEX_COMPILED_APP_NOT_FILESYSTEM`. This is distinct from `ENOENT`: the runtime
+knows that the path names the embedded diagnostic namespace, not an absent host
+file. Adding embedded assets requires a format and policy revision; an implementation
+must not make source-relative asset reads work accidentally by consulting the build
+tree.
+
+`/work` exists only when boot receives an authenticated work-directory binding under
+the embedded policy. Whether the first release authors that authority implicitly or
+requires an explicit row is LLP 0029 decision-register item 1; this contract takes
+the resulting boolean/binding as input and does not decide the default. When mounted,
+the initial authenticated cwd view and relative-resolution base are both `/work`.
+When absent, both are unset: `process.cwd()` returns the reserved non-path sentinel
+`ibex:cwd:unset`, and a relative filesystem path or `chdir` fails before path
+formation with `ERR_IBEX_COMPILED_CWD_UNSET`. An absolute `/work/...` path receives
+the same error when the mount is absent. No fallback to the OS cwd, `/`, `/app`, or
+the packager's source tree is permitted.
+
+Normalization remains §3's root-wide lexical normalization. It does not clamp `..`
+at the mount boundary: from mounted `/work`, `../etc` normalizes to `/etc` and then
+fails `ERR_IBEX_OUTSIDE_MOUNT`. `/` remains the synthetic namespace root. Its fixed
+compiled listing is `app`, followed by `work` only when that optional mount exists.
+The source profile's project discovery and package bindings do not run in compiled
+mode; embedded modules carry `/app` labels from the authenticated graph instead.
 
 ### 2. Identity versus spelling
 
@@ -2233,32 +2143,21 @@ identity, not precedence identity: success is discriminant `0`, while the two fi
 failures deliberately have discriminants `2` and `1` for stale-session and
 closed-operation. The dataset pins both columns independently:
 
-| Rank | Discriminant | Dataset reason | JS `code` | Notes |
-| --- | --- | --- | --- | --- |
-| 0 | 2 | `stale-session` | `ERR_IBEX_STALE_SESSION` | tier 0; a dead or foreign runtime/VFS binding wins even when lower layers are malformed |
-| 1 | 1 | `closed-operation` | `EPERM` | `symlink`, `link`, `rename`, `unlink`, `rmdir`, `cp`/`copyFile`, `watch`, recursive `mkdir`; refused before path work |
-| 2 | 3 | `malformed-input` | `ERR_INVALID_ARG_VALUE` | non-UTF-8, empty path, lone surrogate (§3) |
-| 3 | 4 | `encoded-separator` | `ERR_INVALID_FILE_URL_PATH` | `%2F` (§3) |
-| 4 | 5 | `outside-mount` | `ERR_IBEX_OUTSIDE_MOUNT` | distinct from absence; no host lookup has happened |
-| 5 | 6 | `synthetic-node` | `ERR_IBEX_SYNTHETIC_NODE` | an operation needs a retained object for synthetic `/`; compatible `errno` is `EINVAL` |
-| 6 | 7 | `policy-denied` | `EACCES` | carries only safe decision metadata |
-| 7 | 8 | `absent` | `ENOENT` | reachable only after the authorization that would have denied it |
-| 8 | 9 | `symlink-depth` | `ELOOP` | §4, bound 32 |
-| 9 | 10 | `unmappable-link` | `ERR_IBEX_UNMAPPABLE_LINK` | a `readlink` target has no virtual spelling (§4) |
-| 10 | 11 | `stale-identity` | `ERR_IBEX_STALE_IDENTITY` | retained base/referrer or final-object identity no longer verifies (§5.2, §2.3) |
-| 11 | 12 | `input-too-large` | `ERR_IBEX_INPUT_TOO_LARGE` | the authorized adapter input exceeds its v1 bound before a host operation |
-| 12 | 13 | `host-error` | `ERR_IBEX_HOST_IO` | the typed Host adapter itself failed after authorization; an ordinary authorized syscall errno still keeps its Node code |
-
-`generate-vfs-error-union.mjs` verifies that every row agrees with the public C
-header, Rust constants and `VfsReason` projection, Rust rank/code tables, and the
-POSIX C++ reason-to-code projection. It generates all 78 unordered pairs. The Rust
-corpus test executes the declared `dominant` order in both contender orders. That is
-a complete proof of the **declared model and ABI projection**, not a claim that one
-live adapter can co-trigger 78 semantically unrelated predicates. Live adapter tests
-separately exercise the reachable ambiguous overlaps: stale-session over malformed
-shape at the typed Host entry, closed-operation over outside/absence, outside-mount
-over absence, and policy denial over absence with syscall observation. Structurally
-disjoint pairs remain dataset/order assertions rather than fabricated syscall tests.
+| # | Reason | JS `code` | Notes |
+| --- | --- | --- | --- |
+| 1 | **closed operation** (`symlink`, `link`, `rename`, `unlink`, `rmdir`, `cp`/`copyFile`, `watch`, recursive `mkdir`) | `EPERM` | §4.1 — the operation is refused before any path work, so it precedes even namespace classification |
+| 2 | malformed / unsupported adapter input | `ERR_INVALID_ARG_VALUE` | non-UTF-8, empty path, lone surrogate (§3) |
+| 3 | encoded separator in a file URL | `ERR_INVALID_FILE_URL_PATH` | `%2F` (§3) |
+| 3a | compiled cwd / `/work` mount is unset | `ERR_IBEX_COMPILED_CWD_UNSET` | §1.3 — a relative path has no base; no host cwd is consulted |
+| 4 | virtual path outside every mount | `ERR_IBEX_OUTSIDE_MOUNT` | distinct from `ENOENT`; message enumerates the mount table. **No host lookup has happened yet.** |
+| 4a | compiled `/app` used as a filesystem path | `ERR_IBEX_COMPILED_APP_NOT_FILESYSTEM` | §1.3 — the embedded namespace has no v1 asset inventory or host backing |
+| 5 | synthetic node (operation needs a retained object on `/`) | `ERR_IBEX_SYNTHETIC_NODE` | §5.2 — a genuinely novel condition gets a novel code, per this document's own rule; it presents `EINVAL` as its `errno` for Node compatibility |
+| 6 | policy denial | `EACCES` | carries a safe decision identifier |
+| 7 | resource absent | `ENOENT` | ordinary Node absence — **only after the authorization that would have denied it** |
+| 8 | symlink depth exceeded | `ELOOP` | §4, bound 32 |
+| 9 | unmappable `readlink` target | `ERR_IBEX_UNMAPPABLE_LINK` | §4 |
+| 10 | stale retained identity (commit) | `ERR_IBEX_STALE_IDENTITY` | §5.2, §2.3 |
+| 11 | ordinary host error from an authorized operation | Node's own (`EISDIR`, `ENOTDIR`, `EEXIST`, `ENOSPC`, …) | only reachable *after* the operation was authorized |
 
 (`ERR_IBEX_ALIAS_COLLISION` is **not** a v1 error class. An earlier draft ordered it
 here, but its occurrence-time predicate — what runtime fact constitutes a collision —
@@ -2512,32 +2411,32 @@ not survive reading past the quoted line.
 
 | ID | Obligation | Owner | Landed? | Verified against |
 | --- | --- | --- | --- | --- |
-| `OBL-OCCURRENCE-PROJECTION` | Project the resource into **each constrained principal's own binding**; carry an exact `{principal → projected resource}` map whose key set equals the constrained set; key the cache on **principal-resource pairs**; and make requested-stage filesystem projection lexical before target lookup (§2.2). The host-internal `PrincipalPathProjections` sidecar now closes the sibling-package confusion for `PathOccurrence`; package-root executable and Unix-socket deputies refuse until their nested-field adapters exist. **AC 20a is implemented without widening target support.** | **LLP 0021** | **yes for filesystem paths; other package-root deputy kinds fail closed** | `crates/capsec-semantics/src/{arming.rs,decision.rs,cache.rs}`; `src/host/mod.rs::typed_fs_projects_deputy_paths_and_protects_package_source` |
-| `OBL-OBJECT-STATE` | Admit an `Unknown` object state at the requested stage, so a NamespacePath is expressible and existence is not speculated (§2.1) — model, schema, ABI, digest and cache vectors together | **LLP 0021** | **yes** | `ObjectState::Unknown`; `effect-occurrence.schema.json`; requested-stage containment/digest vectors; typed VFS stage fixtures |
-| `OBL-SOURCE-ID` | The `SourceId` algebra of §2.3 — its per-kind constructor (**including the root/project arm**), canonical wire encoding, equality, collision domain, the query/fragment strip decision, and its type-level separation from `SourceLabel` | **LLP 0021** + this document | **yes** — the canonical `SourceId` crosses the native/JavaScript record boundary and keys armed runtime records | `src/vfs/mod.rs::SourceId`; `module_source_id_is_not_its_display_label`; `file_url_decorations_and_resolution_bases_do_not_change_source_id`; compartment/source-identity fixtures |
-| `OBL-SOURCE-PROVENANCE` | A **digest-bound provenance manifest** carries a `SourceId` per **original** module through bundling, cache validation, bytecode, `ibex/module-carrier/1`, and `ibex/prepared-module-graph/1`. It is derived from authenticated graph/binding authority and feeds both the private original-module registry and native linker, so raw-first, bundle-first, carrier, and prepared-graph loads reuse the same logical instance. | **LLP 0021** + bundler + **LLP 0026/0027** | **yes for authenticated bundle/cache/bytecode/carrier/prepared-graph production; target promotion remains separate** | `authenticated_bundle_provenance_is_per_original_and_authority_bound`; bytecode provenance tamper fixtures; `module-loader-provenance-llp0023.test.ts`; `schemas/module-carrier-v1.schema.json`; `schemas/prepared-module-graph-v1.schema.json`; ENG-25064 |
-| `OBL-OBJECT-GENERATION` | Supply the retained object's **verification generation** separately from `ObjectIdentity`: the Unix-family adapter uses nonzero Apple `st_gen`; zero/unsupported generation falls back to one descriptor retained per unique authenticated package object for the Host lifetime. Commit must present the same object/generation pair. A non-Unix target needs an equivalent adapter before promotion (§2.3). | **LLP 0021** | **Unix/Apple yes; non-Unix target adapter no** | `src/module_loader/mod.rs::authenticated_package_inventory`; `src/host/abi.rs::object_verification_generation_from_stat`; inventory/alias-guard tests |
-| `OBL-OBJECT-BOUND-MUTATION` | The object-bound protocols and concurrency threat model required to **reopen** symlink/hard-link creation, rename, removal (incl. recursive), `cp`/`copyFile`, `watch`, and recursive `mkdir` — all closed in v1 (§4.1). POSIX offers no object-bound `renameat`/`linkat` operand; a reopening must name the primitive (e.g. `linkat(..., AT_EMPTY_PATH)`) and the platforms that provide it. LLP 0021 keeps these routes in its closed set; reopening one remains future work, not a missing v1 implementation. | **LLP 0021** | **not applicable while the routes remain closed; closed-route denial fixtures pass** | `src/engine/hermes_runtime_fs.cc`; armed sync/async mutation denial fixtures |
-| `OBL-MKDIR-ROLLBACK` | §4.1 makes non-recursive `mkdir` a bare atomic `mkdirat` with **no** name-bound rollback (the rollback is a verify-then-`unlinkat` TOCTOU). LLP 0021 now states the same contract, and both synchronous and worker-backed armed implementations perform one `mkdirat` after retained-parent authorization without a later `unlinkat`. | **LLP 0021** | **yes** | `src/engine/hermes_runtime_fs.cc` one-`mkdirat` implementations and `mkdir` denial/race fixtures |
-| `OBL-PACKAGE-IMMUTABLE` | Make authenticated package source immutable via **two** write guards (§4.2): (a) a **lexical path-tree guard** denying writes/creates within a package's virtual subtree at the requested stage and after complete symlink-target-plus-tail expansion; (b) a **set-valued exact-object/generation guard** denying commits whose retained final object is package source however spelled. The eager integrity walk populates the object set by defining principal, bounds cycles, and arming refuses package/first-party shared objects. The same set prevents a post-arm package object alias from executing as Root; resolve-only package targets must remain set members and pass a post-resolution integrity check while their descriptor is retained. | **LLP 0021** | **Unix-family yes; non-Unix construction fails closed** | `crates/capsec-semantics/src/{arming.rs,decision.rs}`; `src/{host/mod.rs,host/abi.rs,module_loader/mod.rs}`; `typed_fs_projects_deputy_paths_and_protects_package_source`; `first_party_load_refuses_post_arm_package_object_aliases`; `metadata_only_package_resolution_reauthenticates_selected_target_after_resolution`; package inventory/alias-guard tests |
-| `OBL-ABI-HANDLE` | Session identity on the armed constructor and structured evaluator — the **semver-major** half, amending LLP 0002's narrow consumer contract (§7.1). The historical symbols remain ABI-present but cannot evaluate armed project source. | **LLP 0002** | **yes** | `include/exact_runtime.h`; `ex_hermes_create_armed`; `ex_hermes_structured_session_bind`; `ex_hermes_eval_structured_session`; independent C consumer and wrong-session/replay fixtures |
-| `OBL-HOST-SESSION` | Session-index the Host compatibility layer and thread runtime identity through the typed `ex_host_*` ABI, plus the worker **operation lease** (§7.1). Armed contexts cannot fall through to the process default. Each FS record captures the runtime generation, constrained principal stack, and decided descriptors/facts. Reversible queue records cancel with rollback; worker-started or owner-prepared effects commit and drain. Committed preparation reserves pin/capacity/node/continuation/state before its boundary, prepares outside the pool mutex, and publishes allocation-free; teardown keeps the exact VFS binding until committed pins finish. LLP 0002 calls this Host surface an implementation detail, so this half is **not** semver-major. | **LLP 0002** (impl. surface) | **yes for implemented filesystem worker routes; target promotion evidence remains separately gated** | `HOST_CONTEXTS`; `RUNTIME_VFS_SESSIONS`; `FsOperationLease`; `FsAsyncLifetime`; queued-close rollback, admission-failure/no-mutation, typed-preparation-error, committed-drain, two-runtime isolation, delayed-producer, and Windows lease-contract fixtures |
-| `OBL-ERROR-UNION` | The versioned discriminated path result union with explicit discriminants and ownership rules (§7.2), replacing `1/0/-1`; and a generated all-pairs declaration corpus, so a new reason cannot ship without a rank/code/discriminant and every pair. The generator checks C, Rust, and POSIX C++ projections. The 78 pairs execute the model in both contender orders; reachable ambiguous adapter overlaps have separate live evidence and are not conflated with that model proof. | **LLP 0002** + this document | **yes** | `llp/fixtures/0023-vfs-error-{union.v1,precedence.generated}.json`; `generate-vfs-error-union.mjs`; `ExHostVfsResultDiscriminant`; `VfsReason::{precedence_rank,stable_code,dominant}`; typed Host stale/malformed test; closed/outside/absence and denial/absence syscall-observer fixtures; AC 24/24a |
-| `OBL-TYPED-READ` | `.load` uses a credential-verifying typed path read whose decisions precede disclosure and whose result binds immutable bytes, logical referrer, retained identity, source digest, and optional `SourceId` into the same linear submission. LLP 0022 and LLP 0024 now describe the same mint → read-authorized → byte-bound → evaluated lifecycle rather than a circular one-permit shortcut. | **this document**, **LLP 0024**, **LLP 0022** | **yes** | `VfsSession::read`; `ReadAuthorizedSubmission::bind_module_bytes`; `repl_ingress_load_uses_vfs_canonical_path_and_authenticated_bytes`; replay/ordinal/TOCTOU fixtures |
-| `OBL-GRAPH-LOCATION` | Bind every graph principal to one exact locator/integrity identity and authenticated root object/virtual prefix, and bind each importer's package allowlist to exact locators. A bare request is preflighted by canonical package name against that exact-locator set: exactly one candidate is required, two same-name locators refuse before resolution, and the resolved/cached `SourceId` is rechecked against the exact defining principal. Every cross-principal cache hit also reauthenticates the exact typed graph edge rather than treating that locator projection as authority. Package `#` aliases remain inside the requester's authenticated binding and receive the same post-resolution principal check. Armed target probing is descriptor-relative beneath that exact retained binding object; package-scope search reaches a fixed point over OXC's exact probe ledger and consumes only strict, typed-VFS-captured manifest bytes/explicit absence bounded to the defining root. It revalidates package-owned bytes against armed integrity, refuses cross-principal/outside symlinks and complete substituted paths entering denied subtrees, and disables `NODE_PATH`. Each typed edge also binds its exact request, resolution kind, sorted condition set, and import attributes before the module runner may admit it. Direct `.js` kind selection additionally binds the ordered manifest trace into its linear source-read credential. This is the fail-closed equivalent of materializing every possible subpath spelling as a separate triple. | **LLP 0021** | **yes for the v1 package-name/subpath and package-`#` resolver grammar** | `ArmedSnapshot::validate_snapshot_invariants`; `ArmedSnapshot::authenticates_module_edge`; `preflight_armed_module_resolution`; `authenticated_bound_package_uses_nested_manifest_for_exported_js_kind`; `authenticated_file_kind_evidence_binds_ordered_manifest_trace_a_b_a`; `authenticated_unknown_manifest_operations_record_without_host_lookup`; `authenticated_denied_subtree_blocks_ancestor_symlink_with_pending_tail`; `authenticated_resolver_disables_node_path_and_cannot_select_an_ambient_package`; `armed_bare_import_preflight_refuses_same_name_locator_ambiguity`; `armed_module_cache_hits_reauthorize_exact_defining_principal`; `armed_module_cache_hits_reauthorize_exact_resolution_kind` |
-| `OBL-RESOLVE-GATE` | Apply the tier-2 membership gate and the no-probe/no-executable-body rule to **every resolve-only module bridge** — module-local, global, `__exactRequire`, and `createRequire` aliases plus native metadata resolution — not to the lexical `Exact.resolve` facade. All aliases call `checkImportGate` before native resolution. `resolve_meta` neither decodes/transpiles nor returns source; trusted package-integrity hashing is only an internal witness. The post-resolution Host gate uses the exact requested/discovery/commit/repeat VFS namespaces and retained objects, refuses a principal-changing symlink target before lookup, and revalidates a selected package target after resolution. | **this document**, **LLP 0014**, **LLP 0002**, **LLP 0004** | **yes** | `module-loader-runtime-options-llp0022.test.ts::every require.resolve alias denies before metadata resolution`; `armed_require_resolve_uses_typed_stages_without_reading_invalid_body`; `metadata_authorization_refuses_a_post_resolve_cross_principal_symlink_before_absence`; `metadata_only_package_resolution_reauthenticates_selected_target_after_resolution`; `resolve_meta_omits_source_that_full_resolve_loads` |
-| `OBL-DISCOVERY-RECORD` | Armed-snapshot fields carry the discovery origin, selected marker kind/path, marker-set version, and selected root, all included in strict snapshot ingestion and digest identity so marker-rule drift cannot silently re-root a project (§1.1). | **LLP 0021** | **yes** | `ArmedProjectRootDiscovery`; `refuses_project_root_discovery_substitution_and_binding_mismatch`; project-root discovery marker/workspace/device-boundary fixtures |
-| `OBL-INTEGRITY-BIND` | Verify installed content against the package principal's integrity digest at arming and derive the protected object/generation inventory from that same eager traversal (§1.2). | **LLP 0021** / **LLP 0014** | **Unix-family yes; non-Unix construction fails closed** | `src/host/mod.rs::validate_snapshot_root_bindings`; `src/module_loader/mod.rs::authenticated_package_inventory`; mutation, symlink, cycle, root-swap, and add/remove inventory tests |
-| `OBL-ALIAS-CANON` | The versioned per-volume canonicalization function is applied to authored selectors, occurrences, root bindings, and decision-cache keys, and is bound into the snapshot digest. The Apple candidate derives its APFS case/normalization adapter from the bound volume; unsupported adapters fail arming rather than guessing (§3). | **LLP 0021** | **yes for the Apple candidate; other target adapters remain fail-closed** | `path_alias.rs`; `canonicalizer_identity_is_trusted_and_changes_snapshot_identity`; `external_snapshot_cannot_self_assert_a_bound_volume_canonicalizer`; alias fixtures |
-| `OBL-ARMING-CONTAINMENT` | Strict snapshot ingestion requires graph nodes, exact import edges, root bindings, defining owners, and the project discovery record to form one consistent containment relation before a Host can arm. | **LLP 0021** | **yes** | `validate_snapshot_invariants`; `validate_root_bindings`; `refuses_graph_authority_and_root_binding_inconsistencies` |
-| `OBL-CWD-ACTIONS` | The registry defines `path:cwd-observe` and core-root-only `path:cwd-mutate`, both on the runtime-local session-state resource; native bridges reauthorize each requested/commit operation and never mutate the host process cwd. | **LLP 0021** registry | **yes** | capability definitions/coverage edges; `ex_host_vfs_get_cwd`; `ex_host_vfs_chdir`; cwd facade batch |
-| `OBL-CWD-SCHEMA` | Capability schema, selector/occurrence unions, Rust model, canonical bytes, containment, and cache identity admit the `session-state` resource and `session-scoped` globality. Mutation is core-enforced root-only; a denied observation produces the specified no-effect `/project` projection rather than disclosing another base. | **LLP 0021** schema | **yes** | `SessionStateName::Cwd`; schema/registry tests; `process-env-proxy.test.ts`; cwd facade batch |
-| `OBL-CWD-FLOOR` | The policy generator synthesizes the universal static-floor row admitting every admitted principal to `path:cwd-observe`; packages cannot author the root-only mutation action. | **LLP 0014** generator | **yes** | `capsec-policy-authoring.test.mjs` floor and root-only negative fixtures |
-| `OBL-DISPOSITION-DATASET` | The generator now emits the canonical tuple-keyed output-shape catalog and executed disposition dataset, enforces the bidirectional join, rejects duplicate/missing/value-drifting rows, and includes `non-path`, `typed-logical`, and `reserved-constant`. The mechanism is live, but three independent account families remain incomplete: one native `__esModule` marker account lacks an output contract; three inherited-intrinsic alias accounts are deliberately `unresolved` and require the reviewed Android/source/Windows loaded-engine evidence set; and one rowless parameterized `process.env` binding separately requires a finite authenticated exact-name account set plus complete live scalar/enumeration observations. None can be promoted from source inference or from the runtime-environment occurrence inventory. | **LLP 0021** registry | **mechanism yes; corpus completeness and target promotion blocked by four explicit unresolved surface accounts plus one parameterized exact-name binding** | `generate-capsec-registry`; output disposition/catalog tests; `capsec-inherited-intrinsic-alias-accounts.mjs`; `capsec-environment-output-templates.mjs`; current generated catalog counts |
-| `OBL-BRIDGE-PROJECTION` | Path-bearing/raw-bridge membership is generated once from source/ABI inventory and joined into both LLP 0022 coverage and this document's output catalog; no second hand-maintained bridge list is authoritative. | **LLP 0022** | **yes** | generated coverage edges, surface inventory, output-shape catalog, and bidirectional drift tests |
-| `OBL-MODULE-IDENTITY` | Keep LLP 0024's module-identity text aligned with §2.3: case/normalization-distinct `SourceId`s remain distinct instances, `ibex:stdin` is the sole synthetic module, and `SourceLabel` owns display identity | **LLP 0024** | **yes** — LLP 0024 §7.9, AC 15, and its resolved module-identity question now carry all three rules | current LLP 0024 plus its generated session fixtures |
-| `OBL-ERROR-ORDER` | §7.2 owns the total order; sibling documents defer to it and must not classify a closed watch after path work | **LLP 0024**, **LLP 0022** | **yes** — LLP 0024 defers to §7.2; LLP 0022 §4 now says effectful path-classifying operations produce outside-mount while watch closes earlier with `EPERM` | current LLP 0022 §4 and LLP 0024 §2 |
-| `OBL-TARGET-PROMOTE` | These obligations execute before macOS/aarch64 is promoted from `candidateTargets` to `advertisedTargets` (§3). Target state must derive from authenticated advertisements and completed reports, never a source hardcode | **LLP 0021**, **LLP 0013**, code | **derivation landed; promotion remains blocked** — production construction authenticates and derives target state in `src/host/mod.rs`; remaining `CompleteAdvertised` constructors are test fixtures. `target-advertisements.json` remains empty and every target cell remains unsupported pending the separately tracked output/alias evidence work | authenticated advertisement tests plus current generated target matrix |
+| `OBL-OCCURRENCE-PROJECTION` | Project the resource into **each constrained principal's own binding**; carry an exact `{principal → projected resource}` map whose key set equals the constrained set; key the cache on **principal-resource pairs**; and make the **requested-stage** projection lexical (no I/O), which requires each binding to carry an authenticated virtual prefix (§2.2). Without it, a package's own grant structurally authorizes an occurrence on **another** package's file. **AC 20a is gated on this row.** | **LLP 0021** | no | `commit:3060574776a3` |
+| `OBL-OBJECT-STATE` | Admit an `Unknown` object state at the requested stage, so a NamespacePath is expressible and existence is not speculated (§2.1) — model, schema, ABI, digest and cache vectors together | **LLP 0021** | no | `commit:3060574776a3` |
+| `OBL-SOURCE-ID` | The `SourceId` algebra of §2.3 — its per-kind constructor (**including the root/project arm**), canonical wire encoding, equality, collision domain, the **query/fragment strip** decision, and its separation from the pinned `SourceLabel` | **LLP 0021** + this document | **yes** — canonical `SourceId` is carried through the native/JS record boundary and keys armed runtime records | `commit:13d5c4663003` |
+| `OBL-SOURCE-PROVENANCE` | A **digest-bound provenance manifest** carrying a `SourceId` per **original** module through bundling, caching, and bytecode, produced from authenticated graph/binding data, plus the runtime original-module registry that makes a later raw load return the already-instantiated bundled module (§2.3). *Owner corrected:* this is artifact provenance, not the Hermes compat transform, so it is **not** LLP 0019's subject. | **LLP 0021** + bundler | **yes** — `ibex/module-carrier/2` carries and admits each original module's complete semantics/`SourceId` through source and HBC carriers; `ibex/prepared-module-graph/2` publishes authenticated bindings and computed-candidate sidecar references in the existing Rolldown cache and the native linker keys records by those original SourceIds | `commit:c6d2aefe`, ENG-25064; LLP 0028 candidate-table revision; LLP 0029 carrier-v2 revision |
+| `OBL-OBJECT-GENERATION` | Name the platform primitive supplying the retained object's **verification generation** (`st_gen` in `sys/stat.h`, or `ATTR_CMN_GEN_COUNT` via `getattrlist` — the real macOS identifiers, not the `ATTR_CMNGEN` a prior draft misnamed), and the fallback where none is reliable (§2.3) | **LLP 0021** | no | `commit:3060574776a3` |
+| `OBL-OBJECT-BOUND-MUTATION` | The object-bound protocols and concurrency threat model required to **reopen** symlink/hard-link creation, rename, removal (incl. recursive), `cp`/`copyFile`, `watch`, and recursive `mkdir` — all closed in v1 (§4.1). POSIX offers no object-bound `renameat`/`linkat` operand; a reopening must name the primitive (e.g. `linkat(..., AT_EMPTY_PATH)`) and the platforms that provide it. LLP 0021 lists `copy` in its *closed* set (`0021:688-690`) — kept closed here, so no divergence — but a reopening must move it there in the same change. | **LLP 0021** | no | `sha256:daa9a6823b00` (0021) |
+| `OBL-MKDIR-ROLLBACK` | §4.1 makes non-recursive `mkdir` a bare atomic `mkdirat` with **no** name-bound rollback (the rollback is a verify-then-`unlinkat` TOCTOU). LLP 0021 still specifies mkdir to "commit the opened directory identity, **rolling the new directory back if commit fails**" (`0021:678-687`), and the shipped code implements that (`hermes_runtime_fs.cc:732,740`). LLP 0021 must **retire the mkdir rollback** in the same change — the untracked contradiction the round-7 review surfaced, filed here parallel to the `copy` note above. | **LLP 0021** | no | `sha256:daa9a6823b00` (0021) |
+| `OBL-PACKAGE-IMMUTABLE` | Make authenticated package source immutable via **two** guards (§4.2), because the shipped single-object `ProtectedObjectGuard` (`decision.rs:114-117,946`) cannot express it: (a) a **lexical path-tree guard** denying writes/creates within a package's virtual subtree at the requested stage, before lookup, **rerun after each symlink expansion** against the canonical parent + absent tail; (b) a **set-valued exact-object/generation guard** denying commits whose retained final object is package source however spelled. The object set is **eagerly populated by the arming-time integrity walk** (`OBL-INTEGRITY-BIND`), with membership by **defining principal** (a package symlink out to root source does not freeze it), visited-object cycle bounds, and arming refusal of a package/first-party shared inode. Immutability holds if either guard fires. | **LLP 0021** | no | `commit:3060574776a3` |
+| `OBL-ABI-HANDLE` | Session identity on `ex_hermes_create`/`ex_hermes_eval` — the **semver-major** half, amending LLP 0002's five-function narrow contract (§7.1) | **LLP 0002** | no | `sha256:020f3455209e` (0002) |
+| `OBL-HOST-SESSION` | Session-index the process-global `Host` and thread runtime identity through the typed `ex_host_*` ABI, plus the worker **operation lease** (§7.1). LLP 0002 calls this surface an implementation detail, so this half is **not** semver-major | **LLP 0002** (impl. surface) | no | `sha256:020f3455209e` (0002) |
+| `OBL-ERROR-UNION` | The versioned discriminated result union with explicit discriminants and ownership rules (§7.2), replacing `1/0/-1`; and the generated pairwise-precedence fixtures, so a new reason cannot ship without its ordering tests | **LLP 0002** + this document | no | `commit:3060574776a3` |
+| `OBL-TYPED-READ` | `.load`'s credential-verifying pre-read: the typed path decision, the authenticated byte capsule and referrer, retained identity, TOCTOU behavior. This document supplies the **path side**; the credential algebra is **LLP 0024's two-capability capsule** (`0024:240`, separate read + evaluation permits) — *not* LLP 0022's **one-permit** form (`0022:697`), which is circular (binding the byte digest requires the read, an effect). **The 0022 one-permit edit to the two-capability form is owed** and assigned here. | **this document**, **LLP 0024**, **LLP 0022** | 0024 form landed; 0022 edit owed | `sha256:6416ccb8c3c2` (0024), `sha256:88decefdc683` (0022) |
+| `OBL-GRAPH-LOCATION` | Armed-snapshot fields carrying, per graph principal, its resolving specifier, canonical root object, authenticated virtual alias set/prefix, optional/platform disposition (§1.2), **and a digest-bound `(importer, request specifier/alias, exact imported principal)` map** so tier-2 `out-of-snapshot` membership is exactly computable from the caller's view (§7.2), rather than reduced to bare package names as today (`src/host/mod.rs:1526`) | **LLP 0021** | **yes** — production arming requires and cross-checks graph locations; typed request/kind/condition/attribute edges are digest-bound | `commit:13d5c4663003` |
+| `OBL-RESOLVE-GATE` | Apply the tier-2 membership gate and the no-probe/no-body-read rule to **every resolve-only *module* bridge** — `require.resolve` local/global, `resolve_module_meta` — not just `import` (**not** `Exact.resolve`, a `path.resolve` delegate). Today `require.resolve` bypasses `checkImportGate` (`module-loader.js:5768-5770`) and `resolve_meta` **reads the ESM body** with `std::fs::read_to_string` (`src/module_loader/mod.rs:775`) under an `fs:list`-only classification — an existence oracle **and** an unauthorized body read; the shipped test (`mod.rs:1358`) only exercises `.ts`, which is classified without a read, so it misses this. The resolve route must be body-read-free. **LLP 0002 (`0002:175`) and LLP 0004 (`0004:296`) still document metadata resolution as body-read-free** — the doc owners of that claim; both must be reconciled to whichever way the code lands. | **this document**, **LLP 0014**, **LLP 0002**, **LLP 0004** | **yes** — typed graph admission precedes resolver discovery, and metadata resolution never opens or transforms the body | `commit:13d5c4663003` |
+| `OBL-DISCOVERY-RECORD` | Armed-snapshot fields carrying the discovery origin, selected marker kind and path, marker-set version, and selected root — digest-bound, so a marker-rule change cannot silently re-root a project (§1.1) | **LLP 0021** | no | `commit:3060574776a3` |
+| `OBL-INTEGRITY-BIND` | The algorithm and point at which installed content is verified against the package principal's integrity digest (§1.2) — without it a binding authenticates a location, not a content | **LLP 0021** / **LLP 0014** | no | `commit:3060574776a3` |
+| `OBL-ALIAS-CANON` | The versioned per-volume canonicalization function, applied to **authored selectors and occurrences alike**, bound into the snapshot digest, with the decision cache keying on **post-canonicalization** bytes (§3). If the built canonicalizer has a failure/collision mode, it defines that mode and its error class then — v1 carries no `ERR_IBEX_ALIAS_COLLISION` (removed from the §7.2 order for lack of a defined predicate). | **LLP 0021** | no | `commit:3060574776a3` |
+| `OBL-ARMING-CONTAINMENT` | Absorb §1.2's package-containment invariant into LLP 0021's armed-snapshot invariant list | **LLP 0021** | no | `sha256:daa9a6823b00` (0021) |
+| `OBL-CWD-ACTIONS` | The two authorable cwd actions and their resources, globality, and channels (§8); retire the deny-only `process:cwd` row | **LLP 0021** registry | no | `commit:3060574776a3` |
+| `OBL-CWD-SCHEMA` | Version the capability schema, selector/occurrence unions, Rust model, canonical bytes, containment, and cache identity to admit a `session-state` resource kind, a `session-scoped` globality, and a **core-enforced root-only predicate** — none of which exist today (§8). Also: the stricter non-root profile is a **no-effect constant projection** to `/project`, not a denial — a binary denial cannot produce the sanitized success AC 13 requires. | **LLP 0021** schema | no | `commit:3060574776a3` |
+| `OBL-CWD-FLOOR` | Synthesize the universal static-floor row admitting every principal to `path:cwd-observe` — `sys:read` permits it, but no shipped artifact authors one (§8) | **LLP 0014** generator | no | `commit:3060574776a3` |
+| `OBL-DISPOSITION-DATASET` | The output-disposition dataset keyed by the **one canonical tuple** `(stable surface id, field or return-shape, alias, mode, source kind, return variant)` — the identical spelling in §6, §8, and here. It carries the independent output-shape **catalog** (the join's left side), the **bidirectional** validation, and generates each disposition **from live execution**, with the build failing on any un-dispositioned catalog field, any **duplicate key**, and any dataset **value** disagreeing with the executed surface. Includes the `non-path`/`typed-logical`/`reserved-constant` members. | **LLP 0021** registry | no | `commit:3060574776a3` |
+| `OBL-BRIDGE-PROJECTION` | This document's path-bearing bridge rows are a projection of LLP 0022 §7's single generated inventory, not a second list (§6) | **LLP 0022** | no | `sha256:88decefdc683` (0022) |
+| `OBL-MODULE-IDENTITY` | Keep LLP 0024's module-identity text aligned with §2.3. §7.9 defers correctly; the cache requirement is one instance per equal `SourceId`, `ibex:stdin` is the sole synthetic module, and `SourceLabel` is pinned independently of import order. | **LLP 0024** | **yes** | `sha256:74191e8d6604` (0024) |
+| `OBL-ERROR-ORDER` | §7.2 owns the total order; 0024 §2 defers to it ("LLP 0023 §7.2 owns the total order … this document does not restate it") — **0024 half landed**. The **0022 half is outstanding**: LLP 0022:471 says habitual host spellings produce the outside-mount error "from watches and every effectful filesystem operation," which is order-relevant and **inconsistent** with §4.1/§7.2 closing `watch` with `EPERM` *before* path work. A 0022 edit (drop "watches", since watch is closed pre-classification) is owed. *(A prior draft of this row claimed the 0022 half was "discharged by absence" — that was **itself a false whole-document attestation**, the third instance of the completion-detector-can't-detect-its-own-incompleteness bug, and the reason `OBL-LEDGER-CHECK` below must be a reviewer-performed semantic step, not a mechanical one.)* | **LLP 0024**, **LLP 0022** | 0024 **yes**, 0022 no | `sha256:6416ccb8c3c2` (0024), `sha256:88decefdc683` (0022) |
+| `OBL-TARGET-PROMOTE` | These obligations execute before macOS/aarch64 is promoted from `candidateTargets` to `advertisedTargets` (§3). Two owed pieces: **(a) the sibling prose is inconsistent** — `policy-rules.json` has `advertisedTargets: []` (authoritative), but 0021 says both "the macOS candidate remains unadvertised" (`0021:8`) and "the only advertised profile" (`0021:930-943`), as does 0013 (`0013:18-24`); the docs must reconcile to the machine data. **(b) the *source* manufactures the advertised state rather than deriving it** — `src/bin/ibex/runtime.rs:1981` hardcodes `target_complete_and_advertised: true` and `crates/capsec-semantics/src/arming.rs:361` hardcodes `TargetArmState::CompleteAdvertised`, both ignoring `advertisedTargets: []`. Promotion requires **removing the hardcodes, deriving the gate from authenticated machine data + the completed target report, and a clean-build test proving the candidate refuses** (the shipped binary already refuses, so it is ahead of the source path — bind a built binary to its source/registry revision so a stale binary cannot mislead review). | **LLP 0021**, **LLP 0013**, code | no | `sha256:daa9a6823b00` (0021) + `commit:3060574776a3` |
 | `OBL-LEDGER-CHECK` | **Two obligations, because a mechanical tool cannot establish arbitrary prose truth** (LLP 0022:933 says so, and this ledger proved it — a *resolvable* stamp still carried a false whole-document attestation, three times). **(a) a deterministic checker**: every stamp resolves by its named method, every obligation ID and owner-side marker exists, landed state is a fixture pass. **(b) a provenance-tracked whole-document semantic attestation** that the owner-side *claim* survives reading the whole stamped document — performed by a reviewer or a formalized executable assertion, *not* by (a). The dual-model review rounds recorded in `llp/reviews/` **are** that semantic attestation for this document's current state; a standing checker for (b) is owed. | **LLP 0000** (process tooling) | **(a) no; (b) is the review record** | `commit:3060574776a3` |
 
 ## Acceptance criteria
@@ -2826,6 +2725,16 @@ vendored-generated builtins run the same fixtures. All armed execution modes
     `/project/secrets` — i.e. canonicalizing the occurrence alone, which would break
     the grant, is asserted not to happen. The canonicalizer's version is bound into
     the snapshot digest, and changing it changes the armed identity.
+28. **Compiled mount profile (§1.3):** compiled policy authoring and strict Rust
+    ingestion reject every project/package/home/tmp-rooted authority and every
+    target/mount-profile mismatch. `/app/x` fails with
+    `ERR_IBEX_COMPILED_APP_NOT_FILESYSTEM` without a host lookup. With no `/work`
+    binding, `process.cwd()` yields exactly `ibex:cwd:unset`, relative paths and
+    `chdir` fail with `ERR_IBEX_COMPILED_CWD_UNSET`, and absolute `/work/x` fails
+    identically. With an authenticated `/work` binding, cwd is `/work`, relative
+    normalization resolves there, and `../etc` escapes to the namespace root then
+    fails outside-mount. Relocating or deleting the source checkout does not change
+    any result.
 
 ## Consequences
 
@@ -2880,6 +2789,9 @@ vendored-generated builtins run the same fixtures. All armed execution modes
   three deliberate v1 narrowings in favor of the disclosure and containment rules.
 - Physical (`open()`-style) `..` semantics are not reproduced; lexical collapse is
   the documented behavior.
+- Compiled mode has no `/project` binding and never treats `/app` as an asset
+  filesystem. Optional `/work` is the sole host-backed compiled mount; absent it,
+  cwd is explicitly unset rather than fabricated from process state.
 
 ## Open questions
 

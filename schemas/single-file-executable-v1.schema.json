@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/schema/single-file-executable-v1.schema.json",
+  "title": "Ibex single-file executable v1 section directory",
+  "type": "object",
+  "required": ["schema", "stubContractDigest", "sections"],
+  "properties": {
+    "schema": { "const": "ibex/single-file-executable/1" },
+    "stubContractDigest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" },
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100000,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "offset", "length", "alignment", "digest"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+          "kind": {
+            "enum": ["provenance-manifest", "embedded-module-graph", "resolved-policy", "entry-designation", "candidate-table", "carrier-manifest", "carrier-payload"]
+          },
+          "pairId": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$" },
+          "offset": { "type": "integer", "minimum": 0 },
+          "length": { "type": "integer", "minimum": 0 },
+          "alignment": { "enum": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096] },
+          "digest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
