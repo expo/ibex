@@ -72,3 +72,27 @@ test("Windows Git Bash suites retain the configured MSVC linker", () => {
   expect(linkerBinding).toBeGreaterThan(msvcSetup);
   expect(windowsJob).toContain('$env:VCToolsInstallDir "bin\\Hostx64\\x64\\link.exe"');
 });
+
+test("Windows conformance binds the verified Hermes CLI for product corpora", () => {
+  const windowsJob = conformanceWorkflow.slice(
+    conformanceWorkflow.indexOf("conformance-windows:"),
+  );
+  const artifactVerification = windowsJob.indexOf(
+    "name: Verify cached Hermes is patched and debugger-free",
+  );
+  const cliBinding = windowsJob.indexOf('"IBEX_HERMES_BIN=$hermesCli"');
+  const matrix = windowsJob.indexOf(
+    "name: Run the complete CapSec matrix and bind evidence",
+  );
+
+  expect(windowsJob).toContain('$install "bin\\hermes.exe"');
+  expect(windowsJob).toContain(
+    "Windows Hermes CLI is missing from the verified artifact",
+  );
+  expect(windowsJob).toContain("& $hermesCli --help | Out-Null");
+  expect(windowsJob).toContain(
+    "Windows Hermes CLI failed its executable preflight",
+  );
+  expect(cliBinding).toBeGreaterThan(artifactVerification);
+  expect(cliBinding).toBeLessThan(matrix);
+});

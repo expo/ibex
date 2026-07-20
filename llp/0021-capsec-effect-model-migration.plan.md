@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-20 (ENG-24933 physically clears Windows EC key generation/export and advances the default product suite to a missing verified-Hermes CLI binding)
 **Revised:** 2026-07-20 (ENG-24933 physically clears the Windows KDF/AES frontier and narrows 23 crypto product tests to missing CNG EC key generation/export)
 **Revised:** 2026-07-20 (ENG-24933 physically verifies Windows HKDF and advances the full public matrix to the missing CNG PBKDF2 backend)
 **Revised:** 2026-07-20 (ENG-24933 physically verifies Windows callback attribution and startup-environment evidence, then implements the RFC 5869 HKDF backend exposed as the next full-matrix frontier)
@@ -2218,6 +2219,20 @@ vectors and both AES-CBC tests. Its sole product failure was EC
 install `__exactGenerateKeyPairSync`. Windows now generates P-256, P-384, and
 P-521 key pairs through CNG and serializes the result as PKCS#8 private and
 SPKI public PEM for the canonical JavaScript encoding layer. This repair still
+requires physical execution; no target cell or advertisement is promoted.
+Focused physical run
+[`29735026918`](https://github.com/ccheever/ibex/actions/runs/29735026918)
+compiled that CNG checkpoint, passed the callback-principal invariant, and
+retained nine of nine passing startup-environment executions against the bound
+Windows `hermesvm.dll`. Full run
+[`29735904856`](https://github.com/ccheever/ibex/actions/runs/29735904856)
+then passed all seven public-fixture batches, all 23 `crypto_node_builtin`
+tests (including parsed and pair-matched PKCS#8/SPKI output), and all six
+stateless-DH tests. The default Rust product suite reached 553 passes before
+the next frontier: two LLP 0026 producer-spike tests failed because the
+workflow had not bound `IBEX_HERMES_BIN` to the `hermes.exe` already present
+in the verified Windows artifact. The workflow now checks that exact CLI and
+exports its absolute path before any complete-matrix suite. This repair still
 requires physical execution; no target cell or advertisement is promoted.
 `bun run verify:capsec-conformance` must publish a conformant revision-, tree-,
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
