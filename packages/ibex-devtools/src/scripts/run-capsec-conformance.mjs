@@ -57,6 +57,10 @@ import {
   portableReportSliceBytes,
   validateLivePortableProcess,
 } from "./capsec-live-portable-engine-evidence.mjs";
+import {
+  buildPortablePromotionBundleV2,
+  preparePortablePromotionV2,
+} from "./capsec-portable-promotion-bundle.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -69,6 +73,8 @@ const valueOptions = new Set([
   "--fixture-evidence",
   "--output-disposition-evidence",
   "--public-surface-evidence",
+  "--portable-promotion-output",
+  "--portable-promotion-target-cells",
   "--output",
   "--report",
   "--target",
@@ -121,6 +127,21 @@ const outputDispositionEvidenceInputPath = option(
   "--output-disposition-evidence",
 );
 const publicSurfaceEvidenceInputPath = option("--public-surface-evidence");
+const portablePromotionOutputInput = option("--portable-promotion-output");
+const portablePromotionTargetCellsInput = option(
+  "--portable-promotion-target-cells",
+);
+if (
+  (portablePromotionOutputInput === undefined) !==
+  (portablePromotionTargetCellsInput === undefined)
+) {
+  throw new Error(
+    "--portable-promotion-output and --portable-promotion-target-cells must be supplied together",
+  );
+}
+const portablePromotionOutputDirectory = portablePromotionOutputInput
+  ? path.resolve(repoRoot, portablePromotionOutputInput)
+  : null;
 const jobStartedAtInput = process.env.IBEX_CAPSEC_JOB_STARTED_AT;
 const jobStartedAtMs =
   jobStartedAtInput === undefined
@@ -223,6 +244,30 @@ function writeNewOwnedBytes(filePath, bytes, label) {
   ) {
     throw new Error(`${label}: output is not an owned regular file`);
   }
+}
+
+function writePortablePromotionBundleDirectory(directory, bundle) {
+  if (fs.existsSync(directory)) {
+    throw new Error(`portable promotion output already exists: ${directory}`);
+  }
+  fs.mkdirSync(directory, { mode: 0o700 });
+  for (const file of bundle.files) {
+    if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(file.logicalName)) {
+      throw new Error(
+        `portable promotion file has unsafe logical name ${file.logicalName}`,
+      );
+    }
+    writeNewOwnedBytes(
+      path.join(directory, `${file.logicalName}.json`),
+      file.bytes,
+      `portable promotion ${file.logicalName}`,
+    );
+  }
+  writeNewOwnedBytes(
+    path.join(directory, "bundle-manifest.json"),
+    bundle.manifestBytes,
+    "portable promotion bundle manifest",
+  );
 }
 
 if (!fs.existsSync(engineArtifactPath)) {
@@ -655,11 +700,13 @@ const bindings = {
   implementationManifestDigest,
 };
 let validatedOutputDispositionEvidenceState;
+let richOutputDispositionEvidenceBytes;
 if (outputDispositionEvidenceInputPath) {
   const { bytes, value: outputDispositionEvidence } = readOwnedJsonWithBytes(
     path.resolve(repoRoot, outputDispositionEvidenceInputPath),
     "output-disposition evidence",
   );
+  richOutputDispositionEvidenceBytes = bytes;
   validatedOutputDispositionEvidenceState =
     validatePromotableOutputDispositionEvidence({
       catalog: readJsonStrict(
@@ -789,6 +836,11 @@ let portableProcessEvidence = {
 };
 if (portableEngineIdentity !== null) {
   if (!bindings.outputDispositionEvidenceRawContentDigest) {
+    if (portablePromotionTargetCellsInput) {
+      throw new Error(
+        "portable promotion requires verified exact output-disposition evidence",
+      );
+    }
     portableProcessEvidence = {
       portableProcessEvidenceSchema:
         "ibex/capsec-portable-process-preparation/1",
@@ -797,34 +849,133 @@ if (portableEngineIdentity !== null) {
         "portable process evidence requires exact output-disposition bytes before its acyclic execution binding can be fixed",
     };
   } else {
-    const targetCellsPath = path.join(capsecRoot, "registry/target-cells.json");
-    const portableBindings = {
-      sourceRevision: bindings.sourceRevision,
-      sourceTreeDigest: bindings.sourceTreeDigest,
-      target,
-      engine: portableEngineIdentity,
-      vocabularyDigest: bindings.vocabularyDigest,
-      registryDigest: bindings.registryDigest,
-      implementationManifestDigest: bindings.implementationManifestDigest,
-      fixtureCatalogDigest,
-      targetCellsRawContentDigest: taggedDigest(
-        fs.readFileSync(targetCellsPath),
-      ),
-      recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
-      recipeCatalogRawContentDigest: taggedDigest(
-        fs.readFileSync(recipeCatalogPath),
-      ),
-      publicSurfaceExecutionDigest:
-        publicSurfaceEvidence.publicSurfaceExecutionDigest,
-      publicSurfaceExecutionRawContentDigest: taggedDigest(
-        fs.readFileSync(publicSurfaceEvidencePath),
-      ),
-      outputDispositionEvidenceRawContentDigest:
-        bindings.outputDispositionEvidenceRawContentDigest,
-    };
-    const fixtureIds = fixtureEvidenceBinding.fixturePlans.map(
-      (plan) => plan.fixtureId,
-    );
+    // @ref LLP 0035#phase-2--split-runtime-and-publication-identity — a real
+    // promotion is explicit, source-derived, exact-byte output; the default
+    // portable pilot remains diagnostic and cannot alter checked authority.
+    let portablePromotionPreparation;
+    let portableBindings;
+    let fixtureIds;
+    if (portablePromotionTargetCellsInput) {
+      const promotionTargetCellsPath = path.resolve(
+        repoRoot,
+        portablePromotionTargetCellsInput,
+      );
+      const promotionTargetCellsBytes = readOwnedJsonWithBytes(
+        promotionTargetCellsPath,
+        "portable promotion target cells",
+      ).bytes;
+      const family = target.triple.endsWith("-apple-darwin")
+        ? "macos"
+        : target.triple.endsWith("-pc-windows-msvc")
+          ? "windows"
+          : "linux";
+      const reviewedSourceBytes = Buffer.from(
+        `${JSON.stringify(
+          {
+            portablePromotionSourceSchema:
+              "ibex/capsec-portable-promotion-source/1",
+            profile: "ibex/capsec/1",
+            sourceRevision: bindings.sourceRevision,
+            sourceTreeDigest: bindings.sourceTreeDigest,
+            family,
+            target,
+            engine: portableEngineIdentity,
+            vocabularyDigest: bindings.vocabularyDigest,
+            registryDigest: bindings.registryDigest,
+            executor: "ibex-exact-fixture-evidence-pilot",
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+      portablePromotionPreparation = preparePortablePromotionV2({
+        reviewedSourceBytes,
+        coverageBytes: fs.readFileSync(
+          path.join(capsecRoot, "registry/coverage-edges.json"),
+        ),
+        implementationManifestBytes: fs.readFileSync(
+          path.join(capsecRoot, "generated/implementation-manifest.json"),
+        ),
+        targetCellsBytes: promotionTargetCellsBytes,
+        richRecipeCatalogBytes: fs.readFileSync(recipeCatalogPath),
+        richPublicSurfaceExecutionBytes: fs.readFileSync(
+          publicSurfaceEvidencePath,
+        ),
+        richOutputDispositionEvidenceBytes,
+        outputShapeCatalogBytes: fs.readFileSync(
+          path.join(capsecRoot, "generated/output-shape-catalog.json"),
+        ),
+        outputDispositionRowsBytes: fs.readFileSync(
+          path.join(capsecRoot, "generated/output-dispositions.json"),
+        ),
+      });
+      portableBindings = {
+        sourceRevision: portablePromotionPreparation.source.sourceRevision,
+        sourceTreeDigest: portablePromotionPreparation.source.sourceTreeDigest,
+        target: portablePromotionPreparation.source.target,
+        engine: portablePromotionPreparation.source.engine,
+        vocabularyDigest:
+          portablePromotionPreparation.authorityEntry.vocabularyDigest,
+        registryDigest:
+          portablePromotionPreparation.authorityEntry.registryDigest,
+        implementationManifestDigest:
+          portablePromotionPreparation.authorityEntry
+            .implementationManifestDigest,
+        fixtureCatalogDigest:
+          portablePromotionPreparation.authorityEntry.fixtureCatalogDigest,
+        targetCellsRawContentDigest:
+          portablePromotionPreparation.authorityEntry
+            .targetCellsRawContentDigest,
+        recipeCatalogDigest:
+          portablePromotionPreparation.authorityEntry.recipeCatalogDigest,
+        recipeCatalogRawContentDigest:
+          portablePromotionPreparation.authorityEntry
+            .recipeCatalogRawContentDigest,
+        publicSurfaceExecutionDigest:
+          portablePromotionPreparation.authorityEntry
+            .publicSurfaceExecutionDigest,
+        publicSurfaceExecutionRawContentDigest:
+          portablePromotionPreparation.authorityEntry
+            .publicSurfaceExecutionRawContentDigest,
+        outputDispositionEvidenceRawContentDigest:
+          portablePromotionPreparation.authorityEntry
+            .outputDispositionEvidenceRawContentDigest,
+      };
+      fixtureIds = portablePromotionPreparation.fixtures;
+    } else {
+      const targetCellsPath = path.join(
+        capsecRoot,
+        "registry/target-cells.json",
+      );
+      portableBindings = {
+        sourceRevision: bindings.sourceRevision,
+        sourceTreeDigest: bindings.sourceTreeDigest,
+        target,
+        engine: portableEngineIdentity,
+        vocabularyDigest: bindings.vocabularyDigest,
+        registryDigest: bindings.registryDigest,
+        implementationManifestDigest: bindings.implementationManifestDigest,
+        fixtureCatalogDigest,
+        targetCellsRawContentDigest: taggedDigest(
+          fs.readFileSync(targetCellsPath),
+        ),
+        recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
+        recipeCatalogRawContentDigest: taggedDigest(
+          fs.readFileSync(recipeCatalogPath),
+        ),
+        publicSurfaceExecutionDigest:
+          publicSurfaceEvidence.publicSurfaceExecutionDigest,
+        publicSurfaceExecutionRawContentDigest: taggedDigest(
+          fs.readFileSync(publicSurfaceEvidencePath),
+        ),
+        outputDispositionEvidenceRawContentDigest:
+          bindings.outputDispositionEvidenceRawContentDigest,
+      };
+      fixtureIds = fixtureEvidenceBinding.fixturePlans.map(
+        (plan) => plan.fixtureId,
+      );
+    }
     const portablePlanState = buildPortableEvidencePlan({
       bindings: portableBindings,
       evidenceDirectory,
@@ -913,30 +1064,67 @@ if (portableEngineIdentity !== null) {
       reportSliceBytes,
       "portable report slice",
     );
-    portableProcessEvidence = {
-      portableProcessEvidenceSchema:
-        "ibex/capsec-portable-process-preparation/1",
-      status: "validated-incomplete",
-      reason:
-        "the exact mapped process slice is v2-ready; live recipe, public-surface, output-disposition, and aggregate report generation remain v1",
-      engine: portableEngineIdentity,
-      mappedEngineExecutionEvidence:
-        validatedPortableProcess.reportSlice.bindings
-          .mappedEngineExecutionEvidence,
-      executions: validatedPortableProcess.reportSlice.executions,
-      reportSliceRawContentDigest: taggedDigest(reportSliceBytes),
-      detachedEvidence: {
-        reportSlicePath: path.relative(repoRoot, portableReportSlicePath),
-        commandAttemptPath: path.relative(repoRoot, portableAttemptPath),
-        mappedEvidencePath: path.relative(
-          repoRoot,
-          portablePlanState.mappedEvidencePath,
-        ),
-        fixturePaths: portablePlanState.fixtureOutputs.map((output) =>
-          path.relative(repoRoot, output.path),
-        ),
-      },
+    const detachedEvidence = {
+      reportSlicePath: path.relative(repoRoot, portableReportSlicePath),
+      commandAttemptPath: path.relative(repoRoot, portableAttemptPath),
+      mappedEvidencePath: path.relative(
+        repoRoot,
+        portablePlanState.mappedEvidencePath,
+      ),
+      fixturePaths: portablePlanState.fixtureOutputs.map((output) =>
+        path.relative(repoRoot, output.path),
+      ),
     };
+    if (portablePromotionPreparation) {
+      const promotionBundle = buildPortablePromotionBundleV2({
+        preparation: portablePromotionPreparation,
+        processes: [validatedPortableProcess.process],
+      });
+      writePortablePromotionBundleDirectory(
+        portablePromotionOutputDirectory,
+        promotionBundle,
+      );
+      portableProcessEvidence = {
+        portableProcessEvidenceSchema:
+          "ibex/capsec-portable-process-preparation/1",
+        status: "validated-complete",
+        reason:
+          "the exact detached process and independently source-derived artifacts passed the sole Phase-2 promotion validator",
+        engine: portableEngineIdentity,
+        mappedEngineExecutionEvidence:
+          promotionBundle.report.bindings.mappedEngineExecutionEvidence,
+        executions: promotionBundle.report.executions,
+        reportSliceRawContentDigest: taggedDigest(reportSliceBytes),
+        bundleManifestDigest: promotionBundle.manifest.bundleDigest,
+        detachedEvidence,
+        promotionBundleDirectory: path.relative(
+          repoRoot,
+          portablePromotionOutputDirectory,
+        ),
+        trackedAdvertisementCandidate: path.relative(
+          repoRoot,
+          path.join(
+            portablePromotionOutputDirectory,
+            "portable-target-advertisements.json",
+          ),
+        ),
+      };
+    } else {
+      portableProcessEvidence = {
+        portableProcessEvidenceSchema:
+          "ibex/capsec-portable-process-preparation/1",
+        status: "validated-incomplete",
+        reason:
+          "the exact mapped process slice is v2-ready; full promotion additionally requires explicit source-derived promotable target-cell bytes and complete fixture coverage",
+        engine: portableEngineIdentity,
+        mappedEngineExecutionEvidence:
+          validatedPortableProcess.reportSlice.bindings
+            .mappedEngineExecutionEvidence,
+        executions: validatedPortableProcess.reportSlice.executions,
+        reportSliceRawContentDigest: taggedDigest(reportSliceBytes),
+        detachedEvidence,
+      };
+    }
   }
 }
 const sourceRevisionAfterFixtureEvidence = git("rev-parse", "HEAD")

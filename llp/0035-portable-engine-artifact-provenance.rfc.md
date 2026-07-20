@@ -1109,8 +1109,12 @@ execution projection, the artifact binds both semantic and raw recipe-catalog
 identity, and its own domain is
 `ibex:capsec:public-surface-executions:2`. An output-disposition observation
 has exact fields `key, disposition, proofKind, observationDigest`, with domain
-`ibex:capsec:output-disposition-observation:1`. The output artifact itself is
-bound as exact raw bytes because it has no semantic self-digest.
+`ibex:capsec:output-disposition-observation:1`. Its stable `key` is
+`output.` followed by the lowercase hexadecimal SHA-256 of the existing
+canonical seven-field output-disposition key. This preserves exact source-key
+membership without copying punctuation-rich structured keys into the narrower
+CapSec stable-ID grammar; duplicate projections fail. The output artifact
+itself is bound as exact raw bytes because it has no semantic self-digest.
 
 Each portable fixture carries
 `SHA-256("ibex:capsec:portable-execution-binding:1\0" || JCS(projection))`,
@@ -1824,6 +1828,35 @@ while recipe, public-surface, output-disposition, and aggregate report
 generation remain v1. It is not consumed by promotion, does not change Host
 startup, and does not enable acceptance. Authored attestation and advertisement
 arrays remain empty.
+
+The deterministic promotion-bundle generator completes the additive Phase 2
+aggregation code path without promoting the current source. Its preparation
+stage replays the rich v1 recipe, public-surface, and loaded-engine
+output-disposition proofs; projects the closed v2/v4 rows and exact digests;
+and independently reconstructs fixture membership and target-cell disposition
+from reviewed coverage and implementation bytes. It rejects unsupported,
+subset, unresolved, failed, duplicate, or source/engine-mismatched inputs. Its
+assembly stage sorts but never rewrites detached fixture, mapped-evidence, and
+finalized-attempt bytes, constructs the complete conformant v2 report plus v2
+attestation and advertisement, and passes the entire exact-byte graph through
+only `validatePortablePromotionV2`. A deterministic manifest names each raw
+file and digest; mapped paths and object coordinates remain only in detached
+process files.
+
+The live runner exposes this path only when both
+`--portable-promotion-target-cells` and `--portable-promotion-output` are
+explicitly supplied. The first input must be a separately derived, complete,
+non-unsupported target-cell catalog; pointing it at the checked source-A
+catalog fails. The output directory includes
+`portable-target-advertisements.json` as the exact candidate bytes that a
+later one-commit promotion ceremony may track directly, so Host-at-C need not
+depend on generated Rust source changing in that promotion-only commit. Today
+the rich recipe catalog remains incomplete,
+the Exact portable executor covers only its pilot fixtures, and no authenticated
+portable physical run supplies complete mapped evidence. Therefore source A
+still has false portable acceptance, empty v1 attestations/advertisements, and
+only unsupported checked target cells; the new generator cannot successfully
+emit a real promotion bundle yet.
 
 Exit: reports and advertisements contain no host-local values, while every
 accepted local run still proves its exact mapped file.
