@@ -1801,7 +1801,8 @@ bool exactGpuOwnerDrainPending(const ExactHermesRuntime* runtime) {
       runtime->gpu_binding->mailbox &&
       runtime->gpu_binding->mailbox->owner_drain_required.load(
           std::memory_order_acquire);
-  return v1Pending || exactGpuV2OwnerDrainPending(runtime);
+  return exactGpuDecodedImageOwnerDrainPendingV1(runtime) || v1Pending ||
+      exactGpuV2OwnerDrainPending(runtime);
 #endif
 }
 
@@ -1810,7 +1811,8 @@ int exactGpuDrainOwnerFallback(ExactHermesRuntime* runtime) {
   (void)runtime;
   return 0;
 #else
-  int drained = exactGpuV2DrainOwnerFallback(runtime);
+  int drained = exactGpuDecodedImageDrainOwnerFallbackV1(runtime) +
+      exactGpuV2DrainOwnerFallback(runtime);
   if (!runtime || !runtime->runtime || !runtime->gpu_binding ||
       !runtime->gpu_binding->mailbox) {
     return drained;

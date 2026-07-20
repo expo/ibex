@@ -1655,6 +1655,7 @@ struct PendingDecodedImageV1 {
   std::vector<uint8_t> encoded;
   std::shared_ptr<DecodedImagePromiseResolversV1> resolvers;
   bool completion_queued{false};
+  bool owner_fallback_required{false};
   size_t queued_decoded_bytes{0};
 };
 
@@ -1665,6 +1666,7 @@ struct ExactGpuDecodedImageRuntimeBindingV1 {
   std::unordered_map<uint64_t, PendingDecodedImageV1> pending;
   size_t pending_encoded_bytes{0};
   size_t queued_decoded_bytes{0};
+  std::atomic<bool> owner_drain_required{false};
   bool context_retained{false};
   bool active{true};
 
@@ -1738,6 +1740,20 @@ std::mutex gDecodedImageRequestTargetsMutexV1;
 std::unordered_map<uint64_t, DecodedImageRequestTargetV1>
     gDecodedImageRequestTargetsV1;
 
+uint64_t nextDecodedImageRequestIdV1() {
+  uint64_t current =
+      gNextDecodedImageRequestIdV1.load(std::memory_order_relaxed);
+  while (current != 0) {
+    const uint64_t next = current + 1;
+    if (gNextDecodedImageRequestIdV1.compare_exchange_weak(
+            current, next, std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+      return current;
+    }
+  }
+  return 0;
+}
+
 bool equalDecodedImageIdentityV1(const ExactGpuDecodedImageIdentityV1 &left,
                                  const ExactGpuDecodedImageIdentityV1 &right) {
   return left.runtime_address == right.runtime_address &&
@@ -1766,6 +1782,55 @@ takeDecodedImageRequestTargetV1(uint64_t requestId) {
   auto target = found->second;
   gDecodedImageRequestTargetsV1.erase(found);
   return target;
+}
+
+class ScopedDecodedImageRuntimePinV1 {
+ public:
+  explicit ScopedDecodedImageRuntimePinV1(RuntimeCallbackTarget target)
+      : target_(target), acquired_(exactPinRuntimeNativeWorker(target_)) {}
+
+  ~ScopedDecodedImageRuntimePinV1() {
+    if (!acquired_)
+      return;
+    try {
+      exactUnpinRuntimeNativeWorker(target_);
+    } catch (...) {
+    }
+  }
+
+  ScopedDecodedImageRuntimePinV1(const ScopedDecodedImageRuntimePinV1 &) =
+      delete;
+  ScopedDecodedImageRuntimePinV1 &operator=(
+      const ScopedDecodedImageRuntimePinV1 &) = delete;
+
+  explicit operator bool() const { return acquired_; }
+
+ private:
+  RuntimeCallbackTarget target_{};
+  bool acquired_{false};
+};
+
+void publishDecodedImageOwnerFallbackV1(
+    const std::shared_ptr<ExactGpuDecodedImageRuntimeBindingV1> &binding,
+    uint64_t requestId) noexcept {
+  if (!binding)
+    return;
+  try {
+    std::lock_guard<std::mutex> lock(binding->mutex);
+    auto found = binding->pending.find(requestId);
+    if (found != binding->pending.end()) {
+      binding->queued_decoded_bytes -= found->second.queued_decoded_bytes;
+      found->second.queued_decoded_bytes = 0;
+      found->second.completion_queued = true;
+      found->second.owner_fallback_required = true;
+    }
+  } catch (...) {
+  }
+  binding->owner_drain_required.store(true, std::memory_order_release);
+  try {
+    ex_hermes_notify_callback();
+  } catch (...) {
+  }
 }
 
 facebook::jsi::Object makeDecodedImagePromiseV1(
@@ -2103,8 +2168,7 @@ decodeGpuImageV1BridgeCall(ExactHermesRuntime *runtime,
     throw facebook::jsi::JSError(
         rt, "Decoded-image request has stale runtime identity");
   }
-  const uint64_t requestId =
-      gNextDecodedImageRequestIdV1.fetch_add(1, std::memory_order_relaxed);
+  const uint64_t requestId = nextDecodedImageRequestIdV1();
   if (requestId == 0) {
     throw facebook::jsi::JSError(
         rt, "Decoded-image request identity space is exhausted");
@@ -3931,6 +3995,7 @@ void ExactGpuDecodedImageRuntimeBindingV1::detach(ExactHermesRuntime *runtime,
     pending.clear();
     pending_encoded_bytes = 0;
     queued_decoded_bytes = 0;
+    owner_drain_required.store(false, std::memory_order_release);
   }
   for (const auto &cancellation : cancellations) {
     forgetDecodedImageRequestTargetV1(cancellation.second);
@@ -4132,131 +4197,146 @@ extern "C" int32_t ex_hermes_complete_gpu_decoded_image_v1(
   (void)plane;
   return EXACT_GPU_PROVIDER_UNSUPPORTED;
 #else
-  if (request_id == 0 || (status != EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 &&
-                          status != EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1 &&
-                          status != EXACT_GPU_DECODED_IMAGE_CANCELLED_V1)) {
-    return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
-  }
-  auto targetEntry = takeDecodedImageRequestTargetV1(request_id);
-  if (!targetEntry)
-    return EXACT_GPU_PROVIDER_INVALID_STATE;
-  auto binding = targetEntry->binding.lock();
-  if (!binding)
-    return EXACT_GPU_PROVIDER_INVALID_STATE;
-  if (!exactPinRuntimeNativeWorker(targetEntry->target)) {
-    return EXACT_GPU_PROVIDER_INVALID_STATE;
-  }
-
-  uint32_t terminalStatus = status;
-  size_t decodedLength = 0;
-  bool protocolViolation = false;
-  bool structurallyValid = status != EXACT_GPU_DECODED_IMAGE_COMPLETE_V1;
-  if (status == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 && plane &&
-      plane->struct_size == sizeof(ExactGpuDecodedImagePlaneV1) &&
-      plane->abi_version == EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1 &&
-      plane->reserved == 0 && plane->request_id == request_id &&
-      validDecodedImageIdentityV1(plane->identity) && plane->width != 0 &&
-      plane->height != 0 && plane->width <= kMaxDecodedImageDimensionV1 &&
-      plane->height <= kMaxDecodedImageDimensionV1 &&
-      plane->bytes_per_row == plane->width * 4 &&
-      plane->color_space == EXACT_GPU_DECODED_IMAGE_COLOR_SPACE_SRGB_V1 &&
-      plane->alpha_mode == EXACT_GPU_DECODED_IMAGE_ALPHA_PREMULTIPLIED_V1 &&
-      plane->orientation == EXACT_GPU_DECODED_IMAGE_ORIENTATION_TOP_LEFT_V1 &&
-      plane->origin_clean_class ==
-          EXACT_GPU_DECODED_IMAGE_ORIGIN_SCRIPT_OWNED_BLOB_V1 &&
-      plane->encoded_bytes && plane->encoded_len != 0 &&
-      plane->encoded_len <= kMaxDecodedImageEncodedBytesV1 &&
-      plane->decoded_bytes) {
-    decodedLength = static_cast<size_t>(plane->bytes_per_row) * plane->height;
-    structurallyValid = decodedLength != 0 &&
-                        decodedLength <= kMaxDecodedImageBytesV1 &&
-                        plane->decoded_len == decodedLength;
-  }
-
-  bool admitted = false;
-  {
-    std::lock_guard<std::mutex> lock(binding->mutex);
-    auto found = binding->pending.find(request_id);
-    if (found != binding->pending.end() && binding->active &&
-        !found->second.completion_queued) {
-      if (status == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 &&
-          (!structurallyValid || !plane ||
-           !equalDecodedImageIdentityV1(found->second.identity,
-                                        plane->identity) ||
-           found->second.encoded.size() != plane->encoded_len ||
-           decodedLength >
-               kMaxQueuedDecodedImageBytesV1 - binding->queued_decoded_bytes)) {
-        terminalStatus = EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1;
-        decodedLength = 0;
-        protocolViolation = true;
-      }
-      found->second.completion_queued = true;
-      found->second.queued_decoded_bytes =
-          terminalStatus == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 ? decodedLength
-                                                                : 0;
-      binding->queued_decoded_bytes += found->second.queued_decoded_bytes;
-      admitted = true;
+  std::shared_ptr<ExactGpuDecodedImageRuntimeBindingV1> fallbackBinding;
+  try {
+    if (request_id == 0 ||
+        (status != EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 &&
+         status != EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1 &&
+         status != EXACT_GPU_DECODED_IMAGE_CANCELLED_V1)) {
+      return EXACT_GPU_PROVIDER_INVALID_ARGUMENT;
     }
-  }
-  if (!admitted) {
-    exactUnpinRuntimeNativeWorker(targetEntry->target);
-    return EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION;
-  }
+    auto targetEntry = takeDecodedImageRequestTargetV1(request_id);
+    if (!targetEntry)
+      return EXACT_GPU_PROVIDER_INVALID_STATE;
+    auto binding = targetEntry->binding.lock();
+    if (!binding)
+      return EXACT_GPU_PROVIDER_INVALID_STATE;
+    fallbackBinding = binding;
+    ScopedDecodedImageRuntimePinV1 runtimePin(targetEntry->target);
+    if (!runtimePin) {
+      return EXACT_GPU_PROVIDER_INVALID_STATE;
+    }
 
-  std::shared_ptr<CopiedDecodedImagePlaneV1> copied;
-  if (terminalStatus == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1) {
-    try {
-      copied = std::make_shared<CopiedDecodedImagePlaneV1>();
-      copied->width = plane->width;
-      copied->height = plane->height;
-      copied->bytes_per_row = plane->bytes_per_row;
-      copied->encoded.assign(plane->encoded_bytes,
-                             plane->encoded_bytes + plane->encoded_len);
-      copied->decoded.assign(plane->decoded_bytes,
-                             plane->decoded_bytes + plane->decoded_len);
-      std::copy(std::begin(plane->encoded_sha256),
-                std::end(plane->encoded_sha256),
-                copied->encoded_sha256.begin());
-      std::copy(std::begin(plane->decoded_sha256),
-                std::end(plane->decoded_sha256),
-                copied->decoded_sha256.begin());
+    uint32_t terminalStatus = status;
+    size_t decodedLength = 0;
+    bool protocolViolation = false;
+    bool structurallyValid = status != EXACT_GPU_DECODED_IMAGE_COMPLETE_V1;
+    if (status == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 && plane &&
+        plane->struct_size == sizeof(ExactGpuDecodedImagePlaneV1) &&
+        plane->abi_version == EXACT_GPU_DECODED_IMAGE_ABI_VERSION_V1 &&
+        plane->reserved == 0 && plane->request_id == request_id &&
+        validDecodedImageIdentityV1(plane->identity) && plane->width != 0 &&
+        plane->height != 0 && plane->width <= kMaxDecodedImageDimensionV1 &&
+        plane->height <= kMaxDecodedImageDimensionV1 &&
+        plane->bytes_per_row == plane->width * 4 &&
+        plane->color_space == EXACT_GPU_DECODED_IMAGE_COLOR_SPACE_SRGB_V1 &&
+        plane->alpha_mode == EXACT_GPU_DECODED_IMAGE_ALPHA_PREMULTIPLIED_V1 &&
+        plane->orientation == EXACT_GPU_DECODED_IMAGE_ORIENTATION_TOP_LEFT_V1 &&
+        plane->origin_clean_class ==
+            EXACT_GPU_DECODED_IMAGE_ORIGIN_SCRIPT_OWNED_BLOB_V1 &&
+        plane->encoded_bytes && plane->encoded_len != 0 &&
+        plane->encoded_len <= kMaxDecodedImageEncodedBytesV1 &&
+        plane->decoded_bytes) {
+      decodedLength = static_cast<size_t>(plane->bytes_per_row) * plane->height;
+      structurallyValid = decodedLength != 0 &&
+                          decodedLength <= kMaxDecodedImageBytesV1 &&
+                          plane->decoded_len == decodedLength;
+    }
+
+    bool admitted = false;
+    {
       std::lock_guard<std::mutex> lock(binding->mutex);
       auto found = binding->pending.find(request_id);
-      if (found == binding->pending.end() ||
-          found->second.encoded != copied->encoded) {
+      if (found != binding->pending.end() && binding->active &&
+          !found->second.completion_queued) {
+        if (status == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1 &&
+            (!structurallyValid || !plane ||
+             !equalDecodedImageIdentityV1(found->second.identity,
+                                          plane->identity) ||
+             found->second.encoded.size() != plane->encoded_len ||
+             decodedLength > kMaxQueuedDecodedImageBytesV1 -
+                                 binding->queued_decoded_bytes)) {
+          terminalStatus = EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1;
+          decodedLength = 0;
+          protocolViolation = true;
+        }
+        found->second.completion_queued = true;
+        found->second.queued_decoded_bytes =
+            terminalStatus == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1
+                ? decodedLength
+                : 0;
+        binding->queued_decoded_bytes += found->second.queued_decoded_bytes;
+        admitted = true;
+      }
+    }
+    if (!admitted) {
+      return EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION;
+    }
+
+    std::shared_ptr<CopiedDecodedImagePlaneV1> copied;
+    if (terminalStatus == EXACT_GPU_DECODED_IMAGE_COMPLETE_V1) {
+      try {
+        copied = std::make_shared<CopiedDecodedImagePlaneV1>();
+        copied->width = plane->width;
+        copied->height = plane->height;
+        copied->bytes_per_row = plane->bytes_per_row;
+        copied->encoded.assign(plane->encoded_bytes,
+                               plane->encoded_bytes + plane->encoded_len);
+        copied->decoded.assign(plane->decoded_bytes,
+                               plane->decoded_bytes + plane->decoded_len);
+        std::copy(std::begin(plane->encoded_sha256),
+                  std::end(plane->encoded_sha256),
+                  copied->encoded_sha256.begin());
+        std::copy(std::begin(plane->decoded_sha256),
+                  std::end(plane->decoded_sha256),
+                  copied->decoded_sha256.begin());
+        std::lock_guard<std::mutex> lock(binding->mutex);
+        auto found = binding->pending.find(request_id);
+        if (found == binding->pending.end() ||
+            found->second.encoded != copied->encoded) {
+          terminalStatus = EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1;
+          copied.reset();
+          if (found != binding->pending.end()) {
+            binding->queued_decoded_bytes -= found->second.queued_decoded_bytes;
+            found->second.queued_decoded_bytes = 0;
+          }
+        }
+      } catch (...) {
         terminalStatus = EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1;
         copied.reset();
+        std::lock_guard<std::mutex> lock(binding->mutex);
+        auto found = binding->pending.find(request_id);
         if (found != binding->pending.end()) {
           binding->queued_decoded_bytes -= found->second.queued_decoded_bytes;
           found->second.queued_decoded_bytes = 0;
         }
       }
-    } catch (...) {
-      terminalStatus = EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1;
-      copied.reset();
-      std::lock_guard<std::mutex> lock(binding->mutex);
-      auto found = binding->pending.find(request_id);
-      if (found != binding->pending.end()) {
-        binding->queued_decoded_bytes -= found->second.queued_decoded_bytes;
-        found->second.queued_decoded_bytes = 0;
-      }
     }
-  }
 
-  bool accepted = false;
-  pushRuntimeCallback(
-      targetEntry->target,
-      [binding, request_id, terminalStatus,
-       copied](facebook::jsi::Runtime &rt) mutable {
-        settleDecodedImageV1(binding, rt, request_id, terminalStatus,
-                             std::move(copied));
-      },
-      &accepted);
-  exactUnpinRuntimeNativeWorker(targetEntry->target);
-  if (!accepted)
-    return EXACT_GPU_PROVIDER_INVALID_STATE;
-  return protocolViolation ? EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION
-                           : EXACT_GPU_PROVIDER_OK;
+    bool accepted = false;
+    try {
+      pushRuntimeCallback(
+          targetEntry->target,
+          [binding, request_id, terminalStatus,
+           copied](facebook::jsi::Runtime &rt) mutable {
+            settleDecodedImageV1(binding, rt, request_id, terminalStatus,
+                                 std::move(copied));
+          },
+          &accepted);
+    } catch (...) {
+      accepted = false;
+    }
+    if (!accepted) {
+      publishDecodedImageOwnerFallbackV1(binding, request_id);
+    }
+    if (!accepted)
+      return EXACT_GPU_PROVIDER_INVALID_STATE;
+    return protocolViolation ? EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION
+                             : EXACT_GPU_PROVIDER_OK;
+  } catch (...) {
+    publishDecodedImageOwnerFallbackV1(fallbackBinding, request_id);
+    return EXACT_GPU_PROVIDER_PROTOCOL_VIOLATION;
+  }
 #endif
 }
 
@@ -4338,6 +4418,50 @@ void exactGpuDecodedImageBeginRuntimeTeardownV1(ExactHermesRuntime *runtime) {
       runtime, "Decoded-image runtime was destroyed");
 #endif
   runtime->gpu_decoded_image_binding_v1.reset();
+}
+
+bool exactGpuDecodedImageOwnerDrainPendingV1(
+    const ExactHermesRuntime *runtime) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  return false;
+#else
+  return runtime && runtime->gpu_decoded_image_binding_v1 &&
+      runtime->gpu_decoded_image_binding_v1->owner_drain_required.load(
+          std::memory_order_acquire);
+#endif
+}
+
+int exactGpuDecodedImageDrainOwnerFallbackV1(ExactHermesRuntime *runtime) {
+#if !defined(IBEX_ENABLE_WEBGPU_BINDING)
+  (void)runtime;
+  return 0;
+#else
+  if (!runtime || !runtime->runtime ||
+      !runtime->gpu_decoded_image_binding_v1) {
+    return 0;
+  }
+  auto binding = runtime->gpu_decoded_image_binding_v1;
+  if (!binding->owner_drain_required.exchange(false,
+                                               std::memory_order_acq_rel)) {
+    return 0;
+  }
+  std::vector<uint64_t> rejected;
+  {
+    std::lock_guard<std::mutex> lock(binding->mutex);
+    rejected.reserve(binding->pending.size());
+    for (const auto &entry : binding->pending) {
+      if (entry.second.owner_fallback_required) {
+        rejected.push_back(entry.first);
+      }
+    }
+  }
+  for (uint64_t requestId : rejected) {
+    settleDecodedImageV1(binding, *runtime->runtime, requestId,
+                         EXACT_GPU_DECODED_IMAGE_DECODE_FAILED_V1, nullptr);
+  }
+  return rejected.empty() ? 0 : 1;
+#endif
 }
 
 extern "C" uint32_t ex_hermes_gpu_provider_abi_version_v2(void) {

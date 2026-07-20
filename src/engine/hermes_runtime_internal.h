@@ -1973,6 +1973,9 @@ bool exactGpuDecodedImageAttachAuthorityV1(
 void exactGpuDecodedImageDiscardIfUnusedV1(ExactHermesRuntime* runtime);
 void exactGpuDecodedImageRollbackInstallV1(ExactHermesRuntime* runtime);
 void exactGpuDecodedImageBeginRuntimeTeardownV1(ExactHermesRuntime* runtime);
+bool exactGpuDecodedImageOwnerDrainPendingV1(
+    const ExactHermesRuntime* runtime);
+int exactGpuDecodedImageDrainOwnerFallbackV1(ExactHermesRuntime* runtime);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
