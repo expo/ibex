@@ -11,8 +11,12 @@
 //! produces for the same scenarios: ESERVFAIL, EREFUSED, ENOTFOUND (NXDOMAIN),
 //! ENODATA (NOERROR/empty), ETIMEOUT (no response), plus a successful TXT
 //! answer to prove normal resolution still parses.
+//! Windows installs a separate system-resolver backend and does not compile
+//! `hermes_runtime_dns.cc`, so this POSIX fixture override does not apply there.
 //!
 //! Run with: `cargo test --test native_dns_rcode`.
+
+#![cfg(not(windows))]
 
 use std::net::UdpSocket;
 use std::path::PathBuf;
